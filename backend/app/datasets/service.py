@@ -210,6 +210,12 @@ async def create_dataset(
             sample_values=sample_values,
         )
 
+    # Auto-detect FK relationships based on column name matching
+    if column_info:
+        await auto_detect_relationships(
+            session, dataset.id, record.id, column_info
+        )
+
     return dataset
 
 
@@ -929,6 +935,82 @@ async def delete_relationship(
         raise ValueError("Relationship not found")
     await session.delete(obj)
     await session.flush()
+
+
+# Primary-key column names to exclude from FK candidate detection
+_PK_COLUMN_NAMES = {"gid", "ogc_fid", "fid", "objectid", "id"}
+
+
+async def auto_detect_relationships(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    record_id: uuid.UUID,
+    column_info: list[dict],
+) -> list:
+    """Auto-detect FK relationships based on *_id column name matching.
+
+    For each column ending with ``_id`` (excluding common PK names), look for
+    other datasets that have an attribute with the same name marked as
+    ``semantic_role='identifier'``.  When a match is found a
+    ``DatasetRelationship`` row is created (idempotently via ON CONFLICT DO
+    NOTHING on the existing unique constraint).
+    """
+    from app.datasets.models import DatasetRelationship
+
+    candidates = [
+        col["name"]
+        for col in column_info
+        if col["name"].endswith("_id") and col["name"].lower() not in _PK_COLUMN_NAMES
+    ]
+    if not candidates:
+        return []
+
+    created: list[DatasetRelationship] = []
+
+    for col_name in candidates:
+        # Find other datasets with this column marked as identifier
+        result = await session.execute(
+            select(AttributeMetadata.dataset_id, Dataset.record_id)
+            .join(Dataset, AttributeMetadata.dataset_id == Dataset.id)
+            .where(
+                AttributeMetadata.field_name == col_name,
+                AttributeMetadata.semantic_role == "identifier",
+                Dataset.record_id != record_id,  # skip self-references
+            )
+        )
+        matches = result.all()
+
+        for target_dataset_id_unused, target_record_id in matches:
+            # Use merge-style insert: check existence first to be idempotent
+            existing = await session.execute(
+                select(DatasetRelationship.id).where(
+                    DatasetRelationship.source_dataset_id == record_id,
+                    DatasetRelationship.target_dataset_id == target_record_id,
+                    DatasetRelationship.source_column == col_name,
+                )
+            )
+            if existing.scalar_one_or_none() is not None:
+                continue
+
+            obj = DatasetRelationship(
+                source_dataset_id=record_id,
+                target_dataset_id=target_record_id,
+                source_column=col_name,
+                target_column=col_name,
+                label=None,
+            )
+            session.add(obj)
+            created.append(obj)
+
+    if created:
+        await session.flush()
+        logger.info(
+            "Auto-detected %d FK relationship(s) for dataset %s",
+            len(created),
+            dataset_id,
+        )
+
+    return created
 
 
 async def get_related_records(
