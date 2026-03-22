@@ -104,19 +104,22 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # 2. Detect CRS via ogrinfo
             info = await run_ogrinfo(file_path)
             srid = info.get("srid")
+            geometry_type = info.get("geometry_type")
+            has_geometry = geometry_type is not None
 
             # Check for user-supplied metadata from commit step
             um = job.user_metadata or {}
             srid_override = um.get("srid_override")
 
             # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
+            # Non-spatial files don't need CRS at all
             lower_path = file_path.lower()
             assumes_4326 = (
                 lower_path.endswith(".csv")
                 or lower_path.endswith(".geojson")
                 or lower_path.endswith(".json")
             )
-            if srid is None and not assumes_4326 and srid_override is None:
+            if has_geometry and srid is None and not assumes_4326 and srid_override is None:
                 job.status = "failed"
                 job.error_message = (
                     "Missing CRS: no coordinate system detected. "
@@ -138,7 +141,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     "collision_warning": collision_warning,
                 }
             db_conn_str = build_pg_conn_str()
-            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid)
+            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=geometry_type)
 
             # Use srid_override if provided
             effective_srid = (
@@ -148,10 +151,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             )
 
             # 4a. Clip geometries to Web Mercator bounds (±85.06° lat)
-            await clip_to_mercator_bounds(session, table_name)
+            if has_geometry:
+                await clip_to_mercator_bounds(session, table_name)
 
             # 4b. Add geom_4326 column
-            await add_4326_column(session, table_name, effective_srid)
+            if has_geometry:
+                await add_4326_column(session, table_name, effective_srid)
 
             # 5. Grant reader access
             await grant_reader_access(session, table_name)
@@ -198,22 +203,23 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             dataset.quality_detail = quality_score
             await session.flush()
 
-            # 8b2. Generate vector quicklook thumbnail
-            try:
-                import io as _io
+            # 8b2. Generate vector quicklook thumbnail (spatial only)
+            if has_geometry:
+                try:
+                    import io as _io
 
-                from app.vector.quicklook import generate_vector_quicklook_with_timeout as generate_vector_quicklook
+                    from app.vector.quicklook import generate_vector_quicklook_with_timeout as generate_vector_quicklook
 
-                ql_bytes = await generate_vector_quicklook(
-                    session, table_name, metadata.get("geometry_type", ""), 256
-                )
-                ql_storage = get_storage()
-                ql_key = f"vectors/{dataset.id}/quicklook_256.png"
-                await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
-                dataset.quicklook_256_uri = ql_key
-                await session.flush()
-            except Exception:
-                pass  # Non-fatal
+                    ql_bytes = await generate_vector_quicklook(
+                        session, table_name, metadata.get("geometry_type", ""), 256
+                    )
+                    ql_storage = get_storage()
+                    ql_key = f"vectors/{dataset.id}/quicklook_256.png"
+                    await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
+                    dataset.quicklook_256_uri = ql_key
+                    await session.flush()
+                except Exception:
+                    pass  # Non-fatal
 
             # 8c. Archive original file to storage provider
             try:
@@ -659,6 +665,8 @@ async def reupload_file(
             # 2. Detect CRS from new file
             info = await run_ogrinfo(file_path)
             srid = info.get("srid")
+            geometry_type = info.get("geometry_type")
+            has_geometry = geometry_type is not None
 
             # 3. Check for srid_override from user metadata
             um = job.user_metadata or {}
@@ -671,11 +679,12 @@ async def reupload_file(
 
             # 4. Load into staging table
             db_conn_str = build_pg_conn_str()
-            await run_ogr2ogr(file_path, staging_tn, db_conn_str, source_srid=srid)
+            await run_ogr2ogr(file_path, staging_tn, db_conn_str, source_srid=srid, geometry_type=geometry_type)
 
             # 5. Post-process staging table
-            await clip_to_mercator_bounds(session, staging_tn)
-            await add_4326_column(session, staging_tn, effective_srid)
+            if has_geometry:
+                await clip_to_mercator_bounds(session, staging_tn)
+                await add_4326_column(session, staging_tn, effective_srid)
             await grant_reader_access(session, staging_tn)
 
             # 6. Extract metadata from staging table
