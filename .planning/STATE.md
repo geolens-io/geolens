@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-gzi
-last_updated: "2026-03-22T16:37:30.575Z"
-last_activity: "2026-03-22 - Completed quick task 260322-c9b: OGC Records conformance fixes"
+stopped_at: Completed quick-260322-hv0
+last_updated: "2026-03-22T17:23:41.041Z"
+last_activity: "2026-03-22 - Completed quick task 260322-gzi: ArcGIS auth fixes"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -105,6 +105,8 @@ Plan: Not started
 - [Phase 204]: Fixed React 19 inert prop: use boolean true instead of empty string to correctly set HTML inert attribute
 - [Phase 205]: Non-fatal alembic migration: warn but do not exit on failure so container can start even if DB is not yet ready
 - [Phase 205]: Task 3 (i18n): tooltips.moreActions already existed in all 4 locale files -- no changes needed
+- [Phase quick-260322-hv0]: Non-spatial CSV detection via geometry_type=None from ogrinfo, gates clip/4326/quicklook steps
+- [Phase quick-260322-hv0]: DatasetRelationship FK model references catalog.records.id for FK joins between datasets
 
 ### Pending Todos
 
@@ -137,11 +139,12 @@ Plan: Not started
 | 260321-hks | Add unsaved changes navigation guard to map builder | 2026-03-21 | ecfa4c34 | Verified | [260321-hks-warning-before-leaving-map-with-unsaved-](./quick/260321-hks-warning-before-leaving-map-with-unsaved-/) |
 | 260321-prh | Evaluate AWS AMI Marketplace readiness | 2026-03-21 | dd3905b3 | Verified | [260321-prh-evaluate-aws-ami-marketplace-readiness-i](./quick/260321-prh-evaluate-aws-ami-marketplace-readiness-i/) |
 | 260322-c9b | Fix 10 OGC API Records Part 1 conformance gaps | 2026-03-22 | a3d08fb4 | Verified | [260322-c9b-assess-and-fix-geolens-ogc-records-confo](./quick/260322-c9b-assess-and-fix-geolens-ogc-records-confo/) |
-| 260322-gzi | Fix ArcGIS auth header, JSON error detection, dynamic objectIdField, UX help text | 2026-03-22 | e57e796c | Complete | [260322-gzi-review-arcgis-online-portal-authenticate](./quick/260322-gzi-review-arcgis-online-portal-authenticate/) |
+| 260322-gzi | Fix ArcGIS auth header, JSON error detection, dynamic objectIdField, UX help text | 2026-03-22 | e57e796c | Verified | [260322-gzi-review-arcgis-online-portal-authenticate](./quick/260322-gzi-review-arcgis-online-portal-authenticate/) |
+| 260322-hv0 | Non-spatial CSV ingestion, table detail layout, FK relationship model and related records panel | 2026-03-22 | c557f1c0 | Complete | [260322-hv0-review-and-implement-non-spatial-table-s](./quick/260322-hv0-review-and-implement-non-spatial-table-s/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick task 260322-gzi: ArcGIS auth fixes
-Last session: 2026-03-22T16:37:30.572Z
-Stopped at: Completed quick-260322-gzi
+Last activity: 2026-03-22 - Completed quick task 260322-hv0: Non-spatial table support
+Last session: 2026-03-22T17:23:34.766Z
+Stopped at: Completed quick-260322-hv0
 Resume file: None
