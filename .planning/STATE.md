@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-hv0
-last_updated: "2026-03-22T17:23:41.041Z"
-last_activity: "2026-03-22 - Completed quick task 260322-gzi: ArcGIS auth fixes"
+stopped_at: Completed quick-260322-irw
+last_updated: "2026-03-22T17:47:24.539Z"
+last_activity: "2026-03-22 - Completed quick task 260322-hv0: Non-spatial table support"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -107,6 +107,7 @@ Plan: Not started
 - [Phase 205]: Task 3 (i18n): tooltips.moreActions already existed in all 4 locale files -- no changes needed
 - [Phase quick-260322-hv0]: Non-spatial CSV detection via geometry_type=None from ogrinfo, gates clip/4326/quicklook steps
 - [Phase quick-260322-hv0]: DatasetRelationship FK model references catalog.records.id for FK joins between datasets
+- [Phase quick-260322-irw]: Used get_dataset + check_dataset_access pattern for visibility on FK read endpoints
 
 ### Pending Todos
 
@@ -140,11 +141,12 @@ Plan: Not started
 | 260321-prh | Evaluate AWS AMI Marketplace readiness | 2026-03-21 | dd3905b3 | Verified | [260321-prh-evaluate-aws-ami-marketplace-readiness-i](./quick/260321-prh-evaluate-aws-ami-marketplace-readiness-i/) |
 | 260322-c9b | Fix 10 OGC API Records Part 1 conformance gaps | 2026-03-22 | a3d08fb4 | Verified | [260322-c9b-assess-and-fix-geolens-ogc-records-confo](./quick/260322-c9b-assess-and-fix-geolens-ogc-records-confo/) |
 | 260322-gzi | Fix ArcGIS auth header, JSON error detection, dynamic objectIdField, UX help text | 2026-03-22 | e57e796c | Verified | [260322-gzi-review-arcgis-online-portal-authenticate](./quick/260322-gzi-review-arcgis-online-portal-authenticate/) |
-| 260322-hv0 | Non-spatial CSV ingestion, table detail layout, FK relationship model and related records panel | 2026-03-22 | c557f1c0 | Complete | [260322-hv0-review-and-implement-non-spatial-table-s](./quick/260322-hv0-review-and-implement-non-spatial-table-s/) |
+| 260322-hv0 | Non-spatial CSV ingestion, table detail layout, FK relationship model and related records panel | 2026-03-22 | fcd49732 | Verified | [260322-hv0-review-and-implement-non-spatial-table-s](./quick/260322-hv0-review-and-implement-non-spatial-table-s/) |
+| 260322-irw | Fix FK endpoint NameError, add visibility checks, i18n, error states, tests | 2026-03-22 | 57b01906 | Complete | [260322-irw-polishing-what-s-shipped-review-all-the-](./quick/260322-irw-polishing-what-s-shipped-review-all-the-/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick task 260322-hv0: Non-spatial table support
-Last session: 2026-03-22T17:23:34.766Z
-Stopped at: Completed quick-260322-hv0
+Last activity: 2026-03-22 - Completed quick task 260322-irw: FK relationship polish
+Last session: 2026-03-22T17:47:23.288Z
+Stopped at: Completed quick-260322-irw
 Resume file: None
