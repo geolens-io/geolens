@@ -52,6 +52,7 @@ def _test_db_lifecycle():
     with test_engine_sync.connect() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS catalog"))
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS data"))
 

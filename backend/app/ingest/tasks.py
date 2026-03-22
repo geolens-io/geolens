@@ -144,21 +144,27 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     "collision_warning": collision_warning,
                 }
             db_conn_str = build_pg_conn_str()
-            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=geometry_type, layer_name=layer_name)
 
-            # Post-import geometry construction (for XLSX with lat/lng or WKT override)
+            # Check for user-specified geometry columns (override)
             # Lowercase column names: ogr2ogr lowercases them in PostGIS
             x_column = (um.get("x_column") or "").lower() or None
             y_column = (um.get("y_column") or "").lower() or None
             geom_column = (um.get("geom_column") or "").lower() or None
+            user_wants_geom = (x_column and y_column) or geom_column
 
-            if not has_geometry and x_column and y_column:
+            # When user specifies geometry columns, import as non-spatial
+            # then construct geometry post-import. This ensures the override
+            # works even for CSVs where GDAL would auto-detect geometry.
+            ogr_geometry_type = None if user_wants_geom else geometry_type
+            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=ogr_geometry_type, layer_name=layer_name)
+
+            if user_wants_geom and x_column and y_column:
                 from app.ingest.metadata import construct_point_geometry
 
                 await construct_point_geometry(session, table_name, x_column, y_column)
                 has_geometry = True
                 geometry_type = "Point"
-            elif not has_geometry and geom_column:
+            elif user_wants_geom and geom_column:
                 from app.ingest.metadata import construct_wkt_geometry
 
                 await construct_wkt_geometry(session, table_name, geom_column)
