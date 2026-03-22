@@ -124,7 +124,9 @@
     "sampleData": "Beispieldaten",
     "moreColumns_one": "+{{count}} weitere Spalte",
     "moreColumns_other": "+{{count}} weitere Spalten",
-    "noSampleData": "Keine Beispieldaten verfügbar"
+    "noSampleData": "Keine Beispieldaten verfügbar",
+    "geometryDetected": "Geometriespalten erkannt",
+    "nonSpatial": "Nicht-raeumliche Tabelle"
   },
   "metadata": {
     "title": "Importeinstellungen",
@@ -152,6 +154,16 @@
     "resamplingHelp": "Methode für Übersichtsgenerierung und Reprojektion. Auto wählt basierend auf Datentyp.",
     "nodataLabel": "NoData-Wert",
     "nodataHelp": "NoData-Wert für diesen Raster überschreiben oder zuweisen.",
+    "geometryColumns": "Geometriespalten",
+    "geometryMode": "Modus",
+    "autoDetected": "Automatisch erkannt",
+    "manualOverride": "Manuelle Ueberschreibung",
+    "nonSpatial": "Als nicht-raeumlich importieren",
+    "xColumn": "X (Laengengrad)",
+    "yColumn": "Y (Breitengrad)",
+    "wktColumn": "WKT-Spalte",
+    "latLng": "Lat/Lng",
+    "wkt": "WKT",
     "importing": "Wird importiert...",
     "importDataset": "Datensatz importieren"
   },

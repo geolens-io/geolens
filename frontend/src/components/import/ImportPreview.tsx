@@ -99,11 +99,22 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{t('preview.geometryType')}</p>
-            <Badge variant="secondary">
-              {preview.geometry_type
-                ? getGeometryTypeLabel(t, preview.geometry_type)
-                : t('preview.none')}
-            </Badge>
+            {preview.geometry_type ? (
+              <Badge variant="secondary">
+                {getGeometryTypeLabel(t, preview.geometry_type)}
+              </Badge>
+            ) : preview.detected_geometry_columns &&
+              (preview.detected_geometry_columns.x_column ||
+                preview.detected_geometry_columns.wkt_column) ? (
+              <Badge
+                variant="outline"
+                className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800"
+              >
+                {t('preview.geometryDetected')}
+              </Badge>
+            ) : (
+              <Badge variant="secondary">{t('preview.nonSpatial')}</Badge>
+            )}
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{t('preview.featureCount')}</p>

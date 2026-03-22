@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+type GeometryMode = 'auto' | 'manual' | 'none';
+type GeometryType = 'latlng' | 'wkt';
+
 interface ImportMetadataFormProps {
   defaultName: string;
   detectedCrs: number | null;
@@ -14,6 +17,12 @@ interface ImportMetadataFormProps {
   isCommitting: boolean;
   isRaster?: boolean;
   previewData?: RasterPreviewResponse;
+  previewColumns?: { name: string; type: string }[];
+  detectedGeometryColumns?: {
+    x_column: string | null;
+    y_column: string | null;
+    wkt_column: string | null;
+  } | null;
 }
 
 const VISIBILITY_OPTIONS = [
@@ -46,12 +55,45 @@ export function ImportMetadataForm({
   isCommitting,
   isRaster = false,
   previewData,
+  previewColumns,
+  detectedGeometryColumns,
 }: ImportMetadataFormProps) {
   const { t } = useTranslation('import');
   const [name, setName] = useState(stripExtension(defaultName));
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState('private');
   const [sridOverride, setSridOverride] = useState('');
+
+  // Geometry column override state
+  const hasDetected =
+    detectedGeometryColumns &&
+    (detectedGeometryColumns.x_column || detectedGeometryColumns.wkt_column);
+  const [geomMode, setGeomMode] = useState<GeometryMode>(
+    hasDetected ? 'auto' : 'none',
+  );
+  const [geomType, setGeomType] = useState<GeometryType>(
+    detectedGeometryColumns?.wkt_column && !detectedGeometryColumns?.x_column
+      ? 'wkt'
+      : 'latlng',
+  );
+  const [xColumn, setXColumn] = useState(
+    detectedGeometryColumns?.x_column ?? '',
+  );
+  const [yColumn, setYColumn] = useState(
+    detectedGeometryColumns?.y_column ?? '',
+  );
+  const [wktColumn, setWktColumn] = useState(
+    detectedGeometryColumns?.wkt_column ?? '',
+  );
+
+  const numericColumns = (previewColumns ?? []).filter((c) =>
+    ['Real', 'Integer', 'Integer64'].includes(c.type),
+  );
+  const stringColumns = (previewColumns ?? []).filter(
+    (c) => c.type === 'String',
+  );
+  const showGeomSection =
+    !isRaster && previewColumns && previewColumns.length > 0;
 
   // Raster-specific fields
   const [temporalStart, setTemporalStart] = useState(
@@ -73,6 +115,16 @@ export function ImportMetadataForm({
         ? parseInt(sridOverride.trim(), 10)
         : null,
     };
+
+    // Add geometry column overrides
+    if (showGeomSection && geomMode !== 'none') {
+      if (geomType === 'latlng' && xColumn && yColumn) {
+        request.x_column = xColumn;
+        request.y_column = yColumn;
+      } else if (geomType === 'wkt' && wktColumn) {
+        request.geom_column = wktColumn;
+      }
+    }
 
     if (isRaster) {
       request.temporal_start = temporalStart || null;
@@ -147,6 +199,130 @@ export function ImportMetadataForm({
               {t('metadata.crsHelpText')}
             </p>
           </div>
+
+          {showGeomSection && (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">
+                {t('metadata.geometryColumns')}
+              </p>
+
+              <div className="space-y-1">
+                <Label htmlFor="geom-mode">
+                  {t('metadata.geometryMode')}
+                </Label>
+                <select
+                  id="geom-mode"
+                  value={geomMode}
+                  onChange={(e) =>
+                    setGeomMode(e.target.value as GeometryMode)
+                  }
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
+                >
+                  {hasDetected && (
+                    <option value="auto">
+                      {t('metadata.autoDetected')}
+                    </option>
+                  )}
+                  <option value="manual">
+                    {t('metadata.manualOverride')}
+                  </option>
+                  <option value="none">
+                    {t('metadata.nonSpatial')}
+                  </option>
+                </select>
+              </div>
+
+              {geomMode !== 'none' && (
+                <>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="radio"
+                        name="geom-type"
+                        value="latlng"
+                        checked={geomType === 'latlng'}
+                        onChange={() => setGeomType('latlng')}
+                      />
+                      {t('metadata.latLng')}
+                    </label>
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="radio"
+                        name="geom-type"
+                        value="wkt"
+                        checked={geomType === 'wkt'}
+                        onChange={() => setGeomType('wkt')}
+                      />
+                      {t('metadata.wkt')}
+                    </label>
+                  </div>
+
+                  {geomType === 'latlng' ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="x-column">
+                          {t('metadata.xColumn')}
+                        </Label>
+                        <select
+                          id="x-column"
+                          value={xColumn}
+                          onChange={(e) => setXColumn(e.target.value)}
+                          disabled={geomMode === 'auto'}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
+                        >
+                          <option value="">--</option>
+                          {numericColumns.map((c) => (
+                            <option key={c.name} value={c.name}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="y-column">
+                          {t('metadata.yColumn')}
+                        </Label>
+                        <select
+                          id="y-column"
+                          value={yColumn}
+                          onChange={(e) => setYColumn(e.target.value)}
+                          disabled={geomMode === 'auto'}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
+                        >
+                          <option value="">--</option>
+                          {numericColumns.map((c) => (
+                            <option key={c.name} value={c.name}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <Label htmlFor="wkt-column">
+                        {t('metadata.wktColumn')}
+                      </Label>
+                      <select
+                        id="wkt-column"
+                        value={wktColumn}
+                        onChange={(e) => setWktColumn(e.target.value)}
+                        disabled={geomMode === 'auto'}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
+                      >
+                        <option value="">--</option>
+                        {stringColumns.map((c) => (
+                          <option key={c.name} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {isRaster && (
             <>

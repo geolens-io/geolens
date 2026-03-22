@@ -124,7 +124,9 @@
     "sampleData": "Données d'exemple",
     "moreColumns_one": "+{{count}} colonne supplémentaire",
     "moreColumns_other": "+{{count}} colonnes supplémentaires",
-    "noSampleData": "Aucune donnée d'exemple disponible"
+    "noSampleData": "Aucune donnée d'exemple disponible",
+    "geometryDetected": "Colonnes de geometrie detectees",
+    "nonSpatial": "Table non spatiale"
   },
   "metadata": {
     "title": "Paramètres d'importation",
@@ -152,6 +154,16 @@
     "resamplingHelp": "M\u00e9thode pour la g\u00e9n\u00e9ration des aper\u00e7us et la reprojection. Auto s\u00e9lectionne selon le type de donn\u00e9es.",
     "nodataLabel": "Valeur NoData",
     "nodataHelp": "Remplacer ou attribuer une valeur NoData pour ce raster.",
+    "geometryColumns": "Colonnes de geometrie",
+    "geometryMode": "Mode",
+    "autoDetected": "Detection automatique",
+    "manualOverride": "Remplacement manuel",
+    "nonSpatial": "Importer comme non spatial",
+    "xColumn": "X (Longitude)",
+    "yColumn": "Y (Latitude)",
+    "wktColumn": "Colonne WKT",
+    "latLng": "Lat/Lng",
+    "wkt": "WKT",
     "importing": "Importation...",
     "importDataset": "Importer le jeu de données"
   },

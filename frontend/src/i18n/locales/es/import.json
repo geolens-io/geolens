@@ -124,7 +124,9 @@
     "sampleData": "Datos de muestra",
     "moreColumns_one": "+{{count}} columna m\u00e1s",
     "moreColumns_other": "+{{count}} columnas m\u00e1s",
-    "noSampleData": "No hay datos de muestra disponibles"
+    "noSampleData": "No hay datos de muestra disponibles",
+    "geometryDetected": "Columnas de geometria detectadas",
+    "nonSpatial": "Tabla no espacial"
   },
   "metadata": {
     "title": "Configuraci\u00f3n de importaci\u00f3n",
@@ -152,6 +154,16 @@
     "resamplingHelp": "M\u00e9todo para generaci\u00f3n de vistas generales y reproyecci\u00f3n. Auto selecciona seg\u00fan el tipo de datos.",
     "nodataLabel": "Valor NoData",
     "nodataHelp": "Sobrescribir o asignar un valor NoData para este r\u00e1ster.",
+    "geometryColumns": "Columnas de geometria",
+    "geometryMode": "Modo",
+    "autoDetected": "Deteccion automatica",
+    "manualOverride": "Anulacion manual",
+    "nonSpatial": "Importar como no espacial",
+    "xColumn": "X (Longitud)",
+    "yColumn": "Y (Latitud)",
+    "wktColumn": "Columna WKT",
+    "latLng": "Lat/Lng",
+    "wkt": "WKT",
     "importing": "Importando...",
     "importDataset": "Importar conjunto de datos"
   },
