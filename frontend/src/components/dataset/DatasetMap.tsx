@@ -53,6 +53,8 @@ interface DatasetMapProps {
   tileVersion?: string | null;
   onMapReady?: () => void;
   onTileError?: () => void;
+  /** Callback for read-only (non-editing) feature clicks, receives the gid */
+  onFeatureClick?: (gid: number) => void;
 }
 
 function getSourceLayerName(tableName: string): string {
@@ -72,6 +74,7 @@ export function DatasetMap({
   tileVersion,
   onMapReady,
   onTileError,
+  onFeatureClick,
 }: DatasetMapProps) {
   const { t } = useTranslation('dataset');
   const { resolvedTheme } = useTheme();
@@ -222,6 +225,29 @@ export function DatasetMap({
       map.off('click', handleMapClick);
     };
   }, [activeMode, mapInstance, selectFeatureFromMap]);
+
+  // --- Read-only feature click handler (non-editing mode) ---
+  useEffect(() => {
+    const map = mapInstance;
+    if (!map || !onFeatureClick || !tableName) return;
+    // Only active when NOT in drawing/select mode
+    if (activeMode) return;
+
+    const handleReadOnlyClick = (e: maplibregl.MapMouseEvent) => {
+      const sourceLayer = getSourceLayerName(tableName);
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: map.getStyle().layers
+          ?.filter((l) => (l as Record<string, unknown>)['source-layer'] === sourceLayer)
+          .map((l) => l.id) ?? [],
+      });
+      if (features.length > 0) {
+        const gid = features[0].properties?.gid;
+        if (gid != null) onFeatureClick(Number(gid));
+      }
+    };
+    map.on('click', handleReadOnlyClick);
+    return () => { map.off('click', handleReadOnlyClick); };
+  }, [activeMode, mapInstance, onFeatureClick, tableName]);
 
   // --- Escape key listener ---
   useEffect(() => {

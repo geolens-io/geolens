@@ -111,6 +111,8 @@ export function DatasetPage() {
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const selectedFeatureGid = useDrawingStore((s) => s.selectedFeature?.gid ?? null);
+  const [readOnlyFeatureGid, setReadOnlyFeatureGid] = useState<number | null>(null);
+  const effectiveGid = selectedFeatureGid ?? readOnlyFeatureGid;
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
   const capabilities = useDatasetEditCapabilities();
@@ -118,6 +120,13 @@ export function DatasetPage() {
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
   const updateDataset = useUpdateDataset();
   useDocumentTitle(dataset?.title ?? 'Dataset');
+
+  // Clear read-only selection when editing mode activates
+  useEffect(() => {
+    if (selectedFeatureGid != null) {
+      setReadOnlyFeatureGid(null);
+    }
+  }, [selectedFeatureGid]);
 
   // Hero state machine for raster/VRT previews
   type HeroState = 'loading' | 'loaded' | 'error';
@@ -635,6 +644,7 @@ export function DatasetPage() {
             recordType={dataset.record_type}
             rasterTileUrl={dataset.raster?.tile_url}
             tileVersion={dataset.updated_at}
+            onFeatureClick={setReadOnlyFeatureGid}
             {...(isRasterOrVrt ? {
               onMapReady: () => setHeroState('loaded'),
               onTileError: () => setHeroState('error'),
@@ -738,9 +748,9 @@ export function DatasetPage() {
         />
       )}
 
-      {/* Related records panel -- shown when a feature is selected in editing mode */}
-      {selectedFeatureGid != null && (dataset.record_type === 'vector_dataset' || !dataset.record_type) && (
-        <RelatedRecordsPanel datasetId={id!} featureGid={selectedFeatureGid} />
+      {/* Related records panel -- shown when a feature is selected (editing or read-only) */}
+      {effectiveGid != null && (dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type) && (
+        <RelatedRecordsPanel datasetId={id!} featureGid={effectiveGid} />
       )}
 
       <PendingEditsBar
