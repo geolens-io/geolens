@@ -99,6 +99,7 @@ class OGCRecordResponse(BaseModel):
 
     type: str = "Feature"
     id: str
+    conformsTo: list[str] | None = None
     geometry: dict | None = None
     properties: OGCRecordProperties
     links: list[OGCRecordLink]

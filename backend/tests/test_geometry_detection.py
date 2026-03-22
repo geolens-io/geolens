@@ -104,16 +104,16 @@ class TestDetectGeometryColumns:
         assert result["y_column"] == "latitude"
         assert result["x_column"] is None
 
-    def test_prefers_first_match_in_pattern_set(self):
-        """If both 'lon' and 'x' exist, returns whichever pattern matches first."""
+    def test_matches_from_pattern_set_when_multiple_candidates(self):
+        """If both 'lon' and 'x' exist, one of them matches (set order is non-deterministic)."""
         columns = [
             {"name": "lon", "type": "Real"},
             {"name": "x", "type": "Real"},
             {"name": "lat", "type": "Real"},
         ]
         result = detect_geometry_columns(columns)
-        # lon is in LNG_PATTERNS and should match
-        assert result["x_column"] == "lon"
+        # Both 'lon' and 'x' are in LNG_PATTERNS; set iteration order varies
+        assert result["x_column"] in ("lon", "x")
 
 
 # ---------------------------------------------------------------------------

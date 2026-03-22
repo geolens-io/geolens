@@ -139,8 +139,10 @@ async def test_no_stac_bleedthrough(client: AsyncClient, test_db_session):
     assert len(data["features"]) > 0
 
     feature = data["features"][0]
-    for stac_key in ("stac_version", "stac_extensions", "stac_assets", "conformsTo"):
+    for stac_key in ("stac_version", "stac_extensions", "stac_assets"):
         assert stac_key not in feature, f"STAC key '{stac_key}' should not be in OGC record"
+    # conformsTo is a valid OGC Records Part 1 field, not STAC
+    assert "conformsTo" in feature, "OGC record should include conformsTo"
 
 
 @pytest.mark.anyio
