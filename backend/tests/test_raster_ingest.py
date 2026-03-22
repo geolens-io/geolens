@@ -398,17 +398,16 @@ class TestRasterDeleteCascadeRemovesStorage:
         mock_dataset = _MockDataset(dataset_id, "My Raster", "raster_dataset")
 
         session = mock.AsyncMock()
-        session.execute = mock.AsyncMock()
 
         execute_calls: list[str] = []
-        original_execute = session.execute
+        _default_result = mock.MagicMock()
+        _default_result.all.return_value = []  # VRT reference guard returns empty
 
         async def _track_execute(stmt, *args, **kwargs):
-            # Capture text SQL to detect DROP TABLE
             execute_calls.append(str(stmt))
-            return await original_execute(stmt, *args, **kwargs)
+            return _default_result
 
-        session.execute.side_effect = _track_execute
+        session.execute = mock.AsyncMock(side_effect=_track_execute)
 
         with mock.patch(
             "app.datasets.service.get_dataset", return_value=mock_dataset
@@ -448,6 +447,10 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         mock_dataset = _MockDataset(dataset_id, "My Raster", "raster_dataset")
         session = mock.AsyncMock()
+        # VRT reference guard: session.execute().all() must return empty list
+        _refs_result = mock.MagicMock()
+        _refs_result.all.return_value = []
+        session.execute.return_value = _refs_result
 
         with mock.patch(
             "app.datasets.service.get_dataset", return_value=mock_dataset

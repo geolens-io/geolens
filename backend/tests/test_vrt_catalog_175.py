@@ -289,13 +289,13 @@ class TestQuicklookVrt:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_quicklook_rejects_vector_dataset(self):
-        """get_quicklook raises 400 when record_type is vector_dataset."""
+    async def test_quicklook_rejects_table_dataset(self):
+        """get_quicklook raises 400 when record_type is table (non-spatial)."""
         from fastapi import HTTPException
         from app.datasets.router import get_quicklook
 
         dataset_id = uuid.uuid4()
-        mock_dataset = _make_mock_dataset("vector_dataset", "Vector Layer")
+        mock_dataset = _make_mock_dataset("table", "My Table")
         mock_dataset.record.record_status = "published"
         mock_dataset.record.visibility = "public"
 
@@ -317,7 +317,7 @@ class TestQuicklookVrt:
                     )
 
         assert exc_info.value.status_code == 400
-        assert "Quicklook is only available for raster datasets" in exc_info.value.detail
+        assert "Quicklook not available for this dataset type" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_quicklook_returns_404_when_dataset_not_found(self):

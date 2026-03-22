@@ -1093,6 +1093,10 @@ def dataset_to_ogc_record(
     ogc_record: dict = {
         "type": "Feature",
         "id": str(dataset.id),
+        "conformsTo": [
+            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core",
+            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json",
+        ],
         "geometry": geometry,
         "properties": {
             "type": "dataset",

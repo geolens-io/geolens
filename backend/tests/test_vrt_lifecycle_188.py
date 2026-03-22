@@ -166,9 +166,27 @@ class TestVrtSourceHealthSchema:
 
 
 class TestMigrationStructure:
-    """Migration file creates vrt_generations table properly."""
+    """Initial schema includes vrt_generations table."""
 
-    def test_migration_file_importable(self):
+    def test_initial_schema_contains_vrt_generations(self):
+        """Verify the consolidated initial schema SQL creates vrt_generations."""
+        import os
+
+        sql_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "alembic",
+            "versions",
+            "initial_schema.sql",
+        )
+        with open(sql_path) as f:
+            sql = f.read()
+
+        assert "vrt_generations" in sql
+        assert "vrt_dataset_id" in sql
+
+    def test_initial_migration_importable(self):
+        """Initial migration file has upgrade/downgrade functions."""
         import importlib.util
         import os
 
@@ -177,9 +195,9 @@ class TestMigrationStructure:
             "..",
             "alembic",
             "versions",
-            "2026_03_16_188_01_vrt_generations.py",
+            "0001_initial_schema.py",
         )
-        spec = importlib.util.spec_from_file_location("migration_188_01", path)
+        spec = importlib.util.spec_from_file_location("migration_0001", path)
         assert spec is not None
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -187,29 +205,6 @@ class TestMigrationStructure:
         assert hasattr(mod, "upgrade")
         assert hasattr(mod, "downgrade")
         assert hasattr(mod, "revision")
-        assert hasattr(mod, "down_revision")
-        assert mod.down_revision == "186_01_publication_status"
-
-    def test_migration_creates_vrt_generations_table(self):
-        """Verify the upgrade SQL references vrt_generations."""
-        import importlib.util
-        import inspect
-        import os
-
-        path = os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "alembic",
-            "versions",
-            "2026_03_16_188_01_vrt_generations.py",
-        )
-        spec = importlib.util.spec_from_file_location("migration_188_01", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        source = inspect.getsource(mod.upgrade)
-        assert "vrt_generations" in source
-        assert "vrt_dataset_id" in source
 
 
 # ---------------------------------------------------------------------------

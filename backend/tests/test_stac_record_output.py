@@ -64,10 +64,18 @@ async def _create_record_and_dataset(
     )
     session.add(dataset)
     await session.flush()
+    await session.flush()
     # Eager-load relationships needed by dataset_to_ogc_record
     await session.refresh(record, attribute_names=["keywords", "contacts", "distributions"])
     await session.refresh(dataset, attribute_names=["record"])
     return dataset
+
+
+async def _prepare_for_sync(session, dataset):
+    """Refresh all attributes so dataset_to_ogc_record can run synchronously."""
+    record = dataset.record
+    await session.refresh(record, attribute_names=["keywords", "contacts", "distributions"])
+    await session.refresh(dataset, attribute_names=["record"])
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +93,6 @@ class TestNoStacBleedthrough:
 
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
         assert "stac_version" not in result
-        assert "conformsTo" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +231,7 @@ class TestStacExtensionsRemoved:
         )
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
+        await _prepare_for_sync(test_db_session, dataset)
 
         raster_meta = {
             "epsg": 4326,
@@ -265,6 +273,7 @@ class TestStacExtensionsRemoved:
         )
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
+        await _prepare_for_sync(test_db_session, dataset)
 
         raster_meta = {
             "epsg": 32618,
@@ -307,6 +316,7 @@ class TestStacExtensionsRemoved:
         )
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
+        await _prepare_for_sync(test_db_session, dataset)
 
         raster_meta = {
             "epsg": 4326,

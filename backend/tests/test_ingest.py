@@ -326,11 +326,11 @@ class TestCsvNonSpatialPipeline:
         table_name = "test_csv_nonspatial"
 
         try:
-            # 1. Create non-spatial table in data schema
+            # 1. Create non-spatial table in data schema (gid matches ogr2ogr default)
             await test_db_session.execute(
                 text(
                     f"CREATE TABLE data.{table_name} ("
-                    "  ogc_fid serial PRIMARY KEY,"
+                    "  gid serial PRIMARY KEY,"
                     "  name text,"
                     "  value integer"
                     ")"
@@ -353,12 +353,13 @@ class TestCsvNonSpatialPipeline:
             assert resp.status_code == 201, resp.text
             dataset_id = resp.json()["dataset_id"]
 
-            # 3. GET /datasets/{id}/ -- verify record_type and geometry_type
+            # 3. GET /datasets/{id} -- verify record_type and geometry_type
             resp = await client.get(
-                f"/datasets/{dataset_id}/",
+                f"/datasets/{dataset_id}",
                 headers=admin_auth_header,
+                follow_redirects=True,
             )
-            assert resp.status_code == 200
+            assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
             ds = resp.json()
             assert ds["record_type"] == "table"
             assert ds["geometry_type"] is None
@@ -370,7 +371,7 @@ class TestCsvNonSpatialPipeline:
             )
             assert resp.status_code == 200
             features = resp.json()
-            assert features["total"] == 2
+            assert features["numberMatched"] == 2
             names = {f["properties"]["name"] for f in features["features"]}
             assert names == {"Alice", "Bob"}
 

@@ -95,8 +95,9 @@ def _parse_sse_events(text: str) -> list[dict]:
 
 @pytest.mark.anyio
 async def test_stream_returns_sse_events(client: AsyncClient, admin_auth_header: dict):
-    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock):
-        with patch("app.ai.router.stream_chat_edit", side_effect=_mock_stream_tokens):
+    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock), \
+         patch("app.ai.router._validate_chat_layers", new_callable=AsyncMock, return_value=CHAT_BODY["layers"]), \
+         patch("app.ai.router.stream_chat_edit", side_effect=_mock_stream_tokens):
             resp = await client.post(
                 "/ai/chat/stream/", json=CHAT_BODY, headers=admin_auth_header
             )
@@ -117,8 +118,9 @@ async def test_non_streaming_fallback(client: AsyncClient, admin_auth_header: di
 
     mock_result = ChatResponse(explanation="test", actions=[])
 
-    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock):
-        with patch("app.ai.router.chat_edit_map", new_callable=AsyncMock) as mock_chat:
+    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock), \
+         patch("app.ai.router._validate_chat_layers", new_callable=AsyncMock, return_value=CHAT_BODY["layers"]), \
+         patch("app.ai.router.chat_edit_map", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = mock_result
             resp = await client.post(
                 "/ai/chat/", json=CHAT_BODY, headers=admin_auth_header
@@ -131,8 +133,9 @@ async def test_non_streaming_fallback(client: AsyncClient, admin_auth_header: di
 
 @pytest.mark.anyio
 async def test_tool_progress_events(client: AsyncClient, admin_auth_header: dict):
-    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock):
-        with patch("app.ai.router.stream_chat_edit", side_effect=_mock_stream_tools):
+    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock), \
+         patch("app.ai.router._validate_chat_layers", new_callable=AsyncMock, return_value=CHAT_BODY["layers"]), \
+         patch("app.ai.router.stream_chat_edit", side_effect=_mock_stream_tools):
             resp = await client.post(
                 "/ai/chat/stream/", json=CHAT_BODY, headers=admin_auth_header
             )
@@ -180,10 +183,9 @@ async def test_query_data_stage_events(client: AsyncClient, admin_auth_header: d
         ],
     }
 
-    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock):
-        with patch(
-            "app.ai.router.stream_chat_edit", side_effect=_mock_stream_query_data
-        ):
+    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock), \
+         patch("app.ai.router._validate_chat_layers", new_callable=AsyncMock, return_value=body["layers"]), \
+         patch("app.ai.router.stream_chat_edit", side_effect=_mock_stream_query_data):
             resp = await client.post(
                 "/ai/chat/stream/", json=body, headers=admin_auth_header
             )
@@ -275,11 +277,9 @@ async def test_show_query_result_action_in_stream(
         ],
     }
 
-    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock):
-        with patch(
-            "app.ai.router.stream_chat_edit",
-            side_effect=_mock_stream_query_with_geojson,
-        ):
+    with patch("app.ai.router._check_ai_available", new_callable=AsyncMock), \
+         patch("app.ai.router._validate_chat_layers", new_callable=AsyncMock, return_value=body["layers"]), \
+         patch("app.ai.router.stream_chat_edit", side_effect=_mock_stream_query_with_geojson):
             resp = await client.post(
                 "/ai/chat/stream/", json=body, headers=admin_auth_header
             )

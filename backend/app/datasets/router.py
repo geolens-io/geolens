@@ -2166,7 +2166,7 @@ async def update_publication_status(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/datasets/{dataset_id}/relationships/")
+@router.get("/{dataset_id}/relationships/")
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
     user: User | None = Depends(get_optional_user),
@@ -2176,15 +2176,20 @@ async def list_dataset_relationships(
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
-    await check_dataset_access(db, dataset, dataset_id, user)
+    if user is None:
+        record = dataset.record
+        if record.record_status != "published" or record.visibility != "public":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+    else:
+        await check_dataset_access(db, dataset, dataset_id, user)
 
     from app.datasets.service import list_relationships
 
-    items = await list_relationships(db, dataset_id)
+    items = await list_relationships(db, dataset.record_id)
     return [DatasetRelationshipResponse(**item) for item in items]
 
 
-@router.post("/datasets/{dataset_id}/relationships/", status_code=201)
+@router.post("/{dataset_id}/relationships/", status_code=201)
 async def create_dataset_relationship(
     dataset_id: uuid.UUID,
     body: DatasetRelationshipCreate,
@@ -2194,12 +2199,17 @@ async def create_dataset_relationship(
     """Create a new FK relationship. Editor+ required."""
     from app.datasets.service import create_relationship
 
-    rel = await create_relationship(db, dataset_id, body)
+    # Resolve dataset_id to record_id (FK references catalog.records.id)
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
     return DatasetRelationshipResponse.model_validate(rel)
 
 
-@router.delete("/datasets/relationships/{relationship_id}/", status_code=204)
+@router.delete("/relationships/{relationship_id}/", status_code=204)
 async def delete_dataset_relationship(
     relationship_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -2215,7 +2225,7 @@ async def delete_dataset_relationship(
         raise HTTPException(status_code=404, detail="Relationship not found")
 
 
-@router.get("/datasets/{dataset_id}/features/{gid}/related/{relationship_id}/")
+@router.get("/{dataset_id}/features/{gid}/related/{relationship_id}/")
 async def get_feature_related_records(
     dataset_id: uuid.UUID,
     gid: int,
