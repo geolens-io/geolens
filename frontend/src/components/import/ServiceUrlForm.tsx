@@ -83,6 +83,7 @@ export function ServiceUrlForm() {
       layer_title: layer.title,
       layer_id: layer.layer_id,
       token: token || undefined,
+      object_id_field: layer.object_id_field,
     };
 
     try {
