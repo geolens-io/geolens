@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-irw
-last_updated: "2026-03-22T17:47:24.539Z"
-last_activity: "2026-03-22 - Completed quick task 260322-hv0: Non-spatial table support"
+stopped_at: Completed quick-260322-kec
+last_updated: "2026-03-22T19:16:09.937Z"
+last_activity: "2026-03-22 - Completed quick task 260322-irw: FK relationship polish"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -108,6 +108,7 @@ Plan: Not started
 - [Phase quick-260322-hv0]: Non-spatial CSV detection via geometry_type=None from ogrinfo, gates clip/4326/quicklook steps
 - [Phase quick-260322-hv0]: DatasetRelationship FK model references catalog.records.id for FK joins between datasets
 - [Phase quick-260322-irw]: Used get_dataset + check_dataset_access pattern for visibility on FK read endpoints
+- [Phase quick-260322-kec]: FK candidates filtered by _id suffix excluding PK names; read-only click uses effectiveGid merge pattern
 
 ### Pending Todos
 
@@ -142,11 +143,11 @@ Plan: Not started
 | 260322-c9b | Fix 10 OGC API Records Part 1 conformance gaps | 2026-03-22 | a3d08fb4 | Verified | [260322-c9b-assess-and-fix-geolens-ogc-records-confo](./quick/260322-c9b-assess-and-fix-geolens-ogc-records-confo/) |
 | 260322-gzi | Fix ArcGIS auth header, JSON error detection, dynamic objectIdField, UX help text | 2026-03-22 | e57e796c | Verified | [260322-gzi-review-arcgis-online-portal-authenticate](./quick/260322-gzi-review-arcgis-online-portal-authenticate/) |
 | 260322-hv0 | Non-spatial CSV ingestion, table detail layout, FK relationship model and related records panel | 2026-03-22 | fcd49732 | Verified | [260322-hv0-review-and-implement-non-spatial-table-s](./quick/260322-hv0-review-and-implement-non-spatial-table-s/) |
-| 260322-irw | Fix FK endpoint NameError, add visibility checks, i18n, error states, tests | 2026-03-22 | 57b01906 | Complete | [260322-irw-polishing-what-s-shipped-review-all-the-](./quick/260322-irw-polishing-what-s-shipped-review-all-the-/) |
+| 260322-irw | Fix FK endpoint NameError, add visibility checks, i18n, error states, tests | 2026-03-22 | 4b95f4f9 | Verified | [260322-irw-polishing-what-s-shipped-review-all-the-](./quick/260322-irw-polishing-what-s-shipped-review-all-the-/) |
 
 ## Session Continuity
 
 Last activity: 2026-03-22 - Completed quick task 260322-irw: FK relationship polish
-Last session: 2026-03-22T17:47:23.288Z
-Stopped at: Completed quick-260322-irw
+Last session: 2026-03-22T19:16:04.387Z
+Stopped at: Completed quick-260322-kec
 Resume file: None
