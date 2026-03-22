@@ -389,3 +389,37 @@ class DatasetGrant(Base):
     role_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.roles.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class DatasetRelationship(Base):
+    __tablename__ = "dataset_relationships"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_dataset_id",
+            "target_dataset_id",
+            "source_column",
+            name="uq_dataset_relationship",
+        ),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    source_dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
+    )
+    target_dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
+    )
+    source_column: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_column: Mapped[str] = mapped_column(
+        String(100), nullable=False, server_default="gid"
+    )
+    relationship_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="foreign_key"
+    )
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

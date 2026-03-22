@@ -852,3 +852,173 @@ async def get_related_datasets(
     except Exception:
         logger.exception("Error fetching related datasets for %s", dataset_id)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Dataset FK relationships
+# ---------------------------------------------------------------------------
+
+
+async def create_relationship(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    rel,
+):
+    """Create FK relationship from source dataset to target dataset."""
+    from app.datasets.models import DatasetRelationship
+
+    obj = DatasetRelationship(
+        source_dataset_id=dataset_id,
+        target_dataset_id=rel.target_dataset_id,
+        source_column=rel.source_column,
+        target_column=rel.target_column,
+        label=rel.label,
+    )
+    session.add(obj)
+    await session.flush()
+    await session.refresh(obj)
+    return obj
+
+
+async def list_relationships(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+):
+    """List all FK relationships where this dataset is the source.
+
+    Joins with records table to include target_dataset_title.
+    """
+    from app.datasets.models import DatasetRelationship
+
+    result = await session.execute(
+        select(DatasetRelationship, Record.title)
+        .outerjoin(Record, DatasetRelationship.target_dataset_id == Record.id)
+        .where(DatasetRelationship.source_dataset_id == dataset_id)
+        .order_by(DatasetRelationship.created_at)
+    )
+    rows = result.all()
+    items = []
+    for rel, title in rows:
+        items.append(
+            {
+                "id": rel.id,
+                "source_dataset_id": rel.source_dataset_id,
+                "target_dataset_id": rel.target_dataset_id,
+                "source_column": rel.source_column,
+                "target_column": rel.target_column,
+                "relationship_type": rel.relationship_type,
+                "label": rel.label,
+                "target_dataset_title": title,
+            }
+        )
+    return items
+
+
+async def delete_relationship(
+    session: AsyncSession,
+    relationship_id: uuid.UUID,
+) -> None:
+    """Delete a relationship by ID."""
+    from app.datasets.models import DatasetRelationship
+
+    result = await session.execute(
+        select(DatasetRelationship).where(DatasetRelationship.id == relationship_id)
+    )
+    obj = result.scalar_one_or_none()
+    if obj is None:
+        raise ValueError("Relationship not found")
+    await session.delete(obj)
+    await session.flush()
+
+
+async def get_related_records(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    feature_gid: int,
+    relationship_id: uuid.UUID,
+    *,
+    limit: int = 50,
+    after: int = 0,
+):
+    """Get related records for a feature via FK relationship.
+
+    Looks up the FK value in the source table, then queries the target table
+    for matching rows.
+    """
+    import re as _re
+
+    from app.datasets.models import DatasetRelationship
+
+    # 1. Load relationship
+    result = await session.execute(
+        select(DatasetRelationship).where(DatasetRelationship.id == relationship_id)
+    )
+    rel = result.scalar_one_or_none()
+    if rel is None:
+        raise ValueError("Relationship not found")
+
+    # 2. Load source dataset to get table_name
+    source_ds = await get_dataset(session, dataset_id)
+    if source_ds is None:
+        raise ValueError("Source dataset not found")
+
+    # 3. Load target dataset to get table_name
+    # target_dataset_id points to a Record, need to find its Dataset
+    target_result = await session.execute(
+        select(Dataset).where(Dataset.record_id == rel.target_dataset_id)
+    )
+    target_ds = target_result.scalar_one_or_none()
+    if target_ds is None:
+        raise ValueError("Target dataset not found")
+
+    # Validate column names
+    safe_col = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    if not safe_col.match(rel.source_column) or not safe_col.match(rel.target_column):
+        raise ValueError("Invalid column name in relationship")
+
+    # 4. Get FK value from source table
+    fk_result = await session.execute(
+        text(
+            f"SELECT {rel.source_column} FROM data.{source_ds.table_name} WHERE gid = :gid"
+        ).bindparams(gid=feature_gid)
+    )
+    fk_value = fk_result.scalar_one_or_none()
+    if fk_value is None:
+        return {"rows": [], "approximate_total": 0, "next_cursor": None, "columns": []}
+
+    # 5. Query target table for matching rows
+    count_result = await session.execute(
+        text(
+            f"SELECT COUNT(*) FROM data.{target_ds.table_name} "
+            f"WHERE {rel.target_column} = :fk_val"
+        ).bindparams(fk_val=fk_value)
+    )
+    total = count_result.scalar_one()
+
+    rows_result = await session.execute(
+        text(
+            f"SELECT gid, to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties "
+            f"FROM data.{target_ds.table_name} t "
+            f"WHERE t.{rel.target_column} = :fk_val "
+            f"ORDER BY gid LIMIT :lim OFFSET :off"
+        ).bindparams(fk_val=fk_value, lim=limit, off=after)
+    )
+    rows = [
+        {"gid": row[0], **(row[1] if isinstance(row[1], dict) else {})}
+        for row in rows_result.all()
+    ]
+
+    # Get column info for target table
+    from app.ingest.metadata import get_column_info
+
+    columns = await get_column_info(session, target_ds.table_name)
+    col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
+
+    next_cursor = after + limit if after + limit < total else None
+
+    return {
+        "rows": rows,
+        "approximate_total": total,
+        "next_cursor": next_cursor,
+        "columns": col_list,
+    }

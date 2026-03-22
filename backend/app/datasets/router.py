@@ -53,6 +53,8 @@ from app.datasets.schemas import (
     DatasetDeleteRequest,
     DatasetListResponse,
     DatasetMeta,
+    DatasetRelationshipCreate,
+    DatasetRelationshipResponse,
     DatasetResponse,
     DatasetRowsResponse,
     DatasetVersionListResponse,
@@ -1381,6 +1383,7 @@ async def reupload_service_preview(
             "service_type": request.service_type,
             "layer_id": request.layer_id,
             "source_type": "service_url",
+            "object_id_field": request.object_id_field,
         },
     )
     db.add(job)
@@ -2156,3 +2159,71 @@ async def update_publication_status(
     await db.commit()
     await db.refresh(dataset)
     return {"id": str(dataset.id), "record_status": target}
+
+
+# ---------------------------------------------------------------------------
+# Dataset FK relationships
+# ---------------------------------------------------------------------------
+
+
+@router.get("/datasets/{dataset_id}/relationships/")
+async def list_dataset_relationships(
+    dataset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_session),
+):
+    """List all FK relationships for a dataset."""
+    from app.datasets.service import list_relationships
+
+    items = await list_relationships(db, dataset_id)
+    return [DatasetRelationshipResponse(**item) for item in items]
+
+
+@router.post("/datasets/{dataset_id}/relationships/", status_code=201)
+async def create_dataset_relationship(
+    dataset_id: uuid.UUID,
+    body: DatasetRelationshipCreate,
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_metadata")),
+):
+    """Create a new FK relationship. Editor+ required."""
+    from app.datasets.service import create_relationship
+
+    rel = await create_relationship(db, dataset_id, body)
+    await db.commit()
+    return DatasetRelationshipResponse.model_validate(rel)
+
+
+@router.delete("/datasets/relationships/{relationship_id}/", status_code=204)
+async def delete_dataset_relationship(
+    relationship_id: uuid.UUID,
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_metadata")),
+):
+    """Delete a FK relationship. Editor+ required."""
+    from app.datasets.service import delete_relationship
+
+    try:
+        await delete_relationship(db, relationship_id)
+        await db.commit()
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+
+
+@router.get("/datasets/{dataset_id}/features/{gid}/related/{relationship_id}/")
+async def get_feature_related_records(
+    dataset_id: uuid.UUID,
+    gid: int,
+    relationship_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=500),
+    after: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_session),
+):
+    """Get related records for a feature via FK relationship."""
+    from app.datasets.service import get_related_records
+
+    try:
+        return await get_related_records(
+            db, dataset_id, gid, relationship_id, limit=limit, after=after
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
