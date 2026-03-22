@@ -380,6 +380,13 @@ SEMANTIC_SEARCH_ENABLED = PersistentConfig[bool](
     label="Semantic Search",
 )
 
+AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
+    key="ai_send_sample_values",
+    env_default=True,
+    tab="ai",
+    label="Send Sample Values to LLM",
+)
+
 # -- Network tab --
 GLOBAL_RATE_LIMIT = PersistentConfig[int](
     key="global_rate_limit",
