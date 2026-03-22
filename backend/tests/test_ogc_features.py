@@ -302,9 +302,9 @@ async def test_collection_items_pagination(
     data2 = resp2.json()
     assert data2["numberReturned"] == 2
 
-    # Should have both "next" and "prev" links
-    prev_link = next((link for link in data2["links"] if link["rel"] == "prev"), None)
-    assert prev_link is not None, "Missing 'prev' pagination link"
+    # Should have both "next" and "previous" links
+    prev_link = next((link for link in data2["links"] if link["rel"] == "previous"), None)
+    assert prev_link is not None, "Missing 'previous' pagination link"
 
 
 @pytest.mark.anyio

@@ -161,8 +161,8 @@ async def test_pagination_prev_link_present_when_offset_gt_0(
     assert resp.status_code == 200
     data = resp.json()
 
-    prev_link = _find_link(data["links"], "prev")
-    assert prev_link is not None, "Expected prev link when offset > 0"
+    prev_link = _find_link(data["links"], "previous")
+    assert prev_link is not None, "Expected previous link when offset > 0"
     assert "offset=0" in prev_link["href"]
 
 
@@ -175,8 +175,8 @@ async def test_pagination_no_prev_link_on_first_page(client: AsyncClient):
     assert resp.status_code == 200
     data = resp.json()
 
-    prev_link = _find_link(data["links"], "prev")
-    assert prev_link is None, "Should not have prev link on first page"
+    prev_link = _find_link(data["links"], "previous")
+    assert prev_link is None, "Should not have previous link on first page"
 
 
 @pytest.mark.anyio
@@ -318,8 +318,8 @@ async def test_pagination_prev_offset_does_not_go_negative(
     assert resp.status_code == 200
     data = resp.json()
 
-    prev_link = _find_link(data["links"], "prev")
-    assert prev_link is not None, "Expected prev link when offset > 0"
+    prev_link = _find_link(data["links"], "previous")
+    assert prev_link is not None, "Expected previous link when offset > 0"
     parsed = urlparse(prev_link["href"])
     qs = parse_qs(parsed.query)
     offset_val = int(qs["offset"][0])
