@@ -578,6 +578,7 @@ async def search_datasets(
     vintage_start: date | None = None,
     vintage_end: date | None = None,
     sort_by: str = "relevance",
+    sort_desc: bool | None = None,
     skip: int = 0,
     limit: int = 10,
     cql2_filter: str | None = None,
@@ -853,15 +854,24 @@ async def search_datasets(
             Record.updated_at.desc(),
         )
     elif sort_by == "date_added":
-        stmt = stmt.order_by(Record.created_at.desc())
+        _desc = sort_desc if sort_desc is not None else True
+        stmt = stmt.order_by(Record.created_at.desc() if _desc else Record.created_at.asc())
     elif sort_by in {"title", "name"}:
-        # Keep title ordering deterministic and case-insensitive across collations.
-        stmt = stmt.order_by(
-            collate(func.lower(Record.title), "C").asc(),
-            collate(Record.title, "C").asc(),
-        )
+        _desc = sort_desc if sort_desc is not None else False
+        if _desc:
+            stmt = stmt.order_by(
+                collate(func.lower(Record.title), "C").desc(),
+                collate(Record.title, "C").desc(),
+            )
+        else:
+            # Keep title ordering deterministic and case-insensitive across collations.
+            stmt = stmt.order_by(
+                collate(func.lower(Record.title), "C").asc(),
+                collate(Record.title, "C").asc(),
+            )
     elif sort_by == "last_updated":
-        stmt = stmt.order_by(Record.updated_at.desc())
+        _desc = sort_desc if sort_desc is not None else True
+        stmt = stmt.order_by(Record.updated_at.desc() if _desc else Record.updated_at.asc())
     else:
         stmt = stmt.order_by(Record.created_at.desc())
 
