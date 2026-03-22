@@ -22,6 +22,7 @@ class PreviewResponse(BaseModel):
     sample_rows: list[dict]
     layer_name: str
     layers: list[dict] | None = None
+    detected_geometry_columns: dict | None = None
 
 
 class RasterPreviewResponse(BaseModel):
@@ -55,6 +56,9 @@ class CommitRequest(BaseModel):
     resampling: str | None = None
     nodata_override: float | str | None = None
     layer_name: str | None = None
+    x_column: str | None = None
+    y_column: str | None = None
+    geom_column: str | None = None
 
 
 class CommitResponse(BaseModel):

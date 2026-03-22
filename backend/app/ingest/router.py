@@ -15,7 +15,7 @@ from app.auth.dependencies import get_current_active_user, require_permission
 from app.auth.models import User
 from app.config import settings
 from app.dependencies import get_db
-from app.ingest.ogr import IngestionError, run_ogrinfo_preview
+from app.ingest.ogr import IngestionError, detect_geometry_columns, run_ogrinfo_preview
 from app.ingest.schemas import (
     BulkRegisterRequest,
     BulkRegisterResponse,
@@ -386,6 +386,13 @@ async def preview_file(
 
     info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
 
+    # Auto-detect geometry columns for non-spatial files (CSV/XLSX with lat/lng or WKT)
+    detected_geom_cols = None
+    if info["geometry_type"] is None and info.get("columns"):
+        detected = detect_geometry_columns(info["columns"])
+        if detected["x_column"] or detected["wkt_column"]:
+            detected_geom_cols = detected
+
     return PreviewResponse(
         job_id=job.id,
         source_filename=job.source_filename,
@@ -396,6 +403,7 @@ async def preview_file(
         sample_rows=info["sample_rows"],
         layer_name=layer_name if layer_name else info["layer_name"],
         layers=info.get("all_layers"),
+        detected_geometry_columns=detected_geom_cols,
     )
 
 

@@ -12,6 +12,32 @@ class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
 
 
+# ---------------------------------------------------------------------------
+# Geometry column auto-detection patterns
+# ---------------------------------------------------------------------------
+
+LAT_PATTERNS = {"lat", "latitude", "y", "lat_dd", "ycoord"}
+LNG_PATTERNS = {"lon", "lng", "long", "longitude", "x", "lon_dd", "xcoord"}
+WKT_PATTERNS = {"wkt", "geom", "geometry", "the_geom", "shape"}
+
+
+def detect_geometry_columns(columns: list[dict]) -> dict:
+    """Detect potential geometry columns from column metadata.
+
+    Pattern-matches column names (case-insensitive) against known
+    lat/lng and WKT naming conventions.
+
+    Returns dict with keys: x_column, y_column, wkt_column (original case).
+    """
+    col_names = {c["name"].lower(): c["name"] for c in columns}
+
+    x_col = next((col_names[n] for n in LNG_PATTERNS if n in col_names), None)
+    y_col = next((col_names[n] for n in LAT_PATTERNS if n in col_names), None)
+    wkt_col = next((col_names[n] for n in WKT_PATTERNS if n in col_names), None)
+
+    return {"x_column": x_col, "y_column": y_col, "wkt_column": wkt_col}
+
+
 def build_pg_conn_str() -> str:
     """Build a PG connection string for ogr2ogr from settings."""
     return settings.ogr_connection_string
@@ -317,6 +343,8 @@ async def run_ogr2ogr(
                 "X_POSSIBLE_NAMES=lon*,lng*,long*,x",
                 "-oo",
                 "Y_POSSIBLE_NAMES=lat*,y",
+                "-oo",
+                "GEOM_POSSIBLE_NAMES=WKT,wkt,geometry,geom,the_geom,shape",
             ]
         )
         if source_srid is None:
