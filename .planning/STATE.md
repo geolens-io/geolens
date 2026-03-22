@@ -129,13 +129,13 @@ Plan: Not started
 |---|-------------|------|--------|--------|-----------|
 | 260319-o89 | Fix missing TooltipProvider causing blank search page crash | 2026-03-19 | da6ec575 | Verified | [260319-o89-fix-missing-tooltipprovider-causing-blan](./quick/260319-o89-fix-missing-tooltipprovider-causing-blan/) |
 | 260319-q8j | Fix Review issues button navigating to wrong tab | 2026-03-19 | a4641c42 | Verified | [260319-q8j-fix-review-issues-button-navigating-to-u](./quick/260319-q8j-fix-review-issues-button-navigating-to-u/) |
-| 260319-qu1 | Review the detail data page map for completeness and correctness | 2026-03-19 | b8c5e322 | Needs Review | [260319-qu1-review-the-detail-data-page-map-for-comp](./quick/260319-qu1-review-the-detail-data-page-map-for-comp/) |
+| 260319-qu1 | Review the detail data page map for completeness and correctness | 2026-03-19 | b8c5e322 | Verified | [260319-qu1-review-the-detail-data-page-map-for-comp](./quick/260319-qu1-review-the-detail-data-page-map-for-comp/) |
 | 260319-r4t | Review test coverage and create a plan to improve e2e coverage, unit tests and code quality checks | 2026-03-19 | 0daff224 | Verified | [260319-r4t-review-test-coverage-and-create-a-plan-t](./quick/260319-r4t-review-test-coverage-and-create-a-plan-t/) |
 | 260320-c41 | Fix VRT/raster map 10s loading delay (circular hero state machine) | 2026-03-20 | 9d48b81f | Verified | [260320-c41-review-vrt-map-loading-delay-with-playwr](./quick/260320-c41-review-vrt-map-loading-delay-with-playwr/) |
 | 260320-e6i | Fix vector detail page map controls (zoom-to-extent always visible) | 2026-03-20 | c24e455b | Verified | [260320-e6i-fix-vector-detail-page-map-controls-and-](./quick/260320-e6i-fix-vector-detail-page-map-controls-and-/) |
 | 260320-gsh | QA assessment of vector detail page map editing capabilities | 2026-03-20 | 63583b65 | Verified | [260320-gsh-qa-assessment-of-vector-detail-page-map-](./quick/260320-gsh-qa-assessment-of-vector-detail-page-map-/) |
 | 260320-m42 | Fix multi-part geometry data loss, frontend guard, Playwright selectors | 2026-03-20 | 0120c80e | Verified | [260320-m42-review-the-findings-report-of-the-vector](./quick/260320-m42-review-the-findings-report-of-the-vector/) |
-| 260322 | review the vector detail page map, specifically the editing capabilities. Identify any gaps, issues or concerns. Be 100% confident the maps visualization capabilities are correct, complete and following best engineering practices. | 2026-03-20 | f6796601 | Gaps | [260322-review-the-vector-detail-page-map-specif](./quick/260322-review-the-vector-detail-page-map-specif/) |
+| 260322 | review the vector detail page map, specifically the editing capabilities. Identify any gaps, issues or concerns. Be 100% confident the maps visualization capabilities are correct, complete and following best engineering practices. | 2026-03-20 | f6796601 | Verified | [260322-review-the-vector-detail-page-map-specif](./quick/260322-review-the-vector-detail-page-map-specif/) |
 | 260320-m42 | Fix multi-part geometry editing safety (ST_Multi promotion, editing guard, Playwright fix) | 2026-03-20 | 01f6a349 | Complete | [260320-m42-review-the-findings-report-of-the-vector](./quick/260320-m42-review-the-findings-report-of-the-vector/) |
 | 260321-f13 | Create and implement a 404 page for the site | 2026-03-21 | c5c63c51 | Verified | [260321-f13-create-and-implement-a-404-page-for-the-](./quick/260321-f13-create-and-implement-a-404-page-for-the-/) |
 | 260321-f9l | Implement 5 error boundaries with i18n fallback UIs | 2026-03-21 | 171700df | Complete | [260321-f9l-implement-all-5-error-boundaries-with-i1](./quick/260321-f9l-implement-all-5-error-boundaries-with-i1/) |
@@ -146,10 +146,11 @@ Plan: Not started
 | 260322-hv0 | Non-spatial CSV ingestion, table detail layout, FK relationship model and related records panel | 2026-03-22 | fcd49732 | Verified | [260322-hv0-review-and-implement-non-spatial-table-s](./quick/260322-hv0-review-and-implement-non-spatial-table-s/) |
 | 260322-irw | Fix FK endpoint NameError, add visibility checks, i18n, error states, tests | 2026-03-22 | 4b95f4f9 | Verified | [260322-irw-polishing-what-s-shipped-review-all-the-](./quick/260322-irw-polishing-what-s-shipped-review-all-the-/) |
 | 260322-kec | FK auto-detection, read-only panel activation, table guard fix | 2026-03-22 | 8ee8eaf6 | Verified | [260322-kec-address-all-follow-up-items-from-shipped](./quick/260322-kec-address-all-follow-up-items-from-shipped/) |
+| 260322-l97 | AppErrorBoundary hooks fix, CSV upload test, RelatedRecordsPanel + NotFoundPage tests | 2026-03-22 | 7f60a789 | Verified | [260322-l97-test-coverage-and-error-handling-fixes-c](./quick/260322-l97-test-coverage-and-error-handling-fixes-c/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick task 260322-kec: FK enhancements
+Last activity: 2026-03-22 - Completed quick task 260322-l97: Test coverage fixes
 Last session: 2026-03-22T19:27:42.894Z
 Stopped at: Completed quick-260322-l97
 Resume file: None
