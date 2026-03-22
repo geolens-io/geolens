@@ -147,9 +147,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=geometry_type, layer_name=layer_name)
 
             # Post-import geometry construction (for XLSX with lat/lng or WKT override)
-            x_column = um.get("x_column")
-            y_column = um.get("y_column")
-            geom_column = um.get("geom_column")
+            # Lowercase column names: ogr2ogr lowercases them in PostGIS
+            x_column = (um.get("x_column") or "").lower() or None
+            y_column = (um.get("y_column") or "").lower() or None
+            geom_column = (um.get("geom_column") or "").lower() or None
 
             if not has_geometry and x_column and y_column:
                 from app.ingest.metadata import construct_point_geometry
