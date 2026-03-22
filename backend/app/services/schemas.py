@@ -17,6 +17,7 @@ class LayerInfo(BaseModel):
     feature_count: int | None = None
     layer_type: str = "layer"  # "layer" or "table"
     layer_id: int | str | None = None
+    object_id_field: str | None = None  # ArcGIS OID field name
 
 
 class ProbeResponse(BaseModel):
@@ -44,6 +45,7 @@ class ServicePreviewRequest(BaseModel):
     )
     layer_id: int | str | None = None  # Layer ID (for ArcGIS, from probe layers list)
     token: str | None = None  # Optional auth token for protected services
+    object_id_field: str | None = None  # ArcGIS OID field name for orderByFields
 
 
 class ServicePreviewResponse(BaseModel):

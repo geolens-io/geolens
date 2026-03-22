@@ -333,8 +333,10 @@ async def ingest_service(
                 )
 
             # 3. Build GDAL source string
+            object_id_field = um.get("object_id_field", "OBJECTID")
             gdal_source, layer_arg = build_gdal_source(
-                service_type_raw, source_url, source_layer, layer_id, token=token
+                service_type_raw, source_url, source_layer, layer_id, token=token,
+                order_field=object_id_field,
             )
 
             # 4. Generate table name and run ogr2ogr
@@ -363,7 +365,8 @@ async def ingest_service(
                 if ":" in source_layer:
                     unqualified = source_layer.split(":", 1)[1]
                     gdal_source_retry, layer_arg_retry = build_gdal_source(
-                        service_type_raw, source_url, unqualified, layer_id, token=token
+                        service_type_raw, source_url, unqualified, layer_id, token=token,
+                        order_field=object_id_field,
                     )
                     await run_ogr2ogr_service(
                         gdal_source_retry,
@@ -830,6 +833,7 @@ async def reupload_service(
                 )
 
             db_conn_str = build_pg_conn_str()
+            reupload_oid_field = um.get("object_id_field", "OBJECTID")
 
             async def _run_service_import(layer_name: str) -> None:
                 gdal_source, layer_arg = build_gdal_source(
@@ -838,6 +842,7 @@ async def reupload_service(
                     layer_name,
                     layer_id,
                     token=token,
+                    order_field=reupload_oid_field,
                 )
                 await run_ogr2ogr_service(
                     gdal_source,
