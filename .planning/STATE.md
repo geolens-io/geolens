@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-c9b
-last_updated: "2026-03-22T13:06:09.660Z"
-last_activity: "2026-03-21 - Completed quick task 260321-prh: AWS Marketplace AMI readiness assessment"
+stopped_at: Completed quick-260322-gzi
+last_updated: "2026-03-22T16:37:30.575Z"
+last_activity: "2026-03-22 - Completed quick task 260322-c9b: OGC Records conformance fixes"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -136,11 +136,12 @@ Plan: Not started
 | 260321-f9l | Implement 5 error boundaries with i18n fallback UIs | 2026-03-21 | 171700df | Complete | [260321-f9l-implement-all-5-error-boundaries-with-i1](./quick/260321-f9l-implement-all-5-error-boundaries-with-i1/) |
 | 260321-hks | Add unsaved changes navigation guard to map builder | 2026-03-21 | ecfa4c34 | Verified | [260321-hks-warning-before-leaving-map-with-unsaved-](./quick/260321-hks-warning-before-leaving-map-with-unsaved-/) |
 | 260321-prh | Evaluate AWS AMI Marketplace readiness | 2026-03-21 | dd3905b3 | Verified | [260321-prh-evaluate-aws-ami-marketplace-readiness-i](./quick/260321-prh-evaluate-aws-ami-marketplace-readiness-i/) |
-| 260322-c9b | Fix 10 OGC API Records Part 1 conformance gaps | 2026-03-22 | a3d08fb4 | Complete | [260322-c9b-assess-and-fix-geolens-ogc-records-confo](./quick/260322-c9b-assess-and-fix-geolens-ogc-records-confo/) |
+| 260322-c9b | Fix 10 OGC API Records Part 1 conformance gaps | 2026-03-22 | a3d08fb4 | Verified | [260322-c9b-assess-and-fix-geolens-ogc-records-confo](./quick/260322-c9b-assess-and-fix-geolens-ogc-records-confo/) |
+| 260322-gzi | Fix ArcGIS auth header, JSON error detection, dynamic objectIdField, UX help text | 2026-03-22 | e57e796c | Complete | [260322-gzi-review-arcgis-online-portal-authenticate](./quick/260322-gzi-review-arcgis-online-portal-authenticate/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick task 260322-c9b: OGC Records conformance fixes
-Last session: 2026-03-22T13:06:09.656Z
-Stopped at: Completed quick-260322-c9b
+Last activity: 2026-03-22 - Completed quick task 260322-gzi: ArcGIS auth fixes
+Last session: 2026-03-22T16:37:30.572Z
+Stopped at: Completed quick-260322-gzi
 Resume file: None
