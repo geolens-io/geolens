@@ -18,6 +18,7 @@ import {
   DatasetDetailHeader,
   type DatasetDetailHeaderAction,
 } from '@/components/dataset/DatasetDetailHeader';
+import { DataTab } from '@/components/dataset/tabs/DataTab';
 import { VectorDetailPanel } from '@/components/dataset/panels/VectorDetailPanel';
 import { RasterDetailPanel } from '@/components/dataset/panels/RasterDetailPanel';
 import { VrtDetailPanel } from '@/components/dataset/panels/VrtDetailPanel';
@@ -402,6 +403,7 @@ export function DatasetPage() {
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
+  const isTable = dataset.record_type === 'table';
 
   const isPublished = dataset.record_status === 'published';
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
@@ -449,7 +451,7 @@ export function DatasetPage() {
     <>
       <div className="flex items-center gap-1.5 flex-wrap">
         <RecordTypeBadge recordType={dataset.record_type} />
-        {dataset.record_type === 'vector_dataset' || !dataset.record_type ? (
+        {dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type ? (
           <>
             {dataset.geometry_type && (
               <>
@@ -596,53 +598,64 @@ export function DatasetPage() {
         }
       />
 
-      {/* Hero Map -- always visible, outside tabs */}
-      <div
-        ref={mapContainerRef}
-        data-field-anchor="dataset_map"
-        tabIndex={-1}
-        className={cn(
-          'rounded-lg border shadow-sm overflow-hidden relative',
-          isDrawing ? 'h-[60vh]' : 'h-64 lg:h-80'
-        )}
-      >
-        {isRasterOrVrt && heroState === 'loading' && (
-          <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
-        )}
-        <DatasetMap
-          key={isRasterOrVrt ? mapKey : undefined}
-          bbox={bbox}
-          tableName={dataset.table_name}
-          geometryType={dataset.geometry_type}
-          datasetId={id}
-          columnInfo={dataset.column_info}
-          containerRef={mapContainerRef}
-          canEdit={isEditor && !isRaster && !isVrt && import.meta.env.VITE_ENABLE_GEOMETRY_EDITING === 'true'}
-          recordType={dataset.record_type}
-          rasterTileUrl={dataset.raster?.tile_url}
-          tileVersion={dataset.updated_at}
-          {...(isRasterOrVrt ? {
-            onMapReady: () => setHeroState('loaded'),
-            onTileError: () => setHeroState('error'),
-          } : {})}
-        />
-        {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
-          <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
-            No raster tiles available
+      {/* Hero Data Grid for table datasets (no map) */}
+      {isTable && (
+        <div className="rounded-lg border shadow-sm overflow-hidden">
+          <div className="h-[60vh]">
+            <DataTab datasetId={id!} canEdit={isEditor} />
           </div>
-        )}
-        {isRasterOrVrt && heroState === 'error' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
-            <AlertTriangle className="size-8 text-destructive mb-2" />
-            <p className="text-sm text-muted-foreground mb-3">Preview unavailable</p>
-            {retryCount < 3 ? (
-              <Button size="sm" onClick={handleRetry}>Retry</Button>
-            ) : (
-              <p className="text-xs text-muted-foreground">Tiles may still be processing</p>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Hero Map -- visible for all spatial dataset types */}
+      {!isTable && (
+        <div
+          ref={mapContainerRef}
+          data-field-anchor="dataset_map"
+          tabIndex={-1}
+          className={cn(
+            'rounded-lg border shadow-sm overflow-hidden relative',
+            isDrawing ? 'h-[60vh]' : 'h-64 lg:h-80'
+          )}
+        >
+          {isRasterOrVrt && heroState === 'loading' && (
+            <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
+          )}
+          <DatasetMap
+            key={isRasterOrVrt ? mapKey : undefined}
+            bbox={bbox}
+            tableName={dataset.table_name}
+            geometryType={dataset.geometry_type}
+            datasetId={id}
+            columnInfo={dataset.column_info}
+            containerRef={mapContainerRef}
+            canEdit={isEditor && !isRaster && !isVrt && !isTable && import.meta.env.VITE_ENABLE_GEOMETRY_EDITING === 'true'}
+            recordType={dataset.record_type}
+            rasterTileUrl={dataset.raster?.tile_url}
+            tileVersion={dataset.updated_at}
+            {...(isRasterOrVrt ? {
+              onMapReady: () => setHeroState('loaded'),
+              onTileError: () => setHeroState('error'),
+            } : {})}
+          />
+          {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
+            <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
+              No raster tiles available
+            </div>
+          )}
+          {isRasterOrVrt && heroState === 'error' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
+              <AlertTriangle className="size-8 text-destructive mb-2" />
+              <p className="text-sm text-muted-foreground mb-3">Preview unavailable</p>
+              {retryCount < 3 ? (
+                <Button size="sm" onClick={handleRetry}>Retry</Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">Tiles may still be processing</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Raster Quick Facts Strip */}
       {dataset.record_type === 'raster_dataset' && dataset.raster && (
@@ -708,7 +721,7 @@ export function DatasetPage() {
           onNavigateToValidationField={handleNavigateToValidationField}
         />
       )}
-      {(dataset.record_type === 'vector_dataset' || !dataset.record_type) && (
+      {(dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type) && (
         <VectorDetailPanel
           dataset={dataset}
           canEdit={isEditor}
