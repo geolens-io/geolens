@@ -13,19 +13,11 @@ interface AppErrorBoundaryProps {
 }
 
 function AppErrorFallback({ error }: { error: Error | null }) {
-  let title = 'Something went wrong';
-  let message = 'An unexpected error occurred. Please reload the page to continue.';
-  let reload = 'Reload page';
+  const { t, ready } = useTranslation('common');
 
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const { t } = useTranslation('common');
-    title = t('errorBoundary.appTitle');
-    message = t('errorBoundary.appMessage');
-    reload = t('errorBoundary.appReload');
-  } catch {
-    // i18n not available — use hardcoded English fallbacks above
-  }
+  const title = ready ? t('errorBoundary.appTitle') : 'Something went wrong';
+  const message = ready ? t('errorBoundary.appMessage') : 'An unexpected error occurred. Please reload the page to continue.';
+  const reload = ready ? t('errorBoundary.appReload') : 'Reload page';
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
