@@ -297,3 +297,86 @@ class TestJobStatus:
         editor_headers = await get_auth_header(client, username, "testpass123")
         resp = await client.get(f"/jobs/{job.id}", headers=editor_headers)
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Non-spatial CSV pipeline tests
+# ---------------------------------------------------------------------------
+
+
+class TestCsvNonSpatialPipeline:
+    """End-to-end test for registering a non-spatial table and querying it."""
+
+    @pytest.fixture(autouse=True)
+    def mock_ingest_task(self):
+        """No-op override -- register path does not defer tasks."""
+        yield
+
+    @pytest.fixture(autouse=True)
+    def mock_file_save(self):
+        """No-op override -- register path does not save files."""
+        yield
+
+    async def test_csv_non_spatial_full_pipeline(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Register a non-spatial table, verify record_type='table', query features."""
+        from sqlalchemy import text
+
+        table_name = "test_csv_nonspatial"
+
+        try:
+            # 1. Create non-spatial table in data schema
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table_name} ("
+                    "  ogc_fid serial PRIMARY KEY,"
+                    "  name text,"
+                    "  value integer"
+                    ")"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (name, value) VALUES "
+                    "('Alice', 100), ('Bob', 200)"
+                )
+            )
+            await test_db_session.commit()
+
+            # 2. Register via POST /ingest/register
+            resp = await client.post(
+                "/ingest/register",
+                json={"table_name": table_name, "title": "Test CSV Table"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            dataset_id = resp.json()["dataset_id"]
+
+            # 3. GET /datasets/{id}/ -- verify record_type and geometry_type
+            resp = await client.get(
+                f"/datasets/{dataset_id}/",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            ds = resp.json()
+            assert ds["record_type"] == "table"
+            assert ds["geometry_type"] is None
+
+            # 4. GET /datasets/{id}/features/ -- verify 2 rows returned
+            resp = await client.get(
+                f"/datasets/{dataset_id}/features/",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            features = resp.json()
+            assert features["total"] == 2
+            names = {f["properties"]["name"] for f in features["features"]}
+            assert names == {"Alice", "Bob"}
+
+        finally:
+            # Clean up the test table
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+            )
+            await test_db_session.commit()
