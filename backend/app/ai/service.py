@@ -150,6 +150,16 @@ def _build_basemap_instruction(basemap_ids: list[str] | None) -> str:
     return _DEFAULT_BASEMAP_INSTRUCTION
 
 
+async def _should_send_sample_values(session: AsyncSession) -> bool:
+    """Check admin toggle for sending sample values to the LLM."""
+    try:
+        from app.persistent_config import AI_SEND_SAMPLE_VALUES
+
+        return await AI_SEND_SAMPLE_VALUES.get(session)
+    except Exception:
+        return True
+
+
 async def _get_available_basemaps(session: AsyncSession) -> list[str] | None:
     """Fetch available basemap IDs from admin settings."""
     try:
@@ -161,7 +171,7 @@ async def _get_available_basemaps(session: AsyncSession) -> list[str] | None:
                 b.get("id") or b.get("key", "") for b in basemaps if isinstance(b, dict)
             ]
     except Exception:
-        pass
+        logger.warning("Failed to fetch basemap config, using defaults", exc_info=True)
     return None
 
 
@@ -223,6 +233,8 @@ async def _execute_search_tool(
     user: User,
     user_roles: set[str],
     tool_input: dict,
+    *,
+    send_sample_values: bool = True,
 ) -> list[dict]:
     """Execute the search_datasets tool and return results as dicts."""
     q = tool_input.get("q")
@@ -244,11 +256,12 @@ async def _execute_search_tool(
 
     results = []
     for ds in datasets:
-        # Limit sample_values to 5 columns, 5 values each
-        sample = {}
-        if ds.sample_values:
+        sample = None
+        if send_sample_values and ds.sample_values:
+            sample = {}
             for k, v in list(ds.sample_values.items())[:5]:
                 sample[k] = v[:5] if isinstance(v, list) else v
+            sample = sample or None
 
         results.append(
             {
@@ -262,7 +275,7 @@ async def _execute_search_tool(
                 "extent_bbox": extract_bbox(ds),
                 "feature_count": ds.feature_count,
                 "column_info": ds.column_info[:20] if ds.column_info else None,
-                "sample_values": sample or None,
+                "sample_values": sample,
             }
         )
 
@@ -274,6 +287,8 @@ async def _execute_get_dataset_details(
     user: User,
     user_roles: set[str],
     tool_input: dict,
+    *,
+    send_sample_values: bool = True,
 ) -> dict:
     """Return full column info, sample values, and feature count for a dataset."""
     dataset_id = tool_input.get("dataset_id")
@@ -300,11 +315,12 @@ async def _execute_get_dataset_details(
     # Cap column_info to 50 columns to bound token usage
     column_info = ds.column_info[:50] if ds.column_info else None
 
-    # Limit sample_values to 5 values per column (all columns)
-    sample = {}
-    if ds.sample_values:
+    sample = None
+    if send_sample_values and ds.sample_values:
+        sample = {}
         for k, v in ds.sample_values.items():
             sample[k] = v[:5] if isinstance(v, list) else v
+        sample = sample or None
 
     return {
         "id": str(ds.id),
@@ -312,7 +328,7 @@ async def _execute_get_dataset_details(
         "geometry_type": ds.geometry_type,
         "feature_count": ds.feature_count,
         "column_info": column_info,
-        "sample_values": sample or None,
+        "sample_values": sample,
     }
 
 
@@ -347,7 +363,8 @@ async def _retry_parse_map_spec(
             max_tokens=4096,
             messages=[{"role": "user", "content": extraction_prompt}],
         )
-        retry_text = response.content[0].text
+        block = response.content[0] if response.content else None
+        retry_text = getattr(block, "text", "") if block else ""
     else:
         from openai import AsyncOpenAI
 
@@ -361,6 +378,94 @@ async def _retry_parse_map_spec(
         retry_text = response.choices[0].message.content or ""
 
     return _parse_map_spec(retry_text)
+
+
+async def _validate_and_persist_map(
+    session: AsyncSession,
+    user: User,
+    user_roles: set[str],
+    spec: LLMMapSpec,
+    basemap_ids: list[str] | None = None,
+) -> dict:
+    """Validate dataset visibility, create map, and persist layers atomically.
+
+    Returns dict with map_id, map_name, explanation, datasets_used.
+    Raises ValueError if any referenced dataset is not visible to the user.
+    """
+    # Validate basemap_style against configured basemaps
+    if basemap_ids and spec.basemap_style not in basemap_ids:
+        logger.warning(
+            "LLM chose invalid basemap, falling back",
+            chosen=spec.basemap_style,
+            available=basemap_ids,
+        )
+        spec.basemap_style = basemap_ids[0]
+
+    # Validate all layer dataset IDs with RBAC visibility filter
+    dataset_ids = [uuid.UUID(layer.dataset_id) for layer in spec.layers]
+    stmt = (
+        select(Dataset.id, Dataset.geometry_type, Record.title)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id.in_(dataset_ids))
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    ds_result = await session.execute(stmt)
+    ds_info = {
+        str(row[0]): {"geometry_type": row[1], "title": row[2]}
+        for row in ds_result.all()
+    }
+
+    # Reject if any dataset is missing or unauthorized
+    requested_ids = [layer.dataset_id for layer in spec.layers]
+    missing = [did for did in requested_ids if did not in ds_info]
+    if missing:
+        raise ValueError(f"Datasets not found or not accessible: {', '.join(missing)}")
+
+    # Build validated layer dicts before touching the DB
+    layer_dicts = []
+    for layer in spec.layers:
+        info = ds_info[layer.dataset_id]
+        validated_paint = validate_paint_for_geometry(
+            layer.paint, info.get("geometry_type")
+        )
+        layer_dicts.append(
+            {
+                "dataset_id": uuid.UUID(layer.dataset_id),
+                "sort_order": layer.sort_order,
+                "visible": layer.visible,
+                "opacity": layer.opacity,
+                "paint": validated_paint,
+                "layout": layer.layout,
+            }
+        )
+
+    # Persist map + layers atomically via nested savepoint
+    async with session.begin_nested():
+        map_obj = await create_map(
+            session,
+            name=spec.name,
+            description=spec.description,
+            created_by=user.id,
+        )
+        await update_map(
+            session,
+            map_obj.id,
+            center_lng=spec.center_lng,
+            center_lat=spec.center_lat,
+            zoom=spec.zoom,
+            basemap_style=spec.basemap_style,
+            layers=layer_dicts,
+        )
+
+    # Derive dataset_names in spec.layers order (preserving duplicates)
+    dataset_names = [ds_info[layer.dataset_id]["title"] for layer in spec.layers]
+
+    return {
+        "map_id": str(map_obj.id),
+        "map_name": spec.name,
+        "explanation": spec.explanation,
+        "datasets_used": dataset_names,
+    }
 
 
 async def generate_map_from_prompt(
@@ -381,30 +486,46 @@ async def generate_map_from_prompt(
     basemap_ids = await _get_available_basemaps(session)
     system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
 
+    # Resolve data exposure toggle once
+    send_samples = await _should_send_sample_values(session)
+
     # Build tool executor bound to this session/user
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
         if tool_name == "search_datasets":
             return {
                 "results": await _execute_search_tool(
-                    session, user, user_roles, tool_input
+                    session,
+                    user,
+                    user_roles,
+                    tool_input,
+                    send_sample_values=send_samples,
                 )
             }
         elif tool_name == "get_dataset_details":
             return await _execute_get_dataset_details(
-                session, user, user_roles, tool_input
+                session,
+                user,
+                user_roles,
+                tool_input,
+                send_sample_values=send_samples,
             )
         return {"error": f"Unknown tool: {tool_name}"}
 
-    result = await run_tool_loop(
-        provider=provider,
-        model=model,
-        system_prompt=system_prompt,
-        user_message=prompt,
-        tools_anthropic=ANTHROPIC_TOOLS,
-        tools_openai=OPENAI_TOOLS,
-        tool_executor=tool_executor,
-        base_url=base_url,
-    )
+    try:
+        result = await run_tool_loop(
+            provider=provider,
+            model=model,
+            system_prompt=system_prompt,
+            user_message=prompt,
+            tools_anthropic=ANTHROPIC_TOOLS,
+            tools_openai=OPENAI_TOOLS,
+            tool_executor=tool_executor,
+            base_url=base_url,
+        )
+    except ToolLoopExhaustedError:
+        raise ValueError(
+            "Map generation required too many steps. Try a simpler prompt."
+        )
 
     logger.info(
         "Map generation complete",
@@ -429,62 +550,9 @@ async def generate_map_from_prompt(
     if not spec.layers:
         raise ValueError("LLM produced a map with no layers")
 
-    # Look up geometry types for paint validation
-    dataset_ids = [uuid.UUID(layer.dataset_id) for layer in spec.layers]
-    ds_result = await session.execute(
-        select(Dataset.id, Dataset.geometry_type, Record.title)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.id.in_(dataset_ids))
+    return await _validate_and_persist_map(
+        session, user, user_roles, spec, basemap_ids=basemap_ids
     )
-    ds_info = {
-        str(row[0]): {"geometry_type": row[1], "title": row[2]}
-        for row in ds_result.all()
-    }
-
-    # Create the map using existing service functions
-    map_obj = await create_map(
-        session,
-        name=spec.name,
-        description=spec.description,
-        created_by=user.id,
-    )
-
-    # Build layer dicts for update_map with paint validation
-    layer_dicts = []
-    for layer in spec.layers:
-        info = ds_info.get(layer.dataset_id, {})
-        validated_paint = validate_paint_for_geometry(
-            layer.paint, info.get("geometry_type")
-        )
-        layer_dicts.append(
-            {
-                "dataset_id": uuid.UUID(layer.dataset_id),
-                "sort_order": layer.sort_order,
-                "visible": layer.visible,
-                "opacity": layer.opacity,
-                "paint": validated_paint,
-                "layout": layer.layout,
-            }
-        )
-
-    await update_map(
-        session,
-        map_obj.id,
-        center_lng=spec.center_lng,
-        center_lat=spec.center_lat,
-        zoom=spec.zoom,
-        basemap_style=spec.basemap_style,
-        layers=layer_dicts,
-    )
-
-    dataset_names = [info.get("title", "") for info in ds_info.values()]
-
-    return {
-        "map_id": str(map_obj.id),
-        "map_name": spec.name,
-        "explanation": spec.explanation,
-        "datasets_used": dataset_names,
-    }
 
 
 async def stream_generate_map(
@@ -494,34 +562,43 @@ async def stream_generate_map(
     prompt: str,
     language: str | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Streaming variant of generate_map_from_prompt.
+    """Semi-streaming variant of generate_map_from_prompt.
 
-    Yields progress events during the tool-calling loop, then the final result
-    or error as a done/error event.
+    Tool progress events are collected during the LLM tool loop and replayed
+    before the final result. True incremental streaming would require callback
+    support in run_tool_loop (TODO).
+
+    Yields progress events, then the final result or error as a done/error event.
     """
     try:
         provider, model, base_url = await resolve_provider(session)
         basemap_ids = await _get_available_basemaps(session)
         system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
+        send_samples = await _should_send_sample_values(session)
 
         # Collect progress events via a wrapper around the tool executor
         async def tool_executor(tool_name: str, tool_input: dict) -> dict:
             if tool_name == "search_datasets":
                 return {
                     "results": await _execute_search_tool(
-                        session, user, user_roles, tool_input
+                        session,
+                        user,
+                        user_roles,
+                        tool_input,
+                        send_sample_values=send_samples,
                     )
                 }
             elif tool_name == "get_dataset_details":
                 return await _execute_get_dataset_details(
-                    session, user, user_roles, tool_input
+                    session,
+                    user,
+                    user_roles,
+                    tool_input,
+                    send_sample_values=send_samples,
                 )
             return {"error": f"Unknown tool: {tool_name}"}
 
-        # We need to collect tool events during the loop. Use an action_collector
-        # that also records tool names for progress events.
         tool_events: list[dict] = []
-
         original_executor = tool_executor
 
         async def tracking_executor(tool_name: str, tool_input: dict) -> dict:
@@ -583,60 +660,10 @@ async def stream_generate_map(
             yield {"type": "error", "message": "LLM produced a map with no layers"}
             return
 
-        dataset_ids = [uuid.UUID(layer.dataset_id) for layer in spec.layers]
-        ds_result = await session.execute(
-            select(Dataset.id, Dataset.geometry_type, Record.title)
-            .join(Record, Dataset.record_id == Record.id)
-            .where(Dataset.id.in_(dataset_ids))
+        map_result = await _validate_and_persist_map(
+            session, user, user_roles, spec, basemap_ids=basemap_ids
         )
-        ds_info = {
-            str(row[0]): {"geometry_type": row[1], "title": row[2]}
-            for row in ds_result.all()
-        }
-
-        map_obj = await create_map(
-            session,
-            name=spec.name,
-            description=spec.description,
-            created_by=user.id,
-        )
-
-        layer_dicts = []
-        for layer in spec.layers:
-            info = ds_info.get(layer.dataset_id, {})
-            validated_paint = validate_paint_for_geometry(
-                layer.paint, info.get("geometry_type")
-            )
-            layer_dicts.append(
-                {
-                    "dataset_id": uuid.UUID(layer.dataset_id),
-                    "sort_order": layer.sort_order,
-                    "visible": layer.visible,
-                    "opacity": layer.opacity,
-                    "paint": validated_paint,
-                    "layout": layer.layout,
-                }
-            )
-
-        await update_map(
-            session,
-            map_obj.id,
-            center_lng=spec.center_lng,
-            center_lat=spec.center_lat,
-            zoom=spec.zoom,
-            basemap_style=spec.basemap_style,
-            layers=layer_dicts,
-        )
-
-        dataset_names = [info.get("title", "") for info in ds_info.values()]
-
-        yield {
-            "type": "done",
-            "map_id": str(map_obj.id),
-            "map_name": spec.name,
-            "explanation": spec.explanation,
-            "datasets_used": dataset_names,
-        }
+        yield {"type": "done", **map_result}
 
     except ToolLoopExhaustedError:
         yield {

@@ -16,7 +16,7 @@ from app.ai.llm_loop import resolve_provider, run_tool_loop
 from app.ai.schemas import ChatAction, ChatHistoryMessage, ChatMapLayer, ChatResponse
 from app.ai.sql_generator import build_sql_schema_context, generate_sql
 from app.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
-from app.ai.service import _execute_search_tool
+from app.ai.service import _execute_search_tool, _should_send_sample_values
 from app.auth.models import User
 from app.datasets.column_stats import get_column_stats, get_distinct_values
 from app.sandbox import validate_and_execute, SandboxError
@@ -273,7 +273,9 @@ def build_chat_system_prompt(
                 sample_str = "\n  Sample values: " + "; ".join(sample_parts)
 
         is_raster = layer.layer_type == "raster_geolens"
-        raster_note = " [raster layer - opacity only, no style/filter/label]" if is_raster else ""
+        raster_note = (
+            " [raster layer - opacity only, no style/filter/label]" if is_raster else ""
+        )
         layers_desc.append(
             f'- Layer "{layer.name}" (id: {layer.id}, '
             f"geometry: {layer.geometry_type}, "
@@ -528,7 +530,14 @@ async def _execute_chat_tool(
 ) -> dict:
     """Execute a chat tool and return the result."""
     if tool_name == "search_datasets":
-        results = await _execute_search_tool(session, user, user_roles, tool_input)
+        send_samples = await _should_send_sample_values(session)
+        results = await _execute_search_tool(
+            session,
+            user,
+            user_roles,
+            tool_input,
+            send_sample_values=send_samples,
+        )
         return {"results": results}
 
     if tool_name == "query_data":
@@ -586,16 +595,28 @@ async def _build_data_driven_style(
     color_prop = _get_color_property(target_layer.geometry_type)
 
     # Build allowed_tables from the validated layer set for defense-in-depth
-    allowed_tables = {l.dataset_table_name for l in layers}
+    allowed_tables = {layer.dataset_table_name for layer in layers}
 
     if mode == "categorical":
         return await _build_categorical_style(
-            session, table_name, column, ramp, color_prop, layer_id,
+            session,
+            table_name,
+            column,
+            ramp,
+            color_prop,
+            layer_id,
             allowed_tables=allowed_tables,
         )
     else:
         return await _build_graduated_style(
-            session, table_name, column, ramp, method, class_count, color_prop, layer_id,
+            session,
+            table_name,
+            column,
+            ramp,
+            method,
+            class_count,
+            color_prop,
+            layer_id,
             allowed_tables=allowed_tables,
         )
 
@@ -612,7 +633,11 @@ async def _build_categorical_style(
 ) -> dict:
     """Build categorical style with match expression."""
     values = await get_distinct_values(
-        session, table_name, column, limit=50, allowed_tables=allowed_tables,
+        session,
+        table_name,
+        column,
+        limit=50,
+        allowed_tables=allowed_tables,
     )
     colors = _get_ramp_colors(ramp, len(values))
 
@@ -654,7 +679,10 @@ async def _build_graduated_style(
 ) -> dict:
     """Build graduated style with step expression."""
     stats = await get_column_stats(
-        session, table_name, column, class_count=class_count,
+        session,
+        table_name,
+        column,
+        class_count=class_count,
         allowed_tables=allowed_tables,
     )
     colors = _get_ramp_colors(ramp, class_count)
