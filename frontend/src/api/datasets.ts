@@ -331,3 +331,43 @@ export async function reuploadPresigned(
 
   return completePresignedReupload(datasetId, job_id, completedParts);
 }
+
+
+// ---------------------------------------------------------------------------
+// Dataset FK relationships
+// ---------------------------------------------------------------------------
+
+export async function listRelationships(datasetId: string): Promise<import('@/types/api').DatasetRelationship[]> {
+  return apiFetch<import('@/types/api').DatasetRelationship[]>(`/datasets/${datasetId}/relationships/`);
+}
+
+export async function createRelationship(
+  datasetId: string,
+  body: { target_dataset_id: string; source_column: string; target_column?: string; label?: string },
+): Promise<import('@/types/api').DatasetRelationship> {
+  return apiFetch<import('@/types/api').DatasetRelationship>(`/datasets/${datasetId}/relationships/`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteRelationship(relationshipId: string): Promise<void> {
+  await apiFetch(`/datasets/relationships/${relationshipId}/`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getRelatedRecords(
+  datasetId: string,
+  featureGid: number,
+  relationshipId: string,
+  params?: { limit?: number; after?: number },
+): Promise<import('@/types/api').DatasetRowsResponse> {
+  const query = new URLSearchParams();
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  if (params?.after !== undefined) query.set('after', String(params.after));
+  const qs = query.toString();
+  return apiFetch<import('@/types/api').DatasetRowsResponse>(
+    `/datasets/${datasetId}/features/${featureGid}/related/${relationshipId}/${qs ? `?${qs}` : ''}`,
+  );
+}

@@ -19,6 +19,7 @@ import {
   type DatasetDetailHeaderAction,
 } from '@/components/dataset/DatasetDetailHeader';
 import { DataTab } from '@/components/dataset/tabs/DataTab';
+import { RelatedRecordsPanel } from '@/components/dataset/RelatedRecordsPanel';
 import { VectorDetailPanel } from '@/components/dataset/panels/VectorDetailPanel';
 import { RasterDetailPanel } from '@/components/dataset/panels/RasterDetailPanel';
 import { VrtDetailPanel } from '@/components/dataset/panels/VrtDetailPanel';
@@ -109,6 +110,7 @@ export function DatasetPage() {
   const [isSavingPendingEdits, setIsSavingPendingEdits] = useState(false);
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const selectedFeatureGid = useDrawingStore((s) => s.selectedFeature?.gid ?? null);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
   const capabilities = useDatasetEditCapabilities();
@@ -734,6 +736,11 @@ export function DatasetPage() {
           handleDraftDirtyChange={handleDraftDirtyChange}
           onNavigateToValidationField={handleNavigateToValidationField}
         />
+      )}
+
+      {/* Related records panel -- shown when a feature is selected in editing mode */}
+      {selectedFeatureGid != null && (dataset.record_type === 'vector_dataset' || !dataset.record_type) && (
+        <RelatedRecordsPanel datasetId={id!} featureGid={selectedFeatureGid} />
       )}
 
       <PendingEditsBar

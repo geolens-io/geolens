@@ -214,6 +214,7 @@ class ReuploadServicePreviewRequest(BaseModel):
     layer_title: str | None = None
     layer_id: int | str | None = None
     token: str | None = None
+    object_id_field: str | None = None
 
 
 class ReuploadCommitRequest(BaseModel):
@@ -364,3 +365,23 @@ class RelatedDatasetsResponse(BaseModel):
 class AttributeMetadataListResponse(BaseModel):
     attributes: list[AttributeMetadataResponse]
     total: int
+
+
+class DatasetRelationshipCreate(BaseModel):
+    target_dataset_id: uuid.UUID
+    source_column: str
+    target_column: str = "gid"
+    label: str | None = None
+
+
+class DatasetRelationshipResponse(BaseModel):
+    id: uuid.UUID
+    source_dataset_id: uuid.UUID
+    target_dataset_id: uuid.UUID
+    source_column: str
+    target_column: str
+    relationship_type: str
+    label: str | None
+    target_dataset_title: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)

@@ -861,6 +861,7 @@ export interface LayerInfo {
   feature_count: number | null;
   layer_type: string;
   layer_id: number | string | null;
+  object_id_field: string | null;
 }
 
 export interface ProbeResponse {
@@ -877,6 +878,7 @@ export interface ServicePreviewRequest {
   layer_title: string | null;
   layer_id: number | string | null;
   token?: string;
+  object_id_field?: string | null;
 }
 
 export interface ServicePreviewResponse {
@@ -1122,4 +1124,15 @@ export interface VrtGenerationItem {
 export interface VrtGenerationListResponse {
   generations: VrtGenerationItem[];
   total: number;
+}
+
+export interface DatasetRelationship {
+  id: string;
+  source_dataset_id: string;
+  target_dataset_id: string;
+  source_column: string;
+  target_column: string;
+  relationship_type: string;
+  label: string | null;
+  target_dataset_title: string | null;
 }
