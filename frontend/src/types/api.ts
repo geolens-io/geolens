@@ -478,6 +478,7 @@ export interface FilePreviewResponse {
   feature_count: number | null;
   sample_rows: Record<string, unknown>[];
   layer_name: string;
+  layers?: { name: string; feature_count: number; field_count: number }[] | null;
 }
 
 export interface CommitImportRequest {
@@ -491,6 +492,7 @@ export interface CommitImportRequest {
   compression?: string | null;
   resampling?: string | null;
   nodata_override?: number | string | null;
+  layer_name?: string;
 }
 
 export interface CommitImportResponse {

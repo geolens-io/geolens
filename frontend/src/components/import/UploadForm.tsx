@@ -183,6 +183,21 @@ export function UploadForm() {
     setPhase('tracking');
   };
 
+  const handleSheetChange = async (entryId: string, layerName: string) => {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry?.jobId) return;
+
+    updateEntry(entryId, { status: 'previewing' });
+    try {
+      const preview = await previewFile(entry.jobId, layerName);
+      updateEntry(entryId, { previewData: preview, status: 'preview' });
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.message : t('upload.uploadFailed');
+      updateEntry(entryId, { status: 'preview', error: msg });
+    }
+  };
+
   const removeEntry = (entryId: string) => {
     setEntries((prev) => {
       const updated = prev.filter((e) => e.id !== entryId);
@@ -203,6 +218,7 @@ export function UploadForm() {
           onCommitSingle={handleCommitSingle}
           onCommitAll={handleCommitAll}
           onRemove={removeEntry}
+          onSheetChange={handleSheetChange}
           isCommitting={entries.some((e) => e.status === 'committing')}
         />
         <Button variant="outline" onClick={reset}>

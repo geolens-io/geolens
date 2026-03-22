@@ -14,9 +14,11 @@ const ACCEPT = {
   'application/geo+json': ['.geojson', '.json'],
   'text/csv': ['.csv'],
   'image/tiff': ['.tif', '.tiff'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'application/vnd.ms-excel': ['.xls'],
 };
 
-const FORMAT_BADGES = ['.zip', '.gpkg', '.geojson', '.csv', '.tif'];
+const FORMAT_BADGES = ['.zip', '.gpkg', '.geojson', '.csv', '.xlsx', '.tif'];
 
 export function FileDropzone({ onFilesAccepted, disabled }: FileDropzoneProps) {
   const { t } = useTranslation('import');

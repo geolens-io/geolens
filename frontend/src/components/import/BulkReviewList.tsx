@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import type { FileEntry, CommitImportRequest, FilePreviewResponse, RasterPreviewResponse } from '@/types/api';
@@ -13,11 +14,18 @@ function isRasterPreview(
   return 'band_count' in data;
 }
 
+function isFilePreview(
+  data: FilePreviewResponse | RasterPreviewResponse,
+): data is FilePreviewResponse {
+  return 'layers' in data || 'layer_name' in data;
+}
+
 interface BulkReviewListProps {
   entries: FileEntry[];
   onCommitSingle: (entryId: string, request: CommitImportRequest) => void;
   onCommitAll: () => void;
   onRemove: (entryId: string) => void;
+  onSheetChange?: (entryId: string, layerName: string) => void;
   isCommitting: boolean;
 }
 
@@ -26,6 +34,7 @@ export function BulkReviewList({
   onCommitSingle,
   onCommitAll,
   onRemove,
+  onSheetChange,
   isCommitting,
 }: BulkReviewListProps) {
   const { t } = useTranslation('import');
@@ -71,6 +80,28 @@ export function BulkReviewList({
           </div>
 
           {(entry.status === 'preview' || entry.status === 'committing') &&
+            entry.previewData &&
+            isFilePreview(entry.previewData) &&
+            entry.previewData.layers &&
+            entry.previewData.layers.length > 1 && (
+              <div className="mb-4 space-y-1">
+                <Label htmlFor={`sheet-${entry.id}`}>{t('bulk.sheetLabel', 'Sheet')}</Label>
+                <select
+                  id={`sheet-${entry.id}`}
+                  value={entry.previewData.layer_name}
+                  onChange={(e) => onSheetChange?.(entry.id, e.target.value)}
+                  className="h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
+                >
+                  {entry.previewData.layers.map((layer) => (
+                    <option key={layer.name} value={layer.name}>
+                      {layer.name} ({layer.feature_count} rows, {layer.field_count} columns)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+          {(entry.status === 'preview' || entry.status === 'committing') &&
             entry.previewData && (
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <ImportPreview preview={entry.previewData} />
@@ -83,7 +114,11 @@ export function BulkReviewList({
                       ? entry.previewData.crs_epsg
                       : entry.previewData.crs
                   }
-                  onCommit={(req) => onCommitSingle(entry.id, req)}
+                  onCommit={(req) => {
+                    const hasMultiSheet = isFilePreview(entry.previewData!) && entry.previewData!.layers && entry.previewData!.layers.length > 1;
+                    const layerName = hasMultiSheet && isFilePreview(entry.previewData!) ? (entry.previewData as FilePreviewResponse).layer_name : undefined;
+                    onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
+                  }}
                   isCommitting={entry.status === 'committing'}
                   isRaster={isRasterPreview(entry.previewData)}
                   previewData={
@@ -111,7 +146,11 @@ export function BulkReviewList({
                       ? entry.previewData.crs_epsg
                       : entry.previewData.crs
                   }
-                  onCommit={(req) => onCommitSingle(entry.id, req)}
+                  onCommit={(req) => {
+                    const hasMultiSheet = isFilePreview(entry.previewData!) && entry.previewData!.layers && entry.previewData!.layers.length > 1;
+                    const layerName = hasMultiSheet && isFilePreview(entry.previewData!) ? (entry.previewData as FilePreviewResponse).layer_name : undefined;
+                    onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
+                  }}
                   isCommitting={false}
                   isRaster={isRasterPreview(entry.previewData)}
                   previewData={
