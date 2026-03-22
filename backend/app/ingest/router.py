@@ -7,7 +7,7 @@ import math
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -322,6 +322,7 @@ async def upload_file(
 )
 async def preview_file(
     job_id: uuid.UUID,
+    layer_name: str | None = Query(None, description="Sheet/layer name for multi-layer files"),
     user: User = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> PreviewResponse | RasterPreviewResponse:
@@ -383,7 +384,7 @@ async def preview_file(
             temporal_start=meta.get("temporal_start"),
         )
 
-    info = await run_ogrinfo_preview(file_path)
+    info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
 
     return PreviewResponse(
         job_id=job.id,
@@ -393,7 +394,8 @@ async def preview_file(
         geometry_type=info["geometry_type"],
         feature_count=info["feature_count"],
         sample_rows=info["sample_rows"],
-        layer_name=info["layer_name"],
+        layer_name=layer_name if layer_name else info["layer_name"],
+        layers=info.get("all_layers"),
     )
 
 
