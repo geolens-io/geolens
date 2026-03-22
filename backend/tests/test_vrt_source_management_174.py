@@ -814,6 +814,8 @@ class TestStatusField:
         mock_raster_asset.band_info = []
         mock_raster_asset.storage_backend = "local"
         mock_raster_asset.status = "ready"
+        mock_raster_asset.vrt_type = None
+        mock_raster_asset.resolution_strategy = None
 
         result = _build_raster_metadata(mock_dataset, mock_raster_asset)
 
@@ -840,6 +842,8 @@ class TestStatusField:
         mock_raster_asset.band_info = []
         mock_raster_asset.storage_backend = "local"
         mock_raster_asset.status = "regenerating"
+        mock_raster_asset.vrt_type = None
+        mock_raster_asset.resolution_strategy = None
 
         result = _build_raster_metadata(mock_dataset, mock_raster_asset)
 

@@ -352,13 +352,13 @@ async def test_collection_items_response_has_links(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_conformance_does_not_include_records_core(client: AsyncClient):
-    """GET /conformance does NOT include OGC API Records Core (not fully implemented)."""
+async def test_conformance_includes_records_core(client: AsyncClient):
+    """GET /conformance includes OGC API Records Core conformance classes."""
     resp = await client.get("/conformance")
     assert resp.status_code == 200
     data = resp.json()
-    for cls in data["conformsTo"]:
-        assert "ogcapi-records-1" not in cls, f"Unexpected Records class: {cls}"
+    records_classes = [cls for cls in data["conformsTo"] if "ogcapi-records-1" in cls]
+    assert len(records_classes) >= 1, "Expected at least one Records conformance class"
 
 
 # ---------------------------------------------------------------------------

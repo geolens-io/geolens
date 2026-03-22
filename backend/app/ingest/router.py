@@ -508,6 +508,7 @@ async def register_table(
     """
     try:
         dataset = await register_existing_table(db, request, user)
+        await db.commit()
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

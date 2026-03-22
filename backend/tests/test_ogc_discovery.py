@@ -13,7 +13,8 @@ def test_build_url_generates_absolute_urls():
 
 def test_build_url_avoids_double_slashes(monkeypatch):
     """build_url() normalizes trailing slash on base URL."""
-    monkeypatch.setattr("app.ogc.utils.settings.public_base_url", "http://example.com/")
+    # Patch in both the source module and the importing module
+    monkeypatch.setattr("app.ogc.utils.get_env_public_api_url", lambda request=None: "http://example.com/")
     result = build_url("/conformance")
     assert "//conformance" not in result
     assert result == "http://example.com/conformance"
