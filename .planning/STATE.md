@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-mb0
-last_updated: "2026-03-22T20:21:01.912Z"
-last_activity: "2026-03-22 - Completed quick task 260322-lv3: Test quality follow-ups"
+stopped_at: Completed quick-260322-ndc
+last_updated: "2026-03-22T21:10:52.783Z"
+last_activity: "2026-03-22 - Completed quick tasks 260322-mb0: Excel ingestion + MapLibre AJAX fix"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -112,6 +112,7 @@ Plan: Not started
 - [Phase quick-260322-l97]: Use useTranslation ready flag instead of try/catch for i18n fallback in error boundaries
 - [Phase quick-260322-mb0]: Multi-layer detection returns all_layers list only when >1 layer and no specific layer requested
 - [Phase quick-260322-mb0]: OOXML magic byte validation includes .zip and .docx since puremagic detects OOXML as ZIP container
+- [Phase quick-260322-ndc]: Post-import SQL (ST_MakePoint/ST_GeomFromText) for XLSX geometry construction over VRT wrapper
 
 ### Pending Todos
 
@@ -123,7 +124,7 @@ Plan: Not started
 ### Blockers/Concerns
 
 - Export latency p95=9s under load — flagged for future optimization (ogr2ogr conversion overhead)
-- Investigate whether expected no-data raster tile responses are surfacing as noisy MapLibre AJAX errors in some builder sessions
+- ~~Investigate whether expected no-data raster tile responses are surfacing as noisy MapLibre AJAX errors in some builder sessions~~ — **RESOLVED** in 260322-mb0: nginx proxy_intercept_errors converts Titiler 404→204, BuilderMap error listener suppresses expected tile errors
 
 ### Quick Tasks Completed
 
@@ -151,10 +152,12 @@ Plan: Not started
 | 260322-l97 | AppErrorBoundary hooks fix, CSV upload test, RelatedRecordsPanel + NotFoundPage tests | 2026-03-22 | 7f60a789 | Verified | [260322-l97-test-coverage-and-error-handling-fixes-c](./quick/260322-l97-test-coverage-and-error-handling-fixes-c/) |
 | 260322-ljk | Resolve outstanding audit gaps (260322 + 260319-qu1 verification) | 2026-03-22 | 1a46daaf | Verified | [260322-ljk-resolve-outstanding-audit-gaps-260322-ve](./quick/260322-ljk-resolve-outstanding-audit-gaps-260322-ve/) |
 | 260322-lv3 | E2e seed script, m42/f9l verification, non-spatial CSV pipeline test | 2026-03-22 | 0c3970f9 | Verified | [260322-lv3-test-quality-follow-ups-e2e-seed-data-sc](./quick/260322-lv3-test-quality-follow-ups-e2e-seed-data-sc/) |
+| 260322-mb0 | Excel (.xlsx/.xls) non-spatial ingestion, multi-sheet support, format detection | 2026-03-22 | c5c18bc7 | Verified | [260322-mb0-excel-json-non-spatial-ingestion-support](./quick/260322-mb0-excel-json-non-spatial-ingestion-support/) |
+| 260322-mb0 | Fix noisy MapLibre AJAX errors: nginx proxy_intercept_errors + BuilderMap error handler | 2026-03-22 | 47886433 | Verified | [260322-mb0-investigate-and-fix-noisy-maplibre-ajax-](./quick/260322-mb0-investigate-and-fix-noisy-maplibre-ajax-/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick task 260322-lv3: Test quality follow-ups
-Last session: 2026-03-22T20:21:01.909Z
-Stopped at: Completed quick-260322-mb0
+Last activity: 2026-03-22 - Completed quick tasks 260322-mb0: Excel ingestion + MapLibre AJAX fix
+Last session: 2026-03-22T21:10:49.106Z
+Stopped at: Completed quick-260322-ndc
 Resume file: None
