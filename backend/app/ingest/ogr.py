@@ -231,20 +231,23 @@ async def run_ogr2ogr(
     table_name: str,
     db_conn_str: str,
     source_srid: int | None = None,
+    geometry_type: str | None = None,
 ) -> None:
-    """Run ogr2ogr to load a geospatial file into PostGIS.
+    """Run ogr2ogr to load a file into PostGIS.
 
     Args:
         file_path: Path to the source file.
         table_name: Target table name (without schema prefix).
         db_conn_str: PG connection string for ogr2ogr.
         source_srid: Optional SRID from ogrinfo. Used for CSV defaults.
+        geometry_type: Geometry type from ogrinfo. None for non-spatial files.
 
     Raises:
         IngestionError: If ogr2ogr exits with non-zero code.
     """
     source = _resolve_source_path(file_path)
     is_csv = file_path.lower().endswith(".csv")
+    is_non_spatial = geometry_type is None
 
     cmd = [
         "ogr2ogr",
@@ -254,22 +257,19 @@ async def run_ogr2ogr(
         source,
         "-nln",
         f"data.{table_name}",
-        "-nlt",
-        "PROMOTE_TO_MULTI",
-        "-lco",
-        "GEOMETRY_NAME=geom",
         "-lco",
         "FID=gid",
         "-lco",
         "PRECISION=NO",
-        "-lco",
-        "SPATIAL_INDEX=GIST",
         "--config",
         "PG_USE_COPY",
         "YES",
     ]
 
-    if is_csv:
+    if not is_non_spatial:
+        cmd.extend(["-nlt", "PROMOTE_TO_MULTI", "-lco", "GEOMETRY_NAME=geom", "-lco", "SPATIAL_INDEX=GIST"])
+
+    if is_csv and not is_non_spatial:
         cmd.extend(
             [
                 "-oo",
@@ -346,8 +346,6 @@ async def run_ogr2ogr_service(
 
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
-    elif service_type == "arcgis_featureserver":
-        cmd.extend(["-oo", "FEATURE_SERVER_PAGING=YES"])
 
     env = None
     if token and service_type == "wfs":

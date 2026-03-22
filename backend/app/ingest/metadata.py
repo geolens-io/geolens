@@ -195,22 +195,24 @@ async def compute_quality_score(
     metadata_score = round(filled / len(optional_fields) * 100, 1)
 
     # 2. CRS defined (weight 0.15)
-    crs_score: float = 100.0 if dataset.srid is not None else 0.0
+    has_geometry = dataset.geometry_type is not None
+    crs_score: float = 100.0 if (dataset.srid is not None or not has_geometry) else 0.0
 
     # 3. Geometry validity (weight 0.30)
     geometry_score: float = 100.0
-    try:
-        result = await session.execute(
-            text(
-                f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
-                f"FROM (SELECT geom FROM data.{table_name} LIMIT :max_rows) sub"
-            ).bindparams(max_rows=max_validity_rows)
-        )
-        val = result.scalar_one_or_none()
-        if val is not None:
-            geometry_score = round(float(val), 1)
-    except Exception:
-        geometry_score = 100.0
+    if has_geometry:
+        try:
+            result = await session.execute(
+                text(
+                    f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
+                    f"FROM (SELECT geom FROM data.{table_name} LIMIT :max_rows) sub"
+                ).bindparams(max_rows=max_validity_rows)
+            )
+            val = result.scalar_one_or_none()
+            if val is not None:
+                geometry_score = round(float(val), 1)
+        except Exception:
+            geometry_score = 100.0
 
     # 4. Attribute completeness (weight 0.25)
     attribute_score: float = 100.0
@@ -257,18 +259,39 @@ async def compute_quality_score(
     }
 
 
+async def _table_has_geometry(session: AsyncSession, table_name: str) -> bool:
+    """Check whether a data table has a 'geom' column."""
+    _validate_table_name(table_name)
+    result = await session.execute(
+        text(
+            "SELECT EXISTS(SELECT 1 FROM information_schema.columns "
+            f"WHERE table_schema='data' AND table_name='{table_name}' "
+            "AND column_name='geom')"
+        )
+    )
+    return result.scalar_one()
+
+
 async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
     """Extract all metadata from a PostGIS table.
 
     Returns dict with keys: srid, geometry_type, feature_count, extent_wkt,
-    column_info.
+    column_info. For non-spatial tables, spatial fields are None.
     """
     _validate_table_name(table_name)
-    srid = await get_table_srid(session, table_name)
-    geometry_type = await get_geometry_type(session, table_name)
-    feature_count = await get_feature_count(session, table_name)
-    extent_wkt = await get_extent(session, table_name)
     column_info = await get_column_info(session, table_name)
+    feature_count = await get_feature_count(session, table_name)
+
+    has_geometry = await _table_has_geometry(session, table_name)
+
+    if has_geometry:
+        srid = await get_table_srid(session, table_name)
+        geometry_type = await get_geometry_type(session, table_name)
+        extent_wkt = await get_extent(session, table_name)
+    else:
+        srid = None
+        geometry_type = None
+        extent_wkt = None
 
     return {
         "srid": srid,

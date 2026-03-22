@@ -48,7 +48,7 @@ class Record(Base):
             name="chk_records_sensitivity",
         ),
         CheckConstraint(
-            "record_type IN ('vector_dataset', 'raster_dataset', 'vrt_dataset', 'map', 'service', 'collection')",
+            "record_type IN ('vector_dataset', 'raster_dataset', 'vrt_dataset', 'map', 'service', 'collection', 'table')",
             name="chk_records_record_type",
         ),
         CheckConstraint(

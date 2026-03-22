@@ -157,11 +157,15 @@ async def create_dataset(
     if extent_wkt and extent_wkt.startswith("POLYGON"):
         spatial_extent_value = func.ST_GeomFromText(extent_wkt, 4326)
 
+    # Determine record_type: non-spatial datasets are 'table'
+    record_type = "table" if geometry_type is None else "vector_dataset"
+
     record = Record(
         title=title,
         summary=summary,
         visibility=visibility,
         record_status="published",
+        record_type=record_type,
         spatial_extent=spatial_extent_value,
         created_by=created_by,
     )
