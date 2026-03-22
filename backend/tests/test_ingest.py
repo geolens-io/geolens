@@ -130,6 +130,42 @@ class TestUpload:
 
 
 # ---------------------------------------------------------------------------
+# CSV upload tests
+# ---------------------------------------------------------------------------
+
+
+class TestCsvUpload:
+    async def test_csv_upload_success(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_ingest_task,
+        mock_file_save,
+        test_db_session,
+    ):
+        """POST /ingest/upload with a valid CSV file returns 201 with job_id."""
+        csv_content = b"id,name,value\n1,Alice,100\n2,Bob,200\n"
+        resp = await client.post(
+            "/ingest/upload",
+            files={"file": ("data.csv", csv_content, "text/csv")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert "job_id" in data
+        assert data["status"] == "pending"
+
+        # Verify IngestJob record was created in DB
+        job_id = uuid.UUID(data["job_id"])
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.id == job_id)
+        )
+        job = result.scalar_one_or_none()
+        assert job is not None
+        assert job.status == "pending"
+
+
+# ---------------------------------------------------------------------------
 # Register endpoint tests
 # ---------------------------------------------------------------------------
 
