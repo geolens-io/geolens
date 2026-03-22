@@ -551,6 +551,13 @@
   "relatedDatasets": {
     "title": "Conjuntos de datos relacionados"
   },
+  "relatedRecords": {
+    "title": "Registros relacionados",
+    "noRecords": "Sin registros relacionados",
+    "showingCount": "Mostrando {{shown}} de {{total}} registros",
+    "error": "Error al cargar relaciones",
+    "loadError": "Error al cargar registros relacionados"
+  },
   "sections": {
     "identity": "Identidad",
     "summary": "Resumen",

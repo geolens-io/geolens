@@ -551,6 +551,13 @@
   "relatedDatasets": {
     "title": "Jeux de données liés"
   },
+  "relatedRecords": {
+    "title": "Enregistrements associes",
+    "noRecords": "Aucun enregistrement associe",
+    "showingCount": "{{shown}} sur {{total}} enregistrements",
+    "error": "Echec du chargement des relations",
+    "loadError": "Echec du chargement des enregistrements associes"
+  },
   "sections": {
     "identity": "Identité",
     "summary": "Résumé",

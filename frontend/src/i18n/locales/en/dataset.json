@@ -478,6 +478,13 @@
   "relatedDatasets": {
     "title": "Related Datasets"
   },
+  "relatedRecords": {
+    "title": "Related Records",
+    "noRecords": "No related records",
+    "showingCount": "Showing {{shown}} of {{total}} records",
+    "error": "Failed to load relationships",
+    "loadError": "Failed to load related records"
+  },
   "iso": {
     "lineage": "Lineage",
     "lineagePlaceholder": "Describe the data provenance and processing history...",

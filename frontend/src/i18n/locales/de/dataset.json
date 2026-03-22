@@ -551,6 +551,13 @@
   "relatedDatasets": {
     "title": "Verwandte Datensätze"
   },
+  "relatedRecords": {
+    "title": "Verknuepfte Datensaetze",
+    "noRecords": "Keine verknuepften Datensaetze",
+    "showingCount": "{{shown}} von {{total}} Datensaetzen",
+    "error": "Beziehungen konnten nicht geladen werden",
+    "loadError": "Verknuepfte Datensaetze konnten nicht geladen werden"
+  },
   "sections": {
     "identity": "Identität",
     "summary": "Zusammenfassung",
