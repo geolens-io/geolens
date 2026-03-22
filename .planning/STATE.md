@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-kec
-last_updated: "2026-03-22T19:16:09.937Z"
-last_activity: "2026-03-22 - Completed quick task 260322-irw: FK relationship polish"
+stopped_at: Completed quick-260322-l97
+last_updated: "2026-03-22T19:27:42.962Z"
+last_activity: "2026-03-22 - Completed quick task 260322-kec: FK enhancements"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -109,6 +109,7 @@ Plan: Not started
 - [Phase quick-260322-hv0]: DatasetRelationship FK model references catalog.records.id for FK joins between datasets
 - [Phase quick-260322-irw]: Used get_dataset + check_dataset_access pattern for visibility on FK read endpoints
 - [Phase quick-260322-kec]: FK candidates filtered by _id suffix excluding PK names; read-only click uses effectiveGid merge pattern
+- [Phase quick-260322-l97]: Use useTranslation ready flag instead of try/catch for i18n fallback in error boundaries
 
 ### Pending Todos
 
@@ -144,10 +145,11 @@ Plan: Not started
 | 260322-gzi | Fix ArcGIS auth header, JSON error detection, dynamic objectIdField, UX help text | 2026-03-22 | e57e796c | Verified | [260322-gzi-review-arcgis-online-portal-authenticate](./quick/260322-gzi-review-arcgis-online-portal-authenticate/) |
 | 260322-hv0 | Non-spatial CSV ingestion, table detail layout, FK relationship model and related records panel | 2026-03-22 | fcd49732 | Verified | [260322-hv0-review-and-implement-non-spatial-table-s](./quick/260322-hv0-review-and-implement-non-spatial-table-s/) |
 | 260322-irw | Fix FK endpoint NameError, add visibility checks, i18n, error states, tests | 2026-03-22 | 4b95f4f9 | Verified | [260322-irw-polishing-what-s-shipped-review-all-the-](./quick/260322-irw-polishing-what-s-shipped-review-all-the-/) |
+| 260322-kec | FK auto-detection, read-only panel activation, table guard fix | 2026-03-22 | 8ee8eaf6 | Verified | [260322-kec-address-all-follow-up-items-from-shipped](./quick/260322-kec-address-all-follow-up-items-from-shipped/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick task 260322-irw: FK relationship polish
-Last session: 2026-03-22T19:16:04.387Z
-Stopped at: Completed quick-260322-kec
+Last activity: 2026-03-22 - Completed quick task 260322-kec: FK enhancements
+Last session: 2026-03-22T19:27:42.894Z
+Stopped at: Completed quick-260322-l97
 Resume file: None
