@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-l97
-last_updated: "2026-03-22T19:27:42.962Z"
-last_activity: "2026-03-22 - Completed quick task 260322-kec: FK enhancements"
+stopped_at: Completed quick-260322-mb0
+last_updated: "2026-03-22T20:18:48.621Z"
+last_activity: "2026-03-22 - Completed quick task 260322-lv3: Test quality follow-ups"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -110,6 +110,8 @@ Plan: Not started
 - [Phase quick-260322-irw]: Used get_dataset + check_dataset_access pattern for visibility on FK read endpoints
 - [Phase quick-260322-kec]: FK candidates filtered by _id suffix excluding PK names; read-only click uses effectiveGid merge pattern
 - [Phase quick-260322-l97]: Use useTranslation ready flag instead of try/catch for i18n fallback in error boundaries
+- [Phase quick-260322-mb0]: Multi-layer detection returns all_layers list only when >1 layer and no specific layer requested
+- [Phase quick-260322-mb0]: OOXML magic byte validation includes .zip and .docx since puremagic detects OOXML as ZIP container
 
 ### Pending Todos
 
@@ -148,11 +150,11 @@ Plan: Not started
 | 260322-kec | FK auto-detection, read-only panel activation, table guard fix | 2026-03-22 | 8ee8eaf6 | Verified | [260322-kec-address-all-follow-up-items-from-shipped](./quick/260322-kec-address-all-follow-up-items-from-shipped/) |
 | 260322-l97 | AppErrorBoundary hooks fix, CSV upload test, RelatedRecordsPanel + NotFoundPage tests | 2026-03-22 | 7f60a789 | Verified | [260322-l97-test-coverage-and-error-handling-fixes-c](./quick/260322-l97-test-coverage-and-error-handling-fixes-c/) |
 | 260322-ljk | Resolve outstanding audit gaps (260322 + 260319-qu1 verification) | 2026-03-22 | 1a46daaf | Verified | [260322-ljk-resolve-outstanding-audit-gaps-260322-ve](./quick/260322-ljk-resolve-outstanding-audit-gaps-260322-ve/) |
-| 260322-lv3 | E2e seed script, m42/f9l verification, non-spatial CSV pipeline test | 2026-03-22 | b5667139 | Verified | [260322-lv3-test-quality-follow-ups-e2e-seed-data-sc](./quick/260322-lv3-test-quality-follow-ups-e2e-seed-data-sc/) |
+| 260322-lv3 | E2e seed script, m42/f9l verification, non-spatial CSV pipeline test | 2026-03-22 | 0c3970f9 | Verified | [260322-lv3-test-quality-follow-ups-e2e-seed-data-sc](./quick/260322-lv3-test-quality-follow-ups-e2e-seed-data-sc/) |
 
 ## Session Continuity
 
 Last activity: 2026-03-22 - Completed quick task 260322-lv3: Test quality follow-ups
-Last session: 2026-03-22T19:59:00Z
-Stopped at: Completed quick-260322-lv3
+Last session: 2026-03-22T20:18:48.485Z
+Stopped at: Completed quick-260322-mb0
 Resume file: None
