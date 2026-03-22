@@ -22,15 +22,16 @@ function RelatedSection({
   featureGid: number;
   relationship: DatasetRelationship;
 }) {
+  const { t } = useTranslation('dataset');
   const [open, setOpen] = useState(false);
 
-  const { data, isLoading } = useQuery<DatasetRowsResponse>({
+  const { data, isLoading, isError } = useQuery<DatasetRowsResponse>({
     queryKey: ['related-records', datasetId, featureGid, relationship.id],
     queryFn: () => getRelatedRecords(datasetId, featureGid, relationship.id, { limit: 50 }),
     enabled: open,
   });
 
-  const label = relationship.label || relationship.target_dataset_title || 'Related Records';
+  const label = relationship.label || relationship.target_dataset_title || t('relatedRecords.title');
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -50,8 +51,11 @@ function RelatedSection({
               <Skeleton className="h-4 w-3/4" />
             </div>
           )}
+          {isError && (
+            <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.loadError')}</p>
+          )}
           {data && data.rows.length === 0 && (
-            <p className="text-sm text-muted-foreground py-2">No related records</p>
+            <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.noRecords')}</p>
           )}
           {data && data.rows.length > 0 && (
             <div className="overflow-x-auto rounded border">
@@ -79,7 +83,7 @@ function RelatedSection({
               </table>
               {data.approximate_total > data.rows.length && (
                 <div className="text-xs text-muted-foreground text-center py-1.5 border-t bg-muted/30">
-                  Showing {data.rows.length} of {data.approximate_total} records
+                  {t('relatedRecords.showingCount', { shown: data.rows.length, total: data.approximate_total })}
                 </div>
               )}
             </div>
@@ -91,9 +95,9 @@ function RelatedSection({
 }
 
 export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPanelProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation('dataset');
 
-  const { data: relationships, isLoading } = useQuery<DatasetRelationship[]>({
+  const { data: relationships, isLoading, isError } = useQuery<DatasetRelationship[]>({
     queryKey: ['dataset-relationships', datasetId],
     queryFn: () => listRelationships(datasetId),
   });
@@ -107,6 +111,14 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
     );
   }
 
+  if (isError) {
+    return (
+      <div className="border rounded-lg bg-card p-3">
+        <p className="text-sm text-muted-foreground">{t('relatedRecords.error')}</p>
+      </div>
+    );
+  }
+
   if (!relationships || relationships.length === 0) {
     return null;
   }
@@ -115,7 +127,7 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
     <div className="border rounded-lg bg-card">
       <div className="px-3 py-2 border-b">
         <h4 className="text-sm font-medium">
-          {t('dataset.relatedRecords', { defaultValue: 'Related Records' })}
+          {t('relatedRecords.title')}
         </h4>
       </div>
       <div className="divide-y">
