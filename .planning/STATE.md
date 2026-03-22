@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-ndc
-last_updated: "2026-03-22T21:10:52.783Z"
-last_activity: "2026-03-22 - Completed quick tasks 260322-mb0: Excel ingestion + MapLibre AJAX fix"
+stopped_at: Completed quick-260322-qg3
+last_updated: "2026-03-22T23:11:53.618Z"
+last_activity: "2026-03-22 - Completed quick task 260322-ndc: Non-spatial table support, CSV/XLSX with geometry columns"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -113,6 +113,7 @@ Plan: Not started
 - [Phase quick-260322-mb0]: Multi-layer detection returns all_layers list only when >1 layer and no specific layer requested
 - [Phase quick-260322-mb0]: OOXML magic byte validation includes .zip and .docx since puremagic detects OOXML as ZIP container
 - [Phase quick-260322-ndc]: Post-import SQL (ST_MakePoint/ST_GeomFromText) for XLSX geometry construction over VRT wrapper
+- [Phase quick-260322-qg3]: Keep all infra directories in monorepo -- coupling cost exceeds organizational benefit at single-developer scale
 
 ### Pending Todos
 
@@ -159,6 +160,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-22 - Completed quick task 260322-ndc: Non-spatial table support, CSV/XLSX with geometry columns
-Last session: 2026-03-22T21:10:49.106Z
-Stopped at: Completed quick-260322-ndc
+Last session: 2026-03-22T23:11:52.686Z
+Stopped at: Completed quick-260322-qg3
 Resume file: None
