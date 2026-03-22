@@ -1,10 +1,11 @@
-"""Integration tests for STAC fields in OGC record output.
+"""Integration tests for record output fields.
 
 Verifies:
-  - stac_version="1.1.0" at top level of OGC record
   - properties.datetime follows STAC 1.1.0 rules
-  - stac_assets dict serialized from DatasetAsset rows
+  - STAC-specific keys (stac_version, stac_extensions, stac_assets) are NOT
+    present in OGC Records responses
   - _build_stac_assets helper produces correct structure
+  - Raster records include proj:* properties
 
 Requirements:
   - Docker database must be running (docker compose up db)
@@ -21,8 +22,6 @@ from app.auth.models import User
 from app.datasets.models import Dataset, Record
 from app.raster.models import DatasetAsset
 from app.search.service import (
-    STAC_EXT_EO,
-    STAC_EXT_PROJECTION,
     _build_stac_assets,
     dataset_to_ogc_record,
 )
@@ -76,16 +75,17 @@ async def _create_record_and_dataset(
 # ---------------------------------------------------------------------------
 
 
-class TestStacVersion:
-    async def test_ogc_record_has_stac_version(self, client, test_db_session):
-        """OGC record dict has top-level stac_version = '1.1.0'."""
+class TestNoStacBleedthrough:
+    async def test_ogc_record_no_stac_version(self, client, test_db_session):
+        """OGC record dict must NOT have stac_version (STAC-specific)."""
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(
             test_db_session, admin_id=admin_id
         )
 
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
-        assert result["stac_version"] == "1.1.0"
+        assert "stac_version" not in result
+        assert "conformsTo" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -138,34 +138,13 @@ class TestStacDatetime:
 # ---------------------------------------------------------------------------
 
 
-class TestStacAssets:
-    async def test_stac_assets_with_dataset_assets(self, client, test_db_session):
-        """OGC record includes stac_assets dict keyed by DatasetAsset.key."""
+class TestStacAssetsRemoved:
+    async def test_stac_assets_not_in_ogc_record(self, client, test_db_session):
+        """OGC record must NOT have stac_assets (STAC-specific). assets key is fine."""
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(
             test_db_session, admin_id=admin_id
         )
-
-        # Create DatasetAsset rows
-        asset1 = DatasetAsset(
-            dataset_id=dataset.id,
-            key="data",
-            href="/app/storage/test.tif",
-            media_type="image/tiff; application=geotiff; profile=cloud-optimized",
-            roles=["data"],
-            title="Cloud-Optimized GeoTIFF",
-        )
-        asset2 = DatasetAsset(
-            dataset_id=dataset.id,
-            key="thumbnail",
-            href="/app/storage/thumb.png",
-            media_type="image/png",
-            roles=["thumbnail"],
-            title="Thumbnail",
-            description="256px quicklook",
-        )
-        test_db_session.add_all([asset1, asset2])
-        await test_db_session.flush()
 
         stac_asset_rows = [
             {
@@ -176,40 +155,15 @@ class TestStacAssets:
                 "title": "Cloud-Optimized GeoTIFF",
                 "description": None,
             },
-            {
-                "key": "thumbnail",
-                "href": "/app/storage/thumb.png",
-                "media_type": "image/png",
-                "roles": ["thumbnail"],
-                "title": "Thumbnail",
-                "description": "256px quicklook",
-            },
         ]
 
         result = dataset_to_ogc_record(
             dataset, "http://localhost:8080/api", stac_asset_rows=stac_asset_rows
         )
 
-        stac_assets = result["stac_assets"]
-        assert "data" in stac_assets
-        assert stac_assets["data"]["href"] == "/app/storage/test.tif"
-        assert stac_assets["data"]["type"] == "image/tiff; application=geotiff; profile=cloud-optimized"
-        assert stac_assets["data"]["roles"] == ["data"]
-        assert stac_assets["data"]["title"] == "Cloud-Optimized GeoTIFF"
-
-        assert "thumbnail" in stac_assets
-        assert stac_assets["thumbnail"]["href"] == "/app/storage/thumb.png"
-        assert stac_assets["thumbnail"]["description"] == "256px quicklook"
-
-    async def test_stac_assets_empty_when_no_rows(self, client, test_db_session):
-        """OGC record with no DatasetAsset rows has empty stac_assets dict."""
-        admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
-
-        result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
-        assert result["stac_assets"] == {}
+        assert "stac_assets" not in result
+        # assets (OGC-compliant) should still be present
+        assert "assets" in result
 
 
 # ---------------------------------------------------------------------------
@@ -261,14 +215,13 @@ class TestBuildStacAssets:
 # ---------------------------------------------------------------------------
 
 
-class TestStacExtensions:
-    async def test_raster_record_has_stac_extensions(self, client, test_db_session):
-        """Raster record with epsg and bands gets both STAC extension URIs."""
+class TestStacExtensionsRemoved:
+    async def test_raster_record_no_stac_extensions(self, client, test_db_session):
+        """Raster records must NOT have stac_extensions in OGC Records output."""
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(
             test_db_session, admin_id=admin_id
         )
-        # Set record_type to raster
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
 
@@ -292,9 +245,7 @@ class TestStacExtensions:
             dataset, "http://localhost:8080/api", raster_meta=raster_meta
         )
 
-        assert "stac_extensions" in result
-        assert STAC_EXT_PROJECTION in result["stac_extensions"]
-        assert STAC_EXT_EO in result["stac_extensions"]
+        assert "stac_extensions" not in result
 
     async def test_vector_record_no_stac_extensions(self, client, test_db_session):
         """Vector records should not have stac_extensions."""
@@ -306,8 +257,8 @@ class TestStacExtensions:
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
         assert "stac_extensions" not in result
 
-    async def test_raster_record_stac_properties(self, client, test_db_session):
-        """Raster record should have STAC properties in properties dict."""
+    async def test_raster_record_proj_properties(self, client, test_db_session):
+        """Raster record should have proj:* properties in properties dict."""
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(
             test_db_session, admin_id=admin_id
@@ -346,10 +297,10 @@ class TestStacExtensions:
         assert props["bands"][0]["name"] == "Red"
         assert props["bands"][0]["data_type"] == "uint16"
 
-    async def test_eo_extension_requires_bands_not_band_count(
+    async def test_no_bands_without_band_info(
         self, client, test_db_session
     ):
-        """EO extension should be gated on bands array, not band_count."""
+        """No bands array when band_info is None."""
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(
             test_db_session, admin_id=admin_id
@@ -357,7 +308,6 @@ class TestStacExtensions:
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
 
-        # band_count set but band_info is None -- no bands array
         raster_meta = {
             "epsg": 4326,
             "width": 512,
@@ -374,9 +324,5 @@ class TestStacExtensions:
             dataset, "http://localhost:8080/api", raster_meta=raster_meta
         )
 
-        # Should have projection extension (epsg is set) but NOT eo
-        assert "stac_extensions" in result
-        assert STAC_EXT_PROJECTION in result["stac_extensions"]
-        assert STAC_EXT_EO not in result["stac_extensions"]
-        # No bands array in properties
+        assert "stac_extensions" not in result
         assert "bands" not in result["properties"]

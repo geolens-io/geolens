@@ -44,9 +44,10 @@ _FORMAT_MEDIA = {
     "csv": "text/csv",
 }
 
-# STAC extension URIs
-STAC_EXT_PROJECTION = "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
-STAC_EXT_EO = "https://stac-extensions.github.io/eo/v2.0.0/schema.json"
+_RASTER_FORMAT_MEDIA = {
+    "geotiff": "image/tiff; application=geotiff",
+    "cog": "image/tiff; application=geotiff; profile=cloud-optimized",
+}
 
 
 async def _attach_updated_actor_identities(
@@ -992,11 +993,27 @@ def _build_stac_assets(
     return result
 
 
-def _build_themes(theme_category: list[str] | None) -> list[dict] | None:
-    """Convert ISO theme_category values to OGC themes structure."""
-    if not theme_category:
-        return None
-    return [{"concepts": [{"id": cat} for cat in theme_category]}]
+def _build_themes(
+    theme_category: list[str] | None,
+    keywords: list | None = None,
+) -> list[dict] | None:
+    """Convert theme_category + keyword vocabulary data to OGC themes."""
+    themes: list[dict] = []
+    # Group keywords by vocabulary_uri
+    if keywords:
+        by_vocab: dict[str | None, list[str]] = {}
+        for kw in keywords:
+            uri = getattr(kw, "vocabulary_uri", None)
+            by_vocab.setdefault(uri, []).append(kw.keyword)
+        for uri, kws in by_vocab.items():
+            entry: dict = {"concepts": [{"id": k} for k in kws]}
+            if uri:
+                entry["scheme"] = uri
+            themes.append(entry)
+    # Fallback: theme_category without vocabulary info
+    if not themes and theme_category:
+        themes.append({"concepts": [{"id": cat} for cat in theme_category]})
+    return themes or None
 
 
 def _build_time(dataset: Dataset) -> dict | None:
@@ -1065,11 +1082,6 @@ def dataset_to_ogc_record(
 
     ogc_record: dict = {
         "type": "Feature",
-        "stac_version": "1.1.0",
-        "conformsTo": [
-            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core",
-            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json",
-        ],
         "id": str(dataset.id),
         "geometry": geometry,
         "properties": {
@@ -1093,12 +1105,23 @@ def dataset_to_ogc_record(
             "quality_detail": dataset.quality_detail,
             "record_status": record.record_status,
             # Enriched OGC properties (Phase 10-02)
-            "formats": list(_FORMAT_MEDIA.values()),
+            "formats": (
+                list(_RASTER_FORMAT_MEDIA.values())
+                if (getattr(record, "record_type", "vector_dataset") or "vector_dataset")
+                in ("raster_dataset", "vrt_dataset")
+                else list(_FORMAT_MEDIA.values())
+            ),
             "language": "en",
-            "themes": _build_themes(record.theme_category),
+            "themes": _build_themes(record.theme_category, record.keywords),
             "rights": record.license,
             "contacts": [
-                {"name": c.name, "organization": c.organization, "role": c.role}
+                {k: v for k, v in {
+                    "name": c.name,
+                    "organization": c.organization,
+                    "role": c.role,
+                    "email": c.email,
+                    "phone": c.phone,
+                }.items() if v is not None}
                 for c in record.contacts
             ]
             if record.contacts
@@ -1160,12 +1183,6 @@ def dataset_to_ogc_record(
             record_status=record.record_status or "draft",
             storage_backend=settings.storage_provider,
         ),
-        "stac_assets": _build_stac_assets(
-            stac_asset_rows,
-            record_status=record.record_status or "draft",
-            storage_backend=settings.storage_provider,
-            public_api_url=public_api_url,
-        ),
     }
 
     # STAC properties for raster/VRT records
@@ -1204,15 +1221,6 @@ def dataset_to_ogc_record(
             ogc_record["properties"]["vrt_type"] = raster_meta["vrt_type"]
         if raster_meta.get("source_count") is not None:
             ogc_record["properties"]["source_count"] = raster_meta["source_count"]
-
-        # STAC extensions -- gate on actual property presence
-        extensions = []
-        if raster_meta.get("epsg") is not None:
-            extensions.append(STAC_EXT_PROJECTION)
-        if bands:
-            extensions.append(STAC_EXT_EO)
-        if extensions:
-            ogc_record["stac_extensions"] = extensions
 
     bbox = extract_bbox(dataset)
     if bbox is not None:
