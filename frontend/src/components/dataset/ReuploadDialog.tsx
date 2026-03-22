@@ -282,6 +282,7 @@ export function ReuploadDialog({
             layer_title: layer.title,
             layer_id: layer.layer_id,
             token,
+            object_id_field: layer.object_id_field,
           },
         });
         setJobId(previewResult.job_id);

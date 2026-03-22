@@ -9,6 +9,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+class ArcGISTokenError(Exception):
+    """Raised when ArcGIS returns a token-related error (codes 498, 499)."""
+
+    def __init__(self, code: int, message: str):
+        self.code = code
+        super().__init__(f"ArcGIS token error ({code}): {message}")
+
 # Maps esri geometry type strings to simple geometry names
 _ESRI_GEOM_TYPE_MAP = {
     "esriGeometryPoint": "Point",
@@ -102,11 +110,7 @@ async def probe_arcgis_service(
         message = error_info.get("message", "Unknown ArcGIS error")
         logger.warning("ArcGIS error response: url=%s code=%s message=%s", base_url, code, message)
         if code in (498, 499):  # Invalid/expired token
-            raise httpx.HTTPStatusError(
-                f"ArcGIS token error ({code}): {message}",
-                request=response.request,
-                response=response,
-            )
+            raise ArcGISTokenError(code, message)
         return None
 
     # Validate this is an ArcGIS service
@@ -182,6 +186,9 @@ async def enrich_arcgis_feature_counts(
                 resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
+                # ArcGIS may return HTTP 200 with error in JSON body
+                if "error" in data:
+                    return {**layer, "feature_count": None}
                 return {**layer, "feature_count": data.get("count")}
             except (
                 httpx.HTTPStatusError,

@@ -12,6 +12,7 @@ from app.dependencies import get_db
 from app.ingest.ogr import IngestionError
 from app.jobs.models import IngestJob
 from app.services.preview import build_gdal_source, run_service_preview
+from app.services.arcgis import ArcGISTokenError
 from app.services.probe import ServiceNotRecognized, detect_service_type
 from app.services.schemas import (
     ProbeRequest,
@@ -79,6 +80,25 @@ async def probe_service_url(
         raise HTTPException(
             status_code=504,
             detail="Service didn't respond in time. Check the URL and try again.",
+        )
+
+    except ArcGISTokenError as exc:
+        logger.warning("ArcGIS token error", url=request.url, error=str(exc))
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="probe_service",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "result": "auth_required",
+                "arcgis_code": exc.code,
+            },
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="This service requires authentication. Provide a valid ArcGIS token and try again.",
         )
 
     except httpx.HTTPStatusError as exc:

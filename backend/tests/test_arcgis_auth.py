@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from app.services.arcgis import probe_arcgis_service
+from app.services.arcgis import ArcGISTokenError, probe_arcgis_service
 from app.services.preview import build_gdal_source
 
 
@@ -43,27 +43,27 @@ async def test_arcgis_probe_no_bearer_header():
 
 @pytest.mark.asyncio
 async def test_arcgis_error_498_raises():
-    """ArcGIS JSON error with code 498 (invalid token) should raise HTTPStatusError."""
+    """ArcGIS JSON error with code 498 (invalid token) should raise ArcGISTokenError."""
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     mock_response = _make_mock_response({
         "error": {"code": 498, "message": "Invalid token."},
     })
     mock_client.get.return_value = mock_response
 
-    with pytest.raises(httpx.HTTPStatusError, match="498"):
+    with pytest.raises(ArcGISTokenError, match="498"):
         await probe_arcgis_service("https://services.arcgis.com/svc/FeatureServer", mock_client, token="badtoken")
 
 
 @pytest.mark.asyncio
 async def test_arcgis_error_499_raises():
-    """ArcGIS JSON error with code 499 (token required) should raise HTTPStatusError."""
+    """ArcGIS JSON error with code 499 (token required) should raise ArcGISTokenError."""
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     mock_response = _make_mock_response({
         "error": {"code": 499, "message": "Token required."},
     })
     mock_client.get.return_value = mock_response
 
-    with pytest.raises(httpx.HTTPStatusError, match="499"):
+    with pytest.raises(ArcGISTokenError, match="499"):
         await probe_arcgis_service("https://services.arcgis.com/svc/FeatureServer", mock_client)
 
 
