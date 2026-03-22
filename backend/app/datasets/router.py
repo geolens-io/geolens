@@ -2169,9 +2169,15 @@ async def update_publication_status(
 @router.get("/datasets/{dataset_id}/relationships/")
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
-    db: AsyncSession = Depends(get_session),
+    user: User | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """List all FK relationships for a dataset."""
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+    await check_dataset_access(db, dataset, dataset_id, user)
+
     from app.datasets.service import list_relationships
 
     items = await list_relationships(db, dataset_id)
@@ -2182,7 +2188,7 @@ async def list_dataset_relationships(
 async def create_dataset_relationship(
     dataset_id: uuid.UUID,
     body: DatasetRelationshipCreate,
-    db: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("edit_metadata")),
 ):
     """Create a new FK relationship. Editor+ required."""
@@ -2196,7 +2202,7 @@ async def create_dataset_relationship(
 @router.delete("/datasets/relationships/{relationship_id}/", status_code=204)
 async def delete_dataset_relationship(
     relationship_id: uuid.UUID,
-    db: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("edit_metadata")),
 ):
     """Delete a FK relationship. Editor+ required."""
@@ -2216,9 +2222,15 @@ async def get_feature_related_records(
     relationship_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_session),
+    user: User | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get related records for a feature via FK relationship."""
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+    await check_dataset_access(db, dataset, dataset_id, user)
+
     from app.datasets.service import get_related_records
 
     try:
