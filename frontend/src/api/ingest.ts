@@ -44,8 +44,11 @@ export async function getJobStatus(
   return apiFetch<JobStatusResponse>(`/jobs/${jobId}`);
 }
 
-export async function previewFile(jobId: string): Promise<FilePreviewResponse> {
-  return apiFetch<FilePreviewResponse>(`/ingest/preview/${jobId}`, {
+export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse> {
+  const url = layerName
+    ? `/ingest/preview/${jobId}?layer_name=${encodeURIComponent(layerName)}`
+    : `/ingest/preview/${jobId}`;
+  return apiFetch<FilePreviewResponse>(url, {
     method: 'POST',
   });
 }
