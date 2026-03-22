@@ -154,10 +154,11 @@ Plan: Not started
 | 260322-lv3 | E2e seed script, m42/f9l verification, non-spatial CSV pipeline test | 2026-03-22 | 0c3970f9 | Verified | [260322-lv3-test-quality-follow-ups-e2e-seed-data-sc](./quick/260322-lv3-test-quality-follow-ups-e2e-seed-data-sc/) |
 | 260322-mb0 | Excel (.xlsx/.xls) non-spatial ingestion, multi-sheet support, format detection | 2026-03-22 | c5c18bc7 | Verified | [260322-mb0-excel-json-non-spatial-ingestion-support](./quick/260322-mb0-excel-json-non-spatial-ingestion-support/) |
 | 260322-mb0 | Fix noisy MapLibre AJAX errors: nginx proxy_intercept_errors + BuilderMap error handler | 2026-03-22 | 47886433 | Verified | [260322-mb0-investigate-and-fix-noisy-maplibre-ajax-](./quick/260322-mb0-investigate-and-fix-noisy-maplibre-ajax-/) |
+| 260322-ndc | Non-spatial table support, CSV/XLSX with geometry columns | 2026-03-22 | 1931de83 | Gaps | [260322-ndc-for-non-spatial-table-support-support-im](./quick/260322-ndc-for-non-spatial-table-support-support-im/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-22 - Completed quick tasks 260322-mb0: Excel ingestion + MapLibre AJAX fix
+Last activity: 2026-03-22 - Completed quick task 260322-ndc: Non-spatial table support, CSV/XLSX with geometry columns
 Last session: 2026-03-22T21:10:49.106Z
 Stopped at: Completed quick-260322-ndc
 Resume file: None
