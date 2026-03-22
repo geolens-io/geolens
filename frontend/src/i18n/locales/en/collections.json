@@ -1,0 +1,95 @@
+{
+  "title": "Collections",
+  "newCollection": "New Collection",
+  "loading": "Loading collections...",
+  "empty": {
+    "title": "No collections yet",
+    "description": "Collections group related datasets together for easier discovery.",
+    "cta": "Create your first collection"
+  },
+  "error": {
+    "title": "Failed to load collections",
+    "message": "Failed to load collections: {{error}}"
+  },
+  "detail": {
+    "loading": "Loading collection...",
+    "notFoundTitle": "Collection not found",
+    "notFoundMessage": "The requested collection could not be loaded.",
+    "backToCollections": "Back to collections",
+    "breadcrumb": "Collections",
+    "datasets": "Datasets",
+    "temporalRange": "Temporal Range",
+    "created": "Created",
+    "lastUpdated": "Last Updated",
+    "spatialExtent": "Spatial Extent",
+    "temporalNotAvailable": "N/A",
+    "temporalPresent": "present"
+  },
+  "search": {
+    "placeholder": "Search collections...",
+    "empty": "No matching collections",
+    "emptyHint": "No collections match your search. Try a different name."
+  },
+  "card": {
+    "datasetCount_one": "{{count}} dataset",
+    "datasetCount_other": "{{count}} datasets",
+    "created": "Created {{date}}",
+    "temporalPresent": "present"
+  },
+  "createDialog": {
+    "title": "Create Collection",
+    "description": "Create a new collection to group related datasets together.",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g. Transportation Data",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Optional description...",
+    "creating": "Creating...",
+    "errorFallback": "Failed to create collection"
+  },
+  "editDialog": {
+    "title": "Edit Collection",
+    "description": "Update the collection name or description.",
+    "nameLabel": "Name",
+    "descriptionLabel": "Description",
+    "saving": "Saving...",
+    "errorFallback": "Failed to update collection"
+  },
+  "deleteDialog": {
+    "title": "Delete Collection",
+    "description": "This will permanently delete collection \"{{name}}\" and remove all dataset associations. The datasets themselves will not be deleted. This action cannot be undone.",
+    "confirmPrompt": "Type the collection name to confirm:",
+    "deleting": "Deleting...",
+    "deleteButton": "Delete Collection",
+    "errorFallback": "Failed to delete collection"
+  },
+  "datasetList": {
+    "loading": "Loading datasets...",
+    "errorMessage": "Failed to load datasets: {{error}}",
+    "emptyTitle": "No datasets in this collection",
+    "emptyDescription": "Datasets can be added to this collection from the management page.",
+    "filterPlaceholder": "Filter datasets by name...",
+    "noMatch": "No datasets match \"{{filter}}\"",
+    "featureCount_one": "{{count}} feature",
+    "featureCount_other": "{{count}} features",
+    "removeTitle": "Remove from collection"
+  },
+  "membership": {
+    "title": "Add Datasets",
+    "searchPlaceholder": "Search datasets by name...",
+    "searchButton": "Search",
+    "addButton": "Add",
+    "allAlreadyAdded": "All matching datasets are already in this collection."
+  },
+  "badges": {
+    "label": "Collections"
+  },
+  "toasts": {
+    "created": "Collection created",
+    "updated": "Collection updated",
+    "deleted": "Collection deleted",
+    "datasetRemoved": "Dataset removed from collection",
+    "datasetAdded": "Dataset added to collection",
+    "removeError": "Failed to remove dataset",
+    "addError": "Failed to add dataset"
+  }
+}

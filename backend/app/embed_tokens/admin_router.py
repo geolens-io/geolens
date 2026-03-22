@@ -1,0 +1,84 @@
+"""Admin endpoints for embed token management across all maps."""
+
+import uuid
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.audit.service import log_action
+from app.auth.dependencies import require_role
+from app.auth.models import User
+from app.dependencies import get_db
+from app.embed_tokens.schemas import (
+    AdminEmbedTokenListResponse,
+    AdminEmbedTokenResponse,
+    BulkRevokeRequest,
+    BulkRevokeResponse,
+    EmbedTokenResponse,
+)
+from app.embed_tokens.service import (
+    bulk_revoke_embed_tokens,
+    list_admin_embed_tokens,
+)
+
+router = APIRouter(prefix="/admin/embed-tokens", tags=["Admin Embed Tokens"])
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/", response_model=AdminEmbedTokenListResponse)
+async def list_all_embed_tokens(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    map_id: uuid.UUID | None = Query(None),
+    map_search: str | None = Query(None),
+    creator: str | None = Query(None),
+    status_filter: str | None = Query(None, alias="status"),
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminEmbedTokenListResponse:
+    """List all embed tokens across all maps with optional filters (admin only)."""
+    rows, total = await list_admin_embed_tokens(
+        db, skip, limit, map_search, creator, status_filter, map_id=map_id
+    )
+
+    tokens = [
+        AdminEmbedTokenResponse(
+            **EmbedTokenResponse.model_validate(
+                token, from_attributes=True
+            ).model_dump(),
+            map_name=map_name,
+            creator_username=creator_username,
+        )
+        for token, map_name, creator_username in rows
+    ]
+
+    return AdminEmbedTokenListResponse(tokens=tokens, total=total)
+
+
+@router.post("/bulk-revoke/", response_model=BulkRevokeResponse)
+async def bulk_revoke(
+    body: BulkRevokeRequest,
+    user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> BulkRevokeResponse:
+    """Bulk-revoke multiple embed tokens (admin only)."""
+    count = await bulk_revoke_embed_tokens(db, body.token_ids)
+
+    await log_action(
+        db,
+        user_id=user.id,
+        action="embed_token.bulk_revoke",
+        resource_type="embed_token",
+        resource_id=None,
+        details={
+            "revoked_count": count,
+            "token_ids": [str(tid) for tid in body.token_ids],
+        },
+    )
+    await db.commit()
+
+    return BulkRevokeResponse(revoked_count=count)

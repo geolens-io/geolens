@@ -1,0 +1,545 @@
+{
+  "title": "Administración",
+  "roles": {
+    "viewer": "Lector",
+    "editor": "Editor",
+    "admin": "Administrador"
+  },
+  "overview": {
+    "title": "Resumen"
+  },
+  "stats": {
+    "loading": "Cargando estadísticas del catálogo...",
+    "totalDatasets": "Total de conjuntos de datos",
+    "recentAdditions": "Adiciones recientes (30d)",
+    "storageUsed": "Almacenamiento utilizado",
+    "byGeometryType": "Conjuntos de datos por tipo de geometría",
+    "byVisibility": "Conjuntos de datos por visibilidad",
+    "noDatasets": "Aún no hay conjuntos de datos",
+    "errorLoading": "Error al cargar estadísticas: {{message}}",
+    "totalUsers": "Usuarios totales",
+    "usersByStatus": "Usuarios por estado",
+    "noUsers": "Sin usuarios aún"
+  },
+  "users": {
+    "title": "Usuarios",
+    "titleCount_one": "Usuarios ({{count}})",
+    "titleCount_other": "Usuarios ({{count}})",
+    "addUser": "Agregar usuario",
+    "loading": "Cargando usuarios...",
+    "errorLoading": "Error al cargar usuarios: {{message}}",
+    "filters": {
+      "allUsers": "Todos los usuarios",
+      "pending": "Pendientes",
+      "active": "Activos"
+    },
+    "table": {
+      "username": "Nombre de usuario",
+      "email": "Correo electrónico",
+      "roles": "Roles",
+      "status": "Estado",
+      "active": "Activo",
+      "created": "Creado",
+      "actions": "Acciones"
+    },
+    "status": {
+      "pending": "Pendiente",
+      "active": "Activo",
+      "inactive": "Inactivo"
+    },
+    "actions": {
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "deactivate": "Desactivar"
+    },
+    "approveDialog": {
+      "title": "Aprobar {{username}}",
+      "description": "Seleccione un rol para este usuario antes de aprobar su registro.",
+      "roleLabel": "Rol",
+      "roles": {
+        "viewer": "Lector",
+        "editor": "Editor",
+        "admin": "Administrador"
+      },
+      "error": "Error al aprobar al usuario",
+      "approving": "Aprobando...",
+      "approve": "Aprobar"
+    },
+    "rejectDialog": {
+      "title": "Rechazar usuario",
+      "description": "¿Está seguro de que desea rechazar el registro de \"{{username}}\"? Se le denegará el acceso al sistema.",
+      "error": "Error al rechazar al usuario",
+      "rejecting": "Rechazando...",
+      "reject": "Rechazar"
+    },
+    "deactivateDialog": {
+      "title": "Desactivar usuario",
+      "description": "¿Está seguro de que desea desactivar a \"{{username}}\"? Ya no podrá iniciar sesión.",
+      "error": "Error al desactivar al usuario",
+      "deactivating": "Desactivando...",
+      "deactivate": "Desactivar"
+    }
+  },
+  "userCreate": {
+    "title": "Crear usuario",
+    "description": "Agregar un nuevo usuario al sistema.",
+    "labels": {
+      "username": "Nombre de usuario",
+      "email": "Correo electrónico",
+      "password": "Contraseña",
+      "role": "Rol"
+    },
+    "placeholders": {
+      "username": "Nombre de usuario",
+      "email": "usuario@ejemplo.com",
+      "password": "Mínimo 8 caracteres"
+    },
+    "roles": {
+      "viewer": "Lector",
+      "editor": "Editor",
+      "admin": "Administrador"
+    },
+    "creating": "Creando...",
+    "error": "Error al crear el usuario"
+  },
+  "userEdit": {
+    "title": "Editar usuario",
+    "description": "Actualizar los datos del usuario {{username}}.",
+    "labels": {
+      "username": "Nombre de usuario",
+      "email": "Correo electrónico",
+      "role": "Rol",
+      "status": "Estado",
+      "active": "Activo"
+    },
+    "placeholder": {
+      "email": "usuario@ejemplo.com"
+    },
+    "roles": {
+      "viewer": "Lector",
+      "editor": "Editor",
+      "admin": "Administrador"
+    },
+    "saving": "Guardando...",
+    "error": "Error al actualizar el usuario"
+  },
+  "userDelete": {
+    "title": "Eliminar usuario",
+    "description": "¿Está seguro de que desea eliminar al usuario \"{{username}}\"? Esta acción no se puede deshacer. Sus conjuntos de datos se conservarán pero mostrarán \"Usuario eliminado\" como creador.",
+    "deleting": "Eliminando...",
+    "error": "Error al eliminar el usuario"
+  },
+  "jobs": {
+    "title": "Trabajos",
+    "loading": "Cargando trabajos...",
+    "errorLoading": "Error al cargar trabajos: {{message}}",
+    "filters": {
+      "allStatuses": "Todos los estados",
+      "pending": "Pendiente",
+      "running": "En ejecución",
+      "complete": "Completado",
+      "failed": "Fallido",
+      "allUsers": "Todos los usuarios",
+      "user": "Usuario",
+      "status": "Estado",
+      "clear": "Limpiar"
+    },
+    "noJobs": "No se encontraron trabajos",
+    "table": {
+      "createdAt": "Fecha de creación",
+      "user": "Usuario",
+      "filename": "Nombre de archivo",
+      "status": "Estado",
+      "duration": "Duración"
+    },
+    "detail": {
+      "errorMessage": "Mensaje de error",
+      "userMetadata": "Metadatos del usuario"
+    },
+    "retry": "Reintentar",
+    "retrying": "Reintentando..."
+  },
+  "audit": {
+    "title": "Registros de auditoría",
+    "loading": "Cargando registros de auditoría...",
+    "errorLoading": "Error al cargar registros de auditoría: {{message}}",
+    "filters": {
+      "allActions": "Todas las acciones",
+      "datasetView": "Vista de conjunto de datos",
+      "datasetExport": "Exportación de conjunto de datos",
+      "metadataEdit": "Edición de metadatos",
+      "datasetCreate": "Creación de conjunto de datos",
+      "datasetDelete": "Eliminación de conjunto de datos",
+      "action": "Acción",
+      "from": "Desde",
+      "to": "Hasta",
+      "clear": "Limpiar"
+    },
+    "noLogs": "No se encontraron registros de auditoría",
+    "table": {
+      "timestamp": "Marca de tiempo",
+      "user": "Usuario",
+      "action": "Acción",
+      "resource": "Recurso",
+      "resourceId": "ID del recurso",
+      "ipAddress": "Dirección IP"
+    },
+    "detailsHint": "Detalles (haga clic en la fila para contraer)"
+  },
+  "ai": {
+    "title": "IA",
+    "cardTitle": "Estado de IA",
+    "notConfigured": "No configurado",
+    "provider": "Proveedor",
+    "model": "Modelo",
+    "status": "Estado",
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado",
+    "semanticSearch": "Busqueda semantica",
+    "semanticSearchDescription": "Habilitar busqueda por similitud vectorial junto a la busqueda por palabras clave",
+    "embeddingCoverage": "Cobertura de embeddings",
+    "generateMissing": "Generar embeddings faltantes",
+    "generating": "Generando...",
+    "backfillSuccess": "Embeddings generados para {{count}} conjuntos de datos",
+    "backfillEmpty": "Todos los conjuntos de datos ya tienen embeddings",
+    "allEmbedded": "Todos los conjuntos de datos tienen embeddings",
+    "apiKeysEnvOnlyNote": "Las claves API solo se pueden configurar mediante variables de entorno (ANTHROPIC_API_KEY, OPENAI_API_KEY) y no se pueden cambiar desde esta página. Todas las demás configuraciones de IA son modificables por el administrador.",
+    "availableNotSelected": "Disponible",
+    "backfillAllFailed": "Los {{errors}} embeddings fallaron — verifique que OPENAI_API_KEY esté configurado y el modelo de embedding esté disponible",
+    "backfillPartial": "Se generaron {{created}} embeddings con {{errors}} fallos — verifique la configuración del modelo de embedding",
+    "baseUrlDescription": "Endpoint personalizado para proveedores compatibles con OpenAI (Ollama, Groq, Together, etc.). Dejar vacío para OpenAI por defecto.",
+    "detectDims": "Detectar",
+    "dimsChangeWarning": "Cambiar las dimensiones hará que {{count}} embedding(s) existente(s) sean incompatibles. Necesitará regenerar todos los embeddings después de guardar.",
+    "dimsDetectFailed": "No se pudieron detectar las dimensiones. Verifique que OPENAI_API_KEY esté configurado y el modelo de embedding sea válido.",
+    "dimsDetected": "{{dims}} dimensiones detectadas",
+    "embeddingBaseUrlDescription": "Endpoint separado para generación de embeddings. Si está vacío, usa la URL base de inferencia.",
+    "embeddingDimsAutoDescription": "Dimensiones del vector generado por el modelo de embedding. Use Detectar para auto-detectar, o ingrese manualmente.",
+    "embeddingModelDescription": "Nombre del modelo de embedding compatible con OpenAI para vectores de búsqueda semántica.",
+    "embeddings": "Embeddings",
+    "inference": "Inferencia",
+    "manageSettings": "Gestionar configuración de IA",
+    "modelDescription": "Identificador del modelo enviado al proveedor seleccionado. Debe coincidir con un modelo disponible.",
+    "openaiKeyRequired": "OPENAI_API_KEY no está configurado. La generación de embeddings requiere una clave API compatible con OpenAI, incluso cuando se usa Anthropic para inferencia.",
+    "keyConfigured": "configurada",
+    "keyNotSet": "no configurada",
+    "regenerateAll": "Regenerar todo",
+    "labels": {
+      "aiEnabled": "Chat IA habilitado",
+      "llmProvider": "Proveedor LLM",
+      "model": "Modelo",
+      "openaiBaseUrl": "URL base compatible con OpenAI",
+      "embeddingModel": "Modelo de embedding",
+      "embeddingBaseUrl": "URL base de embedding",
+      "embeddingDims": "Dimensiones del embedding"
+    },
+    "providers": {
+      "anthropic": "Anthropic",
+      "openaiCompatible": "Compatible con OpenAI"
+    },
+    "providerDescription": "Seleccione el proveedor de LLM para chat, generación de mapas y funciones de metadatos con IA.",
+    "sectionApiKeys": "Estado de claves API",
+    "sectionInference": "Inferencia (LLM)",
+    "sectionSemanticSearch": "Búsqueda semántica y embeddings",
+    "usedForInference": "Inferencia"
+  },
+  "apiKeys": {
+    "title": "Claves API",
+    "createKey": "Crear clave",
+    "keyName": "Nombre de la clave",
+    "creating": "Creando...",
+    "createError": "Error al crear la clave",
+    "loadingKeys": "Cargando claves...",
+    "noKeys": "Sin claves API",
+    "active": "Activa",
+    "revoked": "Revocada",
+    "created": "Creada {{date}}",
+    "lastUsed": "Último uso:",
+    "neverUsed": "Nunca usada",
+    "justNow": "Ahora mismo",
+    "minutesAgo_one": "hace {{count}}m",
+    "minutesAgo_other": "hace {{count}}m",
+    "hoursAgo_one": "hace {{count}}h",
+    "hoursAgo_other": "hace {{count}}h",
+    "daysAgo_one": "hace {{count}}d",
+    "daysAgo_other": "hace {{count}}d",
+    "revokeDialog": {
+      "title": "Revocar clave API",
+      "description": "¿Está seguro de que desea revocar '{{name}}'? Esta clave dejará de funcionar inmediatamente.",
+      "revoking": "Revocando...",
+      "revoke": "Revocar"
+    },
+    "revokeError": "Error al revocar la clave"
+  },
+  "apiKeyReveal": {
+    "title": "Clave API creada",
+    "description": "Copie esta clave ahora. No se mostrará de nuevo.",
+    "warning": "Esta clave no se mostrará de nuevo. Asegúrese de copiarla ahora.",
+    "done": "Listo"
+  },
+  "sharedMaps": {
+    "title": "Mapas Compartidos",
+    "empty": "Aun no se han compartido mapas.",
+    "mapName": "Mapa",
+    "linkStatus": "Estado",
+    "embedTokens": "Tokens de insercion",
+    "expires": "Caduca",
+    "created": "Creado",
+    "actions": "Acciones",
+    "embedTokensFor": "Tokens de insercion — {{map}}",
+    "loadingEmbedTokens": "Cargando tokens de insercion...",
+    "noEmbedTokens": "No hay tokens de insercion para este mapa.",
+    "loadEmbedTokensFailed": "Error al cargar los tokens de insercion",
+    "loadFailed": "Error al cargar los mapas compartidos",
+    "creator": "Creador",
+    "activeCount": "{{count}} activos"
+  },
+  "shareTokens": {
+    "active": "Activo",
+    "expired": "Caducado",
+    "revoked": "Revocado",
+    "never": "Nunca",
+    "revoke": "Revocar",
+    "revokeSuccess": "Token de compartir revocado",
+    "revokeFailed": "No se pudo revocar el token",
+    "revokeDialogTitle": "Revocar enlace compartido",
+    "revokeDialogDescription": "¿Está seguro de que desea revocar el enlace compartido de \"{{map}}\"? Cualquier persona con este enlace perderá el acceso.",
+    "revokeDialogCancel": "Cancelar",
+    "revokeDialogConfirm": "Revocar"
+  },
+  "embedTokens": {
+    "tokenHint": "Token",
+    "status": "Estado",
+    "useCount": "Usos",
+    "lastUsed": "Ultimo uso",
+    "expires": "Caduca",
+    "origins": "Origenes",
+    "active": "Activo",
+    "expired": "Caducado",
+    "revoked": "Revocado",
+    "expiringSoon": "Caduca en {{days}}d",
+    "expiresToday": "Caduca hoy",
+    "never": "Nunca",
+    "noOrigins": "Cualquiera",
+    "revokeSelected": "Revocar seleccionados ({{count}})",
+    "bulkRevokeTitle": "Revocar tokens de insercion",
+    "bulkRevokeDescription": "Revocar {{count}} tokens de insercion? Esta accion no se puede deshacer.",
+    "bulkRevokeConfirm": "Revocar",
+    "bulkRevokeCancel": "Cancelar",
+    "bulkRevokeSuccess": "{{count}} tokens de insercion revocados",
+    "bulkRevokeFailed": "No se pudieron revocar los tokens de insercion"
+  },
+  "settings": {
+    "actions": {
+      "discard": "Descartar cambios",
+      "resetDefaults": "Restablecer valores predeterminados"
+    },
+    "sourceBadge": {
+      "reset": "Restablecer",
+      "resetToDefault": "Restablecer al valor predeterminado",
+      "envVar": "var. ent.",
+      "envVarTooltip": "Bloqueado por variable de entorno. Cambie esto en la configuración de su despliegue."
+    },
+    "permissions": {
+      "title": "Permisos por rol",
+      "description": "Configure qué capacidades están disponibles para cada rol. Los permisos de administrador manage_users y manage_settings no se pueden deshabilitar.",
+      "capabilityHeader": "Capacidad",
+      "capabilityForRole": "{{capability}} para {{role}}",
+      "capabilities": {
+        "upload": "Subir conjuntos de datos",
+        "create_layers": "Crear capas",
+        "export": "Exportar datos",
+        "edit_metadata": "Editar metadatos",
+        "manage_collections": "Gestionar colecciones",
+        "use_ai_chat": "Chat IA",
+        "manage_users": "Gestionar usuarios",
+        "manage_settings": "Gestionar configuración"
+      }
+    },
+    "general": {
+      "title": "General",
+      "cardTitle": "Funcionalidades",
+      "cardDescription": "Habilitar o deshabilitar funcionalidades de la plataforma.",
+      "registration": "Autoregistro",
+      "registrationDescription": "Permitir que nuevos usuarios creen cuentas. Las cuentas aún requieren aprobación del administrador.",
+      "aiFeatures": "Funciones de IA",
+      "aiFeaturesDescription": "Habilitar funciones impulsadas por IA, incluyendo redacción de metadatos de conjuntos de datos (resúmenes, palabras clave, linaje, declaraciones de calidad), chat del constructor de mapas y generación de mapas con IA.",
+      "saved": "Configuración guardada",
+      "saveFailed": "Error al guardar la configuración",
+      "requireMetadata": "Requerir metadatos para publicar",
+      "requireMetadataDescription": "Cuando está habilitado, los conjuntos de datos deben tener metadatos completos antes de poder publicarse.",
+      "publicAppUrl": "URL pública de la aplicación",
+      "publicAppUrlDescription": "La URL de GeoLens orientada al navegador. Usa el origen del frontend sin el sufijo /api.",
+      "publicApiUrl": "URL pública de la API",
+      "publicApiUrlDescription": "La base externa de la API. Déjala alineada con la URL de la aplicación + /api en despliegues con rutas.",
+      "publicBaseUrl": "URL base pública",
+      "logLevel": "Nivel de registro",
+      "logJsonLabel": "Formato de registro (JSON)",
+      "logJsonDescription": "Registros de salida en formato JSON estructurado."
+    },
+    "basemaps": {
+      "title": "Mapas base",
+      "presetsTitle": "Mapas base predefinidos",
+      "presetsDescription": "Habilitar o deshabilitar opciones de mapas base integrados.",
+      "customTitle": "Mapas base personalizados",
+      "customDescription": "Agregar fuentes de teselas XYZ/TMS personalizadas.",
+      "nameLabel": "Nombre",
+      "tileUrlLabel": "URL de teselas",
+      "namePlaceholder": "Mi mapa base personalizado",
+      "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
+      "urlError": "La URL debe contener los marcadores {z}/{x}/{y} o terminar con .json",
+      "removeBasemap": "Remove basemap",
+      "add": "Agregar",
+      "saved": "Mapas base guardados",
+      "saveFailed": "Error al guardar los mapas base"
+    },
+    "mapDefaults": {
+      "title": "Valores predeterminados del mapa",
+      "cardTitle": "Vista predeterminada del mapa",
+      "cardDescription": "Establezca el centro y zoom iniciales para todas las vistas de mapa.",
+      "latitude": "Latitud",
+      "longitude": "Longitud",
+      "zoomLevel": "Nivel de zoom",
+      "preview": "Vista previa",
+      "useCurrentView": "Usar vista actual",
+      "saved": "Valores predeterminados del mapa guardados",
+      "saveFailed": "Error al guardar los valores predeterminados del mapa"
+    },
+    "network": {
+      "globalRateLimit": "Limite de tasa global (por segundo)",
+      "globalRateLimitDescription": "Solicitudes API maximas por segundo por direccion IP. Las solicitudes de teselas estan excluidas de este limite.",
+      "corsAllowedOrigins": "Orígenes CORS permitidos",
+      "corsAllowedOriginsDescription": "Orígenes separados por comas. Use * para permitir cualquier origen.",
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+    },
+    "security": {
+      "title": "Seguridad",
+      "cardTitle": "Límite de tasa de inicio de sesión",
+      "cardDescription": "Controla el número máximo de intentos de inicio de sesión por minuto por dirección IP.",
+      "accessTokenExpire": "Duración del token de acceso (minutos)",
+      "refreshTokenExpire": "Duración del token de actualización (días)",
+      "loginRateLimitLabel": "Límite de tasa de inicio de sesión (por minuto)",
+      "tokenLifetimeNote": "Los cambios en la duración del token se aplican solo a los tokens recién emitidos.",
+      "loginRateLimit": "Intentos de inicio de sesión por minuto",
+      "loginRateLimitDescription": "Número máximo de solicitudes de inicio de sesión permitidas por minuto desde una única dirección IP (1–1000).",
+      "saved": "Configuración de seguridad guardada",
+      "saveFailed": "Error al guardar la configuración de seguridad"
+    },
+    "envOnly": {
+      "title": "Configuración bloqueada por variables de entorno",
+      "description": "Configure ENV_ONLY_CONFIG=false para habilitar modificaciones del administrador.",
+      "descriptionPrefix": "Configure",
+      "descriptionSuffix": "para habilitar modificaciones del administrador."
+    },
+    "page": {
+      "title": "Configuración",
+      "loadFailed": "Error al cargar la configuración: {{message}}",
+      "unknownError": "Error desconocido"
+    },
+    "saved": "Configuración guardada",
+    "saveFailed": "Error al guardar la configuración",
+    "resetDefaults": "Restablecer valores predeterminados",
+    "tabs": {
+      "general": "General",
+      "auth": "Auth",
+      "authSecurity": "Auth y Seguridad",
+      "ai": "IA",
+      "network": "Red",
+      "storage": "Almacenamiento",
+      "appearance": "Apariencia",
+      "permissions": "Permisos"
+    },
+    "uploads": {
+      "title": "Configuración de subida",
+      "cardTitle": "Límites de subida",
+      "cardDescription": "Configure el tamaño máximo de archivo y las extensiones permitidas.",
+      "maxSizeMb": "Tamaño máximo de archivo (MB)",
+      "maxSizeMbDescription": "Tamaño máximo en megabytes (1-10,000). Los cambios surten efecto en la siguiente subida.",
+      "allowedExtensions": "Extensiones permitidas",
+      "allowedExtensionsDescription": "Lista separada por comas de extensiones permitidas (ej. .zip,.gpkg,.geojson,.json,.csv).",
+      "tileCacheTtl": "TTL de caché de teselas (segundos)",
+      "tileCacheTtlDescription": "Tiempo en segundos antes de que expiren las entradas de caché de teselas (0 = sin caché).",
+      "saved": "Configuración de subida guardada",
+      "saveFailed": "Error al guardar la configuración de subida"
+    },
+    "oauth": {
+      "title": "Proveedores OAuth",
+      "description": "Configure proveedores de identidad externos para inicio de sesión único.",
+      "addProvider": "Agregar proveedor",
+      "loading": "Cargando proveedores...",
+      "emptyState": "No hay proveedores OAuth configurados.",
+      "provider": "Proveedor",
+      "type": "Tipo",
+      "status": "Estado",
+      "actions": "Acciones",
+      "enabled": "Habilitado",
+      "disabled": "Deshabilitado",
+      "editTitle": "Editar proveedor OAuth",
+      "addTitle": "Agregar proveedor OAuth",
+      "editDescription": "Actualice la configuración del proveedor OAuth.",
+      "addDescription": "Configure un nuevo proveedor OAuth para inicio de sesión único.",
+      "providerType": "Tipo de proveedor",
+      "tenantId": "ID de inquilino",
+      "tenantIdHint": "Su ID de inquilino de Azure AD.",
+      "displayName": "Nombre para mostrar",
+      "slug": "Slug",
+      "slugHint": "Identificador seguro para URL utilizado en las URLs de callback de OAuth.",
+      "clientId": "ID de cliente",
+      "clientSecret": "Secreto de cliente",
+      "clientSecretKeep": "dejar en blanco para mantener el actual",
+      "discoveryUrl": "URL de descubrimiento",
+      "scopes": "Alcances",
+      "defaultRole": "Rol predeterminado",
+      "groupClaim": "Claim de grupo",
+      "groupClaimHint": "Claim JWT que contiene las membresías de grupo del usuario.",
+      "groupRoleMapping": "Mapeo de roles de grupo (JSON)",
+      "groupRoleMappingHint": "Mapea nombres de grupos del IdP a roles de GeoLens.",
+      "enabledToggle": "Habilitado",
+      "saveChanges": "Guardar cambios",
+      "createProvider": "Crear proveedor",
+      "deleteTitle": "Eliminar proveedor OAuth",
+      "deleteDescription": "¿Eliminar \"{{name}}\"? Los usuarios que iniciaron sesión con este proveedor ya no podrán autenticarse.",
+      "created": "Proveedor OAuth creado",
+      "createFailed": "Error al crear proveedor OAuth",
+      "updated": "Proveedor OAuth actualizado",
+      "updateFailed": "Error al actualizar proveedor OAuth",
+      "deleted": "Proveedor OAuth eliminado",
+      "deleteFailed": "Error al eliminar proveedor OAuth",
+      "invalidJson": "El mapeo de roles de grupo debe ser JSON válido",
+      "secretRequired": "El secreto de cliente es obligatorio",
+      "providerTypes": {
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "oidc": "OIDC genérico"
+      },
+      "roles": {
+        "viewer": "Lector",
+        "editor": "Editor",
+        "admin": "Administrador"
+      }
+    }
+  },
+  "infrastructure": {
+    "title": "Infraestructura",
+    "database": "Base de datos",
+    "storage": "Almacenamiento",
+    "cache": "Caché",
+    "tileCache": "Caché de teselas",
+    "type": "Tipo",
+    "status": "Estado",
+    "latency": "Latencia",
+    "ttl": "TTL",
+    "cdn": "CDN",
+    "pooler": "Pooler",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "configured": "Configurado",
+    "notConfigured": "No configurado",
+    "loading": "Cargando estado de infraestructura...",
+    "errorLoading": "Error al cargar el estado de infraestructura",
+    "allOperational": "Todos los sistemas operativos",
+    "degraded": "Rendimiento degradado",
+    "autoRefresh": "Se actualiza automáticamente cada 30s",
+    "noCdn": "Sin CDN",
+    "oidc": "OIDC"
+  }
+}

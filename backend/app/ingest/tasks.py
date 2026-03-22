@@ -1,0 +1,1694 @@
+"""Procrastinate task definitions for async file ingestion."""
+
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from procrastinate import App, PsycopgConnector
+from sqlalchemy import select
+
+from app.cache.tiles import invalidate_catalog_cache
+from app.config import settings
+from app.database import async_session
+from app.embeddings.helpers import defer_embedding
+from app.raster.cog import check_and_prepare_cog, extract_raster_metadata, sha256_file
+from app.raster.quicklook import generate_quicklook
+from app.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.storage import get_storage
+
+_connector_kwargs: dict = {}
+if settings.db_use_external_pooler:
+    _connector_kwargs["kwargs"] = {"prepare_threshold": None}
+
+task_app = App(
+    connector=PsycopgConnector(
+        conninfo=settings.procrastinate_conninfo,
+        **_connector_kwargs,
+    ),
+    import_paths=["app.ingest.tasks", "app.embeddings.tasks", "app.raster.cog"],
+)
+
+
+@task_app.task(queue="ingest", retry=2)
+async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
+    """Background task: run ogr2ogr, extract metadata, register dataset.
+
+    Full pipeline:
+    1. Update job status to running
+    2. Run ogrinfo to detect CRS
+    3. Run ogr2ogr to load file into PostGIS
+    4. Add geom_4326 column via ST_Transform
+    5. Grant geolens_reader SELECT access
+    6. Extract metadata (extent, columns, row count, geometry type)
+    7. Create Dataset record in catalog
+    8. Update job status to complete
+    9. Clean up staging file
+    """
+    from app.database import async_session
+    from app.datasets.service import create_dataset
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        compute_quality_score,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+    )
+    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
+    from app.ingest.service import generate_table_name
+    from app.jobs.models import IngestJob
+
+    async with async_session() as session:
+        # Load job record
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        try:
+            # 1. Update job to running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # Resolve S3 key to local file for ogr2ogr
+            from app.ingest.service import resolve_file_path
+
+            original_file_path = file_path
+            file_path = await resolve_file_path(file_path, job_id)
+
+            # Validate file content and safety before ogr2ogr
+            from app.ingest.validation import (
+                validate_file_content,
+                validate_file_size,
+                validate_zip_safety,
+            )
+
+            from app.persistent_config import UPLOAD_MAX_SIZE_MB
+
+            max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
+
+            try:
+                validate_file_content(file_path, job.source_filename)
+                validate_file_size(file_path, max_size_mb * 1024 * 1024)
+                if file_path.lower().endswith(".zip"):
+                    validate_zip_safety(file_path)
+            except ValueError as exc:
+                job.status = "failed"
+                job.error_message = str(exc)
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+                Path(file_path).unlink(missing_ok=True)
+                return
+
+            # 2. Detect CRS via ogrinfo
+            info = await run_ogrinfo(file_path)
+            srid = info.get("srid")
+
+            # Check for user-supplied metadata from commit step
+            um = job.user_metadata or {}
+            srid_override = um.get("srid_override")
+
+            # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
+            lower_path = file_path.lower()
+            assumes_4326 = (
+                lower_path.endswith(".csv")
+                or lower_path.endswith(".geojson")
+                or lower_path.endswith(".json")
+            )
+            if srid is None and not assumes_4326 and srid_override is None:
+                job.status = "failed"
+                job.error_message = (
+                    "Missing CRS: no coordinate system detected. "
+                    "Ensure the file includes CRS information "
+                    "(e.g., .prj file for Shapefiles)."
+                )
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+                return
+
+            # 3. Generate table name and run ogr2ogr
+            dataset_name = um.get("title") or job.source_filename or "dataset"
+            table_name, collision_warning = await generate_table_name(
+                dataset_name, session
+            )
+            if collision_warning:
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "collision_warning": collision_warning,
+                }
+            db_conn_str = build_pg_conn_str()
+            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid)
+
+            # Use srid_override if provided
+            effective_srid = (
+                srid_override
+                if srid_override is not None
+                else (srid if srid is not None else 4326)
+            )
+
+            # 4a. Clip geometries to Web Mercator bounds (±85.06° lat)
+            await clip_to_mercator_bounds(session, table_name)
+
+            # 4b. Add geom_4326 column
+            await add_4326_column(session, table_name, effective_srid)
+
+            # 5. Grant reader access
+            await grant_reader_access(session, table_name)
+
+            # 6. Extract metadata
+            metadata = await extract_metadata(session, table_name)
+
+            # 6b. Extract sample values for attribute search
+            sample_values = await get_sample_values(
+                session, table_name, metadata.get("column_info", [])
+            )
+
+            # 7. Determine source format from file extension
+            suffix = Path(file_path).suffix.lower()
+            # Strip leading dot for format name; handle .zip -> look inside filename
+            source_format = suffix.lstrip(".")
+            if source_format == "zip":
+                source_format = "shapefile"
+
+            # 8. Create Dataset record (use user metadata if available)
+            dataset_name = um.get("title") or job.source_filename or table_name
+            dataset = await create_dataset(
+                session,
+                table_name=table_name,
+                title=dataset_name,
+                created_by=uuid.UUID(user_id),
+                summary=um.get("summary"),
+                srid=metadata.get("srid"),
+                geometry_type=metadata.get("geometry_type"),
+                feature_count=metadata.get("feature_count"),
+                extent_wkt=metadata.get("extent_wkt"),
+                column_info=metadata.get("column_info"),
+                sample_values=sample_values,
+                source_format=source_format,
+                source_filename=job.source_filename,
+                original_srid=srid,
+                visibility=um.get("visibility", "private"),
+            )
+
+            # 8b. Compute quality score (requires Dataset to exist for metadata checks)
+            quality_score = await compute_quality_score(
+                session, table_name, metadata.get("column_info", []), dataset
+            )
+            dataset.quality_detail = quality_score
+            await session.flush()
+
+            # 8b2. Generate vector quicklook thumbnail
+            try:
+                import io as _io
+
+                from app.vector.quicklook import generate_vector_quicklook_with_timeout as generate_vector_quicklook
+
+                ql_bytes = await generate_vector_quicklook(
+                    session, table_name, metadata.get("geometry_type", ""), 256
+                )
+                ql_storage = get_storage()
+                ql_key = f"vectors/{dataset.id}/quicklook_256.png"
+                await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
+                dataset.quicklook_256_uri = ql_key
+                await session.flush()
+            except Exception:
+                pass  # Non-fatal
+
+            # 8c. Archive original file to storage provider
+            try:
+                from app.storage import get_storage
+
+                storage = get_storage()
+                archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
+                with open(file_path, "rb") as fobj:
+                    await storage.put(archive_key, fobj)
+            except Exception as archive_exc:
+                # Archival failure is non-fatal -- data is already in PostGIS
+                import structlog
+
+                _log = structlog.get_logger()
+                _log.warning(
+                    "Failed to archive original file to storage",
+                    archive_key=archive_key,
+                    error=str(archive_exc),
+                )
+
+            # 9. Update job to complete
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # Invalidate caches after successful ingest
+            await invalidate_catalog_cache()
+
+            # Generate embedding (non-fatal)
+            from app.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
+
+        except Exception as exc:
+            # On any failure, mark job as failed
+            await session.rollback()
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise
+        finally:
+            # Clean up local file on success always; on failure only if it was
+            # a resolve_file_path download (source of truth is S3, not the
+            # local copy). Local-only uploads are kept for retry.
+            if job.status == "complete":
+                Path(file_path).unlink(missing_ok=True)
+            elif file_path != original_file_path:
+                # Downloaded from S3 for processing -- safe to clean up
+                Path(file_path).unlink(missing_ok=True)
+
+
+@task_app.task(queue="ingest", retry=2)
+async def ingest_service(
+    job_id: str,
+    source_url: str,
+    source_layer: str,
+    user_id: str,
+    token: str | None = None,
+    **kwargs,
+) -> None:
+    """Background task: import a remote service layer via ogr2ogr.
+
+    Full pipeline:
+    1. Update job status to running
+    2. Determine service type from job metadata
+    3. Build GDAL source string and run ogr2ogr
+    4. Post-process (clip, geom_4326, grants, metadata, samples)
+    5. Create Dataset record with source_format and source_url
+    6. Compute quality score
+    7. Update job status to complete
+    """
+    from app.database import async_session
+    from app.datasets.service import create_dataset
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        compute_quality_score,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+    )
+    from app.ingest.ogr import IngestionError, build_pg_conn_str, run_ogr2ogr_service
+    from app.ingest.service import generate_table_name
+    from app.jobs.models import IngestJob
+    from app.services.preview import build_gdal_source
+
+    async with async_session() as session:
+        # Load job record
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        try:
+            # 1. Update job to running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 2. Determine service type from job metadata
+            um = job.user_metadata or {}
+            service_type_raw = um.get("service_type", "")
+            layer_id = um.get("layer_id")
+
+            if service_type_raw.startswith("ArcGIS"):
+                service_type = "arcgis_featureserver"
+                source_format = "arcgis_featureserver"
+            elif service_type_raw.startswith("WFS"):
+                service_type = "wfs"
+                source_format = "wfs"
+            else:
+                raise IngestionError(
+                    f"Unrecognized service type '{service_type_raw}'. "
+                    f"Expected a type starting with 'ArcGIS' or 'WFS'."
+                )
+
+            # 3. Build GDAL source string
+            gdal_source, layer_arg = build_gdal_source(
+                service_type_raw, source_url, source_layer, layer_id, token=token
+            )
+
+            # 4. Generate table name and run ogr2ogr
+            dataset_name = um.get("title") or job.source_filename or "dataset"
+            table_name, collision_warning = await generate_table_name(
+                dataset_name, session
+            )
+            if collision_warning:
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "collision_warning": collision_warning,
+                }
+            db_conn_str = build_pg_conn_str()
+
+            # WFS namespace retry: if layer name has a colon prefix, retry with unqualified name
+            try:
+                await run_ogr2ogr_service(
+                    gdal_source,
+                    layer_arg,
+                    table_name,
+                    db_conn_str,
+                    service_type,
+                    token=token,
+                )
+            except IngestionError:
+                if ":" in source_layer:
+                    unqualified = source_layer.split(":", 1)[1]
+                    gdal_source_retry, layer_arg_retry = build_gdal_source(
+                        service_type_raw, source_url, unqualified, layer_id, token=token
+                    )
+                    await run_ogr2ogr_service(
+                        gdal_source_retry,
+                        layer_arg_retry,
+                        table_name,
+                        db_conn_str,
+                        service_type,
+                        token=token,
+                    )
+                else:
+                    raise
+
+            # 5. Post-processing (identical to ingest_file)
+            await clip_to_mercator_bounds(session, table_name)
+            await add_4326_column(session, table_name, 4326)
+            await grant_reader_access(session, table_name)
+            metadata = await extract_metadata(session, table_name)
+            sample_values = await get_sample_values(
+                session, table_name, metadata.get("column_info", [])
+            )
+
+            # 6. Create Dataset record with source_format and source_url
+            dataset_name = um.get("title") or job.source_filename or table_name
+            dataset = await create_dataset(
+                session,
+                table_name=table_name,
+                title=dataset_name,
+                created_by=uuid.UUID(user_id),
+                summary=um.get("summary"),
+                srid=metadata.get("srid"),
+                geometry_type=metadata.get("geometry_type"),
+                feature_count=metadata.get("feature_count"),
+                extent_wkt=metadata.get("extent_wkt"),
+                column_info=metadata.get("column_info"),
+                sample_values=sample_values,
+                source_format=source_format,
+                source_filename=job.source_filename,
+                original_srid=metadata.get("srid"),
+                source_url=source_url,
+                visibility=um.get("visibility", "private"),
+            )
+
+            # 7. Compute quality score
+            quality_score = await compute_quality_score(
+                session, table_name, metadata.get("column_info", []), dataset
+            )
+            dataset.quality_detail = quality_score
+            await session.flush()
+
+            # 7b. Generate vector quicklook thumbnail
+            try:
+                import io as _io
+
+                from app.vector.quicklook import generate_vector_quicklook_with_timeout as generate_vector_quicklook
+
+                ql_bytes = await generate_vector_quicklook(
+                    session, table_name, metadata.get("geometry_type", ""), 256
+                )
+                ql_storage = get_storage()
+                ql_key = f"vectors/{dataset.id}/quicklook_256.png"
+                await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
+                dataset.quicklook_256_uri = ql_key
+                await session.flush()
+            except Exception:
+                pass  # Non-fatal
+
+            # 8. Update job to complete
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # Invalidate caches after successful service import
+            await invalidate_catalog_cache()
+
+            # Generate embedding (non-fatal)
+            from app.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
+
+        except Exception as exc:
+            # On any failure, mark job as failed (no staging file to clean up)
+            await session.rollback()
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise
+
+
+def _looks_like_auth_error(error_message: str) -> bool:
+    """Best-effort detection for remote auth failures from GDAL stderr."""
+    lowered = error_message.lower()
+    markers = (
+        "401",
+        "403",
+        "unauthorized",
+        "forbidden",
+        "authentication",
+        "access denied",
+        "invalid token",
+        "token required",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+async def _apply_reupload_swap(
+    session,
+    *,
+    dataset,
+    staging_table: str,
+    metadata: dict,
+    sample_values: dict,
+    user_id: str,
+    source_filename: str | None,
+    source_format: str | None,
+    original_srid: int | None,
+    source_url: str | None = None,
+    file_hash: str | None = None,
+) -> None:
+    """Apply shared atomic swap + version invariants for all reupload sources."""
+    from app.audit.service import log_action
+    from app.collections.models import DatasetVersion
+    from app.ingest.metadata import compute_quality_score, refresh_attribute_metadata
+    from sqlalchemy import func, text
+
+    actor_id = uuid.UUID(user_id)
+    new_version = dataset.current_version + 1
+    table_name = dataset.table_name
+
+    await session.execute(text("SET LOCAL lock_timeout = '5s'"))
+
+    # Check if live table exists (handle edge case where it was dropped)
+    live_exists_result = await session.execute(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='data' AND table_name=:tn)"
+        ),
+        {"tn": table_name},
+    )
+    live_exists = live_exists_result.scalar()
+
+    if live_exists:
+        await session.execute(
+            text(f"ALTER TABLE data.{table_name} RENAME TO {table_name}_old")
+        )
+    await session.execute(
+        text(f"ALTER TABLE data.{staging_table} RENAME TO {table_name}")
+    )
+    if live_exists:
+        await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}_old"))
+
+    # Update dataset metadata in the same transaction as swap
+    dataset.srid = metadata["srid"]
+    dataset.geometry_type = metadata["geometry_type"]
+    dataset.feature_count = metadata["feature_count"]
+    if metadata["extent_wkt"] is not None:
+        dataset.record.spatial_extent = func.ST_GeomFromText(
+            metadata["extent_wkt"], 4326
+        )
+    dataset.column_info = metadata["column_info"]
+    dataset.sample_values = sample_values
+
+    await refresh_attribute_metadata(
+        session,
+        dataset.id,
+        metadata["column_info"],
+        geometry_type=metadata.get("geometry_type"),
+        sample_values=sample_values,
+    )
+
+    dataset.source_format = source_format
+    dataset.source_filename = source_filename
+    dataset.original_srid = original_srid
+    dataset.current_version = new_version
+    dataset.record.updated_by = actor_id
+    if source_url is not None:
+        dataset.source_url = source_url
+
+    quality_score = await compute_quality_score(
+        session, dataset.table_name, metadata["column_info"], dataset
+    )
+    dataset.quality_detail = quality_score
+
+    session.add(
+        DatasetVersion(
+            dataset_id=dataset.id,
+            version_number=new_version,
+            source_filename=source_filename,
+            source_format=source_format,
+            feature_count=metadata["feature_count"],
+            srid=metadata["srid"],
+            geometry_type=metadata["geometry_type"],
+            file_hash=file_hash,
+            uploaded_by=actor_id,
+        )
+    )
+    await log_action(
+        session,
+        user_id=actor_id,
+        action="reupload.commit",
+        resource_type="dataset",
+        resource_id=dataset.id,
+        details={
+            "version_number": new_version,
+            "source_type": "service_url" if source_url else "file",
+            "source_format": source_format,
+            "source_filename": source_filename,
+        },
+    )
+
+
+async def _post_reupload_success() -> None:
+    """Run shared post-commit cache invalidation."""
+    await invalidate_catalog_cache()
+
+
+@task_app.task(queue="ingest", retry=1)
+async def reupload_file(
+    job_id: str, dataset_id: str, file_path: str, user_id: str, **kwargs
+) -> None:
+    """Background task: replace dataset data via staging table swap."""
+    import hashlib
+
+    from app.database import async_session
+    from app.datasets.models import Dataset
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+    )
+    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
+    from app.jobs.models import IngestJob
+    from sqlalchemy import select, text
+    from sqlalchemy.orm import joinedload
+
+    async with async_session() as session:
+        # Load job and dataset records
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        result = await session.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == uuid.UUID(dataset_id))
+        )
+        dataset = result.scalar_one()
+
+        staging_tn = f"{dataset.table_name}_staging"
+
+        try:
+            # 1. Update job to running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # Resolve S3 key to local file for ogr2ogr
+            from app.ingest.service import resolve_file_path
+
+            original_file_path = file_path
+            file_path = await resolve_file_path(file_path, job_id)
+
+            # Validate file content and safety before ogr2ogr
+            from app.ingest.validation import (
+                validate_file_content,
+                validate_file_size,
+                validate_zip_safety,
+            )
+            from app.persistent_config import UPLOAD_MAX_SIZE_MB
+
+            max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
+
+            try:
+                validate_file_content(file_path, job.source_filename)
+                validate_file_size(file_path, max_size_mb * 1024 * 1024)
+                if file_path.lower().endswith(".zip"):
+                    validate_zip_safety(file_path)
+            except ValueError as exc:
+                job.status = "failed"
+                job.error_message = str(exc)
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+                Path(file_path).unlink(missing_ok=True)
+                return
+
+            # 2. Detect CRS from new file
+            info = await run_ogrinfo(file_path)
+            srid = info.get("srid")
+
+            # 3. Check for srid_override from user metadata
+            um = job.user_metadata or {}
+            srid_override = um.get("srid_override")
+            effective_srid = (
+                srid_override
+                if srid_override is not None
+                else (srid if srid is not None else 4326)
+            )
+
+            # 4. Load into staging table
+            db_conn_str = build_pg_conn_str()
+            await run_ogr2ogr(file_path, staging_tn, db_conn_str, source_srid=srid)
+
+            # 5. Post-process staging table
+            await clip_to_mercator_bounds(session, staging_tn)
+            await add_4326_column(session, staging_tn, effective_srid)
+            await grant_reader_access(session, staging_tn)
+
+            # 6. Extract metadata from staging table
+            metadata = await extract_metadata(session, staging_tn)
+            sample_values = await get_sample_values(
+                session, staging_tn, metadata["column_info"]
+            )
+
+            # 7. Compute file hash + source format
+            file_hash = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+            suffix = Path(file_path).suffix.lower().lstrip(".")
+            source_format = "shapefile" if suffix == "zip" else suffix
+
+            # 8. Apply shared reupload swap/version invariants
+            await _apply_reupload_swap(
+                session,
+                dataset=dataset,
+                staging_table=staging_tn,
+                metadata=metadata,
+                sample_values=sample_values,
+                user_id=user_id,
+                source_filename=job.source_filename,
+                source_format=source_format,
+                original_srid=srid,
+                file_hash=file_hash,
+            )
+
+            # 9. Archive original file to storage provider
+            try:
+                from app.storage import get_storage
+
+                storage = get_storage()
+                archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
+                with open(file_path, "rb") as fobj:
+                    await storage.put(archive_key, fobj)
+            except Exception as archive_exc:
+                # Archival failure is non-fatal -- data is already in PostGIS
+                import structlog
+
+                _log = structlog.get_logger()
+                _log.warning(
+                    "Failed to archive re-uploaded file to storage",
+                    archive_key=archive_key,
+                    error=str(archive_exc),
+                )
+
+            # 10. Update job status to complete
+            job.status = "complete"
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            await _post_reupload_success()
+
+            # Generate embedding (non-fatal)
+            from app.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
+
+        except Exception as exc:
+            # Clean up staging table on failure
+            await session.rollback()
+            try:
+                await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn}"))
+                await session.commit()
+            except Exception:
+                pass
+
+            # Mark job as failed
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise
+        finally:
+            # Clean up local file on success always; on failure only if it was
+            # a resolve_file_path download (source of truth is S3).
+            if job.status == "complete":
+                Path(file_path).unlink(missing_ok=True)
+            elif file_path != original_file_path:
+                Path(file_path).unlink(missing_ok=True)
+
+
+@task_app.task(queue="ingest", retry=1)
+async def reupload_service(
+    job_id: str,
+    dataset_id: str,
+    source_url: str,
+    source_layer: str,
+    user_id: str,
+    token: str | None = None,
+    **kwargs,
+) -> None:
+    """Background task: replace dataset data from a remote service source."""
+    from app.database import async_session
+    from app.datasets.models import Dataset
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+    )
+    from app.ingest.ogr import IngestionError, build_pg_conn_str, run_ogr2ogr_service
+    from app.jobs.models import IngestJob
+    from app.services.preview import build_gdal_source
+    from sqlalchemy import select, text
+    from sqlalchemy.orm import joinedload
+
+    auth_error_message = (
+        "Remote service authentication failed. Retry commit with a service token; "
+        "tokens are request-only and are not persisted for retries."
+    )
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        result = await session.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == uuid.UUID(dataset_id))
+        )
+        dataset = result.scalar_one()
+
+        staging_tn = f"{dataset.table_name}_staging"
+
+        try:
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            um = job.user_metadata or {}
+            service_type_raw = um.get("service_type", "")
+            layer_id = um.get("layer_id")
+            source_url_value = job.source_url or source_url
+            source_layer_value = job.source_layer or source_layer
+
+            if not source_url_value:
+                raise IngestionError(
+                    "Missing service source URL for re-upload commit job."
+                )
+
+            if service_type_raw.startswith("ArcGIS"):
+                service_type = "arcgis_featureserver"
+                source_format = "arcgis_featureserver"
+            elif service_type_raw.startswith("WFS"):
+                service_type = "wfs"
+                source_format = "wfs"
+            else:
+                raise IngestionError(
+                    f"Unrecognized service type '{service_type_raw}'. "
+                    "Expected a type starting with 'ArcGIS' or 'WFS'."
+                )
+
+            db_conn_str = build_pg_conn_str()
+
+            async def _run_service_import(layer_name: str) -> None:
+                gdal_source, layer_arg = build_gdal_source(
+                    service_type_raw,
+                    source_url_value,
+                    layer_name,
+                    layer_id,
+                    token=token,
+                )
+                await run_ogr2ogr_service(
+                    gdal_source,
+                    layer_arg,
+                    staging_tn,
+                    db_conn_str,
+                    service_type,
+                    token=token,
+                )
+
+            try:
+                await _run_service_import(source_layer_value)
+            except IngestionError as exc:
+                if ":" in source_layer_value:
+                    unqualified = source_layer_value.split(":", 1)[1]
+                    try:
+                        await _run_service_import(unqualified)
+                    except IngestionError as retry_exc:
+                        if token is None and _looks_like_auth_error(str(retry_exc)):
+                            raise IngestionError(auth_error_message) from retry_exc
+                        raise
+                elif token is None and _looks_like_auth_error(str(exc)):
+                    raise IngestionError(auth_error_message) from exc
+                else:
+                    raise
+            except ValueError as exc:
+                raise IngestionError(str(exc)) from exc
+
+            await clip_to_mercator_bounds(session, staging_tn)
+            await add_4326_column(session, staging_tn, 4326)
+            await grant_reader_access(session, staging_tn)
+
+            metadata = await extract_metadata(session, staging_tn)
+            sample_values = await get_sample_values(
+                session,
+                staging_tn,
+                metadata.get("column_info", []),
+            )
+
+            await _apply_reupload_swap(
+                session,
+                dataset=dataset,
+                staging_table=staging_tn,
+                metadata=metadata,
+                sample_values=sample_values,
+                user_id=user_id,
+                source_filename=job.source_filename or source_layer_value,
+                source_format=source_format,
+                original_srid=metadata.get("srid"),
+                source_url=source_url_value,
+            )
+
+            job.status = "complete"
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            await _post_reupload_success()
+
+            # Generate embedding (non-fatal)
+            from app.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
+
+        except Exception as exc:
+            await session.rollback()
+            try:
+                await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn}"))
+                await session.commit()
+            except Exception:
+                pass
+
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise
+
+
+async def create_raster_dataset(
+    session,
+    *,
+    meta: dict,
+    source_sha256: str,
+    asset_sha256: str,
+    cog_status: str,
+    cog_size: int,
+    source_filename: str | None,
+    created_by: uuid.UUID,
+    title: str,
+    summary: str | None,
+    visibility: str,
+) -> tuple:
+    """Create Record + Dataset + RasterAsset records for a raster ingest.
+
+    Returns (record, dataset, raster_asset).
+    """
+    from sqlalchemy import func
+
+    from app.datasets.models import Dataset, Record
+    from app.raster.models import RasterAsset
+
+    record = Record(
+        title=title,
+        summary=summary,
+        record_type="raster_dataset",
+        visibility=visibility,
+        updated_by=created_by,
+    )
+    if meta.get("bbox_wkt"):
+        record.spatial_extent = func.ST_GeomFromText(meta["bbox_wkt"], 4326)
+    session.add(record)
+    await session.flush()
+
+    table_name = f"raster_{record.id.hex[:16]}"
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        source_format="geotiff",
+        source_filename=source_filename,
+        srid=meta.get("epsg"),
+    )
+    session.add(dataset)
+    await session.flush()
+
+    nodata_val = meta.get("nodata")
+    nodata_str = str(nodata_val) if nodata_val is not None else None
+
+    raster_asset = RasterAsset(
+        dataset_id=dataset.id,
+        asset_uri="",  # updated after storage put
+        sha256=asset_sha256,
+        size_bytes=cog_size,
+        driver=meta.get("driver"),
+        storage_backend="local",
+        ingested_at=datetime.now(timezone.utc),
+        crs_wkt=meta.get("crs_wkt"),
+        epsg=meta.get("epsg"),
+        band_count=meta.get("band_count"),
+        dtype=meta.get("dtype"),
+        nodata=nodata_str,
+        res_x=meta.get("res_x"),
+        res_y=meta.get("res_y"),
+        width=meta.get("width"),
+        height=meta.get("height"),
+        compression=meta.get("compression"),
+        source_sha256=source_sha256,
+        cog_status=cog_status,
+        band_info=meta.get("band_info"),
+        is_rotated=meta.get("is_rotated", False),
+    )
+    session.add(raster_asset)
+    await session.flush()
+
+    return record, dataset, raster_asset
+
+
+async def create_vrt_dataset(
+    session,
+    *,
+    meta: dict,
+    asset_sha256: str,
+    vrt_size: int,
+    source_filename: str | None,
+    created_by: uuid.UUID,
+    title: str,
+    summary: str | None,
+    visibility: str,
+    vrt_type: str,
+    resolution_strategy: str,
+    source_dataset_ids: list[uuid.UUID],
+) -> tuple:
+    """Create Record + Dataset + RasterAsset records for a VRT dataset.
+
+    Similar to create_raster_dataset but:
+    - record_type="vrt_dataset"
+    - source_format=None (avoids chk_datasets_source_format constraint)
+    - Sets vrt_type and resolution_strategy on RasterAsset
+    - Inserts vrt_source_links rows with position ordering
+
+    Returns (record, dataset, raster_asset).
+    """
+    from sqlalchemy import func, text
+
+    from app.datasets.models import Dataset, Record
+    from app.raster.models import RasterAsset
+
+    record = Record(
+        title=title,
+        summary=summary,
+        record_type="vrt_dataset",
+        visibility=visibility,
+        updated_by=created_by,
+    )
+    if meta.get("bbox_wkt"):
+        record.spatial_extent = func.ST_GeomFromText(meta["bbox_wkt"], 4326)
+    session.add(record)
+    await session.flush()
+
+    table_name = f"vrt_{record.id.hex[:16]}"
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        source_format=None,  # VRT datasets have no source_format (avoids chk constraint)
+        source_filename=source_filename,
+        srid=meta.get("epsg"),
+    )
+    session.add(dataset)
+    await session.flush()
+
+    nodata_val = meta.get("nodata")
+    nodata_str = str(nodata_val) if nodata_val is not None else None
+
+    raster_asset = RasterAsset(
+        dataset_id=dataset.id,
+        asset_uri="",  # updated after storage put
+        sha256=asset_sha256,
+        size_bytes=vrt_size,
+        driver="VRT",
+        storage_backend="local",
+        ingested_at=datetime.now(timezone.utc),
+        crs_wkt=meta.get("crs_wkt"),
+        epsg=meta.get("epsg"),
+        band_count=meta.get("band_count"),
+        dtype=meta.get("dtype"),
+        nodata=nodata_str,
+        res_x=meta.get("res_x"),
+        res_y=meta.get("res_y"),
+        width=meta.get("width"),
+        height=meta.get("height"),
+        compression=meta.get("compression"),
+        is_rotated=meta.get("is_rotated", False),
+        vrt_type=vrt_type,
+        resolution_strategy=resolution_strategy,
+        status="ready",
+    )
+    session.add(raster_asset)
+    await session.flush()
+
+    # Insert vrt_source_links with position ordering
+    for idx, src_id in enumerate(source_dataset_ids):
+        await session.execute(
+            text("""
+                INSERT INTO catalog.vrt_source_links (vrt_dataset_id, source_dataset_id, position)
+                VALUES (:vrt_id, :src_id, :pos)
+            """),
+            {"vrt_id": str(dataset.id), "src_id": str(src_id), "pos": idx},
+        )
+
+    return record, dataset, raster_asset
+
+
+@task_app.task(queue="raster", retry=2)
+async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
+    """Background task: validate GeoTIFF, convert to COG, extract metadata, register dataset.
+
+    Full pipeline:
+    1. Update job status to running
+    2. Resolve file path
+    3. Validate file content and size
+    4. Hash source file (source_sha256)
+    5. Extract raster metadata
+    6. Check/convert to COG profile
+    7. Hash COG file (asset_sha256)
+    8. Generate quicklooks (256, 512)
+    9. Create Dataset + RasterAsset + Record in DB
+    10. Store COG and quicklooks to managed storage
+    11. Update asset URIs and create distribution record
+    12. Update job to complete
+    13. Invalidate cache, defer embedding
+    """
+    import asyncio
+    import io
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path as _Path
+
+    # Register all FK target models so SQLAlchemy can resolve FKs on IngestJob
+    from app.auth.models import User  # noqa: F401
+    from app.datasets.models import Dataset  # noqa: F401
+
+    from app.jobs.models import IngestJob
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        local_cog_path: str | None = None
+        tmp_dir: str | None = None
+        original_file_path = file_path
+
+        try:
+            # 1. Mark running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 2. Resolve file path
+            from app.ingest.service import resolve_file_path
+
+            file_path = await resolve_file_path(file_path, job_id)
+
+            # 3. Validate file content and size
+            from app.ingest.validation import validate_file_content, validate_file_size
+            from app.persistent_config import UPLOAD_MAX_SIZE_MB
+
+            max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
+            try:
+                validate_file_content(file_path, job.source_filename)
+                validate_file_size(file_path, max_size_mb * 1024 * 1024)
+            except ValueError as exc:
+                job.status = "failed"
+                job.error_message = str(exc)
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+                _Path(file_path).unlink(missing_ok=True)
+                return
+
+            # 4. Hash source file
+            source_sha256 = await asyncio.to_thread(sha256_file, file_path)
+
+            # 5. Extract metadata
+            meta = await asyncio.to_thread(extract_raster_metadata, file_path)
+
+            # Read GDAL options from user_metadata (set at commit time)
+            um = job.user_metadata or {}
+            assign_crs = um.get("srid_override")
+            user_compression = um.get("compression") or "DEFLATE"
+            user_resampling = um.get("resampling") or None
+            user_nodata = um.get("nodata_override")
+            crs_missing = um.get("crs_missing", False)
+
+            if not meta.get("crs_wkt") and not assign_crs:
+                if crs_missing:
+                    raise ValueError(
+                        "Missing CRS: raster has no coordinate reference system. "
+                        "Provide a CRS override (EPSG code) at import time."
+                    )
+                raise ValueError(
+                    "Missing CRS: raster has no coordinate reference system."
+                )
+
+            # 6. Check/convert to COG
+            tmp_dir = tempfile.mkdtemp()
+            local_cog_path, cog_status = await asyncio.to_thread(
+                check_and_prepare_cog,
+                file_path,
+                tmp_dir,
+                compression=user_compression,
+                resampling=user_resampling,
+                nodata=user_nodata,
+                assign_crs=assign_crs if assign_crs and crs_missing else None,
+            )
+
+            # 7. Hash COG
+            asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
+            cog_size = os.path.getsize(local_cog_path)
+
+            # 8. Generate quicklooks
+            ql256 = await asyncio.to_thread(generate_quicklook, local_cog_path, 256)
+            ql512 = await asyncio.to_thread(generate_quicklook, local_cog_path, 512)
+
+            # 9. Create DB records
+            um = job.user_metadata or {}
+            title = um.get("title") or job.source_filename or "raster_dataset"
+            record, dataset, raster_asset = await create_raster_dataset(
+                session,
+                meta=meta,
+                source_sha256=source_sha256,
+                asset_sha256=asset_sha256,
+                cog_status=cog_status,
+                cog_size=cog_size,
+                source_filename=job.source_filename,
+                created_by=uuid.UUID(user_id),
+                title=title,
+                summary=um.get("summary"),
+                visibility=um.get("visibility", "private"),
+            )
+
+            # 9b. Set temporal fields on Record
+            from datetime import date as _date
+
+            ts_raw = um.get("temporal_start") or meta.get("temporal_start")
+            te_raw = um.get("temporal_end")
+            if ts_raw:
+                try:
+                    record.temporal_start = _date.fromisoformat(ts_raw)
+                except (ValueError, TypeError):
+                    pass
+            if te_raw:
+                try:
+                    record.temporal_end = _date.fromisoformat(te_raw)
+                except (ValueError, TypeError):
+                    pass
+            await session.flush()
+
+            # 10. Store COG and quicklooks to managed storage
+            from app.storage import get_storage
+
+            storage = get_storage()
+            base_key = f"rasters/{dataset.id}/{asset_sha256}"
+            cog_key = f"{base_key}/source.cog.tif"
+            ql256_key = f"{base_key}/quicklook_256.png"
+            ql512_key = f"{base_key}/quicklook_512.png"
+
+            with open(local_cog_path, "rb") as fobj:
+                await storage.put(cog_key, fobj)
+            await storage.put(ql256_key, io.BytesIO(ql256))
+            await storage.put(ql512_key, io.BytesIO(ql512))
+
+            # 11. Update asset URIs and create distribution
+            raster_asset.asset_uri = cog_key
+            raster_asset.quicklook_256_uri = ql256_key
+            raster_asset.quicklook_512_uri = ql512_key
+            await session.flush()
+
+            from app.datasets.models import RecordDistribution
+
+            distribution = RecordDistribution(
+                record_id=record.id,
+                distribution_type="download",
+                format="geotiff",
+                url=cog_key,
+            )
+            session.add(distribution)
+
+            # 12. Finalize job
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # Invalidate cache
+            await invalidate_catalog_cache()
+
+            # 13. Generate embedding (non-fatal)
+            from app.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
+
+        except Exception as exc:
+            await session.rollback()
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise
+        finally:
+            # Clean up temp COG dir
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            # Clean up local staging file
+            if job.status == "complete":
+                _Path(file_path).unlink(missing_ok=True)
+            elif file_path != original_file_path:
+                _Path(file_path).unlink(missing_ok=True)
+
+
+@task_app.task(queue="raster", retry=1)
+async def ingest_vrt(
+    job_id: str,
+    user_id: str,
+    source_dataset_ids: str,
+    vrt_type: str,
+    resolution_strategy: str,
+    **kwargs,
+) -> None:
+    """Background task: build a VRT, extract metadata, and register as a catalog dataset.
+
+    Full pipeline:
+    1. Update job status to running
+    2. Parse source_dataset_ids JSON
+    3. Load RasterAsset rows for each source dataset
+    4. Resolve asset_uri -> filesystem/S3 paths
+    5. Build VRT via gdalbuildvrt (spatial mosaic or band stack)
+    6. Extract metadata from assembled VRT via rasterio
+    7. Hash VRT file
+    8. Generate quicklooks (non-fatal)
+    9. Create DB records (Record + Dataset + RasterAsset + vrt_source_links)
+    10. Store VRT and quicklooks to managed storage
+    11. Update asset URIs and create distribution record
+    12. Set job.dataset_id on completion
+    13. Invalidate cache, defer embedding
+    """
+    import asyncio
+    import io
+    import json as _json
+    import os
+    import shutil
+    import tempfile
+
+    from app.datasets.models import Dataset, RecordDistribution  # noqa: F401
+    from app.jobs.models import IngestJob
+    from app.raster.models import RasterAsset
+
+    logger_vrt = __import__("logging").getLogger(__name__)
+
+    tmp_dir: str | None = None
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        try:
+            # 1. Mark running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 2. Parse source dataset IDs
+            ids = [uuid.UUID(sid) for sid in _json.loads(source_dataset_ids)]
+
+            # 3. Load RasterAsset rows for source datasets
+            asset_result = await session.execute(
+                select(RasterAsset)
+                .join(Dataset, RasterAsset.dataset_id == Dataset.id)
+                .where(Dataset.id.in_(ids))
+            )
+            asset_map = {asset.dataset_id: asset for asset in asset_result.scalars().all()}
+            # Preserve insertion order
+            ordered_assets = [asset_map[sid] for sid in ids if sid in asset_map]
+
+            # 4. Resolve paths
+            source_paths = [
+                resolve_vrt_source_path(asset.asset_uri) for asset in ordered_assets
+            ]
+
+            # 5. Build VRT
+            tmp_dir = tempfile.mkdtemp()
+            vrt_path = os.path.join(tmp_dir, "source.vrt")
+            await asyncio.to_thread(
+                build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+            )
+
+            # 6. Extract metadata from assembled VRT
+            meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+            if not meta.get("crs_wkt"):
+                raise ValueError("Assembled VRT has no coordinate reference system.")
+
+            # 7. Hash and size VRT file
+            asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
+            vrt_size = os.path.getsize(vrt_path)
+
+            # 8. Generate quicklooks (non-fatal)
+            try:
+                ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
+                ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+            except Exception:
+                logger_vrt.warning("Quicklook generation failed for VRT %s", job_id)
+                ql256 = ql512 = None
+
+            # 9. Create DB records
+            um = job.user_metadata or {}
+            title = um.get("title") or f"vrt_{vrt_type}"
+            record, dataset, raster_asset = await create_vrt_dataset(
+                session,
+                meta=meta,
+                asset_sha256=asset_sha256,
+                vrt_size=vrt_size,
+                source_filename=None,
+                created_by=uuid.UUID(user_id),
+                title=title,
+                summary=um.get("summary"),
+                visibility=um.get("visibility", "private"),
+                vrt_type=vrt_type,
+                resolution_strategy=resolution_strategy,
+                source_dataset_ids=ids,
+            )
+
+            # 10. Store VRT and quicklooks to managed storage
+            from app.storage import get_storage
+
+            storage = get_storage()
+            base_key = f"rasters/{dataset.id}/{asset_sha256}"
+            vrt_key = f"{base_key}/source.vrt"
+            ql256_key = f"{base_key}/quicklook_256.png"
+            ql512_key = f"{base_key}/quicklook_512.png"
+
+            with open(vrt_path, "rb") as fobj:
+                await storage.put(vrt_key, fobj)
+
+            if ql256 is not None:
+                await storage.put(ql256_key, io.BytesIO(ql256))
+            if ql512 is not None:
+                await storage.put(ql512_key, io.BytesIO(ql512))
+
+            # 11. Update asset URIs and create distribution
+            raster_asset.asset_uri = vrt_key
+            if ql256 is not None:
+                raster_asset.quicklook_256_uri = ql256_key
+            if ql512 is not None:
+                raster_asset.quicklook_512_uri = ql512_key
+            await session.flush()
+
+            from app.datasets.models import RecordDistribution
+
+            distribution = RecordDistribution(
+                record_id=record.id,
+                distribution_type="download",
+                format="vrt",
+                url=vrt_key,
+            )
+            session.add(distribution)
+
+            # 12. Finalize job
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # Invalidate cache
+            await invalidate_catalog_cache()
+
+            # 13. Generate embedding (non-fatal)
+            from app.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
+
+        except Exception as exc:
+            await session.rollback()
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@task_app.task(queue="raster", retry=1)
+async def regenerate_vrt(job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs) -> None:
+    """Background task: rebuild a VRT file after source add/remove and update metadata.
+
+    Atomic swap: new VRT is built to a temp path, then written to the SAME storage key
+    as the existing VRT (asset_uri stays unchanged). Titiler continues serving the old
+    file until the overwrite completes.
+
+    Full pipeline:
+    1. Mark job running
+    2. Load VRT RasterAsset
+    3. Load vrt_source_links ordered by position -> source dataset IDs
+    4. Load source RasterAsset rows, resolve paths
+    5. Build new VRT to temp path
+    6. Post-validate via rasterio
+    7. Extract metadata from new VRT
+    8. Hash and size new VRT
+    9. Generate quicklooks (non-fatal)
+    10. Overwrite existing storage key (atomic swap)
+    11. Update RasterAsset metadata fields
+    12. Set status='ready', last_regenerated_at, clear current_generation_id
+    13. Update dataset footprint geometry
+    14. Mark job complete
+    15. Invalidate cache, defer embedding
+    """
+    import asyncio
+    import io
+    import os
+    import shutil
+    import tempfile
+
+    from app.datasets.models import Dataset
+    from app.jobs.models import IngestJob
+    from app.raster.models import RasterAsset, VrtGeneration
+    from sqlalchemy import func, select, text
+
+    logger_regen = __import__("logging").getLogger(__name__)
+
+    tmp_dir: str | None = None
+    vrt_asset = None
+    generation_id: uuid.UUID | None = None
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+
+        try:
+            # 1. Mark running
+            job.status = "running"
+            job.started_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 2. Load VRT RasterAsset
+            vrt_id = uuid.UUID(vrt_dataset_id)
+            asset_result = await session.execute(
+                select(RasterAsset)
+                .join(Dataset, RasterAsset.dataset_id == Dataset.id)
+                .where(Dataset.id == vrt_id)
+            )
+            vrt_asset = asset_result.scalar_one_or_none()
+            if vrt_asset is None:
+                raise ValueError(f"VRT dataset {vrt_dataset_id} not found")
+
+            # 3. Load vrt_source_links ordered by position
+            links_result = await session.execute(
+                text(
+                    "SELECT source_dataset_id FROM catalog.vrt_source_links "
+                    "WHERE vrt_dataset_id = :vrt_id ORDER BY position ASC"
+                ),
+                {"vrt_id": vrt_id},
+            )
+            source_ids = [row.source_dataset_id for row in links_result.fetchall()]
+            if not source_ids:
+                raise ValueError(f"VRT {vrt_dataset_id} has no source links")
+
+            # 3b. Create VrtGeneration record
+            generation = VrtGeneration(
+                vrt_dataset_id=vrt_id,
+                status="running",
+                started_at=datetime.now(timezone.utc),
+                source_count=len(source_ids),
+                triggered_by=triggered_by,
+            )
+            session.add(generation)
+            await session.flush()
+            generation_id = generation.id
+            vrt_asset.current_generation_id = generation.id
+            await session.commit()
+
+            # 4. Load source RasterAsset rows and resolve paths
+            source_assets_result = await session.execute(
+                select(RasterAsset)
+                .join(Dataset, RasterAsset.dataset_id == Dataset.id)
+                .where(Dataset.id.in_(source_ids))
+            )
+            asset_map = {a.dataset_id: a for a in source_assets_result.scalars().all()}
+            ordered_assets = [asset_map[sid] for sid in source_ids if sid in asset_map]
+            source_paths = [
+                resolve_vrt_source_path(a.asset_uri) for a in ordered_assets
+            ]
+
+            # 5. Build VRT to temp path
+            tmp_dir = tempfile.mkdtemp()
+            vrt_path = os.path.join(tmp_dir, "source.vrt")
+            vrt_type = vrt_asset.vrt_type or "mosaic"
+            resolution_strategy = vrt_asset.resolution_strategy or "finest"
+
+            await asyncio.to_thread(
+                build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+            )
+
+            # 6 & 7. Extract metadata (also serves as post-validation)
+            meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+            if not meta.get("crs_wkt"):
+                raise ValueError("Regenerated VRT has no coordinate reference system.")
+
+            # 8. Hash and size
+            new_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
+            new_size = os.path.getsize(vrt_path)
+
+            # 9. Generate quicklooks (non-fatal)
+            try:
+                ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
+                ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+            except Exception:
+                logger_regen.warning(
+                    "Quicklook regeneration failed for VRT %s", vrt_dataset_id
+                )
+                ql256 = ql512 = None
+
+            # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
+            storage = get_storage()
+            vrt_key = vrt_asset.asset_uri  # unchanged -- same key
+
+            with open(vrt_path, "rb") as fobj:
+                await storage.put(vrt_key, fobj)
+
+            if ql256 is not None and vrt_asset.quicklook_256_uri:
+                await storage.put(vrt_asset.quicklook_256_uri, io.BytesIO(ql256))
+            if ql512 is not None and vrt_asset.quicklook_512_uri:
+                await storage.put(vrt_asset.quicklook_512_uri, io.BytesIO(ql512))
+
+            # 11. Update RasterAsset metadata fields
+            nodata_val = meta.get("nodata")
+            vrt_asset.sha256 = new_sha256
+            vrt_asset.size_bytes = new_size
+            vrt_asset.crs_wkt = meta.get("crs_wkt")
+            vrt_asset.epsg = meta.get("epsg")
+            vrt_asset.band_count = meta.get("band_count")
+            vrt_asset.dtype = meta.get("dtype")
+            vrt_asset.nodata = str(nodata_val) if nodata_val is not None else None
+            vrt_asset.res_x = meta.get("res_x")
+            vrt_asset.res_y = meta.get("res_y")
+            vrt_asset.width = meta.get("width")
+            vrt_asset.height = meta.get("height")
+            vrt_asset.compression = meta.get("compression")
+
+            # 12. Status transitions
+            vrt_asset.status = "ready"
+            vrt_asset.last_regenerated_at = datetime.now(timezone.utc)
+            vrt_asset.current_generation_id = None
+
+            # 12b. Update generation record
+            generation.status = "completed"
+            generation.completed_at = datetime.now(timezone.utc)
+            generation.duration_seconds = (
+                generation.completed_at - generation.started_at
+            ).total_seconds()
+
+            # 13. Update dataset footprint geometry
+            dataset_result = await session.execute(
+                select(Dataset).where(Dataset.id == vrt_id)
+            )
+            vrt_dataset = dataset_result.scalar_one_or_none()
+            if vrt_dataset is not None and meta.get("bbox_wkt"):
+                vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
+                    meta["bbox_wkt"], 4326
+                )
+
+            # 14. Finalize job
+            job.status = "complete"
+            job.dataset_id = vrt_id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 15. Invalidate cache and defer embedding
+            await invalidate_catalog_cache()
+            await defer_embedding(vrt_dataset)
+
+        except Exception as exc:
+            await session.rollback()
+            if vrt_asset is not None:
+                vrt_asset.status = "failed"
+                vrt_asset.current_generation_id = None
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.completed_at = datetime.now(timezone.utc)
+
+            # Update generation record on failure
+            if generation_id is not None:
+                gen_result = await session.execute(
+                    select(VrtGeneration).where(VrtGeneration.id == generation_id)
+                )
+                gen = gen_result.scalar_one_or_none()
+                if gen:
+                    gen.status = "failed"
+                    gen.completed_at = datetime.now(timezone.utc)
+                    if gen.started_at:
+                        gen.duration_seconds = (
+                            gen.completed_at - gen.started_at
+                        ).total_seconds()
+                    gen.error_message = str(exc)
+
+            await session.commit()
+            raise
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)

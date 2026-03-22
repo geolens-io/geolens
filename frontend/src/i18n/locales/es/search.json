@@ -1,0 +1,136 @@
+{
+  "title": "Buscar datos geoespaciales",
+  "subtitle": "Busque, previsualice y exporte datos geoespaciales del catálogo",
+  "placeholder": "Buscar conjuntos de datos por nombre, descripción, etiquetas...",
+  "updating": "Actualizando resultados...",
+  "loadingDatasets": "Cargando conjuntos de datos...",
+  "resultCount_one": "{{count}} resultado",
+  "resultCount_other": "{{count}} resultados",
+  "empty": {
+    "title": "No se encontraron conjuntos de datos",
+    "description": "Intente ajustar su consulta de búsqueda o los filtros",
+    "cta": "Importe su primer conjunto de datos"
+  },
+  "error": {
+    "message": "Error al cargar resultados: {{message}}"
+  },
+  "filters": {
+    "geometry": "Geometría",
+    "anyGeometry": "Cualquier geometría",
+    "point": "Punto",
+    "lineString": "LineString",
+    "polygon": "Polígono",
+    "multiPoint": "MultiPoint",
+    "multiLineString": "MultiLineString",
+    "multiPolygon": "MultiPolygon",
+    "sort": "Ordenar",
+    "relevance": "Relevancia",
+    "dateAdded": "Fecha de adición",
+    "name": "Nombre",
+    "lastUpdated": "Última actualización",
+    "location": "Ubicación",
+    "dateRange": "Fecha de adición",
+    "dateFrom": "Desde",
+    "dateTo": "Hasta",
+    "apply": "Aplicar",
+    "bboxMinX": "Mín X (Oeste)",
+    "bboxMinY": "Mín Y (Sur)",
+    "bboxMaxX": "Máx X (Este)",
+    "bboxMaxY": "Máx Y (Norte)",
+    "clearFilters": "Limpiar filtros",
+    "datasetCount_one": "{{count}} conjunto de datos encontrado",
+    "datasetCount_other": "{{count}} conjuntos de datos encontrados",
+    "removeFilter": "Eliminar filtro {{label}}",
+    "allTypes": "Todos",
+    "vector": "Vector",
+    "raster": "Raster",
+    "vrt": "VRT",
+    "type": "Tipo",
+    "organization": "Organizacion",
+    "anyOrganization": "Cualquier organizacion",
+    "crs": "CRS",
+    "anyCrs": "Cualquier CRS",
+    "collection": "Colección",
+    "collections": "Colecciones",
+    "temporalExtent": "Extensión temporal",
+    "keywords": "Palabras clave",
+    "keywordSearch": "Buscar palabras clave...",
+    "noKeywords": "No hay palabras clave disponibles",
+    "clearKeywords": "Borrar todas",
+    "keywordsCount": "Palabras clave ({{count}})"
+  },
+  "collection": {
+    "datasetCount_one": "{{count}} conjunto de datos",
+    "datasetCount_other": "{{count}} conjuntos de datos"
+  },
+  "datasetCard": {
+    "quicklookAlt": "Preview of {{name}}",
+    "previewUnavailable": "Vista previa no disponible"
+  },
+  "card": {
+    "featureCount_one": "{{count}} entidad",
+    "featureCount_other": "{{count}} entidades",
+    "updatedBy": "Actualizado por",
+    "neverEdited": "Nunca",
+    "unknown": "Desconocido",
+    "system": "Sistema",
+    "restricted": "Usuario restringido",
+    "moretags": "+{{count}} más",
+    "updatedFallback": "Actualizado hace {{time}}",
+    "noUpdateMetadata": "Sin metadatos de actualización",
+    "status": {
+      "draft": "Borrador",
+      "ready": "Listo",
+      "internal": "Interno",
+      "archived": "Archivado",
+      "deprecated": "Obsoleto"
+    }
+  },
+  "savedSearches": {
+    "saveButton": "Guardar búsqueda",
+    "dialogTitle": "Guardar búsqueda actual",
+    "dialogDescription": "Asigne un nombre a esta búsqueda para acceder a ella rápidamente.",
+    "namePlaceholder": "Nombre de la búsqueda",
+    "saving": "Guardando...",
+    "removeSavedSearch": "Eliminar búsqueda guardada"
+  },
+  "bbox": {
+    "noExtent": "Sin extensión",
+    "instruction": "Haz clic y arrastra para dibujar un cuadro delimitador"
+  },
+  "typeahead": {
+    "searching": "Buscando...",
+    "noResults": "No se encontraron resultados"
+  },
+  "quality": {
+    "label": "Calidad: {{score}}%"
+  },
+  "create": {
+    "button": "Crear conjunto de datos",
+    "title": "Crear nuevo conjunto de datos",
+    "datasetTitle": "Título del conjunto de datos",
+    "datasetTitlePlaceholder": "Ingrese el título del conjunto de datos",
+    "columns": "Columnas",
+    "columnName": "Nombre de columna",
+    "columnType": "Tipo",
+    "addColumn": "Agregar columna",
+    "removeColumn": "Remove column",
+    "submit": "Crear conjunto de datos",
+    "submitting": "Creando...",
+    "success": "Conjunto de datos creado exitosamente",
+    "typeOptions": {
+      "text": "Texto",
+      "integer": "Entero",
+      "float": "Decimal",
+      "date": "Fecha",
+      "boolean": "Booleano"
+    },
+    "errors": {
+      "titleRequired": "El título es obligatorio",
+      "columnRequired": "Se requiere al menos una columna",
+      "columnNamesRequired": "Todos los nombres de columna son obligatorios",
+      "duplicateColumn": "Nombre de columna duplicado: {{name}}",
+      "createFailed": "Error al crear el conjunto de datos"
+    }
+  }
+}

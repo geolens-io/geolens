@@ -1,0 +1,89 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  listContacts,
+  createContact,
+  deleteContact,
+  listKeywords,
+  createKeyword,
+  deleteKeyword,
+  listDistributions,
+} from '@/api/records';
+import { fetchRelatedDatasets } from '@/api/datasets';
+import type { ContactCreate, KeywordCreate } from '@/types/api';
+
+export function useContacts(recordId: string | undefined) {
+  return useQuery({
+    queryKey: ['contacts', recordId],
+    queryFn: () => listContacts(recordId!),
+    enabled: !!recordId,
+  });
+}
+
+export function useCreateContact(recordId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ContactCreate) => createContact(recordId!, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['contacts', recordId] });
+      qc.invalidateQueries({ queryKey: ['validation'] });
+    },
+  });
+}
+
+export function useDeleteContact(recordId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (contactId: string) => deleteContact(recordId!, contactId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['contacts', recordId] });
+      qc.invalidateQueries({ queryKey: ['validation'] });
+    },
+  });
+}
+
+export function useKeywords(recordId: string | undefined) {
+  return useQuery({
+    queryKey: ['keywords', recordId],
+    queryFn: () => listKeywords(recordId!),
+    enabled: !!recordId,
+  });
+}
+
+export function useCreateKeyword(recordId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: KeywordCreate) => createKeyword(recordId!, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['keywords', recordId] });
+      qc.invalidateQueries({ queryKey: ['validation'] });
+    },
+  });
+}
+
+export function useDeleteKeyword(recordId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (keywordId: string) => deleteKeyword(recordId!, keywordId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['keywords', recordId] });
+      qc.invalidateQueries({ queryKey: ['validation'] });
+    },
+  });
+}
+
+export function useDistributions(recordId: string | undefined) {
+  return useQuery({
+    queryKey: ['distributions', recordId],
+    queryFn: () => listDistributions(recordId!),
+    enabled: !!recordId,
+  });
+}
+
+export function useRelatedDatasets(datasetId: string) {
+  return useQuery({
+    queryKey: ['datasets', datasetId, 'related'],
+    queryFn: () => fetchRelatedDatasets(datasetId),
+    enabled: !!datasetId,
+    retry: false,
+  });
+}

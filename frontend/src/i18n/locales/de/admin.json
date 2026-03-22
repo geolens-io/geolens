@@ -1,0 +1,545 @@
+{
+  "title": "Verwaltung",
+  "roles": {
+    "viewer": "Betrachter",
+    "editor": "Bearbeiter",
+    "admin": "Administrator"
+  },
+  "overview": {
+    "title": "Übersicht"
+  },
+  "stats": {
+    "loading": "Katalogstatistiken werden geladen...",
+    "totalDatasets": "Datensätze gesamt",
+    "recentAdditions": "Neue Einträge (30 T.)",
+    "storageUsed": "Speicherverbrauch",
+    "byGeometryType": "Datensätze nach Geometrietyp",
+    "byVisibility": "Datensätze nach Sichtbarkeit",
+    "noDatasets": "Noch keine Datensätze",
+    "errorLoading": "Statistiken konnten nicht geladen werden: {{message}}",
+    "totalUsers": "Benutzer gesamt",
+    "usersByStatus": "Benutzer nach Status",
+    "noUsers": "Noch keine Benutzer"
+  },
+  "users": {
+    "title": "Benutzer",
+    "titleCount_one": "Benutzer ({{count}})",
+    "titleCount_other": "Benutzer ({{count}})",
+    "addUser": "Benutzer hinzufügen",
+    "loading": "Benutzer werden geladen...",
+    "errorLoading": "Benutzer konnten nicht geladen werden: {{message}}",
+    "filters": {
+      "allUsers": "Alle Benutzer",
+      "pending": "Ausstehend",
+      "active": "Aktiv"
+    },
+    "table": {
+      "username": "Benutzername",
+      "email": "E-Mail",
+      "roles": "Rollen",
+      "status": "Status",
+      "active": "Aktiv",
+      "created": "Erstellt",
+      "actions": "Aktionen"
+    },
+    "status": {
+      "pending": "Ausstehend",
+      "active": "Aktiv",
+      "inactive": "Inaktiv"
+    },
+    "actions": {
+      "approve": "Genehmigen",
+      "reject": "Ablehnen",
+      "deactivate": "Deaktivieren"
+    },
+    "approveDialog": {
+      "title": "{{username}} genehmigen",
+      "description": "Wählen Sie eine Rolle für diesen Benutzer, bevor Sie die Registrierung genehmigen.",
+      "roleLabel": "Rolle",
+      "roles": {
+        "viewer": "Betrachter",
+        "editor": "Bearbeiter",
+        "admin": "Administrator"
+      },
+      "error": "Benutzer konnte nicht genehmigt werden",
+      "approving": "Wird genehmigt...",
+      "approve": "Genehmigen"
+    },
+    "rejectDialog": {
+      "title": "Benutzer ablehnen",
+      "description": "Möchten Sie die Registrierung von \"{{username}}\" wirklich ablehnen? Der Zugang zum System wird verweigert.",
+      "error": "Benutzer konnte nicht abgelehnt werden",
+      "rejecting": "Wird abgelehnt...",
+      "reject": "Ablehnen"
+    },
+    "deactivateDialog": {
+      "title": "Benutzer deaktivieren",
+      "description": "Möchten Sie \"{{username}}\" wirklich deaktivieren? Die Anmeldung wird nicht mehr möglich sein.",
+      "error": "Benutzer konnte nicht deaktiviert werden",
+      "deactivating": "Wird deaktiviert...",
+      "deactivate": "Deaktivieren"
+    }
+  },
+  "userCreate": {
+    "title": "Benutzer erstellen",
+    "description": "Neuen Benutzer zum System hinzufügen.",
+    "labels": {
+      "username": "Benutzername",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "role": "Rolle"
+    },
+    "placeholders": {
+      "username": "Benutzername",
+      "email": "benutzer@beispiel.de",
+      "password": "Mindestens 8 Zeichen"
+    },
+    "roles": {
+      "viewer": "Betrachter",
+      "editor": "Bearbeiter",
+      "admin": "Administrator"
+    },
+    "creating": "Wird erstellt...",
+    "error": "Benutzer konnte nicht erstellt werden"
+  },
+  "userEdit": {
+    "title": "Benutzer bearbeiten",
+    "description": "Benutzerdaten für {{username}} aktualisieren.",
+    "labels": {
+      "username": "Benutzername",
+      "email": "E-Mail",
+      "role": "Rolle",
+      "status": "Status",
+      "active": "Aktiv"
+    },
+    "placeholder": {
+      "email": "benutzer@beispiel.de"
+    },
+    "roles": {
+      "viewer": "Betrachter",
+      "editor": "Bearbeiter",
+      "admin": "Administrator"
+    },
+    "saving": "Wird gespeichert...",
+    "error": "Benutzer konnte nicht aktualisiert werden"
+  },
+  "userDelete": {
+    "title": "Benutzer löschen",
+    "description": "Möchten Sie den Benutzer \"{{username}}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden. Vorhandene Datensätze bleiben erhalten, zeigen aber \"Gelöschter Benutzer\" als Ersteller an.",
+    "deleting": "Wird gelöscht...",
+    "error": "Benutzer konnte nicht gelöscht werden"
+  },
+  "jobs": {
+    "title": "Aufträge",
+    "loading": "Aufträge werden geladen...",
+    "errorLoading": "Aufträge konnten nicht geladen werden: {{message}}",
+    "filters": {
+      "allStatuses": "Alle Status",
+      "pending": "Ausstehend",
+      "running": "Laufend",
+      "complete": "Abgeschlossen",
+      "failed": "Fehlgeschlagen",
+      "allUsers": "Alle Benutzer",
+      "user": "Benutzer",
+      "status": "Status",
+      "clear": "Zurücksetzen"
+    },
+    "noJobs": "Keine Aufträge gefunden",
+    "table": {
+      "createdAt": "Erstellt am",
+      "user": "Benutzer",
+      "filename": "Dateiname",
+      "status": "Status",
+      "duration": "Dauer"
+    },
+    "detail": {
+      "errorMessage": "Fehlermeldung",
+      "userMetadata": "Benutzer-Metadaten"
+    },
+    "retry": "Wiederholen",
+    "retrying": "Wird wiederholt..."
+  },
+  "audit": {
+    "title": "Protokoll",
+    "loading": "Protokolleinträge werden geladen...",
+    "errorLoading": "Protokolleinträge konnten nicht geladen werden: {{message}}",
+    "filters": {
+      "allActions": "Alle Aktionen",
+      "datasetView": "Datensatz angesehen",
+      "datasetExport": "Datensatz exportiert",
+      "metadataEdit": "Metadaten bearbeitet",
+      "datasetCreate": "Datensatz erstellt",
+      "datasetDelete": "Datensatz gelöscht",
+      "action": "Aktion",
+      "from": "Von",
+      "to": "Bis",
+      "clear": "Zurücksetzen"
+    },
+    "noLogs": "Keine Protokolleinträge gefunden",
+    "table": {
+      "timestamp": "Zeitstempel",
+      "user": "Benutzer",
+      "action": "Aktion",
+      "resource": "Ressource",
+      "resourceId": "Ressourcen-ID",
+      "ipAddress": "IP-Adresse"
+    },
+    "detailsHint": "Details (Zeile anklicken zum Einklappen)"
+  },
+  "ai": {
+    "title": "KI",
+    "cardTitle": "KI-Status",
+    "notConfigured": "Nicht konfiguriert",
+    "provider": "Anbieter",
+    "model": "Modell",
+    "status": "Status",
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert",
+    "semanticSearch": "Semantische Suche",
+    "semanticSearchDescription": "Vektorbasierte Ahnlichkeitssuche neben der Stichwortsuche aktivieren",
+    "embeddingCoverage": "Embedding-Abdeckung",
+    "generateMissing": "Fehlende Embeddings generieren",
+    "generating": "Wird generiert...",
+    "backfillSuccess": "Embeddings fuer {{count}} Datensaetze generiert",
+    "backfillEmpty": "Alle Datensaetze haben bereits Embeddings",
+    "allEmbedded": "Alle Datensätze haben Embeddings",
+    "apiKeysEnvOnlyNote": "API-Schlüssel können nur über Umgebungsvariablen (ANTHROPIC_API_KEY, OPENAI_API_KEY) gesetzt werden.",
+    "availableNotSelected": "Verfügbar",
+    "backfillAllFailed": "Alle {{errors}} Embeddings fehlgeschlagen — prüfen Sie OPENAI_API_KEY",
+    "backfillPartial": "{{created}} Embeddings generiert mit {{errors}} Fehlern",
+    "baseUrlDescription": "Benutzerdefinierter Endpunkt für OpenAI-kompatible Anbieter. Leer lassen für Standard-OpenAI.",
+    "detectDims": "Erkennen",
+    "dimsChangeWarning": "Das Ändern der Dimensionen macht {{count}} vorhandene(s) Embedding(s) inkompatibel.",
+    "dimsDetectFailed": "Dimensionen konnten nicht erkannt werden.",
+    "dimsDetected": "{{dims}} Dimensionen erkannt",
+    "embeddingBaseUrlDescription": "Separater Endpunkt für die Embedding-Generierung.",
+    "embeddingDimsAutoDescription": "Vektordimensionen des Embedding-Modells.",
+    "embeddingModelDescription": "OpenAI-kompatibler Embedding-Modellname für semantische Suchvektoren.",
+    "embeddings": "Embeddings",
+    "inference": "Inferenz",
+    "manageSettings": "KI-Einstellungen verwalten",
+    "modelDescription": "Modell-ID, die an den ausgewählten Anbieter gesendet wird.",
+    "openaiKeyRequired": "OPENAI_API_KEY ist nicht gesetzt. Die Embedding-Generierung erfordert einen OpenAI-kompatiblen API-Schlüssel.",
+    "keyConfigured": "konfiguriert",
+    "keyNotSet": "nicht konfiguriert",
+    "regenerateAll": "Alle neu generieren",
+    "labels": {
+      "aiEnabled": "KI-Chat aktiviert",
+      "llmProvider": "LLM-Anbieter",
+      "model": "Modell",
+      "openaiBaseUrl": "OpenAI-kompatible Basis-URL",
+      "embeddingModel": "Embedding-Modell",
+      "embeddingBaseUrl": "Embedding-Basis-URL",
+      "embeddingDims": "Embedding-Dimensionen"
+    },
+    "providers": {
+      "anthropic": "Anthropic",
+      "openaiCompatible": "OpenAI-kompatibel"
+    },
+    "providerDescription": "Wählen Sie den LLM-Anbieter für Chat, Kartenerstellung und KI-Metadaten-Funktionen.",
+    "sectionApiKeys": "API-Schlüssel-Status",
+    "sectionInference": "Inferenz (LLM)",
+    "sectionSemanticSearch": "Semantische Suche & Embeddings",
+    "usedForInference": "Inferenz"
+  },
+  "apiKeys": {
+    "title": "API-Schlüssel",
+    "createKey": "Schlüssel erstellen",
+    "keyName": "Schlüsselname",
+    "creating": "Wird erstellt...",
+    "createError": "Schlüssel konnte nicht erstellt werden",
+    "loadingKeys": "Schlüssel werden geladen...",
+    "noKeys": "Keine API-Schlüssel",
+    "active": "Aktiv",
+    "revoked": "Widerrufen",
+    "created": "Erstellt {{date}}",
+    "lastUsed": "Zuletzt verwendet:",
+    "neverUsed": "Nie verwendet",
+    "justNow": "Gerade eben",
+    "minutesAgo_one": "vor {{count}} Min.",
+    "minutesAgo_other": "vor {{count}} Min.",
+    "hoursAgo_one": "vor {{count}} Std.",
+    "hoursAgo_other": "vor {{count}} Std.",
+    "daysAgo_one": "vor {{count}} Tag",
+    "daysAgo_other": "vor {{count}} Tagen",
+    "revokeDialog": {
+      "title": "API-Schlüssel widerrufen",
+      "description": "Möchten Sie '{{name}}' wirklich widerrufen? Dieser Schlüssel funktioniert sofort nicht mehr.",
+      "revoking": "Wird widerrufen...",
+      "revoke": "Widerrufen"
+    },
+    "revokeError": "Schlüssel konnte nicht widerrufen werden"
+  },
+  "apiKeyReveal": {
+    "title": "API-Schlüssel erstellt",
+    "description": "Kopieren Sie diesen Schlüssel jetzt. Er wird nicht erneut angezeigt.",
+    "warning": "Dieser Schlüssel wird nicht erneut angezeigt. Kopieren Sie ihn jetzt.",
+    "done": "Fertig"
+  },
+  "sharedMaps": {
+    "title": "Geteilte Karten",
+    "empty": "Es wurden noch keine Karten geteilt.",
+    "mapName": "Karte",
+    "linkStatus": "Status",
+    "embedTokens": "Einbettungstokens",
+    "expires": "Lauft ab",
+    "created": "Erstellt",
+    "actions": "Aktionen",
+    "embedTokensFor": "Einbettungstokens — {{map}}",
+    "loadingEmbedTokens": "Einbettungstokens werden geladen...",
+    "noEmbedTokens": "Keine Einbettungstokens fur diese Karte.",
+    "loadEmbedTokensFailed": "Fehler beim Laden der Embed-Tokens",
+    "loadFailed": "Fehler beim Laden der geteilten Karten",
+    "creator": "Ersteller",
+    "activeCount": "{{count}} aktiv"
+  },
+  "shareTokens": {
+    "active": "Aktiv",
+    "expired": "Abgelaufen",
+    "revoked": "Widerrufen",
+    "never": "Nie",
+    "revoke": "Widerrufen",
+    "revokeSuccess": "Freigabe-Token widerrufen",
+    "revokeFailed": "Token konnte nicht widerrufen werden",
+    "revokeDialogTitle": "Freigabelink widerrufen",
+    "revokeDialogDescription": "Möchten Sie den Freigabelink für \"{{map}}\" wirklich widerrufen? Alle Personen mit diesem Link verlieren den Zugang.",
+    "revokeDialogCancel": "Abbrechen",
+    "revokeDialogConfirm": "Widerrufen"
+  },
+  "embedTokens": {
+    "tokenHint": "Token",
+    "status": "Status",
+    "useCount": "Nutzungen",
+    "lastUsed": "Zuletzt verwendet",
+    "expires": "Lauft ab",
+    "origins": "Urspruenge",
+    "active": "Aktiv",
+    "expired": "Abgelaufen",
+    "revoked": "Widerrufen",
+    "expiringSoon": "Lauft in {{days}}T ab",
+    "expiresToday": "Lauft heute ab",
+    "never": "Nie",
+    "noOrigins": "Alle",
+    "revokeSelected": "Ausgewaehlte widerrufen ({{count}})",
+    "bulkRevokeTitle": "Einbettungstokens widerrufen",
+    "bulkRevokeDescription": "{{count}} Einbettungstokens widerrufen? Dies kann nicht rueckgaengig gemacht werden.",
+    "bulkRevokeConfirm": "Widerrufen",
+    "bulkRevokeCancel": "Abbrechen",
+    "bulkRevokeSuccess": "{{count}} Einbettungstokens widerrufen",
+    "bulkRevokeFailed": "Einbettungstokens konnten nicht widerrufen werden"
+  },
+  "settings": {
+    "actions": {
+      "discard": "Änderungen verwerfen",
+      "resetDefaults": "Auf Standardwerte zurücksetzen"
+    },
+    "sourceBadge": {
+      "reset": "Zurücksetzen",
+      "resetToDefault": "Auf Standardwert zurücksetzen",
+      "envVar": "Umgeb.-Var.",
+      "envVarTooltip": "Durch Umgebungsvariable gesperrt. Ändern Sie dies in Ihrer Bereitstellungskonfiguration."
+    },
+    "permissions": {
+      "title": "Rollenberechtigungen",
+      "description": "Konfigurieren Sie, welche Fähigkeiten für jede Rolle verfügbar sind. Die Berechtigungen manage_users und manage_settings des Administrators können nicht deaktiviert werden.",
+      "capabilityHeader": "Fähigkeit",
+      "capabilityForRole": "{{capability}} für {{role}}",
+      "capabilities": {
+        "upload": "Datensätze hochladen",
+        "create_layers": "Ebenen erstellen",
+        "export": "Daten exportieren",
+        "edit_metadata": "Metadaten bearbeiten",
+        "manage_collections": "Sammlungen verwalten",
+        "use_ai_chat": "KI-Chat",
+        "manage_users": "Benutzer verwalten",
+        "manage_settings": "Einstellungen verwalten"
+      }
+    },
+    "general": {
+      "title": "Allgemein",
+      "cardTitle": "Funktionen",
+      "cardDescription": "Plattformfunktionen aktivieren oder deaktivieren.",
+      "registration": "Selbstregistrierung",
+      "registrationDescription": "Neuen Benutzern erlauben, Konten zu erstellen. Konten erfordern weiterhin Admin-Genehmigung.",
+      "aiFeatures": "KI-Funktionen",
+      "aiFeaturesDescription": "KI-gestützte Funktionen aktivieren, einschließlich Entwurf von Datensatz-Metadaten (Zusammenfassungen, Schlüsselwörter, Herkunft, Qualitätsaussagen), Kartenersteller-Chat und KI-Kartengenerierung.",
+      "saved": "Einstellungen gespeichert",
+      "saveFailed": "Einstellungen konnten nicht gespeichert werden",
+      "requireMetadata": "Metadaten für Veröffentlichung erforderlich",
+      "requireMetadataDescription": "Wenn aktiviert, müssen Datensätze vollständige Metadaten haben, bevor sie veröffentlicht werden können.",
+      "publicAppUrl": "Öffentliche App-URL",
+      "publicAppUrlDescription": "Die browserseitige GeoLens-URL. Verwende die Frontend-Origin ohne das Suffix /api.",
+      "publicApiUrl": "Öffentliche API-URL",
+      "publicApiUrlDescription": "Die extern erreichbare API-Basis. Bei pfadbasierten Deployments sollte sie der App-URL + /api entsprechen.",
+      "publicBaseUrl": "Öffentliche Basis-URL",
+      "logLevel": "Protokollierungsstufe",
+      "logJsonLabel": "Protokollformat (JSON)",
+      "logJsonDescription": "Protokolle im strukturierten JSON-Format ausgeben."
+    },
+    "basemaps": {
+      "title": "Basiskarten",
+      "presetsTitle": "Basiskarten-Vorlagen",
+      "presetsDescription": "Integrierte Basiskarten-Optionen aktivieren oder deaktivieren.",
+      "customTitle": "Benutzerdefinierte Basiskarten",
+      "customDescription": "Benutzerdefinierte XYZ/TMS-Kachelquellen hinzufügen.",
+      "nameLabel": "Name",
+      "tileUrlLabel": "Kachel-URL",
+      "namePlaceholder": "Meine Basiskarte",
+      "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
+      "urlError": "URL muss {z}/{x}/{y}-Platzhalter enthalten oder mit .json enden",
+      "removeBasemap": "Remove basemap",
+      "add": "Hinzufügen",
+      "saved": "Basiskarten gespeichert",
+      "saveFailed": "Basiskarten konnten nicht gespeichert werden"
+    },
+    "mapDefaults": {
+      "title": "Kartenvorgaben",
+      "cardTitle": "Standard-Kartenansicht",
+      "cardDescription": "Anfangsmittelpunkt und Zoomstufe für alle Kartenansichten festlegen.",
+      "latitude": "Breitengrad",
+      "longitude": "Längengrad",
+      "zoomLevel": "Zoomstufe",
+      "preview": "Vorschau",
+      "useCurrentView": "Aktuelle Ansicht verwenden",
+      "saved": "Kartenvorgaben gespeichert",
+      "saveFailed": "Kartenvorgaben konnten nicht gespeichert werden"
+    },
+    "network": {
+      "globalRateLimit": "Globale Ratenbegrenzung (pro Sekunde)",
+      "globalRateLimitDescription": "Maximale API-Anfragen pro Sekunde pro IP-Adresse. Kachelanfragen sind von diesem Limit ausgenommen.",
+      "corsAllowedOrigins": "Erlaubte CORS-Ursprünge",
+      "corsAllowedOriginsDescription": "Kommagetrennte Ursprünge. Verwenden Sie * für beliebige Ursprünge.",
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+    },
+    "security": {
+      "title": "Sicherheit",
+      "cardTitle": "Anmelde-Ratenbegrenzung",
+      "cardDescription": "Maximale Anzahl der Anmeldeversuche pro Minute pro IP-Adresse festlegen.",
+      "loginRateLimit": "Anmeldeversuche pro Minute",
+      "accessTokenExpire": "Zugriffstoken-Lebensdauer (Minuten)",
+      "refreshTokenExpire": "Aktualisierungstoken-Lebensdauer (Tage)",
+      "loginRateLimitLabel": "Anmelde-Ratenbegrenzung (pro Minute)",
+      "tokenLifetimeNote": "Änderungen der Token-Lebensdauer gelten nur für neu ausgestellte Token.",
+      "loginRateLimitDescription": "Maximale Anzahl der erlaubten Anmeldeanfragen pro Minute von einer einzelnen IP-Adresse (1–1000).",
+      "saved": "Sicherheitseinstellungen gespeichert",
+      "saveFailed": "Sicherheitseinstellungen konnten nicht gespeichert werden"
+    },
+    "envOnly": {
+      "title": "Konfiguration durch Umgebungsvariablen gesperrt",
+      "description": "Setzen Sie ENV_ONLY_CONFIG=false, um Admin-Überschreibungen zu aktivieren.",
+      "descriptionPrefix": "Setzen Sie",
+      "descriptionSuffix": "um Admin-Überschreibungen zu aktivieren."
+    },
+    "page": {
+      "title": "Einstellungen",
+      "loadFailed": "Einstellungen konnten nicht geladen werden: {{message}}",
+      "unknownError": "Unbekannter Fehler"
+    },
+    "saved": "Einstellungen gespeichert",
+    "saveFailed": "Einstellungen konnten nicht gespeichert werden",
+    "resetDefaults": "Auf Standardwerte zurücksetzen",
+    "tabs": {
+      "general": "Allgemein",
+      "auth": "Auth",
+      "authSecurity": "Auth & Sicherheit",
+      "ai": "KI",
+      "network": "Netzwerk",
+      "storage": "Speicher",
+      "appearance": "Darstellung",
+      "permissions": "Berechtigungen"
+    },
+    "uploads": {
+      "title": "Upload-Einstellungen",
+      "cardTitle": "Upload-Limits",
+      "cardDescription": "Konfigurieren Sie die maximale Dateigröße und erlaubte Dateierweiterungen.",
+      "maxSizeMb": "Maximale Dateigröße (MB)",
+      "maxSizeMbDescription": "Maximale Dateigröße in Megabytes (1-10.000).",
+      "allowedExtensions": "Erlaubte Erweiterungen",
+      "allowedExtensionsDescription": "Kommagetrennte Liste erlaubter Dateierweiterungen.",
+      "tileCacheTtl": "Tile-Cache-TTL (Sekunden)",
+      "tileCacheTtlDescription": "Zeit in Sekunden, bevor Tile-Cache-Einträge ablaufen (0 = kein Cache).",
+      "saved": "Upload-Einstellungen gespeichert",
+      "saveFailed": "Upload-Einstellungen konnten nicht gespeichert werden"
+    },
+    "oauth": {
+      "title": "OAuth-Anbieter",
+      "description": "Konfigurieren Sie externe Identitätsanbieter für Single Sign-On.",
+      "addProvider": "Anbieter hinzufügen",
+      "loading": "Anbieter werden geladen...",
+      "emptyState": "Keine OAuth-Anbieter konfiguriert.",
+      "provider": "Anbieter",
+      "type": "Typ",
+      "status": "Status",
+      "actions": "Aktionen",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "editTitle": "OAuth-Anbieter bearbeiten",
+      "addTitle": "OAuth-Anbieter hinzufügen",
+      "editDescription": "Aktualisieren Sie die OAuth-Anbieter-Konfiguration.",
+      "addDescription": "Konfigurieren Sie einen neuen OAuth-Anbieter für Single Sign-On.",
+      "providerType": "Anbietertyp",
+      "tenantId": "Mandanten-ID",
+      "tenantIdHint": "Ihre Azure AD Mandanten-ID.",
+      "displayName": "Anzeigename",
+      "slug": "Slug",
+      "slugHint": "URL-sicherer Bezeichner für OAuth-Callback-URLs.",
+      "clientId": "Client-ID",
+      "clientSecret": "Client-Secret",
+      "clientSecretKeep": "leer lassen, um den aktuellen Wert beizubehalten",
+      "discoveryUrl": "Discovery-URL",
+      "scopes": "Bereiche",
+      "defaultRole": "Standardrolle",
+      "groupClaim": "Gruppen-Claim",
+      "groupClaimHint": "JWT-Claim mit Gruppenmitgliedschaften des Benutzers.",
+      "groupRoleMapping": "Gruppen-Rollen-Zuordnung (JSON)",
+      "groupRoleMappingHint": "Ordnet IdP-Gruppennamen GeoLens-Rollen zu.",
+      "enabledToggle": "Aktiviert",
+      "saveChanges": "Änderungen speichern",
+      "createProvider": "Anbieter erstellen",
+      "deleteTitle": "OAuth-Anbieter löschen",
+      "deleteDescription": "\"{{name}}\" wirklich löschen? Benutzer können sich nicht mehr über diesen Anbieter authentifizieren.",
+      "created": "OAuth-Anbieter erstellt",
+      "createFailed": "OAuth-Anbieter konnte nicht erstellt werden",
+      "updated": "OAuth-Anbieter aktualisiert",
+      "updateFailed": "OAuth-Anbieter konnte nicht aktualisiert werden",
+      "deleted": "OAuth-Anbieter gelöscht",
+      "deleteFailed": "OAuth-Anbieter konnte nicht gelöscht werden",
+      "invalidJson": "Die Gruppen-Rollen-Zuordnung muss gültiges JSON sein",
+      "secretRequired": "Client-Secret ist erforderlich",
+      "providerTypes": {
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "oidc": "Generisches OIDC"
+      },
+      "roles": {
+        "viewer": "Betrachter",
+        "editor": "Bearbeiter",
+        "admin": "Administrator"
+      }
+    }
+  },
+  "infrastructure": {
+    "title": "Infrastruktur",
+    "database": "Datenbank",
+    "storage": "Speicher",
+    "cache": "Cache",
+    "tileCache": "Tile-Cache",
+    "type": "Typ",
+    "status": "Status",
+    "latency": "Latenz",
+    "ttl": "TTL",
+    "cdn": "CDN",
+    "pooler": "Pooler",
+    "connected": "Verbunden",
+    "disconnected": "Getrennt",
+    "configured": "Konfiguriert",
+    "notConfigured": "Nicht konfiguriert",
+    "loading": "Infrastrukturstatus wird geladen...",
+    "errorLoading": "Infrastrukturstatus konnte nicht geladen werden",
+    "allOperational": "Alle Systeme betriebsbereit",
+    "degraded": "Eingeschränkte Leistung",
+    "autoRefresh": "Automatische Aktualisierung alle 30s",
+    "noCdn": "Kein CDN",
+    "oidc": "OIDC"
+  }
+}

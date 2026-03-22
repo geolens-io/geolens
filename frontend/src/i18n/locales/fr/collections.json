@@ -1,0 +1,95 @@
+{
+  "title": "Collections",
+  "newCollection": "Nouvelle collection",
+  "loading": "Chargement des collections...",
+  "empty": {
+    "title": "Aucune collection pour l'instant",
+    "description": "Les collections regroupent des jeux de données liés pour faciliter leur découverte.",
+    "cta": "Créez votre première collection"
+  },
+  "error": {
+    "title": "Échec du chargement des collections",
+    "message": "Échec du chargement des collections : {{error}}"
+  },
+  "detail": {
+    "loading": "Chargement de la collection...",
+    "notFoundTitle": "Collection introuvable",
+    "notFoundMessage": "La collection demandée n'a pas pu être chargée.",
+    "backToCollections": "Retour aux collections",
+    "breadcrumb": "Collections",
+    "datasets": "Jeux de données",
+    "temporalRange": "Étendue temporelle",
+    "created": "Création",
+    "lastUpdated": "Dernière mise à jour",
+    "spatialExtent": "Étendue spatiale",
+    "temporalNotAvailable": "N/D",
+    "temporalPresent": "présent"
+  },
+  "search": {
+    "placeholder": "Rechercher des collections...",
+    "empty": "Aucune collection correspondante",
+    "emptyHint": "Aucune collection ne correspond a votre recherche. Essayez un autre nom."
+  },
+  "card": {
+    "datasetCount_one": "{{count}} jeu de données",
+    "datasetCount_other": "{{count}} jeux de données",
+    "created": "Créé le {{date}}",
+    "temporalPresent": "présent"
+  },
+  "createDialog": {
+    "title": "Créer une collection",
+    "description": "Créez une nouvelle collection pour regrouper des jeux de données liés.",
+    "nameLabel": "Nom",
+    "namePlaceholder": "ex. Données de transport",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Description facultative...",
+    "creating": "Création...",
+    "errorFallback": "Échec de la création de la collection"
+  },
+  "editDialog": {
+    "title": "Modifier la collection",
+    "description": "Mettez à jour le nom ou la description de la collection.",
+    "nameLabel": "Nom",
+    "descriptionLabel": "Description",
+    "saving": "Enregistrement...",
+    "errorFallback": "Échec de la mise à jour de la collection"
+  },
+  "deleteDialog": {
+    "title": "Supprimer la collection",
+    "description": "Cela supprimera définitivement la collection \"{{name}}\" et retirera toutes les associations de jeux de données. Les jeux de données eux-mêmes ne seront pas supprimés. Cette action est irréversible.",
+    "confirmPrompt": "Saisissez le nom de la collection pour confirmer :",
+    "deleting": "Suppression...",
+    "deleteButton": "Supprimer la collection",
+    "errorFallback": "Échec de la suppression de la collection"
+  },
+  "datasetList": {
+    "loading": "Chargement des jeux de données...",
+    "errorMessage": "Échec du chargement des jeux de données : {{error}}",
+    "emptyTitle": "Aucun jeu de données dans cette collection",
+    "emptyDescription": "Des jeux de données peuvent être ajoutés à cette collection depuis la page de gestion.",
+    "filterPlaceholder": "Filtrer les jeux de données par nom...",
+    "noMatch": "Aucun jeu de données ne correspond à \"{{filter}}\"",
+    "featureCount_one": "{{count}} entité",
+    "featureCount_other": "{{count}} entités",
+    "removeTitle": "Retirer de la collection"
+  },
+  "membership": {
+    "title": "Ajouter des jeux de données",
+    "searchPlaceholder": "Rechercher des jeux de données par nom...",
+    "searchButton": "Rechercher",
+    "addButton": "Ajouter",
+    "allAlreadyAdded": "Tous les jeux de données correspondants sont déjà dans cette collection."
+  },
+  "badges": {
+    "label": "Collections"
+  },
+  "toasts": {
+    "created": "Collection créée",
+    "updated": "Collection mise à jour",
+    "deleted": "Collection supprimée",
+    "datasetRemoved": "Jeu de données retiré de la collection",
+    "datasetAdded": "Jeu de données ajouté à la collection",
+    "removeError": "Échec du retrait du jeu de données",
+    "addError": "Échec de l'ajout du jeu de données"
+  }
+}

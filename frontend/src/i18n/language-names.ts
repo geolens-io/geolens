@@ -1,0 +1,1 @@
+export { languageNames } from './config';

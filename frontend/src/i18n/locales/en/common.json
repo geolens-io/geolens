@@ -1,0 +1,311 @@
+{
+  "appName": "GeoLens",
+  "loading": "Loading...",
+  "error": "Error",
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "confirm": "Confirm",
+  "close": "Close",
+  "search": "Search",
+  "back": "Back",
+  "next": "Next",
+  "submit": "Submit",
+  "edit": "Edit",
+  "create": "Create",
+  "noResults": "No results found",
+  "notAvailable": "N/A",
+  "nav": {
+    "search": "Search",
+    "collections": "Collections",
+    "maps": "Maps",
+    "import": "Import",
+    "importData": "Import Data",
+    "admin": "Admin",
+    "adminDashboard": "Admin Dashboard",
+    "adminSettings": "Admin Settings",
+    "settings": "Settings",
+    "logout": "Logout",
+    "menu": "Menu",
+    "dataset": "Dataset",
+    "collection": "Collection",
+    "map": "Map",
+    "navigationMenu": "Navigation menu",
+    "userMenu": "User menu",
+    "virtualRaster": "Virtual Raster"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "language": {
+    "change": "Change language"
+  },
+  "pagination": {
+    "showing": "Showing {{start}}-{{end}} of {{total}}",
+    "previous": "Previous",
+    "next": "Next",
+    "pageOf": "{{currentPage}} / {{totalPages}}"
+  },
+  "adminNav": {
+    "admin": "Admin",
+    "overview": "Overview",
+    "operations": "Operations",
+    "users": "Users",
+    "jobs": "Jobs",
+    "auditLog": "Audit Log",
+    "sharedMaps": "Shared Maps",
+    "ai": "AI",
+    "infrastructure": "Infrastructure",
+    "general": "General",
+    "basemaps": "Basemaps",
+    "mapDefaults": "Map Defaults",
+    "security": "Security",
+    "uploads": "Uploads",
+    "settings": "Settings",
+    "settingsGeneral": "General",
+    "settingsAuth": "Auth & Security",
+    "settingsAI": "AI",
+    "settingsNetwork": "Network",
+    "settingsStorage": "Storage",
+    "settingsAppearance": "Appearance",
+    "settingsInfrastructure": "Infrastructure",
+    "configOps": "Config Operations",
+    "backToApp": "Back to App"
+  },
+  "viewer": {
+    "loading": "Loading map...",
+    "linkExpired": "This link has expired",
+    "linkExpiredDescription": "This shared map link is no longer available. It may have expired or been revoked by the owner.",
+    "mapNotFound": "Map not found",
+    "mapNotFoundDescription": "This map may have been removed or the link may be invalid.",
+    "poweredBy": "Powered by GeoLens",
+    "featureFallback": "Feature",
+    "legend": {
+      "title": "Layers",
+      "show": "Show legend",
+      "hide": "Hide legend",
+      "showLayer": "Show layer",
+      "hideLayer": "Hide layer",
+      "geometry": {
+        "point": "Point",
+        "line": "Line",
+        "polygon": "Polygon"
+      }
+    }
+  },
+  "errors": {
+    "unexpected": "An unexpected error occurred",
+    "datasetNotFound": "Dataset not found",
+    "collectionNotFound": "Collection not found",
+    "mapNotFound": "Map not found",
+    "incorrectCredentials": "Incorrect username or password",
+    "awaitingApproval": "Your account is awaiting approval",
+    "accountNotActive": "Account not active",
+    "insufficientPermissions": "Insufficient permissions",
+    "notAuthorized": "Not authorized to modify this map",
+    "registrationDisabled": "Registration is disabled",
+    "exportFailed": "Export failed",
+    "jobNotFound": "Job not found",
+    "featureNotFound": "Feature not found",
+    "layerNotFound": "Layer not found",
+    "userNotFound": "User not found",
+    "apiKeyNotFound": "API key not found",
+    "accessDenied": "Access denied",
+    "couldNotValidateCredentials": "Could not validate credentials",
+    "inactiveUser": "Inactive user",
+    "savedSearchNotFound": "Saved search not found",
+    "recordNotFound": "Record not found",
+    "sharedMapNotFound": "Shared map not found",
+    "mapMustBePublic": "Map must be public before sharing",
+    "jobAlreadyProcessed": "Job already processed",
+    "jobNotBelongToDataset": "Job does not belong to this dataset",
+    "notAuthorizedJob": "Not authorized to access this job",
+    "notAuthorizedRetry": "Not authorized to retry this job",
+    "notAuthorizedView": "Not authorized to view this job",
+    "onlyFailedRetry": "Only failed jobs can be retried",
+    "thumbnailTooLarge": "Thumbnail too large (max 100KB)",
+    "bodyMustBeDataImage": "Body must be a data:image/ URI",
+    "invalidTargetCrs": "Invalid target_crs: must match EPSG:<code> (e.g. EPSG:3857)",
+    "stagingFileUnavailable": "Staging file no longer available. Please re-upload.",
+    "serviceRequiresAuth": "This service requires authentication. Provide an access token and try again.",
+    "couldNotReachService": "Could not reach the service. Check the URL and try again.",
+    "serviceTimeout": "Service didn't respond in time. Check the URL and try again.",
+    "remoteServiceError": "Remote service returned an error",
+    "aiDisabled": "AI features are currently disabled",
+    "aiNotConfigured": "AI is not configured (missing API key)",
+    "aiGenerationFailed": "AI map generation failed unexpectedly",
+    "chatEditingFailed": "Chat map editing failed unexpectedly",
+    "couldNotConnectLlm": "Could not connect to LLM provider",
+    "uploadError": "An unexpected error occurred during upload",
+    "previewError": "An unexpected error occurred while previewing the layer.",
+    "remotePreviewError": "Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+    "datasetMembershipNotFound": "Dataset membership not found",
+    "sharedMapExpired": "This shared map link has expired or been revoked"
+  },
+  "settings": {
+    "tabs": {
+      "preferences": "Preferences",
+      "apiKeys": "API Keys"
+    },
+    "profile": {
+      "title": "Profile",
+      "role": "Role"
+    },
+    "appearance": {
+      "title": "Appearance",
+      "description": "Choose how GeoLens looks to you"
+    },
+    "language": {
+      "title": "Language"
+    }
+  },
+  "maps": {
+    "title": "Maps",
+    "createMap": "Create Map",
+    "searchPlaceholder": "Search maps...",
+    "sortBy": "Sort by",
+    "lastUpdated": "Last updated",
+    "dateCreated": "Date created",
+    "name": "Name",
+    "visibility": "Visibility",
+    "allMaps": "All maps",
+    "private": "Private",
+    "internal": "Internal",
+    "public": "Public",
+    "listView": "List view",
+    "gridView": "Grid view",
+    "loadFailed": "Failed to load maps: {{message}}",
+    "noMapsYet": "No maps yet",
+    "noMapsMatch": "No maps match your current filters.",
+    "noMapsDescription": "Create a map to start composing layers from your catalog.",
+    "createFirstMap": "Create your first map",
+    "deleted": "Map deleted",
+    "deleteFailed": "Failed to delete map",
+    "layerCount_one": "{{count}} layer",
+    "layerCount_other": "{{count}} layers",
+    "card": {
+      "previewAlt": "{{name}} preview",
+      "updated": "Updated {{date}}",
+      "delete": "Delete map"
+    }
+  },
+  "enums": {
+    "geometryType": {
+      "point": "Point",
+      "lineString": "LineString",
+      "polygon": "Polygon",
+      "multiPoint": "MultiPoint",
+      "multiLineString": "MultiLineString",
+      "multiPolygon": "MultiPolygon"
+    },
+    "geometryFamily": {
+      "point": "Point",
+      "line": "Line",
+      "polygon": "Polygon"
+    },
+    "visibility": {
+      "public": "Public",
+      "internal": "Internal",
+      "private": "Private"
+    },
+    "recordStatus": {
+      "draft": "Draft",
+      "published": "Published",
+      "archived": "Archived",
+      "deprecated": "Deprecated"
+    },
+    "sourceFormat": {
+      "geojson": "GeoJSON",
+      "shp": "SHP",
+      "shapefile": "Shapefile",
+      "gpkg": "GeoPackage",
+      "csv": "CSV",
+      "wfs": "WFS",
+      "arcgisFeatureServer": "ArcGIS FeatureServer",
+      "created": "Created in GeoLens"
+    }
+  },
+  "settingsToasts": {
+    "saved": "Settings saved",
+    "saveFailed": "Failed to save settings",
+    "resetSuccess": "Setting reset to default",
+    "resetFailed": "Failed to reset setting"
+  },
+  "configOps": {
+    "exported": "Configuration exported",
+    "exportFailed": "Failed to export configuration",
+    "previewFailed": "Failed to preview import",
+    "importComplete": "Import complete (no changes)",
+    "importFailed": "Failed to import configuration",
+    "settingsApplied": "{{count}} settings applied",
+    "skipped": "{{count}} skipped",
+    "providersCreated": "{{count}} providers created",
+    "providersUpdated": "{{count}} updated",
+    "providersDeleted": "{{count}} deleted",
+    "page": {
+      "title": "Config Operations",
+      "description": "Export and import your instance configuration."
+    },
+    "export": {
+      "title": "Export Configuration",
+      "description": "Download the current configuration as a JSON file. Includes settings and OAuth providers.",
+      "button": "Export JSON"
+    },
+    "import": {
+      "title": "Import Configuration",
+      "description": "Upload a configuration JSON file. Preview changes before applying.",
+      "fileLabel": "Configuration file",
+      "chooseFile": "Choose File",
+      "noFile": "No file chosen",
+      "parseErrorKeys": "JSON must contain \"settings\" and/or \"oauth_providers\" keys.",
+      "parseErrorInvalid": "Invalid JSON file.",
+      "modeLabel": "Import mode",
+      "modeMerge": "Merge - update existing, add new",
+      "modeOverwrite": "Overwrite - replace all",
+      "overwriteWarning": "This will replace all existing settings and OAuth providers.",
+      "preview": "Preview Changes",
+      "apply": "Apply Import",
+      "settingsChanges": "Settings Changes",
+      "key": "Key",
+      "current": "Current",
+      "imported": "Imported",
+      "action": "Action",
+      "oauthChanges": "OAuth Provider Changes",
+      "slug": "Slug",
+      "changedFields": "Changed Fields",
+      "noChanges": "No changes detected.",
+      "success": "Import complete.",
+      "successDetail": "{{settingsApplied}} settings applied, {{settingsSkipped}} skipped. {{oauthCreated}} providers created, {{oauthUpdated}} updated, {{oauthDeleted}} deleted."
+    }
+  },
+  "footer": {
+    "poweredBy": "Powered by GeoLens"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "The page you are looking for does not exist or has been moved.",
+    "goHome": "Go to home"
+  },
+  "selectAll": "Select all",
+  "selectItem": "Select {{item}}",
+  "errorBoundary": {
+    "appTitle": "Something went wrong",
+    "appMessage": "An unexpected error occurred. Please reload the page to continue.",
+    "appReload": "Reload page",
+    "mapTitle": "Map failed to load",
+    "mapMessage": "The map encountered an error. This can happen due to WebGL issues or memory constraints.",
+    "mapRetry": "Reload map",
+    "routeTitle": "Page error",
+    "routeMessage": "This page encountered an error. You can go back or try again.",
+    "routeGoBack": "Go back",
+    "routeGoHome": "Go to home",
+    "builderUnsavedWarning": "You may have unsaved changes. Reloading will discard them.",
+    "lazyTitle": "Failed to load",
+    "lazyMessage": "A part of the application failed to load. This is usually a network issue.",
+    "lazyRetry": "Try again",
+    "lazyRetrying": "Retrying..."
+  }
+}

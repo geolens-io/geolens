@@ -1,0 +1,187 @@
+import { apiFetch, ApiError } from '@/api/client';
+import { useAuthStore } from '@/stores/auth-store';
+
+vi.mock('@/api/auth', () => ({
+  refreshAccessToken: vi.fn(),
+}));
+
+vi.mock('@/lib/error-map', () => ({
+  translateError: (msg: string) => msg,
+}));
+
+const mockFetch = vi.fn();
+globalThis.fetch = mockFetch;
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: 'OK',
+    json: () => Promise.resolve(data),
+    headers: new Headers(),
+  } as Response;
+}
+
+function errorResponse(status: number, detail?: string): Response {
+  return {
+    ok: false,
+    status,
+    statusText: 'Bad Request',
+    json: detail
+      ? () => Promise.resolve({ detail })
+      : () => Promise.reject(new Error('not json')),
+    headers: new Headers(),
+  } as Response;
+}
+
+describe('apiFetch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  });
+
+  it('makes a GET request to the correct URL', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ id: 1 }));
+
+    const result = await apiFetch('/datasets/');
+    expect(result).toEqual({ id: 1 });
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/datasets/',
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      }),
+    );
+  });
+
+  it('sets Content-Type to application/json by default', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({}));
+
+    await apiFetch('/test/');
+    const headers: Headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it('does not set Content-Type for FormData body', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({}));
+    const formData = new FormData();
+
+    await apiFetch('/upload/', { method: 'POST', body: formData });
+    const headers: Headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers.get('Content-Type')).toBeNull();
+  });
+
+  it('includes Authorization header when token is present', async () => {
+    useAuthStore.setState({ token: 'my-token' });
+    mockFetch.mockResolvedValueOnce(jsonResponse({}));
+
+    await apiFetch('/test/');
+    const headers: Headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers.get('Authorization')).toBe('Bearer my-token');
+  });
+
+  it('does not include Authorization header when no token', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({}));
+
+    await apiFetch('/test/');
+    const headers: Headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers.get('Authorization')).toBeNull();
+  });
+
+  it('makes a POST request with body', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ created: true }));
+    const body = JSON.stringify({ name: 'test' });
+
+    const result = await apiFetch('/items/', { method: 'POST', body });
+    expect(result).toEqual({ created: true });
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/items/',
+      expect.objectContaining({ method: 'POST', body }),
+    );
+  });
+
+  it('returns undefined for 204 No Content', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      statusText: 'No Content',
+      headers: new Headers(),
+      json: () => Promise.reject(new Error('no body')),
+    } as Response);
+
+    const result = await apiFetch('/items/1', { method: 'DELETE' });
+    expect(result).toBeUndefined();
+  });
+
+  it('throws ApiError with detail from JSON error body', async () => {
+    mockFetch.mockResolvedValueOnce(errorResponse(400, 'Name is required'));
+
+    try {
+      await apiFetch('/test/');
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).message).toBe('Name is required');
+      expect((e as ApiError).status).toBe(400);
+    }
+  });
+
+  it('throws ApiError with statusText when body is not JSON', async () => {
+    mockFetch.mockResolvedValueOnce(errorResponse(500));
+
+    try {
+      await apiFetch('/test/');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).status).toBe(500);
+    }
+  });
+
+  it('attempts token refresh on 401 and retries', async () => {
+    const { refreshAccessToken } = await import('@/api/auth');
+    const mockRefresh = vi.mocked(refreshAccessToken);
+    mockRefresh.mockResolvedValueOnce({
+      access_token: 'new-token',
+      refresh_token: 'new-refresh',
+      token_type: 'bearer',
+      expires_in: 900,
+    });
+
+    useAuthStore.setState({ token: 'expired-token', refreshToken: 'my-refresh' });
+
+    // First call returns 401, retry returns success
+    mockFetch
+      .mockResolvedValueOnce(errorResponse(401))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    const result = await apiFetch('/protected/');
+    expect(result).toEqual({ ok: true });
+    expect(mockRefresh).toHaveBeenCalledWith('my-refresh');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    // Verify retry used the new token
+    const retryHeaders: Headers = mockFetch.mock.calls[1][1].headers;
+    expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
+  });
+
+  it('logs out and throws on 401 when no refresh token', async () => {
+    useAuthStore.setState({ token: 'expired-token', refreshToken: null });
+    mockFetch.mockResolvedValueOnce(errorResponse(401));
+
+    await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('logs out and throws on 401 when refresh fails', async () => {
+    const { refreshAccessToken } = await import('@/api/auth');
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
+
+    useAuthStore.setState({ token: 'expired-token', refreshToken: 'bad-refresh' });
+    // First call returns 401; refresh fails but token remains, so retry also gets 401
+    mockFetch
+      .mockResolvedValueOnce(errorResponse(401))
+      .mockResolvedValueOnce(errorResponse(401));
+
+    await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+});

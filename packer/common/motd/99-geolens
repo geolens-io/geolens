@@ -1,0 +1,23 @@
+#!/bin/bash
+VERSION=""
+if [ -f /opt/geolens/VERSION ]; then
+    VERSION=" v$(cat /opt/geolens/VERSION)"
+fi
+cat <<BANNER
+
+  ___           _
+ / __|___ ___  | |   ___ _ _  ___
+| (_ / -_) _ \ | |__/ -_) ' \(_-<
+ \___\___\___/ |____\___|_||_/__/
+
+  PostGIS-native GIS Data Catalog${VERSION}
+
+----------------------------------------------
+  View credentials:  sudo cat /var/log/geolens-init.log
+  Service status:    cd /opt/geolens && docker compose ps
+  Restart services:  sudo systemctl restart geolens
+  Application logs:  cd /opt/geolens && docker compose logs -f
+  Usage guide:       cat /opt/geolens/USAGE.md
+----------------------------------------------
+
+BANNER

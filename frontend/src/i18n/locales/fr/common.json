@@ -1,0 +1,310 @@
+{
+  "appName": "GeoLens",
+  "loading": "Chargement...",
+  "error": "Erreur",
+  "save": "Enregistrer",
+  "cancel": "Annuler",
+  "delete": "Supprimer",
+  "confirm": "Confirmer",
+  "close": "Fermer",
+  "search": "Rechercher",
+  "back": "Retour",
+  "next": "Suivant",
+  "submit": "Soumettre",
+  "edit": "Modifier",
+  "create": "Créer",
+  "noResults": "Aucun résultat trouvé",
+  "notAvailable": "N/D",
+  "nav": {
+    "search": "Recherche",
+    "collections": "Collections",
+    "maps": "Cartes",
+    "import": "Importer",
+    "admin": "Administration",
+    "adminDashboard": "Tableau de bord Admin",
+    "adminSettings": "Paramètres Admin",
+    "settings": "Paramètres",
+    "logout": "Déconnexion",
+    "menu": "Menu",
+    "dataset": "Jeu de données",
+    "collection": "Collection",
+    "map": "Carte",
+    "navigationMenu": "Menu de navigation",
+    "userMenu": "Menu utilisateur",
+    "virtualRaster": "Raster Virtuel"
+  },
+  "theme": {
+    "toggle": "Changer le thème",
+    "light": "Clair",
+    "dark": "Sombre",
+    "system": "Système"
+  },
+  "language": {
+    "change": "Changer la langue"
+  },
+  "pagination": {
+    "showing": "Affichage {{start}}-{{end}} sur {{total}}",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "pageOf": "{{currentPage}} / {{totalPages}}"
+  },
+  "adminNav": {
+    "admin": "Administration",
+    "overview": "Vue d'ensemble",
+    "users": "Utilisateurs",
+    "jobs": "Tâches",
+    "auditLog": "Journal d'audit",
+    "sharedMaps": "Cartes Partagees",
+    "ai": "IA",
+    "infrastructure": "Infrastructure",
+    "general": "Général",
+    "basemaps": "Fonds de carte",
+    "mapDefaults": "Carte par défaut",
+    "security": "Sécurité",
+    "uploads": "Téléchargements",
+    "settings": "Paramètres",
+    "operations": "Opérations",
+    "settingsGeneral": "Général",
+    "settingsAuth": "Auth & Sécurité",
+    "settingsAI": "IA",
+    "settingsNetwork": "Réseau",
+    "settingsStorage": "Stockage",
+    "settingsAppearance": "Apparence",
+    "settingsInfrastructure": "Infrastructure",
+    "backToApp": "Retour",
+    "configOps": "Opérations de config."
+  },
+  "errors": {
+    "unexpected": "Une erreur inattendue s'est produite",
+    "datasetNotFound": "Jeu de données introuvable",
+    "collectionNotFound": "Collection introuvable",
+    "mapNotFound": "Carte introuvable",
+    "incorrectCredentials": "Nom d'utilisateur ou mot de passe incorrect",
+    "awaitingApproval": "Votre compte est en attente d'approbation",
+    "accountNotActive": "Compte non actif",
+    "insufficientPermissions": "Permissions insuffisantes",
+    "notAuthorized": "Non autorisé à modifier cette carte",
+    "registrationDisabled": "L'inscription est désactivée",
+    "exportFailed": "L'exportation a échoué",
+    "jobNotFound": "Tâche introuvable",
+    "featureNotFound": "Entité introuvable",
+    "layerNotFound": "Couche introuvable",
+    "userNotFound": "Utilisateur introuvable",
+    "apiKeyNotFound": "Clé API introuvable",
+    "accessDenied": "Accès refusé",
+    "couldNotValidateCredentials": "Impossible de valider les identifiants",
+    "inactiveUser": "Utilisateur inactif",
+    "savedSearchNotFound": "Recherche enregistrée introuvable",
+    "recordNotFound": "Enregistrement introuvable",
+    "sharedMapNotFound": "Carte partagée introuvable",
+    "mapMustBePublic": "La carte doit être publique avant le partage",
+    "jobAlreadyProcessed": "Tâche déjà traitée",
+    "jobNotBelongToDataset": "La tâche n'appartient pas à ce jeu de données",
+    "notAuthorizedJob": "Non autorisé à accéder à cette tâche",
+    "notAuthorizedRetry": "Non autorisé à relancer cette tâche",
+    "notAuthorizedView": "Non autorisé à consulter cette tâche",
+    "onlyFailedRetry": "Seules les tâches échouées peuvent être relancées",
+    "thumbnailTooLarge": "Miniature trop volumineuse (max 100 Ko)",
+    "bodyMustBeDataImage": "Le corps doit être un URI data:image/",
+    "invalidTargetCrs": "target_crs invalide : doit correspondre à EPSG:<code> (ex. EPSG:3857)",
+    "stagingFileUnavailable": "Le fichier temporaire n'est plus disponible. Veuillez le télécharger à nouveau.",
+    "serviceRequiresAuth": "Ce service nécessite une authentification. Fournissez un jeton d'accès et réessayez.",
+    "couldNotReachService": "Impossible de joindre le service. Vérifiez l'URL et réessayez.",
+    "serviceTimeout": "Le service n'a pas répondu à temps. Vérifiez l'URL et réessayez.",
+    "remoteServiceError": "Le service distant a renvoyé une erreur",
+    "aiDisabled": "Les fonctionnalités IA sont actuellement désactivées",
+    "aiNotConfigured": "L'IA n'est pas configurée (clé API manquante)",
+    "aiGenerationFailed": "La génération de carte par IA a échoué de manière inattendue",
+    "chatEditingFailed": "La modification de carte par chat a échoué de manière inattendue",
+    "couldNotConnectLlm": "Impossible de se connecter au fournisseur LLM",
+    "uploadError": "Une erreur inattendue s'est produite lors du téléchargement",
+    "previewError": "Une erreur inattendue s'est produite lors de l'aperçu de la couche.",
+    "remotePreviewError": "Impossible d'afficher l'aperçu de la couche distante. Le service est peut-être indisponible ou le format de la couche n'est pas pris en charge.",
+    "datasetMembershipNotFound": "Appartenance au jeu de données introuvable",
+    "sharedMapExpired": "Ce lien de carte partagée a expiré ou a été révoqué"
+  },
+  "settings": {
+    "tabs": {
+      "preferences": "Préférences",
+      "apiKeys": "Clés API"
+    },
+    "profile": {
+      "title": "Profil",
+      "role": "Rôle"
+    },
+    "appearance": {
+      "title": "Apparence",
+      "description": "Choisissez l'apparence de GeoLens"
+    },
+    "language": {
+      "title": "Langue"
+    }
+  },
+  "footer": {
+    "poweredBy": "Propulsé par GeoLens"
+  },
+  "viewer": {
+    "loading": "Chargement de la carte...",
+    "linkExpired": "Ce lien a expiré",
+    "linkExpiredDescription": "Ce lien de carte partagée n'est plus disponible. Il a peut-être expiré ou été révoqué par le propriétaire.",
+    "mapNotFound": "Carte introuvable",
+    "mapNotFoundDescription": "Cette carte a peut-être été supprimée ou le lien est invalide.",
+    "poweredBy": "Propulsé par GeoLens",
+    "featureFallback": "Entité",
+    "legend": {
+      "title": "Couches",
+      "show": "Afficher la légende",
+      "hide": "Masquer la légende",
+      "showLayer": "Afficher la couche",
+      "hideLayer": "Masquer la couche",
+      "geometry": {
+        "point": "Point",
+        "line": "Ligne",
+        "polygon": "Polygone"
+      }
+    }
+  },
+  "maps": {
+    "title": "Cartes",
+    "createMap": "Créer une carte",
+    "searchPlaceholder": "Rechercher des cartes...",
+    "sortBy": "Trier par",
+    "lastUpdated": "Dernière mise à jour",
+    "dateCreated": "Date de création",
+    "name": "Nom",
+    "visibility": "Visibilité",
+    "allMaps": "Toutes les cartes",
+    "private": "Privé",
+    "internal": "Interne",
+    "public": "Public",
+    "listView": "Vue liste",
+    "gridView": "Vue grille",
+    "loadFailed": "Échec du chargement des cartes : {{message}}",
+    "noMapsYet": "Aucune carte",
+    "noMapsMatch": "Aucune carte ne correspond aux filtres actuels.",
+    "noMapsDescription": "Créez une carte pour commencer à composer des couches à partir de votre catalogue.",
+    "createFirstMap": "Créer votre première carte",
+    "deleted": "Carte supprimée",
+    "deleteFailed": "Échec de la suppression de la carte",
+    "layerCount_one": "{{count}} couche",
+    "layerCount_other": "{{count}} couches",
+    "card": {
+      "previewAlt": "Aperçu de {{name}}",
+      "updated": "Mis à jour {{date}}",
+      "delete": "Supprimer la carte"
+    }
+  },
+  "enums": {
+    "geometryType": {
+      "point": "Point",
+      "lineString": "LineString",
+      "polygon": "Polygone",
+      "multiPoint": "MultiPoint",
+      "multiLineString": "MultiLineString",
+      "multiPolygon": "MultiPolygon"
+    },
+    "geometryFamily": {
+      "point": "Point",
+      "line": "Ligne",
+      "polygon": "Polygone"
+    },
+    "visibility": {
+      "public": "Public",
+      "internal": "Interne",
+      "private": "Privé"
+    },
+    "recordStatus": {
+      "draft": "Brouillon",
+      "published": "Publié",
+      "archived": "Archivé",
+      "deprecated": "Obsolète"
+    },
+    "sourceFormat": {
+      "geojson": "GeoJSON",
+      "shp": "SHP",
+      "shapefile": "Shapefile",
+      "gpkg": "GeoPackage",
+      "csv": "CSV",
+      "wfs": "WFS",
+      "arcgisFeatureServer": "ArcGIS FeatureServer",
+      "created": "Créé dans GeoLens"
+    }
+  },
+  "settingsToasts": {
+    "saved": "Paramètres enregistrés",
+    "saveFailed": "Échec de l'enregistrement des paramètres",
+    "resetSuccess": "Paramètre réinitialisé à la valeur par défaut",
+    "resetFailed": "Échec de la réinitialisation du paramètre"
+  },
+  "configOps": {
+    "exported": "Configuration exportée",
+    "exportFailed": "Échec de l'exportation de la configuration",
+    "previewFailed": "Échec de l'aperçu de l'importation",
+    "importComplete": "Importation terminée (aucun changement)",
+    "importFailed": "Échec de l'importation de la configuration",
+    "settingsApplied": "{{count}} paramètres appliqués",
+    "skipped": "{{count}} ignorés",
+    "providersCreated": "{{count}} fournisseurs créés",
+    "providersUpdated": "{{count}} mis à jour",
+    "providersDeleted": "{{count}} supprimés",
+    "page": {
+      "title": "Opérations de configuration",
+      "description": "Exportez et importez la configuration de votre instance."
+    },
+    "export": {
+      "title": "Exporter la configuration",
+      "description": "Téléchargez la configuration actuelle au format JSON. Inclut les paramètres et les fournisseurs OAuth.",
+      "button": "Exporter JSON"
+    },
+    "import": {
+      "title": "Importer la configuration",
+      "description": "Importez un fichier JSON de configuration. Prévisualisez les changements avant de les appliquer.",
+      "fileLabel": "Fichier de configuration",
+      "chooseFile": "Choisir un fichier",
+      "noFile": "Aucun fichier choisi",
+      "parseErrorKeys": "Le JSON doit contenir les clés \"settings\" et/ou \"oauth_providers\".",
+      "parseErrorInvalid": "Fichier JSON invalide.",
+      "modeLabel": "Mode d'importation",
+      "modeMerge": "Fusionner - mettre à jour les existants, ajouter les nouveaux",
+      "modeOverwrite": "Écraser - tout remplacer",
+      "overwriteWarning": "Cela remplacera tous les paramètres et fournisseurs OAuth existants.",
+      "preview": "Prévisualiser les changements",
+      "apply": "Appliquer l'importation",
+      "settingsChanges": "Changements de paramètres",
+      "key": "Clé",
+      "current": "Actuel",
+      "imported": "Importé",
+      "action": "Action",
+      "oauthChanges": "Changements de fournisseurs OAuth",
+      "slug": "Slug",
+      "changedFields": "Champs modifiés",
+      "noChanges": "Aucun changement détecté.",
+      "success": "Importation terminée.",
+      "successDetail": "{{settingsApplied}} paramètres appliqués, {{settingsSkipped}} ignorés. {{oauthCreated}} fournisseurs créés, {{oauthUpdated}} mis à jour, {{oauthDeleted}} supprimés."
+    }
+  },
+  "notFound": {
+    "title": "Page introuvable",
+    "description": "La page que vous recherchez n'existe pas ou a été déplacée.",
+    "goHome": "Aller à l'accueil"
+  },
+  "selectAll": "Tout sélectionner",
+  "selectItem": "Sélectionner {{item}}",
+  "errorBoundary": {
+    "appTitle": "Une erreur est survenue",
+    "appMessage": "Une erreur inattendue s'est produite. Veuillez recharger la page pour continuer.",
+    "appReload": "Recharger la page",
+    "mapTitle": "La carte n'a pas pu se charger",
+    "mapMessage": "La carte a rencontré une erreur. Cela peut être dû à des problèmes WebGL ou à des contraintes de mémoire.",
+    "mapRetry": "Recharger la carte",
+    "routeTitle": "Erreur de page",
+    "routeMessage": "Cette page a rencontré une erreur. Vous pouvez revenir en arrière ou réessayer.",
+    "routeGoBack": "Retour",
+    "routeGoHome": "Aller à l'accueil",
+    "builderUnsavedWarning": "Vous avez peut-être des modifications non enregistrées. Le rechargement les supprimera.",
+    "lazyTitle": "Échec du chargement",
+    "lazyMessage": "Une partie de l'application n'a pas pu se charger. C'est généralement un problème de réseau.",
+    "lazyRetry": "Réessayer",
+    "lazyRetrying": "Nouvelle tentative..."
+  }
+}

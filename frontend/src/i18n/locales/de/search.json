@@ -1,0 +1,136 @@
+{
+  "title": "Geodaten finden",
+  "subtitle": "Geodaten aus dem Katalog suchen, ansehen und exportieren",
+  "placeholder": "Datensätze nach Name, Beschreibung, Tags suchen...",
+  "updating": "Ergebnisse werden aktualisiert...",
+  "loadingDatasets": "Datensätze werden geladen...",
+  "resultCount_one": "{{count}} Ergebnis",
+  "resultCount_other": "{{count}} Ergebnisse",
+  "empty": {
+    "title": "Keine Datensätze gefunden",
+    "description": "Passen Sie Ihre Suchanfrage oder Filter an",
+    "cta": "Importieren Sie Ihren ersten Datensatz"
+  },
+  "error": {
+    "message": "Ergebnisse konnten nicht geladen werden: {{message}}"
+  },
+  "filters": {
+    "geometry": "Geometrie",
+    "anyGeometry": "Beliebige Geometrie",
+    "point": "Punkt",
+    "lineString": "LineString",
+    "polygon": "Polygon",
+    "multiPoint": "MultiPoint",
+    "multiLineString": "MultiLineString",
+    "multiPolygon": "MultiPolygon",
+    "sort": "Sortierung",
+    "relevance": "Relevanz",
+    "dateAdded": "Hinzugefügt am",
+    "name": "Name",
+    "lastUpdated": "Zuletzt aktualisiert",
+    "location": "Standort",
+    "dateRange": "Hinzugefügt am",
+    "dateFrom": "Von",
+    "dateTo": "Bis",
+    "apply": "Anwenden",
+    "bboxMinX": "Min X (West)",
+    "bboxMinY": "Min Y (Süd)",
+    "bboxMaxX": "Max X (Ost)",
+    "bboxMaxY": "Max Y (Nord)",
+    "clearFilters": "Filter zurücksetzen",
+    "datasetCount_one": "{{count}} Datensatz gefunden",
+    "datasetCount_other": "{{count}} Datensätze gefunden",
+    "removeFilter": "Filter {{label}} entfernen",
+    "allTypes": "Alle",
+    "vector": "Vektor",
+    "raster": "Raster",
+    "vrt": "VRT",
+    "type": "Typ",
+    "organization": "Organisation",
+    "anyOrganization": "Alle Organisationen",
+    "crs": "CRS",
+    "anyCrs": "Alle CRS",
+    "collection": "Sammlung",
+    "collections": "Sammlungen",
+    "temporalExtent": "Zeitliche Ausdehnung",
+    "keywords": "Schlagworte",
+    "keywordSearch": "Schlagworte suchen...",
+    "noKeywords": "Keine Schlagworte verfügbar",
+    "clearKeywords": "Alle löschen",
+    "keywordsCount": "Schlagworte ({{count}})"
+  },
+  "collection": {
+    "datasetCount_one": "{{count}} Datensatz",
+    "datasetCount_other": "{{count}} Datensätze"
+  },
+  "datasetCard": {
+    "quicklookAlt": "Preview of {{name}}",
+    "previewUnavailable": "Vorschau nicht verfugbar"
+  },
+  "card": {
+    "featureCount_one": "{{count}} Feature",
+    "featureCount_other": "{{count}} Features",
+    "updatedBy": "Aktualisiert von",
+    "neverEdited": "Nie",
+    "unknown": "Unbekannt",
+    "system": "System",
+    "restricted": "Eingeschränkter Benutzer",
+    "moretags": "+{{count}} weitere",
+    "updatedFallback": "Aktualisiert vor {{time}}",
+    "noUpdateMetadata": "Keine Aktualisierungsmetadaten",
+    "status": {
+      "draft": "Entwurf",
+      "ready": "Bereit",
+      "internal": "Intern",
+      "archived": "Archiviert",
+      "deprecated": "Veraltet"
+    }
+  },
+  "savedSearches": {
+    "saveButton": "Suche speichern",
+    "dialogTitle": "Aktuelle Suche speichern",
+    "dialogDescription": "Benennen Sie diese Suche, um sie später schnell aufzurufen.",
+    "namePlaceholder": "Suchname",
+    "saving": "Wird gespeichert...",
+    "removeSavedSearch": "Gespeicherte Suche entfernen"
+  },
+  "bbox": {
+    "noExtent": "Keine Ausdehnung",
+    "instruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen"
+  },
+  "typeahead": {
+    "searching": "Suche...",
+    "noResults": "Keine Ergebnisse gefunden"
+  },
+  "quality": {
+    "label": "Qualität: {{score}}%"
+  },
+  "create": {
+    "button": "Datensatz erstellen",
+    "title": "Neuen Datensatz erstellen",
+    "datasetTitle": "Datensatz-Titel",
+    "datasetTitlePlaceholder": "Titel eingeben",
+    "columns": "Spalten",
+    "columnName": "Spaltenname",
+    "columnType": "Typ",
+    "addColumn": "Spalte hinzufügen",
+    "removeColumn": "Remove column",
+    "submit": "Datensatz erstellen",
+    "submitting": "Wird erstellt...",
+    "success": "Datensatz erfolgreich erstellt",
+    "typeOptions": {
+      "text": "Text",
+      "integer": "Ganzzahl",
+      "float": "Gleitkommazahl",
+      "date": "Datum",
+      "boolean": "Wahrheitswert"
+    },
+    "errors": {
+      "titleRequired": "Titel ist erforderlich",
+      "columnRequired": "Mindestens eine Spalte ist erforderlich",
+      "columnNamesRequired": "Alle Spaltennamen sind erforderlich",
+      "duplicateColumn": "Doppelter Spaltenname: {{name}}",
+      "createFailed": "Datensatz konnte nicht erstellt werden"
+    }
+  }
+}

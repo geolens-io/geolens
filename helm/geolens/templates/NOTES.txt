@@ -1,0 +1,67 @@
+GeoLens has been deployed!
+
+{{- if .Values.ingress.enabled }}
+
+Access GeoLens at:
+
+  https://{{ .Values.ingress.host }}
+
+Make sure your DNS points {{ .Values.ingress.host }} to your Ingress
+controller's external IP or load balancer.
+
+{{- else }}
+
+GeoLens is not exposed via Ingress. To access it locally, run:
+
+  # Frontend (UI)
+  kubectl port-forward svc/{{ include "geolens.fullname" . }}-frontend 8080:8080
+
+  # API (direct)
+  kubectl port-forward svc/{{ include "geolens.fullname" . }}-api 8000:8000
+
+Then open http://localhost:8080 in your browser.
+
+{{- end }}
+
+Admin credentials:
+  Username: {{ .Values.auth.adminUsername }}
+  Password: (set via values.yaml auth.adminPassword)
+
+To check pod status:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if .Values.api.autoscaling.enabled }}
+
+Autoscaling (HPA):
+  API autoscaling is ENABLED ({{ .Values.api.autoscaling.minReplicas }}-{{ .Values.api.autoscaling.maxReplicas }} replicas, target CPU {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}%).
+  Prerequisite: metrics-server must be installed in the cluster.
+  Check status:
+    kubectl get hpa -l app.kubernetes.io/instance={{ .Release.Name }}
+{{- end }}
+
+{{- if or .Values.api.pdb.enabled .Values.worker.pdb.enabled }}
+
+Pod Disruption Budgets:
+  {{- if .Values.api.pdb.enabled }}
+  - API: minAvailable={{ .Values.api.pdb.minAvailable }}
+  {{- end }}
+  {{- if .Values.worker.pdb.enabled }}
+  - Worker: minAvailable={{ .Values.worker.pdb.minAvailable }}
+  {{- end }}
+  Note: `kubectl drain` will block if only 1 replica is running.
+  Scale up first or delete the PDB before draining a single-replica node.
+{{- end }}
+
+{{- if or .Values.api.serviceMonitor.enabled .Values.worker.serviceMonitor.enabled }}
+
+Prometheus ServiceMonitors:
+  {{- if .Values.api.serviceMonitor.enabled }}
+  - API: /metrics on port 8000 (interval: {{ .Values.api.serviceMonitor.interval | default "30s" }})
+  {{- end }}
+  {{- if .Values.worker.serviceMonitor.enabled }}
+  - Worker: /metrics on port 8001 (interval: {{ .Values.worker.serviceMonitor.interval | default "30s" }})
+  {{- end }}
+  Prerequisite: Prometheus Operator must be installed.
+  If targets are not discovered, ensure additionalLabels match your
+  Prometheus serviceMonitorSelector configuration.
+{{- end }}

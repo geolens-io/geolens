@@ -1,0 +1,95 @@
+{
+  "title": "Colecciones",
+  "newCollection": "Nueva colección",
+  "loading": "Cargando colecciones...",
+  "empty": {
+    "title": "Aún no hay colecciones",
+    "description": "Las colecciones agrupan conjuntos de datos relacionados para facilitar su descubrimiento.",
+    "cta": "Cree su primera colección"
+  },
+  "error": {
+    "title": "Error al cargar colecciones",
+    "message": "Error al cargar colecciones: {{error}}"
+  },
+  "detail": {
+    "loading": "Cargando colección...",
+    "notFoundTitle": "Colección no encontrada",
+    "notFoundMessage": "No se pudo cargar la colección solicitada.",
+    "backToCollections": "Volver a colecciones",
+    "breadcrumb": "Colecciones",
+    "datasets": "Conjuntos de datos",
+    "temporalRange": "Rango temporal",
+    "created": "Creado",
+    "lastUpdated": "Última actualización",
+    "spatialExtent": "Extensión espacial",
+    "temporalNotAvailable": "N/D",
+    "temporalPresent": "presente"
+  },
+  "search": {
+    "placeholder": "Buscar colecciones...",
+    "empty": "No hay colecciones coincidentes",
+    "emptyHint": "Ninguna coleccion coincide con su busqueda. Intente con otro nombre."
+  },
+  "card": {
+    "datasetCount_one": "{{count}} conjunto de datos",
+    "datasetCount_other": "{{count}} conjuntos de datos",
+    "created": "Creado {{date}}",
+    "temporalPresent": "presente"
+  },
+  "createDialog": {
+    "title": "Crear colección",
+    "description": "Cree una nueva colección para agrupar conjuntos de datos relacionados.",
+    "nameLabel": "Nombre",
+    "namePlaceholder": "Ej. Datos de transporte",
+    "descriptionLabel": "Descripción",
+    "descriptionPlaceholder": "Descripción opcional...",
+    "creating": "Creando...",
+    "errorFallback": "Error al crear la colección"
+  },
+  "editDialog": {
+    "title": "Editar colección",
+    "description": "Actualice el nombre o la descripción de la colección.",
+    "nameLabel": "Nombre",
+    "descriptionLabel": "Descripción",
+    "saving": "Guardando...",
+    "errorFallback": "Error al actualizar la colección"
+  },
+  "deleteDialog": {
+    "title": "Eliminar colección",
+    "description": "Se eliminará permanentemente la colección \"{{name}}\" y todas las asociaciones de conjuntos de datos. Los conjuntos de datos no se eliminarán. Esta acción no se puede deshacer.",
+    "confirmPrompt": "Escriba el nombre de la colección para confirmar:",
+    "deleting": "Eliminando...",
+    "deleteButton": "Eliminar colección",
+    "errorFallback": "Error al eliminar la colección"
+  },
+  "datasetList": {
+    "loading": "Cargando conjuntos de datos...",
+    "errorMessage": "Error al cargar conjuntos de datos: {{error}}",
+    "emptyTitle": "No hay conjuntos de datos en esta colección",
+    "emptyDescription": "Los conjuntos de datos se pueden agregar a esta colección desde la página de gestión.",
+    "filterPlaceholder": "Filtrar conjuntos de datos por nombre...",
+    "noMatch": "Ningún conjunto de datos coincide con \"{{filter}}\"",
+    "featureCount_one": "{{count}} entidad",
+    "featureCount_other": "{{count}} entidades",
+    "removeTitle": "Eliminar de la colección"
+  },
+  "membership": {
+    "title": "Agregar conjuntos de datos",
+    "searchPlaceholder": "Buscar conjuntos de datos por nombre...",
+    "searchButton": "Buscar",
+    "addButton": "Agregar",
+    "allAlreadyAdded": "Todos los conjuntos de datos coincidentes ya están en esta colección."
+  },
+  "badges": {
+    "label": "Colecciones"
+  },
+  "toasts": {
+    "created": "Colección creada",
+    "updated": "Colección actualizada",
+    "deleted": "Colección eliminada",
+    "datasetRemoved": "Conjunto de datos eliminado de la colección",
+    "datasetAdded": "Conjunto de datos agregado a la colección",
+    "removeError": "Error al eliminar el conjunto de datos",
+    "addError": "Error al agregar el conjunto de datos"
+  }
+}

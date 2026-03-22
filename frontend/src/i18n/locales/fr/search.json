@@ -1,0 +1,136 @@
+{
+  "title": "Trouver des données géospatiales",
+  "subtitle": "Recherchez, prévisualisez et exportez des données géospatiales du catalogue",
+  "placeholder": "Rechercher des jeux de données par nom, description, tags...",
+  "updating": "Mise à jour des résultats...",
+  "loadingDatasets": "Chargement des jeux de données...",
+  "resultCount_one": "{{count}} résultat",
+  "resultCount_other": "{{count}} résultats",
+  "empty": {
+    "title": "Aucun jeu de données trouvé",
+    "description": "Essayez d'ajuster votre recherche ou vos filtres",
+    "cta": "Importez votre premier jeu de données"
+  },
+  "error": {
+    "message": "Échec du chargement des résultats : {{message}}"
+  },
+  "filters": {
+    "geometry": "Géométrie",
+    "anyGeometry": "Toute géométrie",
+    "point": "Point",
+    "lineString": "LineString",
+    "polygon": "Polygone",
+    "multiPoint": "MultiPoint",
+    "multiLineString": "MultiLineString",
+    "multiPolygon": "MultiPolygon",
+    "sort": "Trier",
+    "relevance": "Pertinence",
+    "dateAdded": "Date d'ajout",
+    "name": "Nom",
+    "lastUpdated": "Dernière mise à jour",
+    "location": "Localisation",
+    "dateRange": "Date d'ajout",
+    "dateFrom": "De",
+    "dateTo": "À",
+    "apply": "Appliquer",
+    "bboxMinX": "Min X (Ouest)",
+    "bboxMinY": "Min Y (Sud)",
+    "bboxMaxX": "Max X (Est)",
+    "bboxMaxY": "Max Y (Nord)",
+    "clearFilters": "Effacer les filtres",
+    "datasetCount_one": "{{count}} jeu de données trouvé",
+    "datasetCount_other": "{{count}} jeux de données trouvés",
+    "removeFilter": "Supprimer le filtre {{label}}",
+    "allTypes": "Tous",
+    "vector": "Vecteur",
+    "raster": "Raster",
+    "vrt": "VRT",
+    "type": "Type",
+    "organization": "Organisation",
+    "anyOrganization": "Toute organisation",
+    "crs": "CRS",
+    "anyCrs": "Tout CRS",
+    "collection": "Collection",
+    "collections": "Collections",
+    "temporalExtent": "Etendue temporelle",
+    "keywords": "Mots-clés",
+    "keywordSearch": "Rechercher des mots-clés...",
+    "noKeywords": "Aucun mot-clé disponible",
+    "clearKeywords": "Tout effacer",
+    "keywordsCount": "Mots-clés ({{count}})"
+  },
+  "collection": {
+    "datasetCount_one": "{{count}} jeu de données",
+    "datasetCount_other": "{{count}} jeux de données"
+  },
+  "datasetCard": {
+    "quicklookAlt": "Preview of {{name}}",
+    "previewUnavailable": "Apercu non disponible"
+  },
+  "card": {
+    "featureCount_one": "{{count}} entité",
+    "featureCount_other": "{{count}} entités",
+    "updatedBy": "Mis à jour par",
+    "neverEdited": "Jamais",
+    "unknown": "Inconnu",
+    "system": "Système",
+    "restricted": "Utilisateur restreint",
+    "moretags": "+{{count}} de plus",
+    "updatedFallback": "Mis à jour il y a {{time}}",
+    "noUpdateMetadata": "Pas de métadonnées de mise à jour",
+    "status": {
+      "draft": "Brouillon",
+      "ready": "Prêt",
+      "internal": "Interne",
+      "archived": "Archivé",
+      "deprecated": "Obsolète"
+    }
+  },
+  "savedSearches": {
+    "saveButton": "Enregistrer la recherche",
+    "dialogTitle": "Enregistrer la recherche actuelle",
+    "dialogDescription": "Donnez un nom à cette recherche pour y accéder rapidement plus tard.",
+    "namePlaceholder": "Nom de la recherche",
+    "saving": "Enregistrement...",
+    "removeSavedSearch": "Supprimer la recherche enregistrée"
+  },
+  "bbox": {
+    "noExtent": "Pas d'étendue",
+    "instruction": "Cliquez et faites glisser pour dessiner un cadre de sélection"
+  },
+  "typeahead": {
+    "searching": "Recherche en cours...",
+    "noResults": "Aucun resultat"
+  },
+  "quality": {
+    "label": "Qualité : {{score}} %"
+  },
+  "create": {
+    "button": "Créer un jeu de données",
+    "title": "Créer un nouveau jeu de données",
+    "datasetTitle": "Titre du jeu de données",
+    "datasetTitlePlaceholder": "Entrez le titre du jeu de données",
+    "columns": "Colonnes",
+    "columnName": "Nom de colonne",
+    "columnType": "Type",
+    "addColumn": "Ajouter une colonne",
+    "removeColumn": "Remove column",
+    "submit": "Créer le jeu de données",
+    "submitting": "Création...",
+    "success": "Jeu de données créé avec succès",
+    "typeOptions": {
+      "text": "Texte",
+      "integer": "Entier",
+      "float": "Décimal",
+      "date": "Date",
+      "boolean": "Booléen"
+    },
+    "errors": {
+      "titleRequired": "Le titre est obligatoire",
+      "columnRequired": "Au moins une colonne est requise",
+      "columnNamesRequired": "Tous les noms de colonnes sont obligatoires",
+      "duplicateColumn": "Nom de colonne en double : {{name}}",
+      "createFailed": "Échec de la création du jeu de données"
+    }
+  }
+}

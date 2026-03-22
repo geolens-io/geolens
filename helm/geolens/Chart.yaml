@@ -1,0 +1,6 @@
+apiVersion: v2
+name: geolens
+description: "GeoLens -- spatial data catalog and map builder"
+type: application
+version: 0.1.0
+appVersion: "latest"

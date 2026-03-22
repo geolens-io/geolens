@@ -1,0 +1,545 @@
+{
+  "title": "Administration",
+  "roles": {
+    "viewer": "Viewer",
+    "editor": "Editor",
+    "admin": "Admin"
+  },
+  "overview": {
+    "title": "Overview"
+  },
+  "stats": {
+    "loading": "Loading catalog statistics...",
+    "totalDatasets": "Total Datasets",
+    "recentAdditions": "Recent Additions (30d)",
+    "storageUsed": "Storage Used",
+    "byGeometryType": "Datasets by Geometry Type",
+    "byVisibility": "Datasets by Visibility",
+    "noDatasets": "No datasets yet",
+    "totalUsers": "Total Users",
+    "usersByStatus": "Users by Status",
+    "noUsers": "No users yet",
+    "errorLoading": "Failed to load statistics: {{message}}"
+  },
+  "users": {
+    "title": "Users",
+    "titleCount_one": "Users ({{count}})",
+    "titleCount_other": "Users ({{count}})",
+    "addUser": "Add User",
+    "loading": "Loading users...",
+    "errorLoading": "Failed to load users: {{message}}",
+    "filters": {
+      "allUsers": "All Users",
+      "pending": "Pending",
+      "active": "Active"
+    },
+    "table": {
+      "username": "Username",
+      "email": "Email",
+      "roles": "Roles",
+      "status": "Status",
+      "active": "Active",
+      "created": "Created",
+      "actions": "Actions"
+    },
+    "status": {
+      "pending": "Pending",
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "actions": {
+      "approve": "Approve",
+      "reject": "Reject",
+      "deactivate": "Deactivate"
+    },
+    "approveDialog": {
+      "title": "Approve {{username}}",
+      "description": "Select a role for this user before approving their registration.",
+      "roleLabel": "Role",
+      "roles": {
+        "viewer": "Viewer",
+        "editor": "Editor",
+        "admin": "Admin"
+      },
+      "error": "Failed to approve user",
+      "approving": "Approving...",
+      "approve": "Approve"
+    },
+    "rejectDialog": {
+      "title": "Reject User",
+      "description": "Are you sure you want to reject the registration for \"{{username}}\"? This will deny their access to the system.",
+      "error": "Failed to reject user",
+      "rejecting": "Rejecting...",
+      "reject": "Reject"
+    },
+    "deactivateDialog": {
+      "title": "Deactivate User",
+      "description": "Are you sure you want to deactivate \"{{username}}\"? They will no longer be able to log in.",
+      "error": "Failed to deactivate user",
+      "deactivating": "Deactivating...",
+      "deactivate": "Deactivate"
+    }
+  },
+  "userCreate": {
+    "title": "Create User",
+    "description": "Add a new user to the system.",
+    "labels": {
+      "username": "Username",
+      "email": "Email",
+      "password": "Password",
+      "role": "Role"
+    },
+    "placeholders": {
+      "username": "Username",
+      "email": "user@example.com",
+      "password": "Minimum 8 characters"
+    },
+    "roles": {
+      "viewer": "Viewer",
+      "editor": "Editor",
+      "admin": "Admin"
+    },
+    "creating": "Creating...",
+    "error": "Failed to create user"
+  },
+  "userEdit": {
+    "title": "Edit User",
+    "description": "Update user details for {{username}}.",
+    "labels": {
+      "username": "Username",
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "active": "Active"
+    },
+    "placeholder": {
+      "email": "user@example.com"
+    },
+    "roles": {
+      "viewer": "Viewer",
+      "editor": "Editor",
+      "admin": "Admin"
+    },
+    "saving": "Saving...",
+    "error": "Failed to update user"
+  },
+  "userDelete": {
+    "title": "Delete User",
+    "description": "Are you sure you want to delete user \"{{username}}\"? This action cannot be undone. Their datasets will be preserved but will show \"Deleted user\" as the creator.",
+    "deleting": "Deleting...",
+    "error": "Failed to delete user"
+  },
+  "jobs": {
+    "title": "Jobs",
+    "loading": "Loading jobs...",
+    "errorLoading": "Failed to load jobs: {{message}}",
+    "filters": {
+      "allStatuses": "All Statuses",
+      "pending": "Pending",
+      "running": "Running",
+      "complete": "Complete",
+      "failed": "Failed",
+      "allUsers": "All Users",
+      "user": "User",
+      "status": "Status",
+      "clear": "Clear"
+    },
+    "noJobs": "No jobs found",
+    "table": {
+      "createdAt": "Created At",
+      "user": "User",
+      "filename": "Filename",
+      "status": "Status",
+      "duration": "Duration"
+    },
+    "detail": {
+      "errorMessage": "Error Message",
+      "userMetadata": "User Metadata"
+    },
+    "retry": "Retry",
+    "retrying": "Retrying..."
+  },
+  "audit": {
+    "title": "Audit Logs",
+    "loading": "Loading audit logs...",
+    "errorLoading": "Failed to load audit logs: {{message}}",
+    "filters": {
+      "allActions": "All Actions",
+      "datasetView": "Dataset View",
+      "datasetExport": "Dataset Export",
+      "metadataEdit": "Metadata Edit",
+      "datasetCreate": "Dataset Create",
+      "datasetDelete": "Dataset Delete",
+      "action": "Action",
+      "from": "From",
+      "to": "To",
+      "clear": "Clear"
+    },
+    "noLogs": "No audit logs found",
+    "table": {
+      "timestamp": "Timestamp",
+      "user": "User",
+      "action": "Action",
+      "resource": "Resource",
+      "resourceId": "Resource ID",
+      "ipAddress": "IP Address"
+    },
+    "detailsHint": "Details (click row to collapse)"
+  },
+  "infrastructure": {
+    "title": "Infrastructure",
+    "database": "Database",
+    "storage": "Storage",
+    "cache": "Cache",
+    "tileCache": "Tile Cache",
+    "type": "Type",
+    "status": "Status",
+    "latency": "Latency",
+    "ttl": "TTL",
+    "cdn": "CDN",
+    "pooler": "Pooler",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "configured": "Configured",
+    "notConfigured": "Not Configured",
+    "loading": "Loading infrastructure status...",
+    "errorLoading": "Failed to load infrastructure status",
+    "allOperational": "All Systems Operational",
+    "degraded": "Degraded Performance",
+    "autoRefresh": "Auto-refreshes every 30s",
+    "noCdn": "No CDN",
+    "oidc": "OIDC"
+  },
+  "ai": {
+    "title": "AI",
+    "cardTitle": "AI Status",
+    "notConfigured": "Not configured",
+    "provider": "Provider",
+    "model": "Model",
+    "status": "Status",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "semanticSearch": "Semantic Search",
+    "semanticSearchDescription": "Enable vector-based similarity search alongside keyword search",
+    "embeddingCoverage": "Embedding Coverage",
+    "generateMissing": "Generate Missing Embeddings",
+    "generating": "Generating...",
+    "backfillSuccess": "Generated embeddings for {{count}} datasets",
+    "backfillPartial": "Generated {{created}} embeddings with {{errors}} failures — check embedding model configuration",
+    "backfillAllFailed": "All {{errors}} embeddings failed — check that OPENAI_API_KEY is set and the embedding model is available",
+    "backfillEmpty": "All datasets already have embeddings",
+    "allEmbedded": "All datasets have embeddings",
+    "manageSettings": "Manage AI settings",
+    "sectionInference": "Inference (LLM)",
+    "sectionSemanticSearch": "Semantic Search & Embeddings",
+    "sectionApiKeys": "API Key Status",
+    "apiKeysEnvOnlyNote": "API keys can only be set via environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY) and cannot be changed from this page. All other AI settings below are admin-overridable.",
+    "usedForInference": "Inference",
+    "availableNotSelected": "Available",
+    "inference": "Inference",
+    "embeddings": "Embeddings",
+    "providerDescription": "Select the LLM provider for chat, map generation, and metadata AI features.",
+    "modelDescription": "Model identifier sent to the selected provider. Must match an available model.",
+    "baseUrlDescription": "Custom endpoint for OpenAI-compatible providers (Ollama, Groq, Together, etc.). Leave empty for default OpenAI.",
+    "embeddingModelDescription": "OpenAI-compatible embedding model name for semantic search vectors.",
+    "embeddingBaseUrlDescription": "Separate endpoint for embedding generation. Falls back to the inference base URL if empty.",
+    "embeddingDimsAutoDescription": "Vector dimensions output by the embedding model. Use Detect to auto-probe, or enter manually.",
+    "detectDims": "Detect",
+    "dimsDetected": "Detected {{dims}} dimensions",
+    "dimsDetectFailed": "Could not detect dimensions. Check that OPENAI_API_KEY is set and the embedding model is valid.",
+    "dimsChangeWarning": "Changing dimensions will make {{count}} existing embedding(s) incompatible. You will need to regenerate all embeddings after saving.",
+    "openaiKeyRequired": "OPENAI_API_KEY is not set. Embedding generation requires an OpenAI-compatible API key, even when using Anthropic for inference.",
+    "keyConfigured": "configured",
+    "keyNotSet": "not set",
+    "regenerateAll": "Regenerate All",
+    "labels": {
+      "aiEnabled": "AI Chat Enabled",
+      "llmProvider": "LLM Provider",
+      "model": "Model",
+      "openaiBaseUrl": "OpenAI-Compatible Base URL",
+      "embeddingModel": "Embedding Model",
+      "embeddingBaseUrl": "Embedding Base URL",
+      "embeddingDims": "Embedding Dimensions"
+    },
+    "providers": {
+      "anthropic": "Anthropic",
+      "openaiCompatible": "OpenAI-compatible"
+    }
+  },
+  "apiKeys": {
+    "title": "API Keys",
+    "createKey": "Create Key",
+    "keyName": "Key name",
+    "creating": "Creating...",
+    "createError": "Failed to create key",
+    "loadingKeys": "Loading keys...",
+    "noKeys": "No API keys",
+    "active": "Active",
+    "revoked": "Revoked",
+    "created": "Created {{date}}",
+    "lastUsed": "Last used:",
+    "neverUsed": "Never used",
+    "justNow": "Just now",
+    "minutesAgo_one": "{{count}}m ago",
+    "minutesAgo_other": "{{count}}m ago",
+    "hoursAgo_one": "{{count}}h ago",
+    "hoursAgo_other": "{{count}}h ago",
+    "daysAgo_one": "{{count}}d ago",
+    "daysAgo_other": "{{count}}d ago",
+    "revokeDialog": {
+      "title": "Revoke API Key",
+      "description": "Are you sure you want to revoke '{{name}}'? This key will immediately stop working.",
+      "revoking": "Revoking...",
+      "revoke": "Revoke"
+    },
+    "revokeError": "Failed to revoke key"
+  },
+  "apiKeyReveal": {
+    "title": "API Key Created",
+    "description": "Copy this key now. It will not be shown again.",
+    "warning": "This key will not be shown again. Make sure to copy it now.",
+    "done": "Done"
+  },
+  "sharedMaps": {
+    "title": "Shared Maps",
+    "empty": "No maps have been shared yet.",
+    "mapName": "Map",
+    "linkStatus": "Status",
+    "embedTokens": "Embed Tokens",
+    "expires": "Expires",
+    "created": "Created",
+    "actions": "Actions",
+    "embedTokensFor": "Embed Tokens — {{map}}",
+    "loadingEmbedTokens": "Loading embed tokens...",
+    "noEmbedTokens": "No embed tokens for this map.",
+    "loadEmbedTokensFailed": "Failed to load embed tokens",
+    "loadFailed": "Failed to load shared maps",
+    "creator": "Creator",
+    "activeCount": "{{count}} active"
+  },
+  "shareTokens": {
+    "active": "Active",
+    "expired": "Expired",
+    "revoked": "Revoked",
+    "never": "Never",
+    "revoke": "Revoke",
+    "revokeSuccess": "Share token revoked",
+    "revokeFailed": "Failed to revoke share token",
+    "revokeDialogTitle": "Revoke Share Link",
+    "revokeDialogDescription": "Are you sure you want to revoke the share link for \"{{map}}\"? Anyone with this link will lose access.",
+    "revokeDialogCancel": "Cancel",
+    "revokeDialogConfirm": "Revoke"
+  },
+  "embedTokens": {
+    "tokenHint": "Token",
+    "status": "Status",
+    "useCount": "Uses",
+    "lastUsed": "Last Used",
+    "expires": "Expires",
+    "origins": "Origins",
+    "active": "Active",
+    "expired": "Expired",
+    "revoked": "Revoked",
+    "expiringSoon": "Expires in {{days}}d",
+    "expiresToday": "Expires today",
+    "never": "Never",
+    "noOrigins": "Any",
+    "revokeSelected": "Revoke Selected ({{count}})",
+    "bulkRevokeTitle": "Revoke Embed Tokens",
+    "bulkRevokeDescription": "Revoke {{count}} embed tokens? This cannot be undone. Embedded maps using these tokens will lose tile access.",
+    "bulkRevokeConfirm": "Revoke",
+    "bulkRevokeCancel": "Cancel",
+    "bulkRevokeSuccess": "{{count}} embed tokens revoked",
+    "bulkRevokeFailed": "Failed to revoke embed tokens"
+  },
+  "settings": {
+    "page": {
+      "title": "Settings",
+      "loadFailed": "Failed to load settings: {{message}}",
+      "unknownError": "Unknown error"
+    },
+    "tabs": {
+      "general": "General",
+      "auth": "Auth",
+      "authSecurity": "Auth & Security",
+      "ai": "AI",
+      "network": "Network",
+      "storage": "Storage",
+      "appearance": "Appearance",
+      "permissions": "Permissions"
+    },
+    "actions": {
+      "discard": "Discard Changes",
+      "resetDefaults": "Reset to Defaults"
+    },
+    "sourceBadge": {
+      "reset": "Reset",
+      "resetToDefault": "Reset to built-in default",
+      "envVar": "env var",
+      "envVarTooltip": "Locked by environment variable. Change it in your deployment config."
+    },
+    "permissions": {
+      "title": "Role Permissions",
+      "description": "Configure which capabilities are available to each role. Admin manage_users and manage_settings permissions cannot be disabled.",
+      "capabilityHeader": "Capability",
+      "capabilityForRole": "{{capability}} for {{role}}",
+      "capabilities": {
+        "upload": "Upload Datasets",
+        "create_layers": "Create Layers",
+        "export": "Export Data",
+        "edit_metadata": "Edit Metadata",
+        "manage_collections": "Manage Collections",
+        "use_ai_chat": "AI Chat",
+        "manage_users": "Manage Users",
+        "manage_settings": "Manage Settings"
+      }
+    },
+    "envOnly": {
+      "title": "Configuration locked to environment variables",
+      "description": "Set ENV_ONLY_CONFIG=false to enable admin overrides.",
+      "descriptionPrefix": "Set",
+      "descriptionSuffix": "to enable admin overrides."
+    },
+    "saved": "Settings saved",
+    "saveFailed": "Failed to save settings",
+    "resetDefaults": "Reset to Defaults",
+    "general": {
+      "title": "General",
+      "cardTitle": "Feature Toggles",
+      "cardDescription": "Enable or disable platform features.",
+      "registration": "Self-Registration",
+      "registrationDescription": "Allow new users to create accounts. Accounts still require admin approval.",
+      "aiFeatures": "AI Features",
+      "aiFeaturesDescription": "Enable AI-powered features including dataset metadata drafting (summaries, keywords, lineage, quality statements), map builder chat, and AI map generation.",
+      "requireMetadata": "Require Metadata for Publishing",
+      "requireMetadataDescription": "When enabled, datasets must have complete metadata (title, summary, contacts, keywords, license, spatial extent, CRS, lineage) before they can be published.",
+      "publicAppUrl": "Public App URL",
+      "publicAppUrlDescription": "The browser-facing GeoLens URL. Use the frontend origin without the /api suffix.",
+      "publicApiUrl": "Public API URL",
+      "publicApiUrlDescription": "The externally reachable API base. Leave it aligned with your app URL + /api for path-based deployments.",
+      "publicBaseUrl": "Public Base URL",
+      "logLevel": "Log Level",
+      "logJsonLabel": "Log Format (JSON)",
+      "logJsonDescription": "Output logs in structured JSON format.",
+      "saved": "Settings saved",
+      "saveFailed": "Failed to save settings"
+    },
+    "basemaps": {
+      "title": "Basemaps",
+      "presetsTitle": "Basemap Presets",
+      "presetsDescription": "Enable or disable built-in basemap options.",
+      "customTitle": "Custom Basemaps",
+      "customDescription": "Add custom XYZ/TMS tile sources.",
+      "nameLabel": "Name",
+      "tileUrlLabel": "Tile URL",
+      "namePlaceholder": "My Custom Basemap",
+      "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
+      "urlError": "URL must contain {z}/{x}/{y} placeholders or end with .json",
+      "removeBasemap": "Remove basemap",
+      "add": "Add",
+      "saved": "Basemaps saved",
+      "saveFailed": "Failed to save basemaps"
+    },
+    "mapDefaults": {
+      "title": "Map Defaults",
+      "cardTitle": "Default Map View",
+      "cardDescription": "Set the initial center and zoom for all map views.",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "zoomLevel": "Zoom Level",
+      "preview": "Preview",
+      "useCurrentView": "Use current view",
+      "saved": "Map defaults saved",
+      "saveFailed": "Failed to save map defaults"
+    },
+    "network": {
+      "globalRateLimit": "Global Rate Limit (per second)",
+      "globalRateLimitDescription": "Maximum API requests per second per IP address. Tile requests are excluded from this limit.",
+      "corsAllowedOrigins": "CORS Allowed Origins",
+      "corsAllowedOriginsDescription": "Comma-separated origins. Use * for any origin.",
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+    },
+    "security": {
+      "title": "Security",
+      "cardTitle": "Login Rate Limiting",
+      "cardDescription": "Control the maximum number of login attempts per minute per IP address.",
+      "loginRateLimit": "Login attempts per minute",
+      "accessTokenExpire": "Access Token Lifetime (minutes)",
+      "refreshTokenExpire": "Refresh Token Lifetime (days)",
+      "loginRateLimitLabel": "Login Rate Limit (per minute)",
+      "tokenLifetimeNote": "Token lifetime changes apply to newly issued tokens only.",
+      "loginRateLimitDescription": "Maximum number of login requests allowed per minute from a single IP address (1–1000).",
+      "saved": "Security settings saved",
+      "saveFailed": "Failed to save security settings"
+    },
+    "uploads": {
+      "title": "Upload Settings",
+      "cardTitle": "Upload Limits",
+      "cardDescription": "Configure maximum file size and allowed file extensions for dataset uploads.",
+      "maxSizeMb": "Maximum file size (MB)",
+      "maxSizeMbDescription": "Maximum upload file size in megabytes (1-10,000). Changes take effect on the next upload without restart.",
+      "allowedExtensions": "Allowed extensions",
+      "allowedExtensionsDescription": "Comma-separated list of allowed file extensions (e.g. .zip,.gpkg,.geojson,.json,.csv).",
+      "tileCacheTtl": "Tile Cache TTL (seconds)",
+      "tileCacheTtlDescription": "Time in seconds before tile cache entries expire (0 = no cache).",
+      "saved": "Upload settings saved",
+      "saveFailed": "Failed to save upload settings"
+    },
+    "oauth": {
+      "title": "OAuth Providers",
+      "description": "Configure external identity providers for single sign-on.",
+      "addProvider": "Add Provider",
+      "loading": "Loading providers...",
+      "emptyState": "No OAuth providers configured. Click \"Add Provider\" to get started.",
+      "provider": "Provider",
+      "type": "Type",
+      "status": "Status",
+      "actions": "Actions",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "editTitle": "Edit OAuth Provider",
+      "addTitle": "Add OAuth Provider",
+      "editDescription": "Update the OAuth provider configuration.",
+      "addDescription": "Configure a new OAuth provider for single sign-on.",
+      "providerType": "Provider Type",
+      "tenantId": "Tenant ID",
+      "tenantIdHint": "Your Azure AD tenant ID. The discovery URL will be constructed automatically.",
+      "displayName": "Display Name",
+      "slug": "Slug",
+      "slugHint": "URL-safe identifier used in OAuth callback URLs.",
+      "clientId": "Client ID",
+      "clientSecret": "Client Secret",
+      "clientSecretKeep": "leave blank to keep current",
+      "discoveryUrl": "Discovery URL",
+      "scopes": "Scopes",
+      "defaultRole": "Default Role",
+      "groupClaim": "Group Claim",
+      "groupClaimHint": "JWT claim containing user group memberships for automatic role mapping.",
+      "groupRoleMapping": "Group Role Mapping (JSON)",
+      "groupRoleMappingHint": "Maps IdP group names to GeoLens roles. JSON object format.",
+      "enabledToggle": "Enabled",
+      "saveChanges": "Save Changes",
+      "createProvider": "Create Provider",
+      "deleteTitle": "Delete OAuth Provider",
+      "deleteDescription": "Are you sure you want to delete \"{{name}}\"? Users who signed in with this provider will no longer be able to authenticate through it.",
+      "created": "OAuth provider created",
+      "createFailed": "Failed to create OAuth provider",
+      "updated": "OAuth provider updated",
+      "updateFailed": "Failed to update OAuth provider",
+      "deleted": "OAuth provider deleted",
+      "deleteFailed": "Failed to delete OAuth provider",
+      "invalidJson": "Group role mapping must be valid JSON",
+      "secretRequired": "Client secret is required",
+      "providerTypes": {
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "oidc": "Generic OIDC"
+      },
+      "roles": {
+        "viewer": "Viewer",
+        "editor": "Editor",
+        "admin": "Admin"
+      }
+    }
+  }
+}

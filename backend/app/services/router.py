@@ -1,0 +1,377 @@
+"""Service probing and preview API endpoints."""
+
+import httpx
+import structlog
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.audit.service import log_action
+from app.auth.dependencies import require_permission
+from app.auth.models import User
+from app.dependencies import get_db
+from app.ingest.ogr import IngestionError
+from app.jobs.models import IngestJob
+from app.services.preview import build_gdal_source, run_service_preview
+from app.services.probe import ServiceNotRecognized, detect_service_type
+from app.services.schemas import (
+    ProbeRequest,
+    ProbeResponse,
+    ServicePreviewRequest,
+    ServicePreviewResponse,
+)
+from app.services.security import PROBE_TIMEOUT, SSRFError, validate_url_for_ssrf
+
+logger = structlog.stdlib.get_logger(__name__)
+
+router = APIRouter(prefix="/services", tags=["Datasets"])
+
+
+@router.post("/probe/", response_model=ProbeResponse)
+async def probe_service_url(
+    request: ProbeRequest,
+    user: User = Depends(require_permission("create_layers")),
+    db: AsyncSession = Depends(get_db),
+) -> ProbeResponse:
+    """Probe a remote service URL to detect its type and list available layers.
+
+    Validates the URL against SSRF, detects whether it is a WFS or ArcGIS
+    service, and returns a unified layer list. All attempts are audit-logged.
+    """
+    # Step 1: SSRF validation
+    try:
+        validate_url_for_ssrf(request.url)
+    except SSRFError as exc:
+        logger.warning("SSRF blocked", url=request.url, reason=str(exc))
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="probe_service",
+            resource_type="service_url",
+            details={"url": request.url, "result": "ssrf_blocked", "reason": str(exc)},
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Step 2-3: Probe with httpx client
+    try:
+        client_headers = {}
+        if request.token:
+            client_headers["Authorization"] = f"Bearer {request.token}"
+        async with httpx.AsyncClient(
+            timeout=PROBE_TIMEOUT,
+            follow_redirects=True,
+            max_redirects=5,
+            headers=client_headers,
+        ) as client:
+            response = await detect_service_type(
+                request.url, client, token=request.token
+            )
+
+    except httpx.TimeoutException:
+        logger.warning("Probe timeout", url=request.url)
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="probe_service",
+            resource_type="service_url",
+            details={"url": request.url, "result": "timeout"},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=504,
+            detail="Service didn't respond in time. Check the URL and try again.",
+        )
+
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code in (401, 403):
+            logger.warning("Probe auth required", url=request.url, status=status_code)
+            await log_action(
+                session=db,
+                user_id=user.id,
+                action="probe_service",
+                resource_type="service_url",
+                details={
+                    "url": request.url,
+                    "result": "auth_required",
+                    "status": status_code,
+                },
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="This service requires authentication. Provide an access token and try again.",
+            )
+        else:
+            logger.warning("Probe remote error", url=request.url, status=status_code)
+            await log_action(
+                session=db,
+                user_id=user.id,
+                action="probe_service",
+                resource_type="service_url",
+                details={
+                    "url": request.url,
+                    "result": "remote_error",
+                    "status": status_code,
+                },
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=502,
+                detail="Remote service returned an error",
+            )
+
+    except httpx.TransportError:
+        logger.warning("Probe unreachable", url=request.url)
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="probe_service",
+            resource_type="service_url",
+            details={"url": request.url, "result": "unreachable"},
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach the service. Check the URL and try again.",
+        )
+
+    except ServiceNotRecognized as exc:
+        logger.info("Probe unrecognized", url=request.url)
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="probe_service",
+            resource_type="service_url",
+            details={"url": request.url, "result": "unrecognized"},
+        )
+        await db.commit()
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # Step 5: Audit log on success
+    logger.info(
+        "Probe success",
+        url=request.url,
+        service_type=response.service_type,
+        layer_count=len(response.layers),
+    )
+    await log_action(
+        session=db,
+        user_id=user.id,
+        action="probe_service",
+        resource_type="service_url",
+        details={
+            "url": request.url,
+            "result": "success",
+            "service_type": response.service_type,
+            "layer_count": len(response.layers),
+        },
+    )
+    await db.commit()
+
+    return response
+
+
+@router.post("/preview/", response_model=ServicePreviewResponse)
+async def preview_service_layer(
+    request: ServicePreviewRequest,
+    user: User = Depends(require_permission("create_layers")),
+    db: AsyncSession = Depends(get_db),
+) -> ServicePreviewResponse:
+    """Preview a selected remote layer via ogrinfo and create a pending IngestJob.
+
+    Validates the URL against SSRF, builds the GDAL driver source string,
+    runs ogrinfo to extract metadata and sample rows, then creates an IngestJob
+    ready for the existing commit flow.
+    """
+    # Step 1: SSRF validation
+    try:
+        validate_url_for_ssrf(request.url)
+    except SSRFError as exc:
+        logger.warning("SSRF blocked for preview", url=request.url, reason=str(exc))
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "layer": request.layer_name,
+                "result": "ssrf_blocked",
+                "reason": str(exc),
+            },
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Step 2: Build GDAL source string
+    try:
+        gdal_source, layer_arg = build_gdal_source(
+            request.service_type,
+            request.url,
+            request.layer_name,
+            request.layer_id,
+            token=request.token,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "Invalid preview request",
+            url=request.url,
+            service_type=request.service_type,
+            error=str(exc),
+        )
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "layer": request.layer_name,
+                "result": "invalid_request",
+                "reason": str(exc),
+            },
+        )
+        await db.commit()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Step 3: Run ogrinfo preview
+    try:
+        preview_data = await run_service_preview(
+            gdal_source, layer_arg, token=request.token
+        )
+    except IngestionError:
+        # Step 4: WFS namespace retry -- if layer_name has a colon prefix, retry without it
+        if ":" in request.layer_name:
+            unqualified = request.layer_name.split(":", 1)[1]
+            logger.info(
+                "Retrying preview with unqualified layer name",
+                original=request.layer_name,
+                unqualified=unqualified,
+            )
+            try:
+                retry_source, retry_layer = build_gdal_source(
+                    request.service_type,
+                    request.url,
+                    unqualified,
+                    request.layer_id,
+                    token=request.token,
+                )
+                preview_data = await run_service_preview(
+                    retry_source, retry_layer, token=request.token
+                )
+            except (IngestionError, ValueError):
+                logger.warning(
+                    "Preview failed after namespace retry",
+                    url=request.url,
+                    layer=request.layer_name,
+                )
+                await log_action(
+                    session=db,
+                    user_id=user.id,
+                    action="preview_service_layer",
+                    resource_type="service_url",
+                    details={
+                        "url": request.url,
+                        "layer": request.layer_name,
+                        "result": "ogrinfo_failed",
+                    },
+                )
+                await db.commit()
+                raise HTTPException(
+                    status_code=502,
+                    detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+                )
+        else:
+            logger.warning(
+                "Preview ogrinfo failed",
+                url=request.url,
+                layer=request.layer_name,
+            )
+            await log_action(
+                session=db,
+                user_id=user.id,
+                action="preview_service_layer",
+                resource_type="service_url",
+                details={
+                    "url": request.url,
+                    "layer": request.layer_name,
+                    "result": "ogrinfo_failed",
+                },
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+            )
+    except Exception:
+        logger.exception(
+            "Unexpected error during service preview",
+            url=request.url,
+            layer=request.layer_name,
+        )
+        await log_action(
+            session=db,
+            user_id=user.id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "layer": request.layer_name,
+                "result": "unexpected_error",
+            },
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while previewing the layer.",
+        )
+
+    # Step 5: Create IngestJob
+    job = IngestJob(
+        source_filename=request.layer_title or request.layer_name,
+        source_url=request.url,
+        source_layer=request.layer_name,
+        created_by=user.id,
+        status="pending",
+        user_metadata={
+            "service_type": request.service_type,
+            "layer_id": request.layer_id,
+        },
+    )
+    db.add(job)
+    await db.flush()
+
+    # Step 6: Audit log on success
+    logger.info(
+        "Service preview success",
+        url=request.url,
+        layer=request.layer_name,
+        job_id=str(job.id),
+    )
+    await log_action(
+        session=db,
+        user_id=user.id,
+        action="preview_service_layer",
+        resource_type="service_url",
+        details={
+            "url": request.url,
+            "layer": request.layer_name,
+            "job_id": str(job.id),
+            "result": "success",
+        },
+    )
+    await db.commit()
+
+    return ServicePreviewResponse(
+        job_id=job.id,
+        source_filename=request.layer_title or request.layer_name,
+        columns=preview_data["columns"],
+        crs=preview_data["srid"],
+        geometry_type=preview_data["geometry_type"],
+        feature_count=preview_data["feature_count"],
+        sample_rows=preview_data["sample_rows"],
+        layer_name=request.layer_name
+        if request.service_type.startswith("ArcGIS")
+        else preview_data["layer_name"],
+    )

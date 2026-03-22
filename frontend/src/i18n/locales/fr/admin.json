@@ -1,0 +1,545 @@
+{
+  "title": "Administration",
+  "roles": {
+    "viewer": "Lecteur",
+    "editor": "Éditeur",
+    "admin": "Administrateur"
+  },
+  "overview": {
+    "title": "Vue d'ensemble"
+  },
+  "stats": {
+    "loading": "Chargement des statistiques du catalogue...",
+    "totalDatasets": "Total des jeux de données",
+    "recentAdditions": "Ajouts récents (30 j)",
+    "storageUsed": "Stockage utilisé",
+    "byGeometryType": "Jeux de données par type de géométrie",
+    "byVisibility": "Jeux de données par visibilité",
+    "noDatasets": "Aucun jeu de données pour l'instant",
+    "errorLoading": "Échec du chargement des statistiques : {{message}}",
+    "totalUsers": "Utilisateurs totaux",
+    "usersByStatus": "Utilisateurs par statut",
+    "noUsers": "Aucun utilisateur"
+  },
+  "users": {
+    "title": "Utilisateurs",
+    "titleCount_one": "Utilisateurs ({{count}})",
+    "titleCount_other": "Utilisateurs ({{count}})",
+    "addUser": "Ajouter un utilisateur",
+    "loading": "Chargement des utilisateurs...",
+    "errorLoading": "Échec du chargement des utilisateurs : {{message}}",
+    "filters": {
+      "allUsers": "Tous les utilisateurs",
+      "pending": "En attente",
+      "active": "Actif"
+    },
+    "table": {
+      "username": "Nom d'utilisateur",
+      "email": "E-mail",
+      "roles": "Rôles",
+      "status": "Statut",
+      "active": "Actif",
+      "created": "Création",
+      "actions": "Actions"
+    },
+    "status": {
+      "pending": "En attente",
+      "active": "Actif",
+      "inactive": "Inactif"
+    },
+    "actions": {
+      "approve": "Approuver",
+      "reject": "Rejeter",
+      "deactivate": "Désactiver"
+    },
+    "approveDialog": {
+      "title": "Approuver {{username}}",
+      "description": "Sélectionnez un rôle pour cet utilisateur avant d'approuver son inscription.",
+      "roleLabel": "Rôle",
+      "roles": {
+        "viewer": "Lecteur",
+        "editor": "Éditeur",
+        "admin": "Administrateur"
+      },
+      "error": "Échec de l'approbation de l'utilisateur",
+      "approving": "Approbation...",
+      "approve": "Approuver"
+    },
+    "rejectDialog": {
+      "title": "Rejeter l'utilisateur",
+      "description": "Êtes-vous sûr de vouloir rejeter l'inscription de \"{{username}}\" ? Cela lui refusera l'accès au système.",
+      "error": "Échec du rejet de l'utilisateur",
+      "rejecting": "Rejet...",
+      "reject": "Rejeter"
+    },
+    "deactivateDialog": {
+      "title": "Désactiver l'utilisateur",
+      "description": "Êtes-vous sûr de vouloir désactiver \"{{username}}\" ? Cette personne ne pourra plus se connecter.",
+      "error": "Échec de la désactivation de l'utilisateur",
+      "deactivating": "Désactivation...",
+      "deactivate": "Désactiver"
+    }
+  },
+  "userCreate": {
+    "title": "Créer un utilisateur",
+    "description": "Ajoutez un nouvel utilisateur au système.",
+    "labels": {
+      "username": "Nom d'utilisateur",
+      "email": "E-mail",
+      "password": "Mot de passe",
+      "role": "Rôle"
+    },
+    "placeholders": {
+      "username": "Nom d'utilisateur",
+      "email": "utilisateur@exemple.com",
+      "password": "Minimum 8 caractères"
+    },
+    "roles": {
+      "viewer": "Lecteur",
+      "editor": "Éditeur",
+      "admin": "Administrateur"
+    },
+    "creating": "Création...",
+    "error": "Échec de la création de l'utilisateur"
+  },
+  "userEdit": {
+    "title": "Modifier l'utilisateur",
+    "description": "Mettez à jour les informations de {{username}}.",
+    "labels": {
+      "username": "Nom d'utilisateur",
+      "email": "E-mail",
+      "role": "Rôle",
+      "status": "Statut",
+      "active": "Actif"
+    },
+    "placeholder": {
+      "email": "utilisateur@exemple.com"
+    },
+    "roles": {
+      "viewer": "Lecteur",
+      "editor": "Éditeur",
+      "admin": "Administrateur"
+    },
+    "saving": "Enregistrement...",
+    "error": "Échec de la mise à jour de l'utilisateur"
+  },
+  "userDelete": {
+    "title": "Supprimer l'utilisateur",
+    "description": "Êtes-vous sûr de vouloir supprimer l'utilisateur \"{{username}}\" ? Cette action est irréversible. Ses jeux de données seront conservés mais afficheront \"Utilisateur supprimé\" comme créateur.",
+    "deleting": "Suppression...",
+    "error": "Échec de la suppression de l'utilisateur"
+  },
+  "jobs": {
+    "title": "Tâches",
+    "loading": "Chargement des tâches...",
+    "errorLoading": "Échec du chargement des tâches : {{message}}",
+    "filters": {
+      "allStatuses": "Tous les statuts",
+      "pending": "En attente",
+      "running": "En cours",
+      "complete": "Terminée",
+      "failed": "Échouée",
+      "allUsers": "Tous les utilisateurs",
+      "user": "Utilisateur",
+      "status": "Statut",
+      "clear": "Effacer"
+    },
+    "noJobs": "Aucune tâche trouvée",
+    "table": {
+      "createdAt": "Date de création",
+      "user": "Utilisateur",
+      "filename": "Nom du fichier",
+      "status": "Statut",
+      "duration": "Durée"
+    },
+    "detail": {
+      "errorMessage": "Message d'erreur",
+      "userMetadata": "Métadonnées utilisateur"
+    },
+    "retry": "Réessayer",
+    "retrying": "Nouvelle tentative..."
+  },
+  "audit": {
+    "title": "Journal d'audit",
+    "loading": "Chargement du journal d'audit...",
+    "errorLoading": "Échec du chargement du journal d'audit : {{message}}",
+    "filters": {
+      "allActions": "Toutes les actions",
+      "datasetView": "Consultation de jeu de données",
+      "datasetExport": "Exportation de jeu de données",
+      "metadataEdit": "Modification de métadonnées",
+      "datasetCreate": "Création de jeu de données",
+      "datasetDelete": "Suppression de jeu de données",
+      "action": "Action",
+      "from": "Du",
+      "to": "Au",
+      "clear": "Effacer"
+    },
+    "noLogs": "Aucune entrée dans le journal d'audit",
+    "table": {
+      "timestamp": "Horodatage",
+      "user": "Utilisateur",
+      "action": "Action",
+      "resource": "Ressource",
+      "resourceId": "ID de ressource",
+      "ipAddress": "Adresse IP"
+    },
+    "detailsHint": "Détails (cliquez sur la ligne pour réduire)"
+  },
+  "ai": {
+    "title": "IA",
+    "cardTitle": "Statut de l'IA",
+    "notConfigured": "Non configurée",
+    "provider": "Fournisseur",
+    "model": "Modèle",
+    "status": "Statut",
+    "enabled": "Activee",
+    "disabled": "Desactivee",
+    "semanticSearch": "Recherche semantique",
+    "semanticSearchDescription": "Activer la recherche par similarite vectorielle en complement de la recherche par mots-cles",
+    "embeddingCoverage": "Couverture des embeddings",
+    "generateMissing": "Generer les embeddings manquants",
+    "generating": "Generation...",
+    "backfillSuccess": "Embeddings generes pour {{count}} jeux de donnees",
+    "backfillEmpty": "Tous les jeux de donnees ont deja des embeddings",
+    "allEmbedded": "Tous les jeux de données ont des embeddings",
+    "apiKeysEnvOnlyNote": "Les clés API ne peuvent être définies que via des variables d'environnement (ANTHROPIC_API_KEY, OPENAI_API_KEY).",
+    "availableNotSelected": "Disponible",
+    "backfillAllFailed": "Les {{errors}} embeddings ont échoué — vérifiez que OPENAI_API_KEY est défini",
+    "backfillPartial": "{{created}} embeddings générés avec {{errors}} échecs",
+    "baseUrlDescription": "Point d'accès personnalisé pour les fournisseurs compatibles OpenAI. Laisser vide pour OpenAI par défaut.",
+    "detectDims": "Détecter",
+    "dimsChangeWarning": "Changer les dimensions rendra {{count}} embedding(s) existant(s) incompatible(s).",
+    "dimsDetectFailed": "Impossible de détecter les dimensions.",
+    "dimsDetected": "{{dims}} dimensions détectées",
+    "embeddingBaseUrlDescription": "Point d'accès séparé pour la génération d'embeddings.",
+    "embeddingDimsAutoDescription": "Dimensions du vecteur produit par le modèle d'embedding.",
+    "embeddingModelDescription": "Nom du modèle d'embedding compatible OpenAI.",
+    "embeddings": "Embeddings",
+    "inference": "Inférence",
+    "manageSettings": "Gérer les paramètres IA",
+    "modelDescription": "Identifiant du modèle envoyé au fournisseur sélectionné.",
+    "openaiKeyRequired": "OPENAI_API_KEY n'est pas défini. La génération d'embeddings nécessite une clé API compatible OpenAI.",
+    "keyConfigured": "configurée",
+    "keyNotSet": "non configurée",
+    "regenerateAll": "Tout régénérer",
+    "labels": {
+      "aiEnabled": "Chat IA activé",
+      "llmProvider": "Fournisseur LLM",
+      "model": "Modèle",
+      "openaiBaseUrl": "URL de base compatible OpenAI",
+      "embeddingModel": "Modèle d'embedding",
+      "embeddingBaseUrl": "URL de base d'embedding",
+      "embeddingDims": "Dimensions de l'embedding"
+    },
+    "providers": {
+      "anthropic": "Anthropic",
+      "openaiCompatible": "Compatible OpenAI"
+    },
+    "providerDescription": "Sélectionnez le fournisseur LLM pour le chat, la génération de cartes et les fonctionnalités IA.",
+    "sectionApiKeys": "Statut des clés API",
+    "sectionInference": "Inférence (LLM)",
+    "sectionSemanticSearch": "Recherche sémantique et embeddings",
+    "usedForInference": "Inférence"
+  },
+  "apiKeys": {
+    "title": "Clés API",
+    "createKey": "Créer une clé",
+    "keyName": "Nom de la clé",
+    "creating": "Création...",
+    "createError": "Échec de la création de la clé",
+    "loadingKeys": "Chargement des clés...",
+    "noKeys": "Aucune clé API",
+    "active": "Actif",
+    "revoked": "Révoquée",
+    "created": "Créée le {{date}}",
+    "lastUsed": "Dernière utilisation :",
+    "neverUsed": "Jamais utilisée",
+    "justNow": "À l'instant",
+    "minutesAgo_one": "Il y a {{count}} min",
+    "minutesAgo_other": "Il y a {{count}} min",
+    "hoursAgo_one": "Il y a {{count}} h",
+    "hoursAgo_other": "Il y a {{count}} h",
+    "daysAgo_one": "Il y a {{count}} j",
+    "daysAgo_other": "Il y a {{count}} j",
+    "revokeDialog": {
+      "title": "Révoquer la clé API",
+      "description": "Êtes-vous sûr de vouloir révoquer « {{name}} » ? Cette clé cessera immédiatement de fonctionner.",
+      "revoking": "Révocation...",
+      "revoke": "Révoquer"
+    },
+    "revokeError": "Échec de la révocation de la clé"
+  },
+  "apiKeyReveal": {
+    "title": "Clé API créée",
+    "description": "Copiez cette clé maintenant. Elle ne sera plus affichée.",
+    "warning": "Cette clé ne sera plus affichée. Assurez-vous de la copier maintenant.",
+    "done": "Terminé"
+  },
+  "sharedMaps": {
+    "title": "Cartes Partagees",
+    "empty": "Aucune carte n'a ete partagee.",
+    "mapName": "Carte",
+    "linkStatus": "Statut",
+    "embedTokens": "Jetons d'integration",
+    "expires": "Expire",
+    "created": "Cree",
+    "actions": "Actions",
+    "embedTokensFor": "Jetons d'integration — {{map}}",
+    "loadingEmbedTokens": "Chargement des jetons d'integration...",
+    "noEmbedTokens": "Aucun jeton d'integration pour cette carte.",
+    "loadEmbedTokensFailed": "Echec du chargement des jetons d'integration",
+    "loadFailed": "Echec du chargement des cartes partagees",
+    "creator": "Créateur",
+    "activeCount": "{{count}} actifs"
+  },
+  "shareTokens": {
+    "active": "Actif",
+    "expired": "Expire",
+    "revoked": "Revoque",
+    "never": "Jamais",
+    "revoke": "Revoquer",
+    "revokeSuccess": "Jeton de partage revoque",
+    "revokeFailed": "Echec de la revocation du jeton",
+    "revokeDialogTitle": "Révoquer le lien de partage",
+    "revokeDialogDescription": "Êtes-vous sûr de vouloir révoquer le lien de partage de \"{{map}}\" ? Toute personne disposant de ce lien perdra l'accès.",
+    "revokeDialogCancel": "Annuler",
+    "revokeDialogConfirm": "Révoquer"
+  },
+  "embedTokens": {
+    "tokenHint": "Jeton",
+    "status": "Statut",
+    "useCount": "Utilisations",
+    "lastUsed": "Derniere utilisation",
+    "expires": "Expire",
+    "origins": "Origines",
+    "active": "Actif",
+    "expired": "Expire",
+    "revoked": "Revoque",
+    "expiringSoon": "Expire dans {{days}}j",
+    "expiresToday": "Expire aujourd'hui",
+    "never": "Jamais",
+    "noOrigins": "Tout",
+    "revokeSelected": "Revoquer la selection ({{count}})",
+    "bulkRevokeTitle": "Revoquer les jetons d'integration",
+    "bulkRevokeDescription": "Revoquer {{count}} jetons d'integration ? Cette action est irreversible.",
+    "bulkRevokeConfirm": "Revoquer",
+    "bulkRevokeCancel": "Annuler",
+    "bulkRevokeSuccess": "{{count}} jetons d'integration revoques",
+    "bulkRevokeFailed": "Echec de la revocation des jetons d'integration"
+  },
+  "settings": {
+    "actions": {
+      "discard": "Annuler les modifications",
+      "resetDefaults": "Rétablir les valeurs par défaut"
+    },
+    "sourceBadge": {
+      "reset": "Réinitialiser",
+      "resetToDefault": "Rétablir la valeur par défaut",
+      "envVar": "var. env.",
+      "envVarTooltip": "Verrouillé par variable d'environnement. Modifiez-le dans la configuration de votre déploiement."
+    },
+    "permissions": {
+      "title": "Permissions par rôle",
+      "description": "Configurez les capacités disponibles pour chaque rôle. Les permissions manage_users et manage_settings de l'administrateur ne peuvent pas être désactivées.",
+      "capabilityHeader": "Capacité",
+      "capabilityForRole": "{{capability}} pour {{role}}",
+      "capabilities": {
+        "upload": "Télécharger des jeux de données",
+        "create_layers": "Créer des couches",
+        "export": "Exporter des données",
+        "edit_metadata": "Modifier les métadonnées",
+        "manage_collections": "Gérer les collections",
+        "use_ai_chat": "Chat IA",
+        "manage_users": "Gérer les utilisateurs",
+        "manage_settings": "Gérer les paramètres"
+      }
+    },
+    "general": {
+      "title": "Général",
+      "cardTitle": "Fonctionnalités",
+      "cardDescription": "Activez ou désactivez les fonctionnalités de la plateforme.",
+      "registration": "Auto-inscription",
+      "registrationDescription": "Permettre aux nouveaux utilisateurs de créer un compte. Les comptes nécessitent toujours l'approbation d'un administrateur.",
+      "aiFeatures": "Fonctionnalités IA",
+      "aiFeaturesDescription": "Activer les fonctionnalités alimentées par l'IA, notamment la rédaction de métadonnées de jeux de données (résumés, mots-clés, lignage, déclarations de qualité), le chat du constructeur de cartes et la génération de cartes par IA.",
+      "saved": "Paramètres enregistrés",
+      "saveFailed": "Échec de l'enregistrement des paramètres",
+      "requireMetadata": "Exiger les métadonnées pour la publication",
+      "requireMetadataDescription": "Lorsque activé, les jeux de données doivent avoir des métadonnées complètes avant de pouvoir être publiés.",
+      "publicAppUrl": "URL publique de l'application",
+      "publicAppUrlDescription": "L'URL GeoLens destinée au navigateur. Utilisez l'origine du frontend sans le suffixe /api.",
+      "publicApiUrl": "URL publique de l'API",
+      "publicApiUrlDescription": "La base API accessible publiquement. Gardez-la alignée sur l'URL de l'application + /api pour les déploiements par chemin.",
+      "publicBaseUrl": "URL de base publique",
+      "logLevel": "Niveau de journalisation",
+      "logJsonLabel": "Format de journal (JSON)",
+      "logJsonDescription": "Journaux de sortie au format JSON structuré."
+    },
+    "basemaps": {
+      "title": "Fonds de carte",
+      "presetsTitle": "Fonds de carte prédéfinis",
+      "presetsDescription": "Activez ou désactivez les fonds de carte intégrés.",
+      "customTitle": "Fonds de carte personnalisés",
+      "customDescription": "Ajoutez des sources de tuiles XYZ/TMS personnalisées.",
+      "nameLabel": "Nom",
+      "tileUrlLabel": "URL des tuiles",
+      "namePlaceholder": "Mon fond de carte personnalisé",
+      "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
+      "urlError": "L'URL doit contenir les variables {z}/{x}/{y} ou se terminer par .json",
+      "removeBasemap": "Remove basemap",
+      "add": "Ajouter",
+      "saved": "Fonds de carte enregistrés",
+      "saveFailed": "Échec de l'enregistrement des fonds de carte"
+    },
+    "mapDefaults": {
+      "title": "Carte par défaut",
+      "cardTitle": "Vue cartographique par défaut",
+      "cardDescription": "Définissez le centre et le zoom initiaux pour toutes les vues cartographiques.",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "zoomLevel": "Niveau de zoom",
+      "preview": "Aperçu",
+      "useCurrentView": "Utiliser la vue actuelle",
+      "saved": "Paramètres de carte enregistrés",
+      "saveFailed": "Échec de l'enregistrement des paramètres de carte"
+    },
+    "network": {
+      "globalRateLimit": "Limite de debit globale (par seconde)",
+      "globalRateLimitDescription": "Nombre maximal de requetes API par seconde par adresse IP. Les requetes de tuiles sont exclues de cette limite.",
+      "corsAllowedOrigins": "Origines CORS autorisées",
+      "corsAllowedOriginsDescription": "Origines séparées par des virgules. Utilisez * pour autoriser n'importe quelle origine.",
+      "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
+    },
+    "security": {
+      "title": "Sécurité",
+      "cardTitle": "Limitation du taux de connexion",
+      "cardDescription": "Contrôlez le nombre maximum de tentatives de connexion par minute par adresse IP.",
+      "loginRateLimit": "Tentatives de connexion par minute",
+      "accessTokenExpire": "Durée de vie du jeton d'accès (minutes)",
+      "refreshTokenExpire": "Durée de vie du jeton de rafraîchissement (jours)",
+      "loginRateLimitLabel": "Limite de taux de connexion (par minute)",
+      "tokenLifetimeNote": "Les modifications de durée de vie des jetons s'appliquent uniquement aux jetons nouvellement émis.",
+      "loginRateLimitDescription": "Nombre maximum de requêtes de connexion autorisées par minute depuis une seule adresse IP (1–1000).",
+      "saved": "Paramètres de sécurité enregistrés",
+      "saveFailed": "Échec de l'enregistrement des paramètres de sécurité"
+    },
+    "envOnly": {
+      "title": "Configuration verrouillée par variables d'environnement",
+      "description": "Définissez ENV_ONLY_CONFIG=false pour activer les modifications administrateur.",
+      "descriptionPrefix": "Définissez",
+      "descriptionSuffix": "pour activer les modifications administrateur."
+    },
+    "page": {
+      "title": "Paramètres",
+      "loadFailed": "Échec du chargement des paramètres : {{message}}",
+      "unknownError": "Erreur inconnue"
+    },
+    "saved": "Paramètres enregistrés",
+    "saveFailed": "Échec de l'enregistrement des paramètres",
+    "resetDefaults": "Rétablir les valeurs par défaut",
+    "tabs": {
+      "general": "Général",
+      "auth": "Auth",
+      "authSecurity": "Auth & Sécurité",
+      "ai": "IA",
+      "network": "Réseau",
+      "storage": "Stockage",
+      "appearance": "Apparence",
+      "permissions": "Permissions"
+    },
+    "uploads": {
+      "title": "Paramètres de téléchargement",
+      "cardTitle": "Limites de téléchargement",
+      "cardDescription": "Configurez la taille maximale des fichiers et les extensions autorisées.",
+      "maxSizeMb": "Taille maximale du fichier (Mo)",
+      "maxSizeMbDescription": "Taille maximale en mégaoctets (1-10 000).",
+      "allowedExtensions": "Extensions autorisées",
+      "allowedExtensionsDescription": "Liste d'extensions autorisées séparées par des virgules.",
+      "tileCacheTtl": "TTL du cache de tuiles (secondes)",
+      "tileCacheTtlDescription": "Temps en secondes avant l'expiration des entrées du cache de tuiles (0 = pas de cache).",
+      "saved": "Paramètres de téléchargement enregistrés",
+      "saveFailed": "Échec de l'enregistrement"
+    },
+    "oauth": {
+      "title": "Fournisseurs OAuth",
+      "description": "Configurez des fournisseurs d'identité externes pour l'authentification unique.",
+      "addProvider": "Ajouter un fournisseur",
+      "loading": "Chargement des fournisseurs...",
+      "emptyState": "Aucun fournisseur OAuth configuré.",
+      "provider": "Fournisseur",
+      "type": "Type",
+      "status": "Statut",
+      "actions": "Actions",
+      "enabled": "Activé",
+      "disabled": "Désactivé",
+      "editTitle": "Modifier le fournisseur OAuth",
+      "addTitle": "Ajouter un fournisseur OAuth",
+      "editDescription": "Mettez à jour la configuration du fournisseur OAuth.",
+      "addDescription": "Configurez un nouveau fournisseur OAuth.",
+      "providerType": "Type de fournisseur",
+      "tenantId": "ID du locataire",
+      "tenantIdHint": "Votre ID de locataire Azure AD.",
+      "displayName": "Nom d'affichage",
+      "slug": "Slug",
+      "slugHint": "Identifiant URL-safe utilisé dans les URLs de callback OAuth.",
+      "clientId": "ID client",
+      "clientSecret": "Secret client",
+      "clientSecretKeep": "laisser vide pour conserver l'actuel",
+      "discoveryUrl": "URL de découverte",
+      "scopes": "Portées",
+      "defaultRole": "Rôle par défaut",
+      "groupClaim": "Claim de groupe",
+      "groupClaimHint": "Claim JWT contenant les appartenances aux groupes.",
+      "groupRoleMapping": "Mappage des rôles de groupe (JSON)",
+      "groupRoleMappingHint": "Mappe les noms de groupes IdP aux rôles GeoLens.",
+      "enabledToggle": "Activé",
+      "saveChanges": "Enregistrer les modifications",
+      "createProvider": "Créer le fournisseur",
+      "deleteTitle": "Supprimer le fournisseur OAuth",
+      "deleteDescription": "Supprimer « {{name}} » ? Les utilisateurs connectés via ce fournisseur ne pourront plus s'authentifier.",
+      "created": "Fournisseur OAuth créé",
+      "createFailed": "Échec de la création",
+      "updated": "Fournisseur OAuth mis à jour",
+      "updateFailed": "Échec de la mise à jour",
+      "deleted": "Fournisseur OAuth supprimé",
+      "deleteFailed": "Échec de la suppression",
+      "invalidJson": "Le mappage des rôles doit être du JSON valide",
+      "secretRequired": "Le secret client est obligatoire",
+      "providerTypes": {
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "oidc": "OIDC générique"
+      },
+      "roles": {
+        "viewer": "Lecteur",
+        "editor": "Éditeur",
+        "admin": "Administrateur"
+      }
+    }
+  },
+  "infrastructure": {
+    "title": "Infrastructure",
+    "database": "Base de données",
+    "storage": "Stockage",
+    "cache": "Cache",
+    "tileCache": "Cache de tuiles",
+    "type": "Type",
+    "status": "Statut",
+    "latency": "Latence",
+    "ttl": "TTL",
+    "cdn": "CDN",
+    "pooler": "Pooler",
+    "connected": "Connecté",
+    "disconnected": "Déconnecté",
+    "configured": "Configuré",
+    "notConfigured": "Non configuré",
+    "loading": "Chargement du statut de l'infrastructure...",
+    "errorLoading": "Échec du chargement du statut de l'infrastructure",
+    "allOperational": "Tous les systèmes opérationnels",
+    "degraded": "Performances dégradées",
+    "autoRefresh": "Actualisation automatique toutes les 30s",
+    "noCdn": "Pas de CDN",
+    "oidc": "OIDC"
+  }
+}

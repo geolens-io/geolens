@@ -1,0 +1,95 @@
+{
+  "title": "Sammlungen",
+  "newCollection": "Neue Sammlung",
+  "loading": "Sammlungen werden geladen...",
+  "empty": {
+    "title": "Noch keine Sammlungen",
+    "description": "Sammlungen fassen verwandte Datensätze für eine leichtere Auffindbarkeit zusammen.",
+    "cta": "Erstellen Sie Ihre erste Sammlung"
+  },
+  "error": {
+    "title": "Sammlungen konnten nicht geladen werden",
+    "message": "Sammlungen konnten nicht geladen werden: {{error}}"
+  },
+  "detail": {
+    "loading": "Sammlung wird geladen...",
+    "notFoundTitle": "Sammlung nicht gefunden",
+    "notFoundMessage": "Die angeforderte Sammlung konnte nicht geladen werden.",
+    "backToCollections": "Zurück zu Sammlungen",
+    "breadcrumb": "Sammlungen",
+    "datasets": "Datensätze",
+    "temporalRange": "Zeitlicher Bereich",
+    "created": "Erstellt",
+    "lastUpdated": "Zuletzt aktualisiert",
+    "spatialExtent": "Räumliche Ausdehnung",
+    "temporalNotAvailable": "k. A.",
+    "temporalPresent": "heute"
+  },
+  "search": {
+    "placeholder": "Sammlungen durchsuchen...",
+    "empty": "Keine passenden Sammlungen",
+    "emptyHint": "Keine Sammlungen entsprechen Ihrer Suche. Versuchen Sie einen anderen Namen."
+  },
+  "card": {
+    "datasetCount_one": "{{count}} Datensatz",
+    "datasetCount_other": "{{count}} Datensätze",
+    "created": "Erstellt {{date}}",
+    "temporalPresent": "heute"
+  },
+  "createDialog": {
+    "title": "Sammlung erstellen",
+    "description": "Erstellen Sie eine neue Sammlung, um verwandte Datensätze zu gruppieren.",
+    "nameLabel": "Name",
+    "namePlaceholder": "z. B. Verkehrsdaten",
+    "descriptionLabel": "Beschreibung",
+    "descriptionPlaceholder": "Optionale Beschreibung...",
+    "creating": "Wird erstellt...",
+    "errorFallback": "Sammlung konnte nicht erstellt werden"
+  },
+  "editDialog": {
+    "title": "Sammlung bearbeiten",
+    "description": "Aktualisieren Sie den Namen oder die Beschreibung der Sammlung.",
+    "nameLabel": "Name",
+    "descriptionLabel": "Beschreibung",
+    "saving": "Wird gespeichert...",
+    "errorFallback": "Sammlung konnte nicht aktualisiert werden"
+  },
+  "deleteDialog": {
+    "title": "Sammlung löschen",
+    "description": "Die Sammlung \"{{name}}\" und alle Datensatz-Zuordnungen werden dauerhaft gelöscht. Die Datensätze selbst werden nicht gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
+    "confirmPrompt": "Geben Sie den Sammlungsnamen zur Bestätigung ein:",
+    "deleting": "Wird gelöscht...",
+    "deleteButton": "Sammlung löschen",
+    "errorFallback": "Sammlung konnte nicht gelöscht werden"
+  },
+  "datasetList": {
+    "loading": "Datensätze werden geladen...",
+    "errorMessage": "Datensätze konnten nicht geladen werden: {{error}}",
+    "emptyTitle": "Keine Datensätze in dieser Sammlung",
+    "emptyDescription": "Datensätze können über die Verwaltungsseite zu dieser Sammlung hinzugefügt werden.",
+    "filterPlaceholder": "Datensätze nach Name filtern...",
+    "noMatch": "Keine Datensätze entsprechen \"{{filter}}\"",
+    "featureCount_one": "{{count}} Feature",
+    "featureCount_other": "{{count}} Features",
+    "removeTitle": "Aus Sammlung entfernen"
+  },
+  "membership": {
+    "title": "Datensätze hinzufügen",
+    "searchPlaceholder": "Datensätze nach Name suchen...",
+    "searchButton": "Suchen",
+    "addButton": "Hinzufügen",
+    "allAlreadyAdded": "Alle passenden Datensätze sind bereits in dieser Sammlung."
+  },
+  "badges": {
+    "label": "Sammlungen"
+  },
+  "toasts": {
+    "created": "Sammlung erstellt",
+    "updated": "Sammlung aktualisiert",
+    "deleted": "Sammlung gelöscht",
+    "datasetRemoved": "Datensatz aus Sammlung entfernt",
+    "datasetAdded": "Datensatz zur Sammlung hinzugefügt",
+    "removeError": "Datensatz konnte nicht entfernt werden",
+    "addError": "Datensatz konnte nicht hinzugefügt werden"
+  }
+}

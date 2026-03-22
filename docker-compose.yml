@@ -1,0 +1,292 @@
+# ==============================================================================
+# Shared environment anchors
+# ==============================================================================
+x-db-env: &db-env
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_HOST: db
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB}
+
+x-auth-env: &auth-env
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
+  GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
+
+x-db-ssl-env: &db-ssl-env
+  DATABASE_URL_OVERRIDE: "${DATABASE_URL_OVERRIDE:-}"
+  DATABASE_SSL_MODE: "${DATABASE_SSL_MODE:-}"
+  DATABASE_SSL_CA_CERT: "${DATABASE_SSL_CA_CERT:-}"
+  DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-false}"
+  DB_USE_EXTERNAL_POOLER: "${DB_USE_EXTERNAL_POOLER:-false}"
+
+x-storage-env: &storage-env
+  STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
+  S3_ENDPOINT: "${S3_ENDPOINT:-}"
+  S3_BUCKET: "${S3_BUCKET:-}"
+  S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+  S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+  S3_REGION: "${S3_REGION:-us-east-1}"
+  S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
+
+x-logging-env: &logging-env
+  LOG_JSON: "${LOG_JSON:-false}"
+  LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+x-ai-env: &ai-env
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+  LLM_MODEL: "${LLM_MODEL:-claude-sonnet-4-20250514}"
+  OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+  OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o}"
+  OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+  EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+  EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
+  EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
+
+# ==============================================================================
+# Services
+# ==============================================================================
+services:
+  db:
+    build:
+      context: ./db
+    command: postgres -c config_file=/etc/postgresql/custom.conf
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh
+      - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ./backend
+    command: sh -c "uv run alembic upgrade head"
+    volumes:
+      - ./backend/alembic:/app/alembic
+    environment:
+      <<: [*db-env, *auth-env, *db-ssl-env]
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./backend
+    # Runs as root so the entrypoint can fix volume ownership, then drops to
+    # uid 1001 (appuser) via setpriv before exec-ing the application.
+    user: "0:0"
+    entrypoint: ["/app/scripts/api-entrypoint.sh"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/tests:/app/tests
+      - upload_staging:/app/staging
+    command: >
+      sh -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app"
+    environment:
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      PYTHONPATH: /app
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      REDIS_URL: "${REDIS_URL:-}"
+      CDN_BASE_URL: "${CDN_BASE_URL:-}"
+      PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
+      TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
+      TILE_SIGNING_SECRET: "${TILE_SIGNING_SECRET:-}"
+      UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
+      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv}"
+      REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
+      # CORS: comma-separated allowed origins for cross-origin API access (empty = same-origin only)
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build:
+      context: ./backend
+    # See api service comment — same root-then-drop pattern for volume ownership.
+    user: "0:0"
+    entrypoint: ["/app/scripts/worker-entrypoint.sh"]
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - upload_staging:/app/staging
+    environment:
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      PYTHONPATH: /app
+      REDIS_URL: "${REDIS_URL:-}"
+      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  titiler:
+    image: ghcr.io/developmentseed/titiler:latest
+    command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
+    environment:
+      GDAL_CACHEMAX: "200"
+      GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
+      CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"
+      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "NETWORK_OR_LOCAL"
+      VSI_CACHE: "TRUE"
+      CPL_VSIL_CURL_CACHE_SIZE: "16777216"
+      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+      AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
+      TITILER_API_ROOT_PATH: ""
+    volumes:
+      - upload_staging:/app/staging
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+    # No ports: section — internal only, reachable at http://titiler:8000
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${FRONTEND_PORT:-8080}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  backup:
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    volumes:
+      - ./scripts:/scripts:ro
+      - backup_data:/backups
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-geolens}
+      POSTGRES_HOST: db
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
+      BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
+      BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
+      BACKUP_S3_ENABLED: ${BACKUP_S3_ENABLED:-false}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ALLOW_HTTP: ${S3_ALLOW_HTTP:-false}
+    entrypoint: ["/scripts/backup-entrypoint.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # --- cloud-dev profile: local S3 + cache for testing ---
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-02-18T16-25-55Z
+    profiles: ["cloud-dev"]
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  minio-setup:
+    image: quay.io/minio/mc:latest
+    profiles: ["cloud-dev"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing local/geolens;
+      cat > /tmp/cors.json << 'CORSJSON'
+      {
+        \"CORSRules\": [
+          {
+            \"AllowedOrigins\": [\"*\"],
+            \"AllowedMethods\": [\"GET\", \"PUT\", \"POST\", \"DELETE\"],
+            \"AllowedHeaders\": [\"*\"],
+            \"ExposeHeaders\": [\"ETag\"],
+            \"MaxAgeSeconds\": 3600
+          }
+        ]
+      }
+      CORSJSON
+      mc anonymous set-json /tmp/cors.json local/geolens || true;
+      exit 0;
+      "
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    profiles: ["cloud-dev"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  pgdata:
+  upload_staging:
+  backup_data:
+  minio_data:
+  valkey_data:

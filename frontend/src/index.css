@@ -1,0 +1,367 @@
+/* Font import (must be before tailwindcss) */
+@import '@fontsource-variable/inter/wght.css';
+
+/* Framework */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Dark mode variant */
+@custom-variant dark (&:is(.dark, .dark *));
+
+/* ── Design Tokens ─────────────────────────────────── */
+
+/*
+ * Typography Scale (canonical reference — Tailwind text-* utilities used directly)
+ * --text-xs:  0.75rem  (12px)
+ * --text-sm:  0.875rem (14px)
+ * --text-base: 1rem    (16px)
+ * --text-lg:  1.125rem (18px)
+ * --text-xl:  1.25rem  (20px)
+ * --text-2xl: 1.5rem   (24px)
+ */
+
+:root {
+  --radius: 0.625rem;
+
+  /* ─ Primary scale (blue, hue ~250) ─ */
+  --primary-50:  oklch(0.97 0.02 250);
+  --primary-100: oklch(0.93 0.05 250);
+  --primary-200: oklch(0.87 0.09 250);
+  --primary-300: oklch(0.78 0.13 250);
+  --primary-400: oklch(0.70 0.16 250);
+  --primary-500: oklch(0.55 0.18 250);
+  --primary-600: oklch(0.48 0.18 250);
+  --primary-700: oklch(0.46 0.16 250);
+  --primary-800: oklch(0.38 0.13 250);
+  --primary-900: oklch(0.30 0.10 250);
+
+  /* ─ Core palette (light mode) ─ */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.55 0.18 250);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.55 0.18 250);
+
+  /* ─ Surface hierarchy (light mode) ─ */
+  --surface-0: oklch(0.985 0 0);
+  --surface-1: oklch(1 0 0);
+  --surface-2: oklch(0.98 0 0);
+  --surface-3: oklch(0.96 0 0);
+
+  /* ─ Shadow tokens (light mode) ─ */
+  --elevation-sm: 0 1px 2px oklch(0 0 0 / 5%);
+  --elevation-md: 0 4px 6px -1px oklch(0 0 0 / 7%), 0 2px 4px -2px oklch(0 0 0 / 5%);
+  --elevation-lg: 0 10px 15px -3px oklch(0 0 0 / 8%), 0 4px 6px -4px oklch(0 0 0 / 5%);
+
+  /* ─ Semantic status colors ─ */
+  --success: oklch(0.53 0.19 145);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.75 0.15 85);
+  --warning-foreground: oklch(0.28 0.07 46);
+  --info: oklch(0.55 0.18 250);
+  --info-foreground: oklch(0.985 0 0);
+
+  /* ─ Data visualization categorical palette ─ */
+  --viz-1: oklch(0.55 0.18 250);   /* blue */
+  --viz-2: oklch(0.70 0.17 55);    /* orange */
+  --viz-3: oklch(0.62 0.17 145);   /* green */
+  --viz-4: oklch(0.55 0.18 310);   /* purple */
+  --viz-5: oklch(0.65 0.13 195);   /* teal */
+  --viz-6: oklch(0.65 0.20 5);     /* pink */
+  --viz-7: oklch(0.75 0.16 80);    /* amber */
+  --viz-8: oklch(0.50 0.18 280);   /* indigo */
+
+  /* ─ Chart colors (legacy, kept for compatibility) ─ */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+
+  /* ─ Sidebar ─ */
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.55 0.18 250);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.55 0.18 250);
+}
+
+/* ── Dark Mode Tokens ─────────────────────────────── */
+.dark {
+  /* ─ Primary scale (blue, hue ~250, dark mode adjusted) ─ */
+  --primary-50:  oklch(0.25 0.04 250);
+  --primary-100: oklch(0.30 0.07 250);
+  --primary-200: oklch(0.36 0.10 250);
+  --primary-300: oklch(0.44 0.14 250);
+  --primary-400: oklch(0.54 0.17 250);
+  --primary-500: oklch(0.65 0.18 250);
+  --primary-600: oklch(0.72 0.17 250);
+  --primary-700: oklch(0.80 0.14 250);
+  --primary-800: oklch(0.88 0.09 250);
+  --primary-900: oklch(0.94 0.04 250);
+
+  /* ─ Core palette (dark mode) ─ */
+  --background: oklch(0.145 0.008 250);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.18 0.008 250);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.22 0.010 250);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.72 0.17 250);
+  --primary-foreground: oklch(0.18 0.008 250);
+  --secondary: oklch(0.269 0.008 250);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0.008 250);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0.008 250);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.25 0.05 22);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.17 250);
+
+  /* ─ Surface hierarchy (true dark, near-black base) ─ */
+  --surface-0: oklch(0.145 0.008 250);
+  --surface-1: oklch(0.18 0.008 250);
+  --surface-2: oklch(0.22 0.010 250);
+  --surface-3: oklch(0.26 0.012 250);
+
+  /* ─ Shadow tokens (dark mode, 3-5x opacity) ─ */
+  --elevation-sm: 0 1px 2px oklch(0 0 0 / 20%);
+  --elevation-md: 0 4px 6px -1px oklch(0 0 0 / 30%), 0 2px 4px -2px oklch(0 0 0 / 20%);
+  --elevation-lg: 0 10px 15px -3px oklch(0 0 0 / 35%), 0 4px 6px -4px oklch(0 0 0 / 20%);
+
+  /* ─ Semantic status colors (dark mode) ─ */
+  --success: oklch(0.72 0.17 145);
+  --success-foreground: oklch(0.20 0.05 145);
+  --warning: oklch(0.80 0.16 85);
+  --warning-foreground: oklch(0.28 0.07 46);
+  --info: oklch(0.72 0.17 250);
+  --info-foreground: oklch(0.20 0.05 250);
+
+  /* ─ Data visualization categorical palette (dark mode) ─ */
+  --viz-1: oklch(0.72 0.17 250);   /* blue */
+  --viz-2: oklch(0.76 0.16 55);    /* orange */
+  --viz-3: oklch(0.72 0.16 145);   /* green */
+  --viz-4: oklch(0.65 0.17 310);   /* purple */
+  --viz-5: oklch(0.72 0.12 195);   /* teal */
+  --viz-6: oklch(0.72 0.18 5);     /* pink */
+  --viz-7: oklch(0.80 0.15 80);    /* amber */
+  --viz-8: oklch(0.60 0.17 280);   /* indigo */
+
+  /* ─ Chart colors (legacy, kept for compatibility) ─ */
+  --chart-1: oklch(0.488 0.18 264);
+  --chart-2: oklch(0.696 0.17 145);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.18 303.9);
+  --chart-5: oklch(0.645 0.18 16.439);
+
+  /* ─ Sidebar ─ */
+  --sidebar: oklch(0.13 0.008 250);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.72 0.17 250);
+  --sidebar-primary-foreground: oklch(0.18 0.008 250);
+  --sidebar-accent: oklch(0.269 0.008 250);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.72 0.17 250);
+}
+
+/* ── Theme Bridge ──────────────────────────────────── */
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  /* Core semantic colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Primary scale (bg-primary-50 through bg-primary-900) */
+  --color-primary-50: var(--primary-50);
+  --color-primary-100: var(--primary-100);
+  --color-primary-200: var(--primary-200);
+  --color-primary-300: var(--primary-300);
+  --color-primary-400: var(--primary-400);
+  --color-primary-500: var(--primary-500);
+  --color-primary-600: var(--primary-600);
+  --color-primary-700: var(--primary-700);
+  --color-primary-800: var(--primary-800);
+  --color-primary-900: var(--primary-900);
+
+  /* Surface hierarchy (bg-surface-0 through bg-surface-3) */
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  /* Shadow tokens (shadow-sm, shadow-md, shadow-lg) */
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
+
+  /* Status colors */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* Data visualization palette (bg-viz-1 through bg-viz-8) */
+  --color-viz-1: var(--viz-1);
+  --color-viz-2: var(--viz-2);
+  --color-viz-3: var(--viz-3);
+  --color-viz-4: var(--viz-4);
+  --color-viz-5: var(--viz-5);
+  --color-viz-6: var(--viz-6);
+  --color-viz-7: var(--viz-7);
+  --color-viz-8: var(--viz-8);
+
+  /* Chart colors (legacy) */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Animation */
+  --animate-fade-in: fade-in 200ms ease-out both;
+  --animate-shimmer: shimmer 1.5s ease-in-out infinite;
+
+  /* Radius */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ── Animations ────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Base Layer ─────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+/* ── MapLibre Control Dark Mode ───────────────────── */
+.dark .maplibregl-ctrl-group {
+  background: oklch(0.269 0.008 250);
+  border-color: oklch(1 0 0 / 10%);
+}
+.dark .maplibregl-ctrl-group button {
+  filter: invert(1) hue-rotate(180deg);
+}
+.dark .maplibregl-ctrl-group button + button {
+  border-top-color: oklch(1 0 0 / 10%);
+}
+.dark .maplibregl-ctrl-attrib {
+  background: oklch(0.145 0.008 250 / 80%);
+  color: oklch(0.708 0 0);
+}
+.dark .maplibregl-ctrl-attrib a {
+  color: oklch(0.72 0.17 250);
+}
+
+/* ── MapLibre Popup Styling ─────────────────────────── */
+.maplibregl-popup-content {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--elevation-lg);
+  border-radius: var(--radius);
+}
+
+/* Popup tip (arrow) — all four anchor directions */
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--popover);
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--popover);
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--popover);
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--popover);
+}
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--popover);
+}
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--popover);
+}
+
+/* Popup close button */
+.maplibregl-popup-close-button {
+  color: var(--popover-foreground);
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  right: 4px;
+  top: 4px;
+}
+.maplibregl-popup-close-button:hover {
+  background-color: var(--muted);
+}

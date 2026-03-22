@@ -1,0 +1,696 @@
+"""Tests for PersistentConfig generic class and centralized registry."""
+
+import os
+from unittest.mock import patch
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import delete
+
+
+@pytest.fixture(autouse=True)
+async def _clean_settings(client: AsyncClient):
+    """Clean up any DB settings overrides after each test."""
+    yield
+    # Remove any settings rows inserted during tests
+    from app.dependencies import get_db
+    from app.main import app
+    from app.settings.models import AppSetting
+
+    async for db in app.dependency_overrides[get_db]():
+        await db.execute(delete(AppSetting))
+        await db.commit()
+
+    # Invalidate cache for all config keys
+    from app.cache import get_cache
+
+    try:
+        cache = get_cache()
+        from app.persistent_config import _registry
+
+        for cfg in _registry:
+            await cache.delete(f"config:{cfg.key}")
+    except RuntimeError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Unit / Integration tests for PersistentConfig class
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_get_returns_env_default_when_no_db_row(client: AsyncClient):
+    """get() returns env_default when no DB row exists."""
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        value = await REGISTRATION_ENABLED.get(db)
+        # env_default for registration_enabled comes from settings.registration_enabled (False)
+        assert value is False
+
+
+@pytest.mark.anyio
+async def test_get_returns_db_value_when_row_exists(client: AsyncClient):
+    """get() returns DB value when row exists and ENV_ONLY_CONFIG is not set."""
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        # Set a value in DB
+        await REGISTRATION_ENABLED.set(db, True)
+        value = await REGISTRATION_ENABLED.get(db)
+        assert value is True
+
+        # Clean up
+        await REGISTRATION_ENABLED.set(db, False)
+
+
+@pytest.mark.anyio
+async def test_get_returns_env_default_when_env_only(client: AsyncClient):
+    """get() returns env_default (ignoring DB) when ENV_ONLY_CONFIG=true."""
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        # Set value in DB first
+        await REGISTRATION_ENABLED.set(db, True)
+
+        # Now enable ENV_ONLY mode
+        with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+            value = await REGISTRATION_ENABLED.get(db)
+            assert value is False  # Should return env_default, not DB value
+
+
+@pytest.mark.anyio
+async def test_set_raises_when_env_only(client: AsyncClient):
+    """set() raises error (403-style) when ENV_ONLY_CONFIG=true."""
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+            from fastapi import HTTPException
+
+            with pytest.raises(HTTPException) as exc_info:
+                await REGISTRATION_ENABLED.set(db, True)
+            assert exc_info.value.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_set_creates_audit_log_entry(client: AsyncClient):
+    """set() creates audit log entry with {setting_key, old_value, new_value}."""
+    from sqlalchemy import select
+
+    from app.audit.models import AuditLog
+    from app.auth.models import User
+    from app.config import settings as app_settings
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        # Get the real admin user id
+        result = await db.execute(
+            select(User).where(User.username == app_settings.geolens_admin_username)
+        )
+        admin_user = result.scalar_one()
+
+        await REGISTRATION_ENABLED.set(
+            db, True, user_id=admin_user.id, ip_address="127.0.0.1"
+        )
+
+        # Check audit log
+        result = await db.execute(
+            select(AuditLog)
+            .where(AuditLog.resource_type == "setting")
+            .where(AuditLog.user_id == admin_user.id)
+            .order_by(AuditLog.created_at.desc())
+        )
+        entry = result.scalars().first()
+        assert entry is not None
+        assert entry.action == "update"
+        assert entry.details["setting_key"] == "registration_enabled"
+        assert entry.details["new_value"] is True
+        assert entry.ip_address == "127.0.0.1"
+
+        # Clean up
+        await REGISTRATION_ENABLED.set(db, False)
+
+
+@pytest.mark.anyio
+async def test_set_invalidates_cache(client: AsyncClient):
+    """set() invalidates cache after write."""
+    from app.cache import init_cache, get_cache
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    # Ensure cache is initialized (may have been cleared by other tests)
+    init_cache()
+
+    async for db in app.dependency_overrides[get_db]():
+        # Prime cache via get
+        await REGISTRATION_ENABLED.get(db)
+        cache = get_cache()
+        cached = await cache.get("config:registration_enabled")
+        # Cache should have a value now
+        assert cached is not None
+
+        # Set new value should invalidate
+        await REGISTRATION_ENABLED.set(db, True)
+        cached_after = await cache.get("config:registration_enabled")
+        assert cached_after is None
+
+        # Clean up
+        await REGISTRATION_ENABLED.set(db, False)
+
+
+@pytest.mark.anyio
+async def test_get_uses_cache_with_ttl(client: AsyncClient):
+    """get() uses cache with 30s TTL -- second call within TTL returns cached value."""
+    from app.cache import init_cache, get_cache
+    from app.persistent_config import REGISTRATION_ENABLED
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    # Ensure cache is initialized (may have been cleared by other tests)
+    init_cache()
+
+    async for db in app.dependency_overrides[get_db]():
+        # First call populates cache
+        val1 = await REGISTRATION_ENABLED.get(db)
+        cache = get_cache()
+        cached = await cache.get("config:registration_enabled")
+        assert cached is not None
+
+        # Second call should use cache (we just verify it returns same value)
+        val2 = await REGISTRATION_ENABLED.get(db)
+        assert val1 == val2
+
+
+@pytest.mark.anyio
+async def test_registry_contains_all_declared_instances(client: AsyncClient):
+    """Registry list contains all declared PersistentConfig instances."""
+    from app.persistent_config import _registry
+
+    # Should have at least 15 instances
+    assert len(_registry) >= 15
+
+    # Check key ones exist
+    keys = {cfg.key for cfg in _registry}
+    expected_keys = {
+        "registration_enabled",
+        "public_app_url",
+        "public_api_url",
+        "public_base_url",
+        "log_level",
+        "log_json",
+        "access_token_expire_minutes",
+        "refresh_token_expire_days",
+        "login_rate_limit",
+        "ai_enabled",
+        "llm_provider",
+        "llm_model",
+        "cors_allowed_origins",
+        "upload_max_size_mb",
+        "upload_allowed_extensions",
+        "tile_cache_ttl",
+        "basemaps",
+        "map_defaults",
+    }
+    assert expected_keys.issubset(keys), f"Missing keys: {expected_keys - keys}"
+
+
+@pytest.mark.anyio
+async def test_log_level_side_effect(client: AsyncClient):
+    """LOG_LEVEL set() propagates to root logger."""
+    import logging
+
+    from app.persistent_config import LOG_LEVEL
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        await LOG_LEVEL.set(db, "DEBUG")
+        assert logging.getLogger().level == logging.DEBUG
+
+        # Restore
+        await LOG_LEVEL.set(db, "INFO")
+        assert logging.getLogger().level == logging.INFO
+
+
+@pytest.mark.anyio
+async def test_sync_rate_limit_accessor(client: AsyncClient):
+    """Sync rate limit accessor returns cached value or default."""
+    from app.persistent_config import LOGIN_RATE_LIMIT, get_cached_login_rate_limit
+
+    from app.dependencies import get_db
+    from app.main import app
+
+    async for db in app.dependency_overrides[get_db]():
+        # Prime the sync cache by reading the value
+        val = await LOGIN_RATE_LIMIT.get(db)
+
+        # Sync accessor should return same value
+        sync_val = get_cached_login_rate_limit()
+        assert sync_val == val
+
+
+# ---------------------------------------------------------------------------
+# Unified settings API endpoint tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def admin_auth_header(client: AsyncClient) -> dict:
+    """Get admin auth header."""
+    from app.config import settings as app_settings
+
+    resp = await client.post(
+        "/auth/login",
+        data={
+            "username": app_settings.geolens_admin_username,
+            "password": app_settings.geolens_admin_password,
+        },
+    )
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.anyio
+async def test_get_all_settings_returns_grouped(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """GET /settings/all/ returns grouped settings with source indicators."""
+    resp = await client.get("/settings/all/", headers=admin_auth_header)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "env_only" in data
+    assert data["env_only"] is False
+    assert "tabs" in data
+
+    # Check expected tabs exist
+    tabs = data["tabs"]
+    assert "general" in tabs
+    assert "auth" in tabs
+    assert "ai" in tabs
+    assert "storage" in tabs
+    assert "appearance" in tabs
+
+    # Check each setting has required fields
+    for tab_name, items in tabs.items():
+        for item in items:
+            assert "key" in item
+            assert "value" in item
+            assert "source" in item
+            assert "label" in item
+            assert item["source"] in ("default", "overridden", "env_only")
+
+
+@pytest.mark.anyio
+async def test_put_settings_updates_value_with_audit(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ with {registration_enabled: true} updates value and creates audit entry."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"registration_enabled": True}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Find registration_enabled in the auth tab
+    auth = data["tabs"]["auth"]
+    reg_setting = next(s for s in auth if s["key"] == "registration_enabled")
+    assert reg_setting["value"] is True
+    assert reg_setting["source"] == "overridden"
+
+    # Reset
+    await client.put(
+        "/settings/",
+        json={"settings": {"registration_enabled": False}},
+        headers=admin_auth_header,
+    )
+
+
+@pytest.mark.anyio
+async def test_put_settings_returns_403_when_env_only(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ returns 403 when ENV_ONLY_CONFIG=true."""
+    with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"registration_enabled": True}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_get_config_mode_reports_env_only(client: AsyncClient):
+    """GET /settings/config-mode/ returns {env_only: false} normally."""
+    resp = await client.get("/settings/config-mode/")
+    assert resp.status_code == 200
+    assert resp.json()["env_only"] is False
+
+    with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+        resp = await client.get("/settings/config-mode/")
+        assert resp.status_code == 200
+        assert resp.json()["env_only"] is True
+
+
+@pytest.mark.anyio
+async def test_public_basemaps_endpoint(client: AsyncClient):
+    """GET /settings/basemaps/ still works (public, no auth)."""
+    resp = await client.get("/settings/basemaps/")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+    assert "id" in data[0]
+
+
+@pytest.mark.anyio
+async def test_public_map_defaults_endpoint(client: AsyncClient):
+    """GET /settings/map-defaults/ still works (public, no auth)."""
+    resp = await client.get("/settings/map-defaults/")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "center_lat" in data
+    assert "center_lng" in data
+    assert "zoom" in data
+
+
+# ---------------------------------------------------------------------------
+# CORS dynamic middleware tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_cors_matching_origin_gets_headers(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Request with matching origin gets CORS headers in response."""
+    # Set CORS origins to allow http://example.com
+    await client.put(
+        "/settings/",
+        json={"settings": {"cors_allowed_origins": "http://example.com"}},
+        headers=admin_auth_header,
+    )
+
+    resp = await client.get("/health", headers={"Origin": "http://example.com"})
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "http://example.com"
+    assert resp.headers.get("access-control-allow-credentials") == "true"
+
+
+@pytest.mark.anyio
+async def test_cors_non_matching_origin_no_headers(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Request with non-matching origin gets no CORS headers."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"cors_allowed_origins": "http://example.com"}},
+        headers=admin_auth_header,
+    )
+
+    resp = await client.get("/health", headers={"Origin": "http://evil.com"})
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+async def test_cors_preflight_returns_200(client: AsyncClient, admin_auth_header: dict):
+    """OPTIONS preflight with matching origin returns 200 with CORS headers."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"cors_allowed_origins": "http://example.com"}},
+        headers=admin_auth_header,
+    )
+
+    resp = await client.options(
+        "/health",
+        headers={
+            "Origin": "http://example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "http://example.com"
+    assert "GET" in resp.headers.get("access-control-allow-methods", "")
+
+
+@pytest.mark.anyio
+async def test_cors_wildcard_allows_all(client: AsyncClient, admin_auth_header: dict):
+    """Origin '*' in allowed origins permits all origins."""
+    await client.put(
+        "/settings/",
+        json={"settings": {"cors_allowed_origins": "*"}},
+        headers=admin_auth_header,
+    )
+
+    resp = await client.get("/health", headers={"Origin": "http://anything.com"})
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "http://anything.com"
+
+
+@pytest.mark.anyio
+async def test_cors_no_origin_header_no_processing(client: AsyncClient):
+    """No origin header in request means no CORS processing."""
+    resp = await client.get("/health")
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+# ---------------------------------------------------------------------------
+# Token lifetime PersistentConfig tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_token_lifetime_from_persistent_config(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Changing ACCESS_TOKEN_EXPIRE_MINUTES via settings produces tokens with new expiry."""
+    import jwt as pyjwt
+    from app.config import settings as app_settings
+
+    # Set custom token lifetime (2 minutes)
+    await client.put(
+        "/settings/",
+        json={"settings": {"access_token_expire_minutes": 2}},
+        headers=admin_auth_header,
+    )
+
+    # Login and get a token
+    resp = await client.post(
+        "/auth/login",
+        data={
+            "username": app_settings.geolens_admin_username,
+            "password": app_settings.geolens_admin_password,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["expires_in"] == 120  # 2 minutes * 60
+
+    # Decode the token and verify expiry
+    decoded = pyjwt.decode(
+        data["access_token"],
+        app_settings.jwt_secret_key,
+        algorithms=[app_settings.jwt_algorithm],
+    )
+    # Token exp should be within ~2 minutes of iat
+    assert (decoded["exp"] - decoded["iat"]) == 120
+
+
+@pytest.mark.anyio
+async def test_llm_provider_from_persistent_config(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """LLM_PROVIDER and LLM_MODEL are readable/writable via PersistentConfig."""
+    from app.persistent_config import LLM_PROVIDER, LLM_MODEL
+    from app.dependencies import get_db
+    from app.main import app
+
+    # Set provider and model
+    await client.put(
+        "/settings/",
+        json={"settings": {"llm_provider": "openai", "llm_model": "gpt-4o"}},
+        headers=admin_auth_header,
+    )
+
+    # Read back via PersistentConfig
+    async for db in app.dependency_overrides[get_db]():
+        provider = await LLM_PROVIDER.get(db)
+        model = await LLM_MODEL.get(db)
+        assert provider == "openai"
+        assert model == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
+# Log level propagation tests (CFG-06)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_log_level_propagation_via_api(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Setting log_level via PUT /settings/ propagates immediately to root logger."""
+    import logging
+
+    # Set to DEBUG
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"log_level": "DEBUG"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    assert logging.getLogger().level == logging.DEBUG
+
+    # Set to WARNING
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"log_level": "WARNING"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    assert logging.getLogger().level == logging.WARNING
+
+    # Reset to INFO
+    await client.put(
+        "/settings/",
+        json={"settings": {"log_level": "INFO"}},
+        headers=admin_auth_header,
+    )
+    assert logging.getLogger().level == logging.INFO
+
+
+# ---------------------------------------------------------------------------
+# Tile cache TTL tests (CFG-07)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_tile_cache_ttl_round_trip(client: AsyncClient, admin_auth_header: dict):
+    """Setting tile_cache_ttl via PUT /settings/ and reading back via GET /settings/all/."""
+    # Set TTL to 600
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"tile_cache_ttl": 600}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    # Read back via GET /settings/all/
+    resp = await client.get("/settings/all/", headers=admin_auth_header)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Find tile_cache_ttl in storage tab
+    storage_items = data["tabs"]["storage"]
+    ttl_setting = next(s for s in storage_items if s["key"] == "tile_cache_ttl")
+    assert ttl_setting["value"] == 600
+    assert ttl_setting["source"] == "overridden"
+
+
+@pytest.mark.anyio
+async def test_tile_cache_ttl_available_via_persistent_config(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """TILE_CACHE_TTL PersistentConfig instance returns the configured value."""
+    from app.persistent_config import TILE_CACHE_TTL
+    from app.dependencies import get_db
+    from app.main import app
+
+    await client.put(
+        "/settings/",
+        json={"settings": {"tile_cache_ttl": 900}},
+        headers=admin_auth_header,
+    )
+
+    async for db in app.dependency_overrides[get_db]():
+        ttl = await TILE_CACHE_TTL.get(db)
+        assert ttl == 900
+
+
+# ---------------------------------------------------------------------------
+# Audit trail completeness tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_bulk_settings_update_creates_per_field_audit_entries(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Changing 3 settings in one PUT /settings/ creates 3 separate audit log entries."""
+    from sqlalchemy import select, func
+    from app.audit.models import AuditLog
+    from app.dependencies import get_db
+    from app.main import app
+
+    # Count existing audit entries for settings
+    async for db in app.dependency_overrides[get_db]():
+        result = await db.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.resource_type == "setting")
+        )
+        before_count = result.scalar()
+
+    # Bulk update 3 settings at once
+    resp = await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "registration_enabled": True,
+                "log_level": "DEBUG",
+                "tile_cache_ttl": 999,
+            }
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    # Verify 3 new audit entries were created
+    async for db in app.dependency_overrides[get_db]():
+        result = await db.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.resource_type == "setting")
+        )
+        after_count = result.scalar()
+
+    assert after_count - before_count == 3, (
+        f"Expected 3 new audit entries, got {after_count - before_count}"
+    )
+
+    # Reset
+    await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "registration_enabled": False,
+                "log_level": "INFO",
+            }
+        },
+        headers=admin_auth_header,
+    )

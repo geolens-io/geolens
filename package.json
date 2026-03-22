@@ -1,0 +1,15 @@
+{
+  "name": "geolens",
+  "version": "1.0.0",
+  "private": true,
+  "license": "BUSL-1.1",
+  "scripts": {
+    "e2e": "npx playwright test",
+    "e2e:export": "npx playwright test e2e/export-runtime.spec.ts --project=api --workers=1 --retries=0",
+    "e2e:ui": "npx playwright test --ui"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
+    "@playwright/test": "^1.58.2"
+  }
+}

@@ -1,0 +1,310 @@
+{
+  "appName": "GeoLens",
+  "loading": "Wird geladen...",
+  "error": "Fehler",
+  "save": "Speichern",
+  "cancel": "Abbrechen",
+  "delete": "Löschen",
+  "confirm": "Bestätigen",
+  "close": "Schließen",
+  "search": "Suche",
+  "back": "Zurück",
+  "next": "Weiter",
+  "submit": "Absenden",
+  "edit": "Bearbeiten",
+  "create": "Erstellen",
+  "noResults": "Keine Ergebnisse gefunden",
+  "notAvailable": "k. A.",
+  "nav": {
+    "search": "Suche",
+    "collections": "Sammlungen",
+    "maps": "Karten",
+    "import": "Import",
+    "admin": "Admin",
+    "adminDashboard": "Admin-Dashboard",
+    "adminSettings": "Admin-Einstellungen",
+    "settings": "Einstellungen",
+    "logout": "Abmelden",
+    "menu": "Menü",
+    "dataset": "Datensatz",
+    "collection": "Sammlung",
+    "map": "Karte",
+    "navigationMenu": "Navigationsmenü",
+    "userMenu": "Benutzermenü",
+    "virtualRaster": "Virtueller Raster"
+  },
+  "theme": {
+    "toggle": "Design umschalten",
+    "light": "Hell",
+    "dark": "Dunkel",
+    "system": "System"
+  },
+  "language": {
+    "change": "Sprache ändern"
+  },
+  "pagination": {
+    "showing": "{{start}}-{{end}} von {{total}}",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "pageOf": "{{currentPage}} / {{totalPages}}"
+  },
+  "adminNav": {
+    "admin": "Admin",
+    "overview": "Übersicht",
+    "users": "Benutzer",
+    "jobs": "Aufträge",
+    "auditLog": "Protokoll",
+    "sharedMaps": "Geteilte Karten",
+    "ai": "KI",
+    "infrastructure": "Infrastruktur",
+    "general": "Allgemein",
+    "basemaps": "Basiskarten",
+    "mapDefaults": "Kartenvorgaben",
+    "security": "Sicherheit",
+    "uploads": "Hochladen",
+    "settings": "Einstellungen",
+    "operations": "Betrieb",
+    "settingsGeneral": "Allgemein",
+    "settingsAuth": "Auth & Sicherheit",
+    "settingsAI": "KI",
+    "settingsNetwork": "Netzwerk",
+    "settingsStorage": "Speicher",
+    "settingsAppearance": "Darstellung",
+    "settingsInfrastructure": "Infrastruktur",
+    "backToApp": "Zurück zur App",
+    "configOps": "Konfigurationsvorgänge"
+  },
+  "errors": {
+    "unexpected": "Ein unerwarteter Fehler ist aufgetreten",
+    "datasetNotFound": "Datensatz nicht gefunden",
+    "collectionNotFound": "Sammlung nicht gefunden",
+    "mapNotFound": "Karte nicht gefunden",
+    "incorrectCredentials": "Falscher Benutzername oder falsches Passwort",
+    "awaitingApproval": "Ihr Konto wartet auf Genehmigung",
+    "accountNotActive": "Konto nicht aktiv",
+    "insufficientPermissions": "Unzureichende Berechtigungen",
+    "notAuthorized": "Keine Berechtigung, diese Karte zu ändern",
+    "registrationDisabled": "Registrierung ist deaktiviert",
+    "exportFailed": "Export fehlgeschlagen",
+    "jobNotFound": "Auftrag nicht gefunden",
+    "featureNotFound": "Feature nicht gefunden",
+    "layerNotFound": "Layer nicht gefunden",
+    "userNotFound": "Benutzer nicht gefunden",
+    "apiKeyNotFound": "API-Schlüssel nicht gefunden",
+    "accessDenied": "Zugriff verweigert",
+    "couldNotValidateCredentials": "Anmeldedaten konnten nicht überprüft werden",
+    "inactiveUser": "Inaktiver Benutzer",
+    "savedSearchNotFound": "Gespeicherte Suche nicht gefunden",
+    "recordNotFound": "Datensatz nicht gefunden",
+    "sharedMapNotFound": "Geteilte Karte nicht gefunden",
+    "mapMustBePublic": "Karte muss öffentlich sein, bevor sie geteilt werden kann",
+    "jobAlreadyProcessed": "Auftrag bereits verarbeitet",
+    "jobNotBelongToDataset": "Auftrag gehört nicht zu diesem Datensatz",
+    "notAuthorizedJob": "Keine Berechtigung für diesen Auftrag",
+    "notAuthorizedRetry": "Keine Berechtigung, diesen Auftrag zu wiederholen",
+    "notAuthorizedView": "Keine Berechtigung, diesen Auftrag anzuzeigen",
+    "onlyFailedRetry": "Nur fehlgeschlagene Aufträge können wiederholt werden",
+    "thumbnailTooLarge": "Vorschaubild zu groß (max. 100KB)",
+    "bodyMustBeDataImage": "Inhalt muss eine data:image/-URI sein",
+    "invalidTargetCrs": "Ungültiges target_crs: muss dem Format EPSG:<code> entsprechen (z. B. EPSG:3857)",
+    "stagingFileUnavailable": "Staging-Datei nicht mehr verfügbar. Bitte erneut hochladen.",
+    "serviceRequiresAuth": "Dieser Dienst erfordert Authentifizierung. Geben Sie ein Zugriffstoken ein und versuchen Sie es erneut.",
+    "couldNotReachService": "Dienst nicht erreichbar. Überprüfen Sie die URL und versuchen Sie es erneut.",
+    "serviceTimeout": "Dienst hat nicht rechtzeitig geantwortet. Überprüfen Sie die URL und versuchen Sie es erneut.",
+    "remoteServiceError": "Remote-Dienst hat einen Fehler zurückgegeben",
+    "aiDisabled": "KI-Funktionen sind derzeit deaktiviert",
+    "aiNotConfigured": "KI ist nicht konfiguriert (API-Schlüssel fehlt)",
+    "aiGenerationFailed": "KI-Kartenerstellung unerwartet fehlgeschlagen",
+    "chatEditingFailed": "Chat-Kartenbearbeitung unerwartet fehlgeschlagen",
+    "couldNotConnectLlm": "Verbindung zum LLM-Anbieter nicht möglich",
+    "uploadError": "Beim Hochladen ist ein unerwarteter Fehler aufgetreten",
+    "previewError": "Beim Anzeigen der Vorschau des Layers ist ein unerwarteter Fehler aufgetreten.",
+    "remotePreviewError": "Layer-Vorschau fehlgeschlagen. Der Dienst ist möglicherweise nicht verfügbar oder das Layer-Format wird nicht unterstützt.",
+    "datasetMembershipNotFound": "Datensatz-Zugehörigkeit nicht gefunden",
+    "sharedMapExpired": "Dieser geteilte Kartenlink ist abgelaufen oder wurde widerrufen"
+  },
+  "settings": {
+    "tabs": {
+      "preferences": "Einstellungen",
+      "apiKeys": "API-Schlüssel"
+    },
+    "profile": {
+      "title": "Profil",
+      "role": "Rolle"
+    },
+    "appearance": {
+      "title": "Darstellung",
+      "description": "Wählen Sie das Erscheinungsbild von GeoLens"
+    },
+    "language": {
+      "title": "Sprache"
+    }
+  },
+  "footer": {
+    "poweredBy": "Betrieben mit GeoLens"
+  },
+  "viewer": {
+    "loading": "Karte wird geladen...",
+    "linkExpired": "Dieser Link ist abgelaufen",
+    "linkExpiredDescription": "Dieser geteilte Kartenlink ist nicht mehr verfügbar. Er ist möglicherweise abgelaufen oder wurde vom Eigentümer widerrufen.",
+    "mapNotFound": "Karte nicht gefunden",
+    "mapNotFoundDescription": "Diese Karte wurde möglicherweise entfernt oder der Link ist ungültig.",
+    "poweredBy": "Betrieben mit GeoLens",
+    "featureFallback": "Objekt",
+    "legend": {
+      "title": "Ebenen",
+      "show": "Legende anzeigen",
+      "hide": "Legende ausblenden",
+      "showLayer": "Ebene anzeigen",
+      "hideLayer": "Ebene ausblenden",
+      "geometry": {
+        "point": "Punkt",
+        "line": "Linie",
+        "polygon": "Polygon"
+      }
+    }
+  },
+  "maps": {
+    "title": "Karten",
+    "createMap": "Karte erstellen",
+    "searchPlaceholder": "Karten suchen...",
+    "sortBy": "Sortieren nach",
+    "lastUpdated": "Zuletzt aktualisiert",
+    "dateCreated": "Erstellungsdatum",
+    "name": "Name",
+    "visibility": "Sichtbarkeit",
+    "allMaps": "Alle Karten",
+    "private": "Privat",
+    "internal": "Intern",
+    "public": "Öffentlich",
+    "listView": "Listenansicht",
+    "gridView": "Rasteransicht",
+    "loadFailed": "Karten konnten nicht geladen werden: {{message}}",
+    "noMapsYet": "Noch keine Karten",
+    "noMapsMatch": "Keine Karten entsprechen den aktuellen Filtern.",
+    "noMapsDescription": "Erstellen Sie eine Karte, um Layer aus Ihrem Katalog zusammenzustellen.",
+    "createFirstMap": "Erste Karte erstellen",
+    "deleted": "Karte gelöscht",
+    "deleteFailed": "Karte konnte nicht gelöscht werden",
+    "layerCount_one": "{{count}} Ebene",
+    "layerCount_other": "{{count}} Ebenen",
+    "card": {
+      "previewAlt": "Vorschau von {{name}}",
+      "updated": "Aktualisiert {{date}}",
+      "delete": "Karte löschen"
+    }
+  },
+  "enums": {
+    "geometryType": {
+      "point": "Punkt",
+      "lineString": "LineString",
+      "polygon": "Polygon",
+      "multiPoint": "MultiPoint",
+      "multiLineString": "MultiLineString",
+      "multiPolygon": "MultiPolygon"
+    },
+    "geometryFamily": {
+      "point": "Punkt",
+      "line": "Linie",
+      "polygon": "Polygon"
+    },
+    "visibility": {
+      "public": "Öffentlich",
+      "internal": "Intern",
+      "private": "Privat"
+    },
+    "recordStatus": {
+      "draft": "Entwurf",
+      "published": "Veröffentlicht",
+      "archived": "Archiviert",
+      "deprecated": "Veraltet"
+    },
+    "sourceFormat": {
+      "geojson": "GeoJSON",
+      "shp": "SHP",
+      "shapefile": "Shapefile",
+      "gpkg": "GeoPackage",
+      "csv": "CSV",
+      "wfs": "WFS",
+      "arcgisFeatureServer": "ArcGIS FeatureServer",
+      "created": "In GeoLens erstellt"
+    }
+  },
+  "settingsToasts": {
+    "saved": "Einstellungen gespeichert",
+    "saveFailed": "Einstellungen konnten nicht gespeichert werden",
+    "resetSuccess": "Einstellung auf Standard zurückgesetzt",
+    "resetFailed": "Einstellung konnte nicht zurückgesetzt werden"
+  },
+  "configOps": {
+    "exported": "Konfiguration exportiert",
+    "exportFailed": "Konfiguration konnte nicht exportiert werden",
+    "previewFailed": "Importvorschau fehlgeschlagen",
+    "importComplete": "Import abgeschlossen (keine Änderungen)",
+    "importFailed": "Konfiguration konnte nicht importiert werden",
+    "settingsApplied": "{{count}} Einstellungen angewendet",
+    "skipped": "{{count}} übersprungen",
+    "providersCreated": "{{count}} Anbieter erstellt",
+    "providersUpdated": "{{count}} aktualisiert",
+    "providersDeleted": "{{count}} gelöscht",
+    "page": {
+      "title": "Konfigurationsvorgänge",
+      "description": "Exportieren und importieren Sie Ihre Instanzkonfiguration."
+    },
+    "export": {
+      "title": "Konfiguration exportieren",
+      "description": "Laden Sie die aktuelle Konfiguration als JSON-Datei herunter. Enthält Einstellungen und OAuth-Anbieter.",
+      "button": "JSON exportieren"
+    },
+    "import": {
+      "title": "Konfiguration importieren",
+      "description": "Laden Sie eine JSON-Konfigurationsdatei hoch. Vorschau der Änderungen vor dem Anwenden.",
+      "fileLabel": "Konfigurationsdatei",
+      "chooseFile": "Datei wählen",
+      "noFile": "Keine Datei ausgewählt",
+      "parseErrorKeys": "JSON muss die Schlüssel \"settings\" und/oder \"oauth_providers\" enthalten.",
+      "parseErrorInvalid": "Ungültige JSON-Datei.",
+      "modeLabel": "Importmodus",
+      "modeMerge": "Zusammenführen - Vorhandene aktualisieren, Neue hinzufügen",
+      "modeOverwrite": "Überschreiben - Alles ersetzen",
+      "overwriteWarning": "Dies ersetzt alle vorhandenen Einstellungen und OAuth-Anbieter.",
+      "preview": "Änderungen vorschauen",
+      "apply": "Import anwenden",
+      "settingsChanges": "Einstellungsänderungen",
+      "key": "Schlüssel",
+      "current": "Aktuell",
+      "imported": "Importiert",
+      "action": "Aktion",
+      "oauthChanges": "OAuth-Anbieter-Änderungen",
+      "slug": "Slug",
+      "changedFields": "Geänderte Felder",
+      "noChanges": "Keine Änderungen erkannt.",
+      "success": "Import abgeschlossen.",
+      "successDetail": "{{settingsApplied}} Einstellungen angewendet, {{settingsSkipped}} übersprungen. {{oauthCreated}} Anbieter erstellt, {{oauthUpdated}} aktualisiert, {{oauthDeleted}} gelöscht."
+    }
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
+    "goHome": "Zur Startseite"
+  },
+  "selectAll": "Alle auswählen",
+  "selectItem": "{{item}} auswählen",
+  "errorBoundary": {
+    "appTitle": "Etwas ist schiefgelaufen",
+    "appMessage": "Ein unerwarteter Fehler ist aufgetreten. Bitte laden Sie die Seite neu, um fortzufahren.",
+    "appReload": "Seite neu laden",
+    "mapTitle": "Karte konnte nicht geladen werden",
+    "mapMessage": "Die Karte hat einen Fehler festgestellt. Dies kann an WebGL-Problemen oder Speicherbeschränkungen liegen.",
+    "mapRetry": "Karte neu laden",
+    "routeTitle": "Seitenfehler",
+    "routeMessage": "Diese Seite hat einen Fehler festgestellt. Sie können zurückgehen oder es erneut versuchen.",
+    "routeGoBack": "Zurück",
+    "routeGoHome": "Zur Startseite",
+    "builderUnsavedWarning": "Möglicherweise haben Sie ungespeicherte Änderungen. Beim Neuladen gehen diese verloren.",
+    "lazyTitle": "Laden fehlgeschlagen",
+    "lazyMessage": "Ein Teil der Anwendung konnte nicht geladen werden. Dies ist normalerweise ein Netzwerkproblem.",
+    "lazyRetry": "Erneut versuchen",
+    "lazyRetrying": "Wird erneut versucht..."
+  }
+}

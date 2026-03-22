@@ -1,0 +1,143 @@
+{
+  "title": "Find Geospatial Data",
+  "subtitle": "Search, preview, and export geospatial data from the catalog",
+  "placeholder": "Search geospatial data...",
+  "updating": "Updating results...",
+  "loadingDatasets": "Loading datasets...",
+  "resultCount_one": "{{count}} result",
+  "resultCount_other": "{{count}} results",
+  "empty": {
+    "title": "No results found",
+    "description": "Try adjusting your search query or filters",
+    "cta": "Import your first dataset"
+  },
+  "error": {
+    "message": "Failed to load results: {{message}}"
+  },
+  "filters": {
+    "geometry": "Geometry Type",
+    "anyGeometry": "Any geometry",
+    "point": "Point",
+    "lineString": "LineString",
+    "polygon": "Polygon",
+    "multiPoint": "MultiPoint",
+    "multiLineString": "MultiLineString",
+    "multiPolygon": "MultiPolygon",
+    "sort": "Sort",
+    "relevance": "Relevance",
+    "dateAdded": "Date Added",
+    "name": "Name",
+    "lastUpdated": "Last Updated",
+    "location": "Location",
+    "dateRange": "Date Added",
+    "dateFrom": "From",
+    "dateTo": "To",
+    "apply": "Apply",
+    "bboxMinX": "Min X (West)",
+    "bboxMinY": "Min Y (South)",
+    "bboxMaxX": "Max X (East)",
+    "bboxMaxY": "Max Y (North)",
+    "clearFilters": "Clear filters",
+    "datasetCount_one": "{{count}} result",
+    "datasetCount_other": "{{count}} results",
+    "removeFilter": "Remove {{label}} filter",
+    "allTypes": "All",
+    "vector": "Vector",
+    "raster": "Raster",
+    "vrt": "Virtual Raster",
+    "type": "Type",
+    "organization": "Organization",
+    "anyOrganization": "Any organization",
+    "crs": "CRS",
+    "anyCrs": "Any CRS",
+    "collection": "Collection",
+    "collections": "Collections",
+    "temporalExtent": "Temporal Extent",
+    "keywords": "Keywords",
+    "keywordSearch": "Search keywords...",
+    "noKeywords": "No keywords available",
+    "clearKeywords": "Clear all",
+    "keywordsCount": "Keywords ({{count}})",
+    "sheetDescription": "Refine results without leaving the search page."
+  },
+  "collection": {
+    "datasetCount_one": "{{count}} dataset",
+    "datasetCount_other": "{{count}} datasets"
+  },
+  "datasetCard": {
+    "quicklookAlt": "Preview of {{name}}",
+    "previewUnavailable": "Preview unavailable"
+  },
+  "card": {
+    "featureCount_one": "{{count}} feature",
+    "featureCount_other": "{{count}} features",
+    "updatedBy": "Updated by",
+    "neverEdited": "Never",
+    "unknown": "Unknown",
+    "system": "System",
+    "restricted": "Restricted user",
+    "moretags": "+{{count}} more",
+    "updatedFallback": "Updated {{time}}",
+    "bandCount_one": "{{count}} band",
+    "bandCount_other": "{{count}} bands",
+    "vector": "Vector",
+    "raster": "Raster",
+    "vrt": "Virtual Raster",
+    "collection": "Collection",
+    "noUpdateMetadata": "No update metadata",
+    "status": {
+      "draft": "Draft",
+      "ready": "Ready",
+      "internal": "Internal",
+      "archived": "Archived",
+      "deprecated": "Deprecated"
+    }
+  },
+  "savedSearches": {
+    "saveButton": "Save Search",
+    "dialogTitle": "Save Current Search",
+    "dialogDescription": "Give this search a name to quickly access it later.",
+    "namePlaceholder": "Search name",
+    "saving": "Saving...",
+    "removeSavedSearch": "Remove saved search"
+  },
+  "bbox": {
+    "noExtent": "No extent",
+    "instruction": "Click and drag to draw a bounding box"
+  },
+  "typeahead": {
+    "searching": "Searching...",
+    "noResults": "No results found"
+  },
+  "quality": {
+    "label": "Completeness: {{score}}%"
+  },
+  "create": {
+    "button": "Create Dataset",
+    "title": "Create New Dataset",
+    "datasetTitle": "Dataset Title",
+    "datasetTitlePlaceholder": "Enter dataset title",
+    "columns": "Columns",
+    "columnName": "Column Name",
+    "columnType": "Type",
+    "addColumn": "Add Column",
+    "removeColumn": "Remove column",
+    "submit": "Create Dataset",
+    "submitting": "Creating...",
+    "success": "Dataset created successfully",
+    "typeOptions": {
+      "text": "Text",
+      "integer": "Integer",
+      "float": "Float",
+      "date": "Date",
+      "boolean": "Boolean"
+    },
+    "errors": {
+      "titleRequired": "Title is required",
+      "columnRequired": "At least one column is required",
+      "columnNamesRequired": "All column names are required",
+      "duplicateColumn": "Duplicate column name: {{name}}",
+      "createFailed": "Failed to create dataset"
+    }
+  }
+}

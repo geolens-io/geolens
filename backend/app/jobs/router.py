@@ -1,0 +1,165 @@
+"""Job status API endpoints: poll ingestion job progress and retry."""
+
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import get_current_active_user, require_permission
+from app.auth.models import Role, User, UserRole
+from app.dependencies import get_db
+from app.ingest.schemas import UploadResponse
+from app.ingest.tasks import ingest_file, ingest_service
+from app.jobs.models import IngestJob
+from app.jobs.schemas import JobStatusResponse
+
+router = APIRouter(prefix="/jobs", tags=["Admin"])
+
+# Jobs running longer than this are considered stale and auto-failed.
+JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
+
+
+@router.get("/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(
+    job_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobStatusResponse:
+    """Get the status of an ingestion job.
+
+    Only the job creator or an admin can view job status.
+    """
+    result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    # Authorization: only creator or admin
+    if job.created_by != user.id:
+        role_result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user.id)
+        )
+        user_roles = {row[0] for row in role_result.all()}
+        if "admin" not in user_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to view this job",
+            )
+
+    # Auto-fail jobs stuck in "running" beyond the timeout
+    if job.status == "running" and job.started_at is not None:
+        elapsed = (datetime.now(timezone.utc) - job.started_at).total_seconds()
+        if elapsed > JOB_TIMEOUT_SECONDS:
+            job.status = "failed"
+            job.error_message = f"Timed out after {int(elapsed)}s"
+            job.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+    # Extract collision warning from user_metadata if present
+    warning_message = None
+    if job.user_metadata and isinstance(job.user_metadata, dict):
+        warning_message = job.user_metadata.get("collision_warning")
+
+    return JobStatusResponse(
+        id=job.id,
+        status=job.status,
+        dataset_id=job.dataset_id,
+        source_filename=job.source_filename,
+        error_message=job.error_message,
+        warning_message=warning_message,
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        created_at=job.created_at,
+    )
+
+
+@router.post("/{job_id}/retry", response_model=UploadResponse)
+async def retry_job(
+    job_id: uuid.UUID,
+    user: User = Depends(require_permission("upload")),
+    db: AsyncSession = Depends(get_db),
+) -> UploadResponse:
+    """Retry a failed ingestion job by re-queuing.
+
+    Only callable on jobs with status 'failed'. The staging file must
+    still exist (preserved on failure for retry).
+    """
+    result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    # Authorization: only creator or admin
+    if job.created_by != user.id:
+        role_result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user.id)
+        )
+        user_roles = {row[0] for row in role_result.all()}
+        if "admin" not in user_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to retry this job",
+            )
+
+    if job.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only failed jobs can be retried",
+        )
+
+    if job.source_url and not job.file_path:
+        # Service job — no staging file needed
+        job.status = "pending"
+        job.error_message = None
+        job.started_at = None
+        job.completed_at = None
+        job.dataset_id = None
+        await db.commit()
+
+        await ingest_service.defer_async(
+            job_id=str(job.id),
+            source_url=job.source_url,
+            source_layer=job.source_layer or "",
+            user_id=str(job.created_by),
+        )
+    else:
+        # File job — check staging file exists
+        if not job.file_path or not Path(job.file_path).exists():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Staging file no longer available. Please re-upload.",
+            )
+
+        job.status = "pending"
+        job.error_message = None
+        job.started_at = None
+        job.completed_at = None
+        job.dataset_id = None
+        await db.commit()
+
+        await ingest_file.defer_async(
+            job_id=str(job.id),
+            file_path=job.file_path,
+            user_id=str(job.created_by),
+        )
+
+    return UploadResponse(
+        job_id=job.id,
+        status="pending",
+        message="Job re-queued for ingestion",
+    )

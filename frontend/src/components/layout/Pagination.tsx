@@ -1,0 +1,56 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
+
+interface PaginationProps {
+  total: number;
+  offset: number;
+  limit: number;
+  onPageChange: (offset: number) => void;
+}
+
+export function Pagination({ total, offset, limit, onPageChange }: PaginationProps) {
+  const { t } = useTranslation();
+  if (total <= 0) return null;
+
+  const start = offset + 1;
+  const end = Math.min(offset + limit, total);
+  const currentPage = Math.floor(offset / limit) + 1;
+  const totalPages = Math.ceil(total / limit);
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
+
+  return (
+    <div className="flex items-center justify-between gap-4 py-4">
+      <span className="text-sm text-muted-foreground">
+        {t('pagination.showing', { start, end, total })}
+      </span>
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!hasPrev}
+          onClick={() => onPageChange(Math.max(0, offset - limit))}
+        >
+          <ChevronLeft className="size-4" />
+          {t('pagination.previous')}
+        </Button>
+
+        <span className="text-sm text-muted-foreground px-2">
+          {t('pagination.pageOf', { currentPage, totalPages })}
+        </span>
+
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!hasNext}
+          onClick={() => onPageChange(offset + limit)}
+        >
+          {t('pagination.next')}
+          <ChevronRight className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,55 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+.ruff_cache/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Coverage reports
+htmlcov/
+coverage.xml
+
+# Playwright
+playwright/.auth/
+playwright-report/
+test-results/
+blob-report/
+.playwright-mcp/
+
+# Load test results
+tests/load/results/*.csv
+tests/load/results/*.txt
+
+# Internal development (not for public release)
+.planning/
+.claude/
+plans/
+artifacts/
+data/
+prd.md
+todo.md
+
+# Stray screenshots
+*.png
+!docs/images/*.png
+!frontend/public/*.png

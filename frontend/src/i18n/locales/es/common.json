@@ -1,0 +1,310 @@
+{
+  "appName": "GeoLens",
+  "loading": "Cargando...",
+  "error": "Error",
+  "save": "Guardar",
+  "cancel": "Cancelar",
+  "delete": "Eliminar",
+  "confirm": "Confirmar",
+  "close": "Cerrar",
+  "search": "Buscar",
+  "back": "Volver",
+  "next": "Siguiente",
+  "submit": "Enviar",
+  "edit": "Editar",
+  "create": "Crear",
+  "noResults": "No se encontraron resultados",
+  "notAvailable": "N/D",
+  "nav": {
+    "search": "Buscar",
+    "collections": "Colecciones",
+    "maps": "Mapas",
+    "import": "Importar",
+    "admin": "Admin",
+    "adminDashboard": "Panel de Admin",
+    "adminSettings": "Config. de Admin",
+    "settings": "Configuración",
+    "logout": "Cerrar sesión",
+    "menu": "Menú",
+    "dataset": "Conjunto de datos",
+    "collection": "Colección",
+    "map": "Mapa",
+    "navigationMenu": "Menú de navegación",
+    "userMenu": "Menú de usuario",
+    "virtualRaster": "Ráster Virtual"
+  },
+  "theme": {
+    "toggle": "Cambiar tema",
+    "light": "Claro",
+    "dark": "Oscuro",
+    "system": "Sistema"
+  },
+  "language": {
+    "change": "Cambiar idioma"
+  },
+  "pagination": {
+    "showing": "Mostrando {{start}}-{{end}} de {{total}}",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "pageOf": "{{currentPage}} / {{totalPages}}"
+  },
+  "adminNav": {
+    "admin": "Admin",
+    "overview": "Resumen",
+    "users": "Usuarios",
+    "jobs": "Trabajos",
+    "auditLog": "Registro de auditoría",
+    "sharedMaps": "Mapas Compartidos",
+    "ai": "IA",
+    "infrastructure": "Infraestructura",
+    "general": "General",
+    "basemaps": "Mapas base",
+    "mapDefaults": "Valores predeterminados del mapa",
+    "security": "Seguridad",
+    "uploads": "Subidas",
+    "settings": "Configuración",
+    "operations": "Operaciones",
+    "settingsGeneral": "General",
+    "settingsAuth": "Auth y Seguridad",
+    "settingsAI": "IA",
+    "settingsNetwork": "Red",
+    "settingsStorage": "Almacenamiento",
+    "settingsAppearance": "Apariencia",
+    "settingsInfrastructure": "Infraestructura",
+    "backToApp": "Volver a la App",
+    "configOps": "Operaciones de config."
+  },
+  "errors": {
+    "unexpected": "Ocurrió un error inesperado",
+    "datasetNotFound": "Conjunto de datos no encontrado",
+    "collectionNotFound": "Colección no encontrada",
+    "mapNotFound": "Mapa no encontrado",
+    "incorrectCredentials": "Nombre de usuario o contraseña incorrectos",
+    "awaitingApproval": "Su cuenta está pendiente de aprobación",
+    "accountNotActive": "Cuenta no activa",
+    "insufficientPermissions": "Permisos insuficientes",
+    "notAuthorized": "No autorizado para modificar este mapa",
+    "registrationDisabled": "El registro está deshabilitado",
+    "exportFailed": "Exportación fallida",
+    "jobNotFound": "Trabajo no encontrado",
+    "featureNotFound": "Entidad no encontrada",
+    "layerNotFound": "Capa no encontrada",
+    "userNotFound": "Usuario no encontrado",
+    "apiKeyNotFound": "Clave API no encontrada",
+    "accessDenied": "Acceso denegado",
+    "couldNotValidateCredentials": "No se pudieron validar las credenciales",
+    "inactiveUser": "Usuario inactivo",
+    "savedSearchNotFound": "Búsqueda guardada no encontrada",
+    "recordNotFound": "Registro no encontrado",
+    "sharedMapNotFound": "Mapa compartido no encontrado",
+    "mapMustBePublic": "El mapa debe ser público antes de compartir",
+    "jobAlreadyProcessed": "El trabajo ya fue procesado",
+    "jobNotBelongToDataset": "El trabajo no pertenece a este conjunto de datos",
+    "notAuthorizedJob": "No autorizado para acceder a este trabajo",
+    "notAuthorizedRetry": "No autorizado para reintentar este trabajo",
+    "notAuthorizedView": "No autorizado para ver este trabajo",
+    "onlyFailedRetry": "Solo los trabajos fallidos pueden reintentarse",
+    "thumbnailTooLarge": "Miniatura demasiado grande (máx. 100KB)",
+    "bodyMustBeDataImage": "El cuerpo debe ser una URI data:image/",
+    "invalidTargetCrs": "target_crs inválido: debe coincidir con EPSG:<code> (ej. EPSG:3857)",
+    "stagingFileUnavailable": "El archivo temporal ya no está disponible. Vuelva a subir el archivo.",
+    "serviceRequiresAuth": "Este servicio requiere autenticación. Proporcione un token de acceso e inténtelo de nuevo.",
+    "couldNotReachService": "No se pudo contactar al servicio. Verifique la URL e inténtelo de nuevo.",
+    "serviceTimeout": "El servicio no respondió a tiempo. Verifique la URL e inténtelo de nuevo.",
+    "remoteServiceError": "El servicio remoto devolvió un error",
+    "aiDisabled": "Las funciones de IA están deshabilitadas actualmente",
+    "aiNotConfigured": "La IA no está configurada (falta la clave API)",
+    "aiGenerationFailed": "La generación de mapa con IA falló inesperadamente",
+    "chatEditingFailed": "La edición de mapa por chat falló inesperadamente",
+    "couldNotConnectLlm": "No se pudo conectar al proveedor de LLM",
+    "uploadError": "Ocurrió un error inesperado durante la subida",
+    "previewError": "Ocurrió un error inesperado al previsualizar la capa.",
+    "remotePreviewError": "No se pudo previsualizar la capa remota. El servicio puede no estar disponible o el formato de la capa no es compatible.",
+    "datasetMembershipNotFound": "Membresía del conjunto de datos no encontrada",
+    "sharedMapExpired": "Este enlace de mapa compartido ha caducado o ha sido revocado"
+  },
+  "settings": {
+    "tabs": {
+      "preferences": "Preferencias",
+      "apiKeys": "Claves API"
+    },
+    "profile": {
+      "title": "Perfil",
+      "role": "Rol"
+    },
+    "appearance": {
+      "title": "Apariencia",
+      "description": "Elige cómo se ve GeoLens para ti"
+    },
+    "language": {
+      "title": "Idioma"
+    }
+  },
+  "footer": {
+    "poweredBy": "Desarrollado con GeoLens"
+  },
+  "viewer": {
+    "loading": "Cargando mapa...",
+    "linkExpired": "Este enlace ha caducado",
+    "linkExpiredDescription": "Este enlace de mapa compartido ya no está disponible. Puede haber caducado o sido revocado por el propietario.",
+    "mapNotFound": "Mapa no encontrado",
+    "mapNotFoundDescription": "Este mapa puede haber sido eliminado o el enlace puede ser inválido.",
+    "poweredBy": "Desarrollado con GeoLens",
+    "featureFallback": "Elemento",
+    "legend": {
+      "title": "Capas",
+      "show": "Mostrar leyenda",
+      "hide": "Ocultar leyenda",
+      "showLayer": "Mostrar capa",
+      "hideLayer": "Ocultar capa",
+      "geometry": {
+        "point": "Punto",
+        "line": "Línea",
+        "polygon": "Polígono"
+      }
+    }
+  },
+  "maps": {
+    "title": "Mapas",
+    "createMap": "Crear mapa",
+    "searchPlaceholder": "Buscar mapas...",
+    "sortBy": "Ordenar por",
+    "lastUpdated": "Última actualización",
+    "dateCreated": "Fecha de creación",
+    "name": "Nombre",
+    "visibility": "Visibilidad",
+    "allMaps": "Todos los mapas",
+    "private": "Privado",
+    "internal": "Interno",
+    "public": "Público",
+    "listView": "Vista de lista",
+    "gridView": "Vista de cuadrícula",
+    "loadFailed": "Error al cargar mapas: {{message}}",
+    "noMapsYet": "Aún no hay mapas",
+    "noMapsMatch": "Ningún mapa coincide con los filtros actuales.",
+    "noMapsDescription": "Cree un mapa para empezar a componer capas de su catálogo.",
+    "createFirstMap": "Crear su primer mapa",
+    "deleted": "Mapa eliminado",
+    "deleteFailed": "Error al eliminar el mapa",
+    "layerCount_one": "{{count}} capa",
+    "layerCount_other": "{{count}} capas",
+    "card": {
+      "previewAlt": "Vista previa de {{name}}",
+      "updated": "Actualizado {{date}}",
+      "delete": "Eliminar mapa"
+    }
+  },
+  "enums": {
+    "geometryType": {
+      "point": "Punto",
+      "lineString": "LineString",
+      "polygon": "Polígono",
+      "multiPoint": "MultiPoint",
+      "multiLineString": "MultiLineString",
+      "multiPolygon": "MultiPolygon"
+    },
+    "geometryFamily": {
+      "point": "Punto",
+      "line": "Línea",
+      "polygon": "Polígono"
+    },
+    "visibility": {
+      "public": "Público",
+      "internal": "Interno",
+      "private": "Privado"
+    },
+    "recordStatus": {
+      "draft": "Borrador",
+      "published": "Publicado",
+      "archived": "Archivado",
+      "deprecated": "Obsoleto"
+    },
+    "sourceFormat": {
+      "geojson": "GeoJSON",
+      "shp": "SHP",
+      "shapefile": "Shapefile",
+      "gpkg": "GeoPackage",
+      "csv": "CSV",
+      "wfs": "WFS",
+      "arcgisFeatureServer": "ArcGIS FeatureServer",
+      "created": "Creado en GeoLens"
+    }
+  },
+  "settingsToasts": {
+    "saved": "Configuración guardada",
+    "saveFailed": "Error al guardar la configuración",
+    "resetSuccess": "Configuración restablecida al valor predeterminado",
+    "resetFailed": "Error al restablecer la configuración"
+  },
+  "configOps": {
+    "exported": "Configuración exportada",
+    "exportFailed": "Error al exportar la configuración",
+    "previewFailed": "Error al previsualizar la importación",
+    "importComplete": "Importación completada (sin cambios)",
+    "importFailed": "Error al importar la configuración",
+    "settingsApplied": "{{count}} configuraciones aplicadas",
+    "skipped": "{{count}} omitidas",
+    "providersCreated": "{{count}} proveedores creados",
+    "providersUpdated": "{{count}} actualizados",
+    "providersDeleted": "{{count}} eliminados",
+    "page": {
+      "title": "Operaciones de configuración",
+      "description": "Exporte e importe la configuración de su instancia."
+    },
+    "export": {
+      "title": "Exportar configuración",
+      "description": "Descargue la configuración actual como archivo JSON. Incluye configuraciones y proveedores OAuth.",
+      "button": "Exportar JSON"
+    },
+    "import": {
+      "title": "Importar configuración",
+      "description": "Suba un archivo JSON de configuración. Previsualice los cambios antes de aplicarlos.",
+      "fileLabel": "Archivo de configuración",
+      "chooseFile": "Elegir archivo",
+      "noFile": "Ningún archivo seleccionado",
+      "parseErrorKeys": "El JSON debe contener las claves \"settings\" y/o \"oauth_providers\".",
+      "parseErrorInvalid": "Archivo JSON inválido.",
+      "modeLabel": "Modo de importación",
+      "modeMerge": "Combinar - actualizar existentes, agregar nuevos",
+      "modeOverwrite": "Sobrescribir - reemplazar todo",
+      "overwriteWarning": "Esto reemplazará todas las configuraciones y proveedores OAuth existentes.",
+      "preview": "Previsualizar cambios",
+      "apply": "Aplicar importación",
+      "settingsChanges": "Cambios de configuración",
+      "key": "Clave",
+      "current": "Actual",
+      "imported": "Importado",
+      "action": "Acción",
+      "oauthChanges": "Cambios de proveedores OAuth",
+      "slug": "Slug",
+      "changedFields": "Campos modificados",
+      "noChanges": "No se detectaron cambios.",
+      "success": "Importación completada.",
+      "successDetail": "{{settingsApplied}} configuraciones aplicadas, {{settingsSkipped}} omitidas. {{oauthCreated}} proveedores creados, {{oauthUpdated}} actualizados, {{oauthDeleted}} eliminados."
+    }
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "description": "La página que busca no existe o ha sido movida.",
+    "goHome": "Ir al inicio"
+  },
+  "selectAll": "Seleccionar todo",
+  "selectItem": "Seleccionar {{item}}",
+  "errorBoundary": {
+    "appTitle": "Algo salió mal",
+    "appMessage": "Ocurrió un error inesperado. Recargue la página para continuar.",
+    "appReload": "Recargar página",
+    "mapTitle": "El mapa no se pudo cargar",
+    "mapMessage": "El mapa encontró un error. Esto puede ocurrir por problemas de WebGL o restricciones de memoria.",
+    "mapRetry": "Recargar mapa",
+    "routeTitle": "Error en la página",
+    "routeMessage": "Esta página encontró un error. Puede volver atrás o intentar de nuevo.",
+    "routeGoBack": "Volver",
+    "routeGoHome": "Ir al inicio",
+    "builderUnsavedWarning": "Puede tener cambios sin guardar. Recargar los descartará.",
+    "lazyTitle": "Error al cargar",
+    "lazyMessage": "Una parte de la aplicación no se pudo cargar. Generalmente es un problema de red.",
+    "lazyRetry": "Intentar de nuevo",
+    "lazyRetrying": "Reintentando..."
+  }
+}

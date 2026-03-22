@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <clipPath id="g">
+      <circle cx="27" cy="27" r="22"/>
+    </clipPath>
+  </defs>
+
+  <!-- Globe -->
+  <circle cx="27" cy="27" r="22" fill="none" stroke="#334155" stroke-width="3"/>
+
+  <!-- Globe lines -->
+  <g clip-path="url(#g)" stroke="#334155" fill="none" stroke-width="1.8" stroke-opacity="0.4">
+    <line x1="5" y1="27" x2="49" y2="27"/>
+    <ellipse cx="27" cy="27" rx="11" ry="22"/>
+  </g>
+
+  <!-- Handle -->
+  <line x1="42" y1="42" x2="60" y2="60" stroke="#334155" stroke-width="5" stroke-linecap="round"/>
+</svg>

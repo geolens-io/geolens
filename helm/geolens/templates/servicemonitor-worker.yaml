@@ -1,0 +1,20 @@
+{{- if .Values.worker.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "geolens.fullname" . }}-worker
+  labels:
+    {{- include "geolens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+    {{- with .Values.worker.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "geolens.worker.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      interval: {{ .Values.worker.serviceMonitor.interval | default "30s" }}
+      path: /metrics
+{{- end }}

@@ -1,0 +1,185 @@
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useParams, useSearchParams } from 'react-router';
+import { useSharedMap } from '@/hooks/use-maps';
+import { ViewerMap } from '@/components/viewer/ViewerMap';
+import { LayerLegend } from '@/components/viewer/LayerLegend';
+import { Clock, MapPinOff } from 'lucide-react';
+import { ApiError } from '@/api/client';
+import { useTranslation } from 'react-i18next';
+import { LoadingState } from '@/components/layout/LoadingState';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+
+function parseCenter(raw: string | null): { lng: number; lat: number } | null {
+  if (!raw) return null;
+  const parts = raw.split(',');
+  if (parts.length !== 2) return null;
+  const lng = parseFloat(parts[0]);
+  const lat = parseFloat(parts[1]);
+  if (isNaN(lng) || isNaN(lat)) return null;
+  if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+  return { lng, lat };
+}
+
+function parseZoom(raw: string | null): number | null {
+  if (!raw) return null;
+  const z = parseFloat(raw);
+  if (isNaN(z) || z < 0 || z > 24) return null;
+  return z;
+}
+
+export function PublicViewerPage() {
+  const { t } = useTranslation('common');
+  useDocumentTitle('Shared Map');
+  const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const isEmbed = searchParams.get('embed') === 'true';
+  const apiKey = searchParams.get('api_key') ?? undefined;
+  const embedToken = searchParams.get('et') ?? undefined;
+  const zoomParam = searchParams.get('zoom');
+  const centerParam = searchParams.get('center');
+  const legendParam = searchParams.get('legend');
+
+  const { data, isLoading, isError, error } = useSharedMap(token, apiKey);
+
+  const [visibleLayers, setVisibleLayers] = useState<Set<number> | null>(null);
+
+  const effectiveVisibleLayers = useMemo(() => {
+    if (visibleLayers !== null) return visibleLayers;
+    if (!data) return new Set<number>();
+    return new Set(data.layers.filter((l) => l.visible).map((l) => l.sort_order));
+  }, [visibleLayers, data]);
+
+  const effectiveShowLegend = useMemo(() => {
+    if (legendParam !== null) return legendParam === 'true';
+    return !isEmbed;
+  }, [legendParam, isEmbed]);
+
+  const [isLegendOpen, setIsLegendOpen] = useState(() => {
+    if (!effectiveShowLegend) return false;
+    return typeof window !== 'undefined' ? window.innerWidth >= 500 : true;
+  });
+
+  // Auto-collapse/expand legend on resize
+  useEffect(() => {
+    if (!effectiveShowLegend) return;
+
+    const handleResize = () => {
+      const w = window.innerWidth;
+      if (w < 500) {
+        setIsLegendOpen(false);
+      } else {
+        setIsLegendOpen(true);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [effectiveShowLegend]);
+
+  const handleToggleVisibility = useCallback((sortOrder: number) => {
+    setVisibleLayers((prev) => {
+      const current = prev ?? new Set(
+        (data?.layers ?? []).filter((l) => l.visible).map((l) => l.sort_order),
+      );
+      const next = new Set(current);
+      if (next.has(sortOrder)) {
+        next.delete(sortOrder);
+      } else {
+        next.add(sortOrder);
+      }
+      return next;
+    });
+  }, [data]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center w-full h-screen bg-muted">
+        <LoadingState message={t('viewer.loading')} />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    const isExpired = error instanceof ApiError && error.status === 410;
+    return (
+      <div className="flex items-center justify-center w-full h-screen bg-muted">
+        <div className="flex flex-col items-center gap-3 text-center">
+          {isExpired ? (
+            <>
+              <Clock className="size-10 text-muted-foreground" />
+              <h1 className="text-lg font-semibold text-foreground">{t('viewer.linkExpired')}</h1>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                {t('viewer.linkExpiredDescription')}
+              </p>
+            </>
+          ) : (
+            <>
+              <MapPinOff className="size-10 text-muted-foreground" />
+              <h1 className="text-lg font-semibold text-foreground">{t('viewer.mapNotFound')}</h1>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                {t('viewer.mapNotFoundDescription')}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const parsedCenter = parseCenter(centerParam);
+  const parsedZoom = parseZoom(zoomParam);
+
+  const viewState = {
+    center_lng: parsedCenter?.lng ?? data.center_lng,
+    center_lat: parsedCenter?.lat ?? data.center_lat,
+    zoom: parsedZoom ?? data.zoom,
+    bearing: data.bearing,
+    pitch: data.pitch,
+  };
+
+  return (
+    <div className="w-full h-screen relative overflow-hidden">
+      {/* Full-viewport map */}
+      <ViewerMap
+        layers={data.layers}
+        basemapStyle={data.basemap_style}
+        initialViewState={viewState}
+        visibleLayers={effectiveVisibleLayers}
+        apiKey={apiKey}
+        embedToken={embedToken}
+      />
+
+      {/* Floating title pill */}
+      <div className="absolute top-3 left-14 z-10 pointer-events-none">
+        <div className="bg-background/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-sm border border-border/50">
+          <h1 className="text-sm font-medium text-foreground truncate max-w-[200px]" title={data.name}>
+            {data.name}
+          </h1>
+        </div>
+      </div>
+
+      {/* Legend overlay */}
+      {effectiveShowLegend && (
+        <LayerLegend
+          layers={data.layers}
+          visibleLayers={effectiveVisibleLayers}
+          onToggleVisibility={handleToggleVisibility}
+          isOpen={isLegendOpen}
+          onToggle={() => setIsLegendOpen((prev) => !prev)}
+        />
+      )}
+
+      {/* Powered by GeoLens badge */}
+      <div className="absolute bottom-2 right-2 z-10 hidden min-[400px]:block">
+        <a
+          href="https://github.com/geolens-io/geolens"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5 transition-colors"
+        >
+          {t('viewer.poweredBy')}
+        </a>
+      </div>
+    </div>
+  );
+}

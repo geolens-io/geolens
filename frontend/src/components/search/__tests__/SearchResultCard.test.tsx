@@ -1,0 +1,314 @@
+import { render, screen } from '@/test/test-utils';
+import type { OGCRecordResponse } from '@/types/api';
+import { SearchResultCard } from '../SearchResultCard';
+
+function makeFeature(
+  propertyOverrides: Partial<OGCRecordResponse['properties']> = {},
+  featureOverrides: Partial<OGCRecordResponse> = {},
+): OGCRecordResponse {
+  return {
+    type: 'Feature',
+    id: 'dataset-1',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [-124.8, 24.4],
+        [-66.9, 24.4],
+        [-66.9, 49.3],
+        [-124.8, 49.3],
+        [-124.8, 24.4],
+      ]],
+    },
+    properties: {
+      type: 'dataset',
+      title: 'World Countries',
+      description: 'Boundary polygons for countries.',
+      keywords: ['boundaries', 'countries'],
+      created: '2026-03-01T00:00:00Z',
+      updated: '2026-03-02T00:00:00Z',
+      updated_by_display: 'editor-user',
+      never_edited: false,
+      crs: 'EPSG:4326',
+      geometry_type: 'Polygon',
+      feature_count: 195,
+      contact: null,
+      license: null,
+      source_organization: 'Natural Earth',
+      quality_detail: null,
+      ...propertyOverrides,
+    },
+    links: [
+      {
+        rel: 'self',
+        href: 'http://localhost:8000/collections/datasets/items/dataset-1',
+        type: 'application/geo+json',
+      },
+    ],
+    ...featureOverrides,
+  };
+}
+
+describe('SearchResultCard', () => {
+  // Vector card tests
+  describe('Vector records', () => {
+    it('renders title and links to /datasets/:id', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      expect(screen.getByText('World Countries')).toBeInTheDocument();
+      const link = screen.getByRole('link');
+      expect(link).toHaveAttribute('href', '/datasets/dataset-1');
+    });
+
+    it('renders geometry type, feature count, and CRS in metadata line', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      // Metadata is rendered inside a single span with dot separators
+      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
+      expect(metaSpan?.textContent).toContain('Polygon');
+      expect(metaSpan?.textContent).toContain('195');
+      expect(metaSpan?.textContent).toContain('EPSG:4326');
+    });
+
+    it('renders Vector type badge', () => {
+      render(<SearchResultCard feature={makeFeature({ record_type: undefined })} />);
+
+      expect(screen.getByText('Vector')).toBeInTheDocument();
+    });
+
+    it('renders source organization', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      expect(screen.getByText(/Natural Earth/)).toBeInTheDocument();
+    });
+
+    it('renders updated-by attribution', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      const attribution = screen.getByTestId('dataset-card-updated-attribution');
+      expect(attribution).toHaveTextContent('Updated by');
+      expect(attribution).toHaveTextContent('editor-user');
+    });
+  });
+
+  // Raster card tests
+  describe('Raster records', () => {
+    it('renders Raster type badge, band count, and gsd', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'raster_dataset',
+            geometry_type: null,
+            band_count: 4,
+            gsd: 10,
+            crs: 'EPSG:6527',
+          })}
+        />,
+      );
+
+      expect(screen.getByText('Raster')).toBeInTheDocument();
+      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
+      expect(metaSpan?.textContent).toContain('4 bands');
+      expect(metaSpan?.textContent).toContain('10 m');
+    });
+  });
+
+  // VRT card tests
+  describe('VRT records', () => {
+    it('renders vrt_type label, source_count, and band count', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'vrt_dataset',
+            geometry_type: null,
+            band_count: 3,
+            vrt_type: 'mosaic',
+            source_count: 12,
+          })}
+        />,
+      );
+
+      expect(screen.getByText('Virtual Raster')).toBeInTheDocument();
+      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
+      expect(metaSpan?.textContent).toContain('Mosaic');
+      expect(metaSpan?.textContent).toContain('12 sources');
+      expect(metaSpan?.textContent).toContain('3 bands');
+    });
+
+    it('renders band_stack as "Band Stack"', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'vrt_dataset',
+            geometry_type: null,
+            band_count: 6,
+            vrt_type: 'band_stack',
+            source_count: 3,
+          })}
+        />,
+      );
+
+      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
+      expect(metaSpan?.textContent).toContain('Band Stack');
+    });
+  });
+
+  // Collection card tests
+  describe('Collection records', () => {
+    it('renders title and links to /collections/:id', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              description: 'A set of datasets',
+              record_type: 'collection',
+              dataset_count: 7,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-1', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.getByText('My Collection')).toBeInTheDocument();
+      const link = screen.getByRole('link');
+      expect(link).toHaveAttribute('href', '/collections/coll-1');
+    });
+
+    it('renders dataset count badge and Collection type badge', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              description: null,
+              record_type: 'collection',
+              dataset_count: 5,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-2', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.getByText('Collection')).toBeInTheDocument();
+      expect(screen.getByText('5 datasets')).toBeInTheDocument();
+    });
+
+    it('renders description for collections', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'Described Collection',
+              description: 'This is a detailed description',
+              record_type: 'collection',
+              dataset_count: 3,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-3', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.getByText('This is a detailed description')).toBeInTheDocument();
+    });
+  });
+
+  // Tags tests
+  describe('Tags', () => {
+    it('renders max 2 tags with overflow indicator', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            keywords: ['boundaries', 'countries', 'political', 'world'],
+          })}
+        />,
+      );
+
+      expect(screen.getByText('boundaries')).toBeInTheDocument();
+      expect(screen.getByText('countries')).toBeInTheDocument();
+      expect(screen.queryByText('political')).not.toBeInTheDocument();
+      expect(screen.getByText(/\+2 more/)).toBeInTheDocument();
+    });
+
+    it('filters out synthetic and perf-seed keywords', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            keywords: ['synthetic', 'perf-seed', 'boundaries'],
+          })}
+        />,
+      );
+
+      expect(screen.queryByText('synthetic')).not.toBeInTheDocument();
+      expect(screen.queryByText('perf-seed')).not.toBeInTheDocument();
+      expect(screen.getByText('boundaries')).toBeInTheDocument();
+    });
+  });
+
+  // Status badge tests
+  describe('Status badges', () => {
+    it('renders draft badge for non-published datasets', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({ record_status: 'draft' })}
+        />,
+      );
+
+      expect(screen.getByText('Draft')).toBeInTheDocument();
+    });
+
+    it('does not render status badges for collections', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'Collection',
+              description: null,
+              record_type: 'collection',
+              record_status: 'draft',
+              dataset_count: 1,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-4', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+    });
+  });
+});

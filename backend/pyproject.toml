@@ -1,0 +1,85 @@
+[project]
+name = "geolens"
+version = "0.1.0"
+description = "PostGIS-native GIS data catalog"
+requires-python = ">=3.13"
+license = "BUSL-1.1"
+license-files = ["LICENSE"]
+dependencies = [
+    "fastapi[standard]",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "alembic",
+    "geoalchemy2",
+    "pydantic",
+    "pydantic-settings",
+    "pyjwt>=2.11.0",
+    "pwdlib[bcrypt]>=0.3.0",
+    "procrastinate",
+    "psycopg[binary]",
+    "aiofiles",
+    "shapely>=2.0",
+    "pygeofilter[backend-sqlalchemy]>=0.3.3",
+    "structlog>=25.4.0",
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
+    "pgvector>=0.3.6",
+    "defusedxml>=0.7.1",
+    "python-slugify>=8.0.4",
+    "slowapi>=0.1.9",
+    "boto3>=1.35.0",
+    "redis>=5.0.0",
+    "puremagic>=2.0.0",
+    "rasterio>=1.4.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "prometheus-fastapi-instrumentator>=7.1.0",
+    "authlib>=1.6.9",
+    "itsdangerous>=2.1.0",
+    "sse-starlette>=3.3.2",
+    "sqlglot>=29.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "jsonschema>=4.19",
+    "pytest-cov",
+    "bandit>=1.8",
+    "pip-audit>=2.7",
+    "moto[s3]>=5.0.0",
+    "fakeredis>=2.21.0",
+    "locust>=2.43.0",
+    "pystac>=1.14",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-m 'not perf'"
+markers = [
+    "perf: performance regression tests (deselected by default)",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = []
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
