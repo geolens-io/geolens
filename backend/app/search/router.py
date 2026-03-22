@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Literal
 from urllib.parse import urlencode
 
@@ -360,11 +360,11 @@ async def _handle_search(
             )
         )
 
-    # Prev link: not on first page
+    # Previous link: not on first page
     if offset > 0:
         links.append(
             OGCRecordLink(
-                rel="prev",
+                rel="previous",
                 href=_build_pagination_url(
                     public_api_url,
                     base_path,
@@ -378,6 +378,7 @@ async def _handle_search(
 
     return OGCFeatureCollectionResponse(
         type="FeatureCollection",
+        timeStamp=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         numberMatched=total,
         numberReturned=len(features),
         features=features,
@@ -754,6 +755,15 @@ async def _build_collection_metadata(
                 "type": "application/schema+json",
                 "title": "Queryable properties",
             },
+            {
+                "rel": "http://www.opengis.net/def/rel/ogc/1.0/schema",
+                "href": build_url(
+                    "/collections/datasets/schema",
+                    base_url=public_api_url,
+                ),
+                "type": "application/schema+json",
+                "title": "Record schema",
+            },
         ],
     }
     if extent:
@@ -897,6 +907,10 @@ async def get_record_schema(
     )
 
 
+# OGC sortby field -> internal sort_by mapping
+_OGC_SORT_MAP = {"title": "name", "created": "date_added", "updated": "last_updated"}
+
+
 @collections_router.get("/datasets/items")
 async def collection_items(
     request: Request,
@@ -907,11 +921,13 @@ async def collection_items(
     srid: int | None = Query(None),
     source_organization: str | None = Query(None),
     record_type: str | None = Query(None),
+    type_param: str | None = Query(None, alias="type", description="OGC record type filter"),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     vintage_start: date | None = Query(None),
     vintage_end: date | None = Query(None),
     sort_by: str = Query("relevance"),
+    sortby: str | None = Query(None, description="OGC sortby: +field or -field"),
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     cql_filter: str | None = Query(
@@ -934,6 +950,27 @@ async def collection_items(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Records items endpoint -- mirrors /search/datasets."""
+    # OGC type param -> record_type
+    if type_param and not record_type:
+        record_type = type_param
+
+    # OGC sortby -> internal sort_by mapping (sortby takes precedence)
+    if sortby is not None:
+        _dir = ""
+        _field = sortby.lstrip("+-")
+        if sortby.startswith("-"):
+            _dir = "-"
+        mapped = _OGC_SORT_MAP.get(_field)
+        if mapped is None:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "code": "InvalidParameterValue",
+                    "description": f"Unknown sortby field: {_field}. Valid: {', '.join(_OGC_SORT_MAP.keys())}",
+                },
+            )
+        sort_by = f"{_dir}{mapped}" if _dir else mapped
+
     result = await _handle_search(
         db,
         user,

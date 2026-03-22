@@ -353,7 +353,7 @@ async def get_collection_items(
             prev_params += f"&bbox={bbox}"
         links.append(
             OGCLink(
-                rel="prev",
+                rel="previous",
                 href=build_url(base_path, base_url=public_api_url) + prev_params,
                 type="application/geo+json",
             )

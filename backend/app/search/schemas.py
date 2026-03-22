@@ -110,6 +110,7 @@ class OGCFeatureCollectionResponse(BaseModel):
     """OGC API Records FeatureCollection with match counts."""
 
     type: str = "FeatureCollection"
+    timeStamp: str | None = None
     numberMatched: int
     numberReturned: int
     features: list[OGCRecordResponse]
