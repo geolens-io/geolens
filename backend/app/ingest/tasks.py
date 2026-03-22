@@ -101,15 +101,16 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 Path(file_path).unlink(missing_ok=True)
                 return
 
-            # 2. Detect CRS via ogrinfo
-            info = await run_ogrinfo(file_path)
-            srid = info.get("srid")
-            geometry_type = info.get("geometry_type")
-            has_geometry = geometry_type is not None
-
             # Check for user-supplied metadata from commit step
             um = job.user_metadata or {}
             srid_override = um.get("srid_override")
+            layer_name = um.get("layer_name")
+
+            # 2. Detect CRS via ogrinfo
+            info = await run_ogrinfo(file_path, layer_name=layer_name)
+            srid = info.get("srid")
+            geometry_type = info.get("geometry_type")
+            has_geometry = geometry_type is not None
 
             # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
             # Non-spatial files don't need CRS at all
@@ -141,7 +142,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     "collision_warning": collision_warning,
                 }
             db_conn_str = build_pg_conn_str()
-            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=geometry_type)
+            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=geometry_type, layer_name=layer_name)
 
             # Use srid_override if provided
             effective_srid = (

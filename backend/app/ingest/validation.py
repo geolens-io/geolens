@@ -27,6 +27,8 @@ EXTENSION_CONTENT_MAP: dict[str, set[str]] = {
     ".csv": {".csv", ".txt", ""},
     ".tif": {".tif", ".tiff"},
     ".tiff": {".tif", ".tiff"},
+    ".xlsx": {".xlsx", ".zip", ".docx"},  # OOXML shares ZIP container
+    ".xls": {".xls", ".doc"},  # Old BIFF format
 }
 
 # ZIP bomb thresholds

@@ -21,6 +21,7 @@ class PreviewResponse(BaseModel):
     feature_count: int | None
     sample_rows: list[dict]
     layer_name: str
+    layers: list[dict] | None = None
 
 
 class RasterPreviewResponse(BaseModel):
@@ -53,6 +54,7 @@ class CommitRequest(BaseModel):
     compression: str | None = None
     resampling: str | None = None
     nodata_override: float | str | None = None
+    layer_name: str | None = None
 
 
 class CommitResponse(BaseModel):

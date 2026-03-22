@@ -81,20 +81,21 @@ def _parse_text_ogrinfo(output: str) -> dict:
     }
 
 
-async def run_ogrinfo(file_path: str) -> dict:
+async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
     """Run ogrinfo to detect CRS and layer metadata.
 
-    Returns dict with keys: srid, geometry_type, layer_name, feature_count.
+    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers.
+    When multiple layers exist and no layer_name is specified, all_layers lists them.
     Tries JSON output first (GDAL 3.7+), falls back to text parsing.
     """
     source = _resolve_source_path(file_path)
 
     # Try JSON output first (GDAL 3.7+)
+    cmd = ["ogrinfo", "-so", "-json", source]
+    if layer_name:
+        cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
-        "ogrinfo",
-        "-so",
-        "-json",
-        source,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -115,11 +116,25 @@ async def run_ogrinfo(file_path: str) -> dict:
                     if not coord_system:
                         coord_system = geom_fields[0].get("coordinateSystem", {})
                 srid = _extract_srid_from_json(coord_system or {})
+
+                # Build all_layers list for multi-layer files
+                all_layers = None
+                if len(layers) > 1 and not layer_name:
+                    all_layers = [
+                        {
+                            "name": l.get("name", ""),
+                            "feature_count": l.get("featureCount", 0),
+                            "field_count": len(l.get("fields", [])),
+                        }
+                        for l in layers
+                    ]
+
                 return {
                     "srid": srid,
                     "geometry_type": geometry_type,
                     "layer_name": layer.get("name", ""),
                     "feature_count": layer.get("featureCount"),
+                    "all_layers": all_layers,
                 }
             # No layers found but command succeeded
             return {
@@ -127,15 +142,17 @@ async def run_ogrinfo(file_path: str) -> dict:
                 "geometry_type": None,
                 "layer_name": "",
                 "feature_count": None,
+                "all_layers": None,
             }
         except (json.JSONDecodeError, KeyError):
             pass  # Fall through to text fallback
 
     # Fallback: text output (GDAL < 3.7 or -json flag failed)
+    cmd_text = ["ogrinfo", "-so", source]
+    if layer_name:
+        cmd_text.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
-        "ogrinfo",
-        "-so",
-        source,
+        *cmd_text,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -146,27 +163,29 @@ async def run_ogrinfo(file_path: str) -> dict:
             f"ogrinfo failed (exit {proc.returncode}): {stderr.decode().strip()}"
         )
 
-    return _parse_text_ogrinfo(stdout.decode())
+    result = _parse_text_ogrinfo(stdout.decode())
+    result["all_layers"] = None
+    return result
 
 
-async def run_ogrinfo_preview(file_path: str, sample_limit: int = 5) -> dict:
+async def run_ogrinfo_preview(
+    file_path: str, sample_limit: int = 5, layer_name: str | None = None
+) -> dict:
     """Run ogrinfo to get metadata AND sample rows for preview.
 
     Uses -json -features -limit N to get structured output with sample features.
     Falls back to summary-only run_ogrinfo() if feature extraction fails.
 
     Returns dict with keys: srid, geometry_type, layer_name, feature_count,
-    columns, sample_rows.
+    columns, sample_rows, all_layers.
     """
     source = _resolve_source_path(file_path)
 
+    cmd = ["ogrinfo", "-json", "-features", "-limit", str(sample_limit), source]
+    if layer_name:
+        cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
-        "ogrinfo",
-        "-json",
-        "-features",
-        "-limit",
-        str(sample_limit),
-        source,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -177,34 +196,54 @@ async def run_ogrinfo_preview(file_path: str, sample_limit: int = 5) -> dict:
             data = json.loads(stdout.decode())
             layers = data.get("layers", [])
             if layers:
-                layer = layers[0]
+                # Find the target layer
+                target_layer = layers[0]
+                if layer_name:
+                    for l in layers:
+                        if l.get("name") == layer_name:
+                            target_layer = l
+                            break
 
                 # Extract columns from layer fields
                 columns = [
                     {"name": f["name"], "type": f["type"]}
-                    for f in layer.get("fields", [])
+                    for f in target_layer.get("fields", [])
                 ]
 
                 # Extract sample rows from features
                 sample_rows = [
-                    feat.get("properties", {}) for feat in layer.get("features", [])
+                    feat.get("properties", {})
+                    for feat in target_layer.get("features", [])
                 ]
 
                 # Extract metadata
-                coord_system = layer.get("coordinateSystem", {})
+                coord_system = target_layer.get("coordinateSystem", {})
                 srid = _extract_srid_from_json(coord_system or {})
                 geometry_type = None
-                geom_fields = layer.get("geometryFields", [])
+                geom_fields = target_layer.get("geometryFields", [])
                 if geom_fields:
                     geometry_type = geom_fields[0].get("type")
+
+                # Build all_layers list for multi-layer files
+                all_layers = None
+                if len(layers) > 1 and not layer_name:
+                    all_layers = [
+                        {
+                            "name": l.get("name", ""),
+                            "feature_count": l.get("featureCount", 0),
+                            "field_count": len(l.get("fields", [])),
+                        }
+                        for l in layers
+                    ]
 
                 return {
                     "srid": srid,
                     "geometry_type": geometry_type,
-                    "layer_name": layer.get("name", ""),
-                    "feature_count": layer.get("featureCount"),
+                    "layer_name": target_layer.get("name", ""),
+                    "feature_count": target_layer.get("featureCount"),
                     "columns": columns,
                     "sample_rows": sample_rows,
+                    "all_layers": all_layers,
                 }
 
             # No layers found but command succeeded
@@ -215,12 +254,13 @@ async def run_ogrinfo_preview(file_path: str, sample_limit: int = 5) -> dict:
                 "feature_count": None,
                 "columns": [],
                 "sample_rows": [],
+                "all_layers": None,
             }
         except (json.JSONDecodeError, KeyError):
             pass  # Fall through to fallback
 
     # Fallback: summary only (no sample rows)
-    info = await run_ogrinfo(file_path)
+    info = await run_ogrinfo(file_path, layer_name=layer_name)
     info["columns"] = []
     info["sample_rows"] = []
     return info
@@ -232,6 +272,7 @@ async def run_ogr2ogr(
     db_conn_str: str,
     source_srid: int | None = None,
     geometry_type: str | None = None,
+    layer_name: str | None = None,
 ) -> None:
     """Run ogr2ogr to load a file into PostGIS.
 
@@ -280,6 +321,9 @@ async def run_ogr2ogr(
         )
         if source_srid is None:
             cmd.extend(["-a_srs", "EPSG:4326"])
+
+    if layer_name:
+        cmd.append(layer_name)
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
