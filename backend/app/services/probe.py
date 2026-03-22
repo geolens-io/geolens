@@ -66,6 +66,7 @@ def _build_arcgis_response(
             feature_count=layer.get("feature_count"),
             layer_type=layer.get("type", "layer"),
             layer_id=layer.get("id"),
+            object_id_field=layer.get("object_id_field"),
         )
         for layer in enriched_layers
     ]

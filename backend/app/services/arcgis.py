@@ -95,6 +95,20 @@ async def probe_arcgis_service(
     except (ValueError, TypeError):
         return None
 
+    # ArcGIS returns HTTP 200 with error in JSON body
+    if "error" in data:
+        error_info = data["error"]
+        code = error_info.get("code", 0)
+        message = error_info.get("message", "Unknown ArcGIS error")
+        logger.warning("ArcGIS error response: url=%s code=%s message=%s", base_url, code, message)
+        if code in (498, 499):  # Invalid/expired token
+            raise httpx.HTTPStatusError(
+                f"ArcGIS token error ({code}): {message}",
+                request=response.request,
+                response=response,
+            )
+        return None
+
     # Validate this is an ArcGIS service
     if "layers" not in data and "tables" not in data:
         return None
@@ -112,6 +126,9 @@ async def probe_arcgis_service(
 
     layers = []
 
+    # Service-level objectIdField fallback
+    service_oid = data.get("objectIdField")
+
     for layer in data.get("layers", []):
         layers.append(
             {
@@ -119,6 +136,7 @@ async def probe_arcgis_service(
                 "name": layer["name"],
                 "geometry_type": _normalize_esri_geom_type(layer.get("geometryType")),
                 "type": "layer",
+                "object_id_field": layer.get("objectIdField") or service_oid or "OBJECTID",
             }
         )
 

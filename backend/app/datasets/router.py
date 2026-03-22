@@ -1340,6 +1340,7 @@ async def reupload_service_preview(
             request.layer_name,
             request.layer_id,
             token=request.token,
+            order_field=request.object_id_field or "OBJECTID",
         )
     except ValueError as exc:
         raise HTTPException(

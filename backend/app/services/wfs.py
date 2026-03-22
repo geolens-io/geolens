@@ -82,9 +82,12 @@ async def probe_wfs(
     service_type and layers on success, or None if not a WFS service.
     """
     capabilities_url = _build_capabilities_url(url)
+    request_headers = {}
+    if token:
+        request_headers["Authorization"] = f"Bearer {token}"
 
     try:
-        response = await client.get(capabilities_url)
+        response = await client.get(capabilities_url, headers=request_headers)
         response.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
         logger.debug("WFS probe failed for %s: %s", url, exc)

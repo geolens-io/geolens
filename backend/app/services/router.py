@@ -53,15 +53,14 @@ async def probe_service_url(
         raise HTTPException(status_code=400, detail=str(exc))
 
     # Step 2-3: Probe with httpx client
+    # NOTE: No default Authorization header on the client. Each probe function
+    # handles auth its own way (ArcGIS via &token= query param, WFS via
+    # per-request header). Sending Bearer headers to ArcGIS breaks auth.
     try:
-        client_headers = {}
-        if request.token:
-            client_headers["Authorization"] = f"Bearer {request.token}"
         async with httpx.AsyncClient(
             timeout=PROBE_TIMEOUT,
             follow_redirects=True,
             max_redirects=5,
-            headers=client_headers,
         ) as client:
             response = await detect_service_type(
                 request.url, client, token=request.token
@@ -212,6 +211,7 @@ async def preview_service_layer(
             request.layer_name,
             request.layer_id,
             token=request.token,
+            order_field=request.object_id_field or "OBJECTID",
         )
     except ValueError as exc:
         logger.warning(
@@ -256,6 +256,7 @@ async def preview_service_layer(
                     unqualified,
                     request.layer_id,
                     token=request.token,
+                    order_field=request.object_id_field or "OBJECTID",
                 )
                 preview_data = await run_service_preview(
                     retry_source, retry_layer, token=request.token
@@ -337,6 +338,7 @@ async def preview_service_layer(
         user_metadata={
             "service_type": request.service_type,
             "layer_id": request.layer_id,
+            "object_id_field": request.object_id_field,
         },
     )
     db.add(job)
