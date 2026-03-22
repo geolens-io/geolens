@@ -88,6 +88,7 @@ async def _handle_search(
     vintage_start: date | None,
     vintage_end: date | None,
     sort_by: str,
+    sort_desc: bool | None = None,
     offset: int,
     limit: int,
     cql2_filter: str | None = None,
@@ -152,6 +153,7 @@ async def _handle_search(
         vintage_start=vintage_start,
         vintage_end=vintage_end,
         sort_by=sort_by,
+        sort_desc=sort_desc,
         skip=offset,
         limit=limit,
         cql2_filter=cql2_filter,
@@ -955,11 +957,14 @@ async def collection_items(
         record_type = type_param
 
     # OGC sortby -> internal sort_by mapping (sortby takes precedence)
+    sort_desc: bool | None = None
     if sortby is not None:
-        _dir = ""
-        _field = sortby.lstrip("+-")
+        # URL query strings decode '+' as space; treat leading space as ascending
+        _field = sortby.lstrip("+- ")
         if sortby.startswith("-"):
-            _dir = "-"
+            sort_desc = True
+        elif sortby.startswith("+") or sortby.startswith(" "):
+            sort_desc = False
         mapped = _OGC_SORT_MAP.get(_field)
         if mapped is None:
             return JSONResponse(
@@ -969,7 +974,7 @@ async def collection_items(
                     "description": f"Unknown sortby field: {_field}. Valid: {', '.join(_OGC_SORT_MAP.keys())}",
                 },
             )
-        sort_by = f"{_dir}{mapped}" if _dir else mapped
+        sort_by = mapped
 
     result = await _handle_search(
         db,
@@ -987,6 +992,7 @@ async def collection_items(
         vintage_start=vintage_start,
         vintage_end=vintage_end,
         sort_by=sort_by,
+        sort_desc=sort_desc,
         offset=offset,
         limit=limit,
         cql2_filter=cql_filter,

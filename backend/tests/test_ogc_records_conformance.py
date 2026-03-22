@@ -205,6 +205,40 @@ async def test_contacts_include_email_phone(
 
 
 @pytest.mark.anyio
+async def test_contacts_null_fields_omitted(
+    client: AsyncClient, test_db_session
+):
+    """Gap 4b: Contacts with null email/phone omit those keys (not null values)."""
+    admin_id = await _get_admin_id(test_db_session)
+    ds = await _create_dataset(
+        test_db_session,
+        admin_id=admin_id,
+        name=f"contact-nulls-{uuid.uuid4().hex[:6]}",
+        contacts=[
+            {
+                "role": "pointOfContact",
+                "name": "No Email Person",
+                "organization": "ACME",
+                "email": None,
+                "phone": None,
+            }
+        ],
+    )
+
+    resp = await client.get(f"/collections/datasets/items/{ds.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    contacts = data["properties"]["contacts"]
+    assert contacts is not None
+    assert len(contacts) >= 1
+    contact = contacts[0]
+    assert "email" not in contact, "null email should be omitted, not included as null"
+    assert "phone" not in contact, "null phone should be omitted, not included as null"
+    assert contact["name"] == "No Email Person"
+    assert contact["role"] == "pointOfContact"
+
+
+@pytest.mark.anyio
 async def test_feature_collection_has_timestamp(client: AsyncClient, test_db_session):
     """Gap 6: FeatureCollection response includes timeStamp."""
     admin_id = await _get_admin_id(test_db_session)
@@ -222,15 +256,36 @@ async def test_feature_collection_has_timestamp(client: AsyncClient, test_db_ses
 
 @pytest.mark.anyio
 async def test_sortby_ogc_syntax(client: AsyncClient, test_db_session):
-    """Gap 7: sortby with OGC +/-field syntax returns 200."""
+    """Gap 7: sortby with OGC +/-field syntax returns 200 and honors direction."""
     admin_id = await _get_admin_id(test_db_session)
-    await _create_dataset(test_db_session, admin_id=admin_id, name=f"sortby-{uuid.uuid4().hex[:6]}")
+    prefix = uuid.uuid4().hex[:6]
+    await _create_dataset(test_db_session, admin_id=admin_id, name=f"aaa-sort-{prefix}")
+    await _create_dataset(test_db_session, admin_id=admin_id, name=f"zzz-sort-{prefix}")
 
-    resp = await client.get(
-        "/collections/datasets/items", params={"sortby": "-title", "limit": 5}
+    # Ascending by title (use %2B for literal +, since + is decoded as space in query strings)
+    resp_asc = await client.get(
+        "/collections/datasets/items",
+        params={"sortby": "+title", "limit": 100, "q": prefix},
     )
-    assert resp.status_code == 200
+    assert resp_asc.status_code == 200
+    titles_asc = [f["properties"]["title"] for f in resp_asc.json()["features"]]
+    assert len(titles_asc) >= 2, "Need at least 2 results to verify order"
+    assert titles_asc == sorted(titles_asc, key=str.lower), "Expected ascending title order"
 
+    # Descending by title
+    resp_desc = await client.get(
+        "/collections/datasets/items",
+        params={"sortby": "-title", "limit": 100, "q": prefix},
+    )
+    assert resp_desc.status_code == 200
+    titles_desc = [f["properties"]["title"] for f in resp_desc.json()["features"]]
+    assert len(titles_desc) >= 2, "Need at least 2 results to verify order"
+    assert titles_desc == sorted(titles_desc, key=str.lower, reverse=True), "Expected descending title order"
+
+    # Ascending and descending should be opposite
+    assert titles_asc != titles_desc, "Ascending and descending should produce different order"
+
+    # +created should also work
     resp2 = await client.get(
         "/collections/datasets/items", params={"sortby": "+created", "limit": 5}
     )
