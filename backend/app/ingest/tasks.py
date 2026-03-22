@@ -119,6 +119,8 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 lower_path.endswith(".csv")
                 or lower_path.endswith(".geojson")
                 or lower_path.endswith(".json")
+                or lower_path.endswith(".xlsx")
+                or lower_path.endswith(".xls")
             )
             if has_geometry and srid is None and not assumes_4326 and srid_override is None:
                 job.status = "failed"
@@ -143,6 +145,32 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 }
             db_conn_str = build_pg_conn_str()
             await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=geometry_type, layer_name=layer_name)
+
+            # Post-import geometry construction (for XLSX with lat/lng or WKT override)
+            x_column = um.get("x_column")
+            y_column = um.get("y_column")
+            geom_column = um.get("geom_column")
+
+            if not has_geometry and x_column and y_column:
+                from app.ingest.metadata import construct_point_geometry
+
+                await construct_point_geometry(session, table_name, x_column, y_column)
+                has_geometry = True
+                geometry_type = "Point"
+            elif not has_geometry and geom_column:
+                from app.ingest.metadata import construct_wkt_geometry
+
+                await construct_wkt_geometry(session, table_name, geom_column)
+                has_geometry = True
+                # Re-detect geometry type from constructed column
+                from sqlalchemy import text as _text
+
+                _result = await session.execute(
+                    _text(
+                        f"SELECT GeometryType(geom) FROM data.{table_name} WHERE geom IS NOT NULL LIMIT 1"
+                    )
+                )
+                geometry_type = _result.scalar_one_or_none() or "Geometry"
 
             # Use srid_override if provided
             effective_srid = (

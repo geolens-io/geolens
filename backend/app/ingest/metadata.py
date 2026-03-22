@@ -31,6 +31,84 @@ def _validate_table_name(table_name: str) -> None:
         )
 
 
+async def construct_point_geometry(
+    session: AsyncSession,
+    table_name: str,
+    x_column: str,
+    y_column: str,
+    srid: int = 4326,
+) -> int:
+    """Add geometry column from x/y coordinate columns.
+
+    Returns count of rows with valid geometry.
+    """
+    _validate_table_name(table_name)
+    if not _TABLE_NAME_RE.match(x_column) or not _TABLE_NAME_RE.match(y_column):
+        raise ValueError("Invalid column name")
+
+    await session.execute(
+        text(
+            f"ALTER TABLE data.{table_name} ADD COLUMN geom geometry(Point, {srid})"
+        )
+    )
+    result = await session.execute(
+        text(
+            f"UPDATE data.{table_name} SET geom = ST_SetSRID("
+            f"  ST_MakePoint({x_column}::double precision, {y_column}::double precision), "
+            f"  {srid}) "
+            f"WHERE {x_column} IS NOT NULL AND {y_column} IS NOT NULL"
+        )
+    )
+    await session.execute(
+        text(
+            f"CREATE INDEX idx_{table_name}_geom ON data.{table_name} USING GIST (geom)"
+        )
+    )
+    return result.rowcount
+
+
+async def construct_wkt_geometry(
+    session: AsyncSession,
+    table_name: str,
+    wkt_column: str,
+    srid: int = 4326,
+) -> int:
+    """Add geometry column from a WKT text column.
+
+    Returns count of rows with valid geometry.
+    """
+    _validate_table_name(table_name)
+    if not _TABLE_NAME_RE.match(wkt_column):
+        raise ValueError("Invalid column name")
+
+    # Detect geometry type from sample row
+    sample = await session.execute(
+        text(
+            f"SELECT GeometryType(ST_GeomFromText({wkt_column}, {srid})) "
+            f"FROM data.{table_name} WHERE {wkt_column} IS NOT NULL LIMIT 1"
+        )
+    )
+    geom_type = sample.scalar_one_or_none() or "GEOMETRY"
+
+    await session.execute(
+        text(
+            f"ALTER TABLE data.{table_name} ADD COLUMN geom geometry({geom_type}, {srid})"
+        )
+    )
+    result = await session.execute(
+        text(
+            f"UPDATE data.{table_name} SET geom = ST_GeomFromText({wkt_column}, {srid}) "
+            f"WHERE {wkt_column} IS NOT NULL"
+        )
+    )
+    await session.execute(
+        text(
+            f"CREATE INDEX idx_{table_name}_geom ON data.{table_name} USING GIST (geom)"
+        )
+    )
+    return result.rowcount
+
+
 async def get_table_srid(session: AsyncSession, table_name: str) -> int | None:
     """Get the SRID of the geom column for a table in the data schema."""
     _validate_table_name(table_name)
