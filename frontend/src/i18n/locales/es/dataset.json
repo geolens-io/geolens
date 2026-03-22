@@ -362,6 +362,7 @@
     "deleteFeatureTitle": "Eliminar entidad",
     "deleteFeatureDescription": "¿Eliminar esta entidad? Esta acción no se puede deshacer.",
     "zoomToExtent": "Zoom a la extensión del conjunto de datos",
+    "multiPartNotEditable": "Esta entidad tiene múltiples partes y no se puede editar en el mapa.",
     "fullscreen": "Pantalla completa",
     "exitFullscreen": "Salir de pantalla completa"
   },

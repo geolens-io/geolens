@@ -20,6 +20,7 @@
     "collections": "Collections",
     "maps": "Cartes",
     "import": "Importer",
+    "importData": "Importer des données",
     "admin": "Administration",
     "adminDashboard": "Tableau de bord Admin",
     "adminSettings": "Paramètres Admin",

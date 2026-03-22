@@ -11,6 +11,11 @@
     "addData": "Agregar datos"
   },
   "layerItem": {
+    "expandOptions": "Expandir opciones de capa",
+    "collapseOptions": "Contraer opciones de capa",
+    "styleTab": "Estilo",
+    "filterTab": "Filtro",
+    "labelsTab": "Etiquetas",
     "hideLayer": "Ocultar capa",
     "showLayer": "Mostrar capa",
     "renameHint": "Doble clic para renombrar",
