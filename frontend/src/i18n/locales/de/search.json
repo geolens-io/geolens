@@ -57,7 +57,8 @@
     "keywordSearch": "Schlagworte suchen...",
     "noKeywords": "Keine Schlagworte verfügbar",
     "clearKeywords": "Alle löschen",
-    "keywordsCount": "Schlagworte ({{count}})"
+    "keywordsCount": "Schlagworte ({{count}})",
+    "sheetDescription": "Ergebnisse verfeinern, ohne die Suchseite zu verlassen."
   },
   "collection": {
     "datasetCount_one": "{{count}} Datensatz",
@@ -75,6 +76,12 @@
     "unknown": "Unbekannt",
     "system": "System",
     "restricted": "Eingeschränkter Benutzer",
+    "bandCount_one": "{{count}} Band",
+    "bandCount_other": "{{count}} Bänder",
+    "vector": "Vektor",
+    "raster": "Raster",
+    "vrt": "Virtuelles Raster",
+    "collection": "Sammlung",
     "moretags": "+{{count}} weitere",
     "updatedFallback": "Aktualisiert vor {{time}}",
     "noUpdateMetadata": "Keine Aktualisierungsmetadaten",

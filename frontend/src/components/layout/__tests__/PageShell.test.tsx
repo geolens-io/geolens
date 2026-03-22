@@ -20,8 +20,8 @@ describe('PageShell', () => {
   it('applies consistent padding and spacing', () => {
     const { container } = render(<PageShell><p>Content</p></PageShell>);
     expect(container.firstChild).toHaveClass('px-6');
-    expect(container.firstChild).toHaveClass('py-6');
-    expect(container.firstChild).toHaveClass('space-y-6');
+    expect(container.firstChild).toHaveClass('py-4');
+    expect(container.firstChild).toHaveClass('space-y-4');
   });
 
   it('merges custom className', () => {

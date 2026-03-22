@@ -11,6 +11,11 @@
     "addData": "Daten hinzufügen"
   },
   "layerItem": {
+    "expandOptions": "Layer-Optionen erweitern",
+    "collapseOptions": "Layer-Optionen einklappen",
+    "styleTab": "Stil",
+    "filterTab": "Filter",
+    "labelsTab": "Beschriftungen",
     "hideLayer": "Layer ausblenden",
     "showLayer": "Layer einblenden",
     "renameHint": "Doppelklick zum Umbenennen",

@@ -57,7 +57,8 @@
     "keywordSearch": "Buscar palabras clave...",
     "noKeywords": "No hay palabras clave disponibles",
     "clearKeywords": "Borrar todas",
-    "keywordsCount": "Palabras clave ({{count}})"
+    "keywordsCount": "Palabras clave ({{count}})",
+    "sheetDescription": "Refinar resultados sin salir de la página de búsqueda."
   },
   "collection": {
     "datasetCount_one": "{{count}} conjunto de datos",
@@ -75,6 +76,12 @@
     "unknown": "Desconocido",
     "system": "Sistema",
     "restricted": "Usuario restringido",
+    "bandCount_one": "{{count}} banda",
+    "bandCount_other": "{{count}} bandas",
+    "vector": "Vectorial",
+    "raster": "Ráster",
+    "vrt": "Ráster virtual",
+    "collection": "Colección",
     "moretags": "+{{count}} más",
     "updatedFallback": "Actualizado hace {{time}}",
     "noUpdateMetadata": "Sin metadatos de actualización",

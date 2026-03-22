@@ -57,7 +57,8 @@
     "keywordSearch": "Rechercher des mots-clés...",
     "noKeywords": "Aucun mot-clé disponible",
     "clearKeywords": "Tout effacer",
-    "keywordsCount": "Mots-clés ({{count}})"
+    "keywordsCount": "Mots-clés ({{count}})",
+    "sheetDescription": "Affiner les résultats sans quitter la page de recherche."
   },
   "collection": {
     "datasetCount_one": "{{count}} jeu de données",
@@ -75,6 +76,12 @@
     "unknown": "Inconnu",
     "system": "Système",
     "restricted": "Utilisateur restreint",
+    "bandCount_one": "{{count}} bande",
+    "bandCount_other": "{{count}} bandes",
+    "vector": "Vecteur",
+    "raster": "Raster",
+    "vrt": "Raster virtuel",
+    "collection": "Collection",
     "moretags": "+{{count}} de plus",
     "updatedFallback": "Mis à jour il y a {{time}}",
     "noUpdateMetadata": "Pas de métadonnées de mise à jour",

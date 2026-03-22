@@ -362,6 +362,7 @@
     "deleteFeatureTitle": "Supprimer l'entité",
     "deleteFeatureDescription": "Supprimer cette entité ? Cette action est irréversible.",
     "zoomToExtent": "Zoomer sur l'étendue du jeu de données",
+    "multiPartNotEditable": "Cette entité a plusieurs parties et ne peut pas être modifiée sur la carte.",
     "fullscreen": "Plein écran",
     "exitFullscreen": "Quitter le plein écran"
   },

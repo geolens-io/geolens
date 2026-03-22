@@ -11,6 +11,11 @@
     "addData": "Ajouter des données"
   },
   "layerItem": {
+    "expandOptions": "Développer les options de couche",
+    "collapseOptions": "Réduire les options de couche",
+    "styleTab": "Style",
+    "filterTab": "Filtre",
+    "labelsTab": "Étiquettes",
     "hideLayer": "Masquer la couche",
     "showLayer": "Afficher la couche",
     "renameHint": "Double-cliquez pour renommer",
