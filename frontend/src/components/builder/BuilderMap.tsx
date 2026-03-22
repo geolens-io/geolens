@@ -100,6 +100,17 @@ export function BuilderMap({
         return { url: absUrl };
       });
 
+      // Suppress expected raster tile errors (no-data tiles outside extent)
+      map.on('error', (e: { error: { message?: string; status?: number } }) => {
+        const msg = e.error?.message ?? '';
+        // Only suppress errors from our managed tile sources
+        if (msg.includes('source-') || e.error?.status === 404) {
+          return; // Expected no-data tile, suppress
+        }
+        // Non-tile errors: let MapLibre default handling proceed
+        console.warn('[BuilderMap] Map error:', e.error);
+      });
+
       onMapRef?.(map);
     },
     [onMapRef],
