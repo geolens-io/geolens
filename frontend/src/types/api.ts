@@ -479,6 +479,11 @@ export interface FilePreviewResponse {
   sample_rows: Record<string, unknown>[];
   layer_name: string;
   layers?: { name: string; feature_count: number; field_count: number }[] | null;
+  detected_geometry_columns?: {
+    x_column: string | null;
+    y_column: string | null;
+    wkt_column: string | null;
+  } | null;
 }
 
 export interface CommitImportRequest {
@@ -493,6 +498,9 @@ export interface CommitImportRequest {
   resampling?: string | null;
   nodata_override?: number | string | null;
   layer_name?: string;
+  x_column?: string | null;
+  y_column?: string | null;
+  geom_column?: string | null;
 }
 
 export interface CommitImportResponse {

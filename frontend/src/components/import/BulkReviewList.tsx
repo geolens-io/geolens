@@ -126,6 +126,8 @@ export function BulkReviewList({
                       ? entry.previewData
                       : undefined
                   }
+                  previewColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).columns : undefined}
+                  detectedGeometryColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).detected_geometry_columns : undefined}
                 />
               </div>
             )}
@@ -158,6 +160,8 @@ export function BulkReviewList({
                       ? entry.previewData
                       : undefined
                   }
+                  previewColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).columns : undefined}
+                  detectedGeometryColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).detected_geometry_columns : undefined}
                 />
               </div>
             </div>

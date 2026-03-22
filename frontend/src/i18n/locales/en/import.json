@@ -124,7 +124,9 @@
     "sampleData": "Sample Data",
     "moreColumns_one": "+{{count}} more column",
     "moreColumns_other": "+{{count}} more columns",
-    "noSampleData": "No sample data available"
+    "noSampleData": "No sample data available",
+    "geometryDetected": "Geometry columns detected",
+    "nonSpatial": "Non-spatial table"
   },
   "metadata": {
     "title": "Import Settings",
@@ -152,6 +154,16 @@
     "resamplingHelp": "Method for overview generation and reprojection. Auto selects based on data type.",
     "nodataLabel": "NoData Value",
     "nodataHelp": "Override or assign a nodata value for this raster.",
+    "geometryColumns": "Geometry Columns",
+    "geometryMode": "Mode",
+    "autoDetected": "Auto-detected",
+    "manualOverride": "Manual override",
+    "nonSpatial": "Import as non-spatial",
+    "xColumn": "X (Longitude)",
+    "yColumn": "Y (Latitude)",
+    "wktColumn": "WKT Column",
+    "latLng": "Lat/Lng",
+    "wkt": "WKT",
     "importing": "Importing...",
     "importDataset": "Import Dataset"
   },
