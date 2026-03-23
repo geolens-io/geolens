@@ -159,10 +159,11 @@ Plan: Not started
 | 260322-ndc | Non-spatial table support, CSV/XLSX with geometry columns | 2026-03-22 | 1931de83 | Gaps | [260322-ndc-for-non-spatial-table-support-support-im](./quick/260322-ndc-for-non-spatial-table-support-support-im/) |
 | 260322-qg3 | Evaluate whether helm/, packer/, ami/ directories should move to separate repos | 2026-03-22 | 8534fa38 | Verified | [260322-qg3-evaluate-whether-helm-packer-ami-directo](./quick/260322-qg3-evaluate-whether-helm-packer-ami-directo/) |
 | 260322-t3j | AI functionality gaps: set_opacity tool, metadata error toasts, experimental badges | 2026-03-23 | c0070076 | Verified | [260322-t3j-review-ai-functionality-admin-toggle-met](./quick/260322-t3j-review-ai-functionality-admin-toggle-met/) |
+| 260323-7cr | Fix ingest pipeline geometry column naming bug and improve seed script robustness | 2026-03-23 | 061e72c4 | Verified | [260323-7cr-review-and-fix-seed-ago-data-py-fix-geom](./quick/260323-7cr-review-and-fix-seed-ago-data-py-fix-geom/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260322-t3j: AI functionality gaps and experimental badges
+Last activity: 2026-03-23 - Completed quick task 260323-7cr: Fix ingest geometry column naming bug
 Last session: 2026-03-23T01:10:28.709Z
 Stopped at: Completed quick-260322-t3j
 Resume file: None
