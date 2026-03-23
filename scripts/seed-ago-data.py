@@ -16,13 +16,18 @@ Usage:
 
     # Import from a different org
     python scripts/seed-ago-data.py --org-url https://otherorg.maps.arcgis.com --api-key <key>
+
+    # Resume a partial run (caches downloaded GeoJSON locally)
+    python scripts/seed-ago-data.py --api-key <key> --cache-dir /tmp/ago-cache
+
+    # Control parallelism
+    python scripts/seed-ago-data.py --api-key <key> --concurrency 5
 """
 
 import argparse
 import asyncio
 import io
 import json
-import logging
 import os
 import sys
 import time
@@ -55,7 +60,6 @@ MAX_RECORD_COUNT = 2000
 # Pause between ArcGIS API pages to be respectful
 REQUEST_DELAY = 0.3
 
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +103,7 @@ async def search_public_items(
 
         next_start = data.get("nextStart", -1)
         total = data.get("total", 0)
-        logger.info("Fetched %d/%d items...", len(items), total)
+        print(f"  Fetched {len(items)}/{total} items...")
 
         if next_start == -1 or next_start > total:
             break
@@ -132,7 +136,7 @@ async def download_layer_geojson(
     resp.raise_for_status()
     total_count = resp.json().get("count", 0)
     if total_count == 0:
-        logger.warning("    Layer '%s' has 0 features, skipping", layer_name)
+        print(f"    Layer '{layer_name}' has 0 features, skipping")
         return None
 
     # Get server max record count
@@ -141,9 +145,7 @@ async def download_layer_geojson(
     server_max = resp.json().get("maxRecordCount", 1000)
     page_size = min(server_max, MAX_RECORD_COUNT)
 
-    logger.info(
-        "    Downloading %d features (page size: %d)...", total_count, page_size
-    )
+    print(f"    Downloading {total_count} features (page size: {page_size})...")
 
     all_features: list[dict] = []
     offset = 0
@@ -166,21 +168,17 @@ async def download_layer_geojson(
         try:
             data = resp.json()
         except json.JSONDecodeError:
-            logger.error(
-                "    Failed to parse response for '%s' at offset %d",
-                layer_name,
-                offset,
-            )
+            print(f"    Failed to parse response for '{layer_name}' at offset {offset}")
             break
 
         if "error" in data:
             err_msg = data["error"].get("message", str(data["error"]))
             if offset == 0 and use_out_sr:
                 # Retry without outSR — some services don't support reprojection
-                logger.warning("    Retrying without outSR: %s", err_msg)
+                print(f"    Retrying without outSR: {err_msg}")
                 use_out_sr = False
                 continue
-            logger.error("    API error for '%s': %s", layer_name, err_msg)
+            print(f"    API error for '{layer_name}': {err_msg}")
             break
 
         features = data.get("features", [])
@@ -189,7 +187,7 @@ async def download_layer_geojson(
 
         all_features.extend(features)
         offset += len(features)
-        logger.info("      %d/%d features...", len(all_features), total_count)
+        print(f"      {len(all_features)}/{total_count} features...")
         await asyncio.sleep(REQUEST_DELAY)
 
     if not all_features:
@@ -224,63 +222,9 @@ def sanitize_name(name: str) -> str:
     )
 
 
-def generate_display_name(layer_name: str, service_title: str) -> str:
+def generate_display_name(layer_name: str) -> str:
     """Generate a human-readable display name."""
-    name = layer_name.replace("_", " ").title()
-    return name
-
-
-def generate_tags(
-    layer_name: str, service_title: str, org_name: str
-) -> list[str]:
-    """Generate tags for a dataset based on its layer name."""
-    tags = [org_name.lower().replace(" ", "-"), "arcgis-online"]
-    lower = layer_name.lower()
-
-    tag_keywords = {
-        "water": "hydrology",
-        "stream": "hydrology",
-        "watershed": "hydrology",
-        "wetland": "hydrology",
-        "riparian": "hydrology",
-        "flood": "hydrology",
-        "forest": "forestry",
-        "wildlife": "ecology",
-        "habitat": "ecology",
-        "species": "ecology",
-        "vernal": "ecology",
-        "mussel": "ecology",
-        "land_use": "land-use",
-        "land_cover": "land-use",
-        "impervious": "land-use",
-        "zoning": "land-use",
-        "agriculture": "agriculture",
-        "farm": "agriculture",
-        "soil": "agriculture",
-        "boundary": "boundaries",
-        "municipal": "boundaries",
-        "county": "boundaries",
-        "trail": "recreation",
-        "park": "recreation",
-        "road": "transport",
-        "bus": "transport",
-        "rail": "transport",
-        "redevelopment": "planning",
-        "center": "planning",
-        "contour": "elevation",
-        "elevation": "elevation",
-        "geolog": "geology",
-        "carbonate": "geology",
-        "rock": "geology",
-        "preserve": "conservation",
-        "conservation": "conservation",
-    }
-
-    for keyword, tag in tag_keywords.items():
-        if keyword in lower and tag not in tags:
-            tags.append(tag)
-
-    return tags
+    return layer_name.replace("_", " ").title()
 
 
 # ---------------------------------------------------------------------------
@@ -321,25 +265,27 @@ async def discover_layers(
         title = item.get("title", "untitled")
         item_url = item.get("url", "")
         item_id = item.get("id", "")
+        snippet = item.get("snippet") or ""
 
         if not item_url:
-            logger.warning("Skipping %s — no service URL", title)
+            print(f"Skipping {title} — no service URL")
             continue
 
         try:
             layers = await get_service_layers(client, item_url)
         except Exception as e:
-            logger.warning("Skipping %s — failed to get layers: %s", title, e)
+            print(f"Skipping {title} — failed to get layers: {e}")
             continue
 
         if not layers:
-            logger.warning("Skipping %s — no layers", title)
+            print(f"Skipping {title} — no layers")
             continue
 
         for layer in layers:
             layer_id = layer.get("id", 0)
             layer_name = layer.get("name", title)
             layer_url = f"{item_url.rstrip('/')}/{layer_id}"
+            layer_description = layer.get("description") or snippet
 
             manifest.append(
                 {
@@ -347,6 +293,7 @@ async def discover_layers(
                     "layer_name": layer_name,
                     "layer_url": layer_url,
                     "item_id": item_id,
+                    "summary": layer_description,
                 }
             )
 
@@ -357,46 +304,6 @@ async def discover_layers(
 # ---------------------------------------------------------------------------
 # GeoLens API: idempotency check
 # ---------------------------------------------------------------------------
-
-
-async def clean_failed_datasets(
-    client: httpx.AsyncClient, base_url: str, api_key: str
-) -> int:
-    """Delete datasets from previous failed imports that have no features."""
-    headers = {"X-Api-Key": api_key}
-    deleted = 0
-    skip = 0
-    limit = 200
-
-    while True:
-        resp = await client.get(
-            f"{base_url}/api/datasets/",
-            params={"limit": limit, "skip": skip},
-            headers=headers,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        datasets = data.get("datasets", [])
-
-        for ds in datasets:
-            ds_id = ds.get("id")
-            if ds_id:
-                try:
-                    del_resp = await client.delete(
-                        f"{base_url}/api/datasets/{ds_id}",
-                        headers=headers,
-                    )
-                    if del_resp.status_code in (200, 204):
-                        deleted += 1
-                except Exception:
-                    pass
-
-        total = data.get("total", 0)
-        skip += limit
-        if skip >= total or not datasets:
-            break
-
-    return deleted
 
 
 async def fetch_existing_datasets(
@@ -428,7 +335,7 @@ async def fetch_existing_datasets(
             if skip >= total or not datasets:
                 break
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-        logger.warning("Failed to fetch existing datasets: %s", exc)
+        print(f"Warning: Failed to fetch existing datasets: {exc}")
         return {}
 
     return existing
@@ -481,7 +388,7 @@ async def ingest_dataset(
     filename: str,
     data: bytes,
     name: str,
-    tags: list[str],
+    summary: str = "",
 ) -> dict:
     """Ingest a dataset through the GeoLens three-step API.
 
@@ -506,11 +413,13 @@ async def ingest_dataset(
     preview_resp.raise_for_status()
 
     # Step 3 — Commit
-    commit_body = {
+    commit_body: dict = {
         "title": name,
         "visibility": "public",
         "srid_override": 4326,
     }
+    if summary:
+        commit_body["summary"] = summary
     commit_resp = await client.post(
         f"{base_url}/api/ingest/commit/{job_id}",
         headers=headers,
@@ -519,30 +428,7 @@ async def ingest_dataset(
     commit_resp.raise_for_status()
 
     # Step 4 — Poll until done
-    result = await poll_job(client, base_url, api_key, job_id)
-
-    # Step 5 — Apply keywords via records API
-    dataset_id = result.get("dataset_id")
-    if dataset_id and tags:
-        try:
-            ds_resp = await client.get(
-                f"{base_url}/api/datasets/{dataset_id}", headers=headers
-            )
-            ds_resp.raise_for_status()
-            record_id = ds_resp.json().get("record_id")
-            if record_id:
-                for tag in tags:
-                    kw_resp = await client.post(
-                        f"{base_url}/api/records/{record_id}/keywords/",
-                        headers=headers,
-                        json={"keyword": tag, "keyword_type": "theme"},
-                    )
-                    if kw_resp.status_code not in (201, 409):
-                        kw_resp.raise_for_status()
-        except Exception as exc:
-            logger.warning("Failed to set keywords for %s: %s", name, exc)
-
-    return result
+    return await poll_job(client, base_url, api_key, job_id)
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +445,6 @@ async def process_one(
     geolens_client: httpx.AsyncClient,
     base_url: str,
     api_key: str,
-    org_name: str,
     existing: dict[str, str],
     cache_dir: Path | None,
     results: list[dict],
@@ -567,7 +452,7 @@ async def process_one(
     """Download one layer from ArcGIS and ingest into GeoLens."""
     layer_name = entry["layer_name"]
     layer_url = entry["layer_url"]
-    service_title = entry["service_title"]
+    summary = entry.get("summary", "")
     safe_name = sanitize_name(layer_name)
     filename = f"{safe_name}.geojson.zip"
     tag = f"[{index}/{total}]"
@@ -615,8 +500,7 @@ async def process_one(
 
             feature_count = len(cached_geojson.get("features", []))
             zip_data = geojson_to_zip(cached_geojson, safe_name)
-            display_name = generate_display_name(layer_name, service_title)
-            tags = generate_tags(layer_name, service_title, org_name)
+            display_name = generate_display_name(layer_name)
 
             print(
                 f"  {tag} Ingesting {layer_name} ({feature_count} features)..."
@@ -628,7 +512,7 @@ async def process_one(
                 filename,
                 zip_data,
                 display_name,
-                tags,
+                summary=summary,
             )
 
             if result.get("status") == "failed":
@@ -684,9 +568,7 @@ async def create_or_get_collection(
             if coll["name"] == name:
                 return coll["id"]
 
-    logger.warning(
-        "Failed to create/find collection %r: HTTP %d", name, resp.status_code
-    )
+    print(f"Warning: Failed to create/find collection {name!r}: HTTP {resp.status_code}")
     return None
 
 
@@ -793,11 +675,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Directory to cache downloaded GeoJSON (resumes partial runs)",
     )
     parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="Delete failed datasets from previous runs before importing",
-    )
-    parser.add_argument(
         "--concurrency",
         type=int,
         default=3,
@@ -815,20 +692,12 @@ async def main(args: argparse.Namespace) -> None:
     base_url = args.base_url.rstrip("/")
     api_key = args.api_key
 
-    # Use separate clients for ArcGIS (longer timeouts for large queries)
-    # and GeoLens (follows seed-natural-earth patterns)
-    async with (
-        httpx.AsyncClient(
-            timeout=httpx.Timeout(120.0, connect=30.0),
-            follow_redirects=True,
-        ) as arcgis_client,
-        httpx.AsyncClient(
-            timeout=httpx.Timeout(300.0, connect=30.0),
-            follow_redirects=True,
-        ) as geolens_client,
-    ):
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(300.0, connect=30.0),
+        follow_redirects=True,
+    ) as client:
         # Discover layers from ArcGIS
-        manifest, org_name = await discover_layers(arcgis_client, args.org_url)
+        manifest, org_name = await discover_layers(client, args.org_url)
 
         if not manifest:
             print("No layers found to import")
@@ -847,7 +716,7 @@ async def main(args: argparse.Namespace) -> None:
 
         # Validate GeoLens connectivity
         try:
-            health_resp = await geolens_client.get(f"{base_url}/api/health")
+            health_resp = await client.get(f"{base_url}/api/health")
             health_resp.raise_for_status()
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             print(f"Cannot reach GeoLens at {base_url}: {exc}")
@@ -859,20 +728,9 @@ async def main(args: argparse.Namespace) -> None:
             cache_dir.mkdir(parents=True, exist_ok=True)
             print(f"Using download cache: {cache_dir}")
 
-        # Clean previous failed imports if requested
-        if args.clean:
-            print("Cleaning previous datasets...")
-            deleted = await clean_failed_datasets(
-                geolens_client, base_url, api_key
-            )
-            if deleted:
-                print(f"Deleted {deleted} dataset(s) from previous runs")
-
         # Idempotency check
         print("Checking existing datasets...")
-        existing = await fetch_existing_datasets(
-            geolens_client, base_url, api_key
-        )
+        existing = await fetch_existing_datasets(client, base_url, api_key)
         if existing:
             print(f"Found {len(existing)} existing dataset(s) in catalog")
 
@@ -891,11 +749,10 @@ async def main(args: argparse.Namespace) -> None:
                         index=i,
                         total=total,
                         sem=sem,
-                        arcgis_client=arcgis_client,
-                        geolens_client=geolens_client,
+                        arcgis_client=client,
+                        geolens_client=client,
                         base_url=base_url,
                         api_key=api_key,
-                        org_name=org_name,
                         existing=existing,
                         cache_dir=cache_dir,
                         results=results,
@@ -919,9 +776,7 @@ async def main(args: argparse.Namespace) -> None:
         # Assign to collection
         print()
         print("--- Collection Assignment ---")
-        await assign_collection(
-            geolens_client, base_url, api_key, org_name, results
-        )
+        await assign_collection(client, base_url, api_key, org_name, results)
 
 
 if __name__ == "__main__":
