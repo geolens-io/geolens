@@ -237,7 +237,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
           <DialogDescription>{t('share.dialogDescription')}</DialogDescription>

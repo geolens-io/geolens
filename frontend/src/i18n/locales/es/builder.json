@@ -16,6 +16,8 @@
     "styleTab": "Estilo",
     "filterTab": "Filtro",
     "labelsTab": "Etiquetas",
+    "filterActive": "Filtro activo",
+    "labelsActive": "Etiquetas activadas",
     "hideLayer": "Ocultar capa",
     "showLayer": "Mostrar capa",
     "renameHint": "Doble clic para renombrar",
@@ -85,7 +87,8 @@
     "quantile": "Cuantil",
     "classes": "Clases",
     "colors": "Colores",
-    "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores."
+    "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores.",
+    "customColors": "Colores personalizados aplicados"
   },
   "search": {
     "title": "Agregar conjunto de datos",

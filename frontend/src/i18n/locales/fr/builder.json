@@ -16,6 +16,8 @@
     "styleTab": "Style",
     "filterTab": "Filtre",
     "labelsTab": "Étiquettes",
+    "filterActive": "Filtre actif",
+    "labelsActive": "Étiquettes activées",
     "hideLayer": "Masquer la couche",
     "showLayer": "Afficher la couche",
     "renameHint": "Double-cliquez pour renommer",
@@ -85,7 +87,8 @@
     "quantile": "Quantile",
     "classes": "Classes",
     "colors": "Couleurs",
-    "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs."
+    "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs.",
+    "customColors": "Couleurs personnalisées appliquées"
   },
   "search": {
     "title": "Ajouter un jeu de données",

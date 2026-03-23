@@ -29,7 +29,9 @@
     "collapseOptions": "Collapse layer options",
     "styleTab": "Style",
     "filterTab": "Filter",
-    "labelsTab": "Labels"
+    "labelsTab": "Labels",
+    "filterActive": "Filter active",
+    "labelsActive": "Labels enabled"
   },
   "style": {
     "fill": "Fill",
@@ -85,7 +87,8 @@
     "quantile": "Quantile",
     "classes": "Classes",
     "colors": "Colors",
-    "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values."
+    "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
+    "customColors": "Custom colors applied"
   },
   "search": {
     "title": "Add Dataset",

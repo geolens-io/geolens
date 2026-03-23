@@ -95,18 +95,54 @@ export function DataDrivenStyleEditor({
 
     if (mode === 'categorical' && valuesData) {
       const values = valuesData.values;
-      const colors = getRampColors(ramp, Math.max(values.length, 1));
       const colorProp = getColorProperty(layer.dataset_geometry_type);
+
+      // Preserve existing per-category colors when column and ramp haven't changed
+      const ec = layer.style_config;
+      if (
+        ec?.mode === 'categorical' &&
+        ec.column === column &&
+        ec.ramp === ramp &&
+        ec.categories &&
+        ec.categories.length === values.length &&
+        ec.categories.every((c, i) => c.value === values[i])
+      ) {
+        return;
+      }
+
+      // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
+      const effectiveRamp = ramp === 'custom' ? 'Set2' : ramp;
+      if (ramp === 'custom') setRamp(effectiveRamp);
+
+      const colors = getRampColors(effectiveRamp, Math.max(values.length, 1));
       const valueColorMap: [string, string][] = values.map((v, i) => [v, colors[i]]);
       const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
 
       const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
-      const config: StyleConfig = { mode: 'categorical', column, ramp, categories };
+      const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
       const paint = { ...layer.paint, [colorProp]: expression };
       onStyleConfigChange(layer.id, config, paint);
     }
 
     if (mode === 'graduated' && statsData && statsData.min !== null && statsData.max !== null) {
+      // Preserve existing graduated colors when config hasn't changed
+      const ec = layer.style_config;
+      if (
+        ec?.mode === 'graduated' &&
+        ec.column === column &&
+        ec.ramp === ramp &&
+        ec.method === method &&
+        ec.classCount === classCount &&
+        ec.colors &&
+        ec.breaks
+      ) {
+        return;
+      }
+
+      // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
+      const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
+      if (ramp === 'custom') setRamp(effectiveRamp);
+
       let breaks: number[];
       if (method === 'quantile' && statsData.quantiles.length > 0) {
         breaks = quantileBreaks(statsData.quantiles);
@@ -115,14 +151,14 @@ export function DataDrivenStyleEditor({
       }
 
       const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
-      const colors = getRampColors(ramp, effectiveClassCount);
+      const colors = getRampColors(effectiveRamp, effectiveClassCount);
       const colorProp = getColorProperty(layer.dataset_geometry_type);
       const expression = buildGraduatedExpression(column, breaks, colors);
 
       const config: StyleConfig = {
         mode: 'graduated',
         column,
-        ramp,
+        ramp: effectiveRamp,
         classCount: effectiveClassCount,
         method,
         breaks,
@@ -162,9 +198,10 @@ export function DataDrivenStyleEditor({
         valueColorMap,
         MAP_COLORS.fallback,
       );
-      const newConfig: StyleConfig = { ...config, categories: updated };
+      const newConfig: StyleConfig = { ...config, categories: updated, ramp: 'custom' };
       const paint = { ...layer.paint, [colorProp]: expression };
       onStyleConfigChange(layer.id, newConfig, paint);
+      setRamp('custom');
     },
     [layer, onStyleConfigChange],
   );
@@ -178,9 +215,10 @@ export function DataDrivenStyleEditor({
       updatedColors[index] = newColor;
       const colorProp = getColorProperty(layer.dataset_geometry_type);
       const expression = buildGraduatedExpression(config.column, config.breaks, updatedColors);
-      const newConfig: StyleConfig = { ...config, colors: updatedColors };
+      const newConfig: StyleConfig = { ...config, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layer.paint, [colorProp]: expression };
       onStyleConfigChange(layer.id, newConfig, paint);
+      setRamp('custom');
     },
     [layer, onStyleConfigChange],
   );

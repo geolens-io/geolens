@@ -18,10 +18,17 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
+  Filter,
+  Type,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,11 +53,15 @@ function GeometryIcon({ geometryType }: { geometryType: string | null }) {
   return <Pentagon className="h-3 w-3" />;
 }
 
-function getLayerColor(layer: MapLayerResponse): string {
+function getLayerColors(layer: MapLayerResponse): string[] {
   const colorKey = getColorProperty(layer.dataset_geometry_type);
   const value = layer.paint?.[colorKey];
-  if (typeof value === 'string') return value;
-  return '#6366f1';
+  if (typeof value === 'string') return [value];
+  if (layer.style_config?.categories?.length)
+    return layer.style_config.categories.map((c) => c.color);
+  if (layer.style_config?.colors?.length)
+    return layer.style_config.colors;
+  return ['#6366f1'];
 }
 
 interface LayerItemProps {
@@ -122,7 +133,7 @@ export function LayerItem({
   }
 
   const columns = layer.dataset_column_info ?? [];
-  const layerColor = getLayerColor(layer);
+  const layerColors = getLayerColors(layer);
   const hasActiveFilter = layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0;
   const caps = getLayerCapabilities(layer);
   const isRaster = caps.kind !== 'vector';
@@ -166,10 +177,11 @@ export function LayerItem({
         </div>
 
         {!isRaster && (
-          <div
-            className="h-3 w-3 rounded-sm shrink-0 border border-border"
-            style={{ backgroundColor: layerColor }}
-          />
+          <div className="flex h-3 w-3 rounded-sm shrink-0 border border-border overflow-hidden">
+            {layerColors.map((color, i) => (
+              <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+            ))}
+          </div>
         )}
 
         {editing ? (
@@ -196,10 +208,24 @@ export function LayerItem({
           >
             <span className="truncate">{layer.display_name ?? layer.dataset_name}</span>
             {hasActiveFilter && (
-              <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Filter className="h-3 w-3 shrink-0 text-primary" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {t('layerItem.filterActive')}
+                </TooltipContent>
+              </Tooltip>
             )}
             {layer.label_config && (
-              <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Type className="h-3 w-3 shrink-0 text-primary" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {t('layerItem.labelsActive')}
+                </TooltipContent>
+              </Tooltip>
             )}
           </span>
         )}
