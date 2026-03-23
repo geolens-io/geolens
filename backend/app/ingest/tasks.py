@@ -259,13 +259,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
                     dataset.quicklook_256_uri = ql_key
                     await session.flush()
-                except Exception:
-                    pass  # Non-fatal
+                except Exception as _ql_exc:
+                    import structlog as _sl
+                    _sl.get_logger().warning("quicklook_failed", table=table_name, error=str(_ql_exc))
 
             # 8c. Archive original file to storage provider
             try:
-                from app.storage import get_storage
-
                 storage = get_storage()
                 archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
                 with open(file_path, "rb") as fobj:
@@ -479,8 +478,9 @@ async def ingest_service(
                 await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
                 dataset.quicklook_256_uri = ql_key
                 await session.flush()
-            except Exception:
-                pass  # Non-fatal
+            except Exception as _ql_exc:
+                import structlog as _sl
+                _sl.get_logger().warning("quicklook_failed", table=table_name, error=str(_ql_exc))
 
             # 8. Update job to complete
             job.status = "complete"
