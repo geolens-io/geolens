@@ -605,10 +605,10 @@ export interface DatasetVersionListResponse {
 // Labels
 export interface LabelConfig {
   column: string;
-  fontSize: number;
-  textColor: string;
-  haloColor: string;
-  haloWidth: number;
+  fontSize?: number;
+  textColor?: string;
+  haloColor?: string;
+  haloWidth?: number;
 }
 
 // Data-driven styling

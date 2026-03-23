@@ -123,6 +123,15 @@ export function LayerStyleEditor({
               />
             )}
             <SliderRow
+              label={t('style.opacity')}
+              value={getPaintValue(paint, 'line-opacity', 1)}
+              min={0}
+              max={1}
+              step={0.01}
+              format="percent"
+              onChange={(val) => handlePaintProp('line-opacity', val)}
+            />
+            <SliderRow
               label={t('style.width')}
               value={getPaintValue(paint, 'line-width', LINE_DEFAULTS['line-width'])}
               min={1}
@@ -149,6 +158,15 @@ export function LayerStyleEditor({
                 onChange={(hex) => handlePaintProp('circle-color', hex)}
               />
             )}
+            <SliderRow
+              label={t('style.opacity')}
+              value={getPaintValue(paint, 'circle-opacity', 1)}
+              min={0}
+              max={1}
+              step={0.01}
+              format="percent"
+              onChange={(val) => handlePaintProp('circle-opacity', val)}
+            />
             <SliderRow
               label={t('style.radius')}
               value={getPaintValue(paint, 'circle-radius', CIRCLE_DEFAULTS['circle-radius'])}

@@ -411,12 +411,28 @@ export function useBuilderLayers(
       if (newPaint['line-color'] && map.getLayer(mapLayerId)) {
         map.setPaintProperty(mapLayerId, 'line-color', newPaint['line-color']);
       }
+      if (newPaint['line-opacity'] !== undefined && map.getLayer(mapLayerId)) {
+        const masterOpacity = layer.opacity ?? 1;
+        map.setPaintProperty(
+          mapLayerId,
+          'line-opacity',
+          (newPaint['line-opacity'] as number) * masterOpacity,
+        );
+      }
       if (newPaint['line-width'] !== undefined && map.getLayer(mapLayerId)) {
         map.setPaintProperty(mapLayerId, 'line-width', newPaint['line-width']);
       }
     } else if (geomType === 'circle') {
       if (newPaint['circle-color'] && map.getLayer(mapLayerId)) {
         map.setPaintProperty(mapLayerId, 'circle-color', newPaint['circle-color']);
+      }
+      if (newPaint['circle-opacity'] !== undefined && map.getLayer(mapLayerId)) {
+        const masterOpacity = layer.opacity ?? 1;
+        map.setPaintProperty(
+          mapLayerId,
+          'circle-opacity',
+          (newPaint['circle-opacity'] as number) * masterOpacity,
+        );
       }
       if (newPaint['circle-radius'] !== undefined && map.getLayer(mapLayerId)) {
         map.setPaintProperty(mapLayerId, 'circle-radius', newPaint['circle-radius']);
@@ -461,11 +477,13 @@ export function useBuilderLayers(
       }
     } else if (geomType === 'line') {
       if (map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'line-opacity', newOpacity);
+        const lineOpacity = (layer.paint?.['line-opacity'] as number) ?? 1;
+        map.setPaintProperty(mapLayerId, 'line-opacity', lineOpacity * newOpacity);
       }
     } else if (geomType === 'circle') {
       if (map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'circle-opacity', newOpacity);
+        const circleOpacity = (layer.paint?.['circle-opacity'] as number) ?? 1;
+        map.setPaintProperty(mapLayerId, 'circle-opacity', circleOpacity * newOpacity);
       }
     }
   }
