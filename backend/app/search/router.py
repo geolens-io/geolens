@@ -867,7 +867,19 @@ async def list_collections(
         dataset_collections.append(entry)
 
     return OGCCollectionsResponse(
-        collections=[catalog_collection] + dataset_collections
+        collections=[catalog_collection] + dataset_collections,
+        links=[
+            OGCRecordLink(
+                rel="self",
+                href=build_url("/collections", base_url=public_api_url),
+                type="application/json",
+            ),
+            OGCRecordLink(
+                rel="root",
+                href=build_url("/", base_url=public_api_url),
+                type="application/json",
+            ),
+        ],
     )
 
 

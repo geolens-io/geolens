@@ -320,10 +320,13 @@ async def get_collection_items(
 
     # Build pagination links
     base_path = f"/collections/{dataset_id}/items"
+    self_params = f"?limit={limit}&offset={offset}"
+    if bbox:
+        self_params += f"&bbox={bbox}"
     links = [
         OGCLink(
             rel="self",
-            href=build_url(base_path, base_url=public_api_url),
+            href=build_url(base_path, base_url=public_api_url) + self_params,
             type="application/geo+json",
         ),
         OGCLink(
