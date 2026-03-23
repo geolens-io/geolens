@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 
 class OGCLink(BaseModel):
@@ -9,6 +9,10 @@ class OGCLink(BaseModel):
     rel: str
     type: str
     title: str | None = None
+
+    @model_serializer
+    def serialize_model(self):
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
 
 class LandingPage(BaseModel):
