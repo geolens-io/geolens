@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Map } from 'lucide-react';
+import { Map, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -9,22 +10,35 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useMaps } from '@/hooks/use-maps';
+import { useMaps, useCreateMap } from '@/hooks/use-maps';
 
 interface AddToMapButtonProps {
   datasetId: string;
+  datasetTitle?: string;
 }
 
-export function AddToMapButton({ datasetId }: AddToMapButtonProps) {
+export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useMaps({ limit: 20, sort_by: 'updated_at', sort_dir: 'desc' });
+  const createMap = useCreateMap();
 
   const maps = data?.maps ?? [];
 
   function handleSelect(mapId: string) {
     setOpen(false);
     navigate(`/maps/${mapId}?add_dataset=${datasetId}`);
+  }
+
+  async function handleNewMap() {
+    setOpen(false);
+    try {
+      const name = datasetTitle ? `${datasetTitle} Map` : 'New Map';
+      const newMap = await createMap.mutateAsync({ name });
+      navigate(`/maps/${newMap.id}?add_dataset=${datasetId}`);
+    } catch {
+      toast.error('Failed to create map');
+    }
   }
 
   return (
@@ -48,8 +62,12 @@ export function AddToMapButton({ datasetId }: AddToMapButtonProps) {
           ))
         )}
         {maps.length > 0 && <DropdownMenuSeparator />}
-        <DropdownMenuItem onClick={() => { setOpen(false); navigate(`/maps?add_dataset=${datasetId}`); }}>
-          + New map
+        <DropdownMenuItem onClick={handleNewMap} disabled={createMap.isPending}>
+          {createMap.isPending ? (
+            <><Loader2 className="mr-1 size-3.5 animate-spin" /> Creating...</>
+          ) : (
+            '+ New map'
+          )}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

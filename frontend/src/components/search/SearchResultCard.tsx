@@ -5,7 +5,6 @@ import { FolderOpen, ImageOff, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
-import { QualityBadge } from './QualityBadge';
 import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime, resolveProvenanceIdentity } from '@/lib/provenance-attribution';
 import { extractBbox } from '@/lib/geo-utils';
@@ -119,7 +118,9 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
       ? properties.source_organization.trim()
       : '';
   const displayKeywords = !isCollection
-    ? properties.keywords?.filter((k) => k !== 'synthetic' && k !== 'perf-seed') ?? []
+    ? properties.keywords
+      ?.map((keyword) => keyword.trim())
+      .filter((keyword) => keyword !== '' && keyword !== 'synthetic' && keyword !== 'perf-seed') ?? []
     : [];
 
   return (
@@ -171,9 +172,6 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                   </Badge>
                 )}
 
-                {!isCollection && (
-                  <QualityBadge score={properties.quality_detail?.overall ?? null} />
-                )}
               </div>
 
               <div className="space-y-2">

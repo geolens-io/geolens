@@ -87,6 +87,25 @@ describe('SearchResultCard', () => {
       expect(attribution).toHaveTextContent('Updated by');
       expect(attribution).toHaveTextContent('editor-user');
     });
+
+    it('does not render the metadata completeness badge on search cards', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            quality_detail: {
+              overall: 73,
+              metadata_completeness: 80,
+              geometry_validity: 90,
+              attribute_completeness: 70,
+              crs_defined: 100,
+              computed_at: '2026-03-02T00:00:00Z',
+            },
+          })}
+        />,
+      );
+
+      expect(screen.queryByText(/Completeness:/i)).not.toBeInTheDocument();
+    });
   });
 
   // Raster card tests
@@ -266,6 +285,19 @@ describe('SearchResultCard', () => {
       expect(screen.queryByText('synthetic')).not.toBeInTheDocument();
       expect(screen.queryByText('perf-seed')).not.toBeInTheDocument();
       expect(screen.getByText('boundaries')).toBeInTheDocument();
+    });
+
+    it('filters out blank and whitespace-only keywords', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            keywords: ['', '   ', 'zoning'],
+          })}
+        />,
+      );
+
+      expect(screen.getByText('zoning')).toBeInTheDocument();
+      expect(screen.queryByText(/\+1 more/)).not.toBeInTheDocument();
     });
   });
 

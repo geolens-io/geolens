@@ -7,6 +7,9 @@ test.describe('Search Flow', () => {
     await expect(
       page.getByRole('heading', { name: 'Find Geospatial Data' }),
     ).toBeVisible();
+    await expect(
+      page.getByRole('combobox', { name: 'Search geospatial data...' }),
+    ).toHaveCount(1);
 
     // Navigate with query param to bypass hero→sticky transition race condition.
     // This puts us directly in browse mode with a single SearchBar.

@@ -349,6 +349,7 @@
     "deleteFeatureTitle": "Delete Feature",
     "deleteFeatureDescription": "Delete this feature? This cannot be undone.",
     "multiPartNotEditable": "This feature has multiple parts and cannot be edited on the map.",
+    "featureNotSelectable": "This feature cannot be selected for editing.",
     "zoomToExtent": "Zoom to dataset extent",
     "fullscreen": "Enter fullscreen",
     "exitFullscreen": "Exit fullscreen"

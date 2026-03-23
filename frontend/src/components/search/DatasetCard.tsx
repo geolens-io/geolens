@@ -5,7 +5,6 @@ import { ImageOff, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
-import { QualityBadge } from './QualityBadge';
 import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime, resolveProvenanceIdentity } from '@/lib/provenance-attribution';
 import { extractBbox } from '@/lib/geo-utils';
@@ -58,7 +57,6 @@ export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
         blobUrlRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasQuicklook, feature.id, imgError]);
   const recordStatus = properties.record_status;
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });
@@ -156,7 +154,6 @@ export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
                 <><span aria-hidden>·</span>{properties.source_organization}</>
               )}
             </span>
-            <QualityBadge score={properties.quality_detail?.overall ?? null} />
           </div>
 
           {/* Line 3: tags (max 2) */}
