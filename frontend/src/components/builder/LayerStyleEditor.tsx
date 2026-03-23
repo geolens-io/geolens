@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Slider } from '@/components/ui/slider';
 import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
+import { getLayerType } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
@@ -10,13 +11,6 @@ interface LayerStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
-}
-
-function getGeometryType(geomType: string | null): 'fill' | 'line' | 'circle' {
-  const gt = (geomType ?? '').toUpperCase();
-  if (gt.includes('POINT')) return 'circle';
-  if (gt.includes('LINE')) return 'line';
-  return 'fill';
 }
 
 // Defaults per geometry type
@@ -53,7 +47,7 @@ export function LayerStyleEditor({
   onStyleConfigChange,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
-  const geomType = getGeometryType(layer.dataset_geometry_type);
+  const geomType = getLayerType(layer.dataset_geometry_type);
   const paint = layer.paint;
   const isDataDriven = !!layer.style_config?.column;
 
