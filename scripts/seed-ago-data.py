@@ -154,6 +154,10 @@ async def discover_layers(
         title = item.get("title", "untitled")
         item_url = item.get("url", "")
         snippet = item.get("snippet") or ""
+        access_info = item.get("accessInformation") or ""
+        license_info = item.get("licenseInfo") or ""
+        tags = item.get("tags") or []
+        owner = item.get("owner") or ""
 
         if not item_url:
             print(f"Skipping {title} — no service URL")
@@ -181,6 +185,10 @@ async def discover_layers(
                     "layer_id": layer_id,
                     "service_url": item_url.rstrip("/"),
                     "summary": layer_description,
+                    "source_org": access_info,
+                    "license": license_info,
+                    "tags": tags,
+                    "owner": owner,
                 }
             )
 
@@ -372,6 +380,64 @@ async def update_via_service(
 
 
 # ---------------------------------------------------------------------------
+# GeoLens API: post-import metadata enrichment
+# ---------------------------------------------------------------------------
+
+
+async def enrich_metadata(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    dataset_id: str,
+    entry: dict,
+) -> None:
+    """Apply AGO metadata (source org, license, tags) to an imported dataset."""
+    headers = {"X-Api-Key": api_key}
+
+    # PATCH dataset with source_organization and license
+    patch_body: dict = {}
+    if entry.get("source_org"):
+        patch_body["source_organization"] = entry["source_org"]
+    if entry.get("license"):
+        # Strip HTML tags for clean text
+        import re
+        patch_body["license"] = re.sub(r"<[^>]+>", "", entry["license"]).strip()
+
+    if patch_body:
+        try:
+            await client.patch(
+                f"{base_url}/api/datasets/{dataset_id}",
+                headers=headers,
+                json=patch_body,
+            )
+        except Exception:
+            pass  # Non-fatal
+
+    # Get the record_id for keyword assignment
+    tags = entry.get("tags") or []
+    if not tags:
+        return
+
+    try:
+        ds_resp = await client.get(
+            f"{base_url}/api/datasets/{dataset_id}", headers=headers
+        )
+        ds_resp.raise_for_status()
+        record_id = ds_resp.json().get("record_id")
+        if not record_id:
+            return
+
+        for tag in tags:
+            await client.post(
+                f"{base_url}/api/records/{record_id}/keywords/",
+                headers=headers,
+                json={"keyword": tag, "keyword_type": "theme"},
+            )
+    except Exception:
+        pass  # Non-fatal
+
+
+# ---------------------------------------------------------------------------
 # Concurrent processing
 # ---------------------------------------------------------------------------
 
@@ -445,12 +511,18 @@ async def process_one(
                     result.get("error_message", "Unknown ingest error")
                 )
 
+            dataset_id = result.get("dataset_id")
             action = "updated" if (existing_entry and update_mode) else "succeeded"
+
+            # Enrich with AGO metadata (source org, license, tags)
+            if dataset_id and action == "succeeded":
+                await enrich_metadata(client, base_url, api_key, dataset_id, entry)
+
             results.append(
                 {
                     "name": layer_name,
                     "status": action,
-                    "dataset_id": result.get("dataset_id"),
+                    "dataset_id": dataset_id,
                 }
             )
             print(f"  {tag} Done {layer_name}")
