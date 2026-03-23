@@ -168,13 +168,11 @@ export function syncLayersToMap(
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
             if (Array.isArray(val)) {
-              try { map.setPaintProperty(layerId, prop, val); } catch { /* keep scalar fallback */ }
+              try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
         }
-        if (layer.opacity !== undefined && layer.opacity < 1) {
-          map.setPaintProperty(layerId, 'circle-opacity', layer.opacity);
-        }
+        map.setPaintProperty(layerId, 'circle-opacity', layer.opacity ?? 1);
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
@@ -197,13 +195,11 @@ export function syncLayersToMap(
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
             if (Array.isArray(val)) {
-              try { map.setPaintProperty(layerId, prop, val); } catch { /* keep scalar fallback */ }
+              try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
         }
-        if (layer.opacity !== undefined && layer.opacity < 1) {
-          map.setPaintProperty(layerId, 'line-opacity', layer.opacity);
-        }
+        map.setPaintProperty(layerId, 'line-opacity', layer.opacity ?? 1);
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
@@ -223,18 +219,22 @@ export function syncLayersToMap(
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
             if (Array.isArray(val)) {
-              try { map.setPaintProperty(layerId, prop, val); } catch { /* keep scalar fallback */ }
+              try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
         }
-        if (layer.opacity !== undefined && layer.opacity < 1) {
+        {
           const fillOpacity =
             ((layer.paint as Record<string, unknown>)?.['fill-opacity'] as number) ?? 0.3;
-          map.setPaintProperty(layerId, 'fill-opacity', fillOpacity * layer.opacity);
+          map.setPaintProperty(layerId, 'fill-opacity', fillOpacity * (layer.opacity ?? 1));
         }
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
+        // Custom paint properties: 'fill-outline-color' and 'outline-width' are stored
+        // in the layer's paint JSON but are NOT standard MapLibre fill paint properties.
+        // They are read here and applied to a separate 'line' layer that acts as the
+        // polygon outline, because MapLibre's native fill-outline-color is fixed at 1px.
         const outlineColor =
           (layer.paint as Record<string, unknown>)?.['fill-outline-color'] as string | undefined;
         const outlineWidth =
@@ -249,9 +249,7 @@ export function syncLayersToMap(
             'line-width': outlineWidth ?? 1,
           },
         });
-        if (layer.opacity !== undefined && layer.opacity < 1) {
-          map.setPaintProperty(outlineId, 'line-opacity', layer.opacity);
-        }
+        map.setPaintProperty(outlineId, 'line-opacity', layer.opacity ?? 1);
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(outlineId, layer.filter);
         }
@@ -269,8 +267,8 @@ export function syncLayersToMap(
             if (JSON.stringify(current) !== JSON.stringify(val)) {
               map.setPaintProperty(mapLayerId, prop, val);
             }
-          } catch {
-            // Invalid expression — skip
+          } catch (e) {
+            if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${mapLayerId}:`, e);
           }
         }
       }
@@ -283,13 +281,13 @@ export function syncLayersToMap(
           try {
             const cur = map.getPaintProperty(outId, 'line-color');
             if (cur !== outlineColor) map.setPaintProperty(outId, 'line-color', outlineColor);
-          } catch { /* skip */ }
+          } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-color on ${outId}:`, e); }
         }
         if (typeof outlineWidth === 'number') {
           try {
             const cur = map.getPaintProperty(outId, 'line-width');
             if (cur !== outlineWidth) map.setPaintProperty(outId, 'line-width', outlineWidth);
-          } catch { /* skip */ }
+          } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-width on ${outId}:`, e); }
         }
       }
     }
@@ -334,6 +332,12 @@ export function syncLayersToMap(
           map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
           map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
           map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
+          // Sync filter on existing label layer
+          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+            map.setFilter(labelId, layer.filter);
+          } else {
+            map.setFilter(labelId, null);
+          }
         }
       } else if (map.getLayer(labelId)) {
         // Remove label layer when config cleared
