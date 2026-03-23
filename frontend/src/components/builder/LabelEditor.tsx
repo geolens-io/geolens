@@ -99,7 +99,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.haloWidth')}</span>
             <Slider
-              value={[labelConfig.haloWidth]}
+              value={[labelConfig.haloWidth ?? 1.5]}
               min={0}
               max={4}
               step={0.5}
@@ -107,7 +107,37 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
               className="flex-1"
             />
             <span className="text-xs text-muted-foreground w-10 text-right">
-              {labelConfig.haloWidth}px
+              {labelConfig.haloWidth ?? 1.5}px
+            </span>
+          </div>
+
+          <div className="text-xs font-medium mt-2 pt-2 border-t">{t('labels.zoomRange')}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-20">{t('labels.minZoom')}</span>
+            <Slider
+              value={[labelConfig.minZoom ?? 0]}
+              min={0}
+              max={(labelConfig.maxZoom ?? 22) - 1}
+              step={1}
+              onValueChange={([v]) => update({ minZoom: v })}
+              className="flex-1"
+            />
+            <span className="text-xs text-muted-foreground w-10 text-right">
+              {labelConfig.minZoom ?? 0}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-20">{t('labels.maxZoom')}</span>
+            <Slider
+              value={[labelConfig.maxZoom ?? 22]}
+              min={(labelConfig.minZoom ?? 0) + 1}
+              max={22}
+              step={1}
+              onValueChange={([v]) => update({ maxZoom: v })}
+              className="flex-1"
+            />
+            <span className="text-xs text-muted-foreground w-10 text-right">
+              {labelConfig.maxZoom ?? 22}
             </span>
           </div>
         </>

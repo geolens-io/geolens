@@ -64,7 +64,10 @@
     "textColor": "Color de texto",
     "haloColor": "Color de halo",
     "haloWidth": "Ancho de halo",
-    "selectColumn": "Seleccionar columna"
+    "selectColumn": "Seleccionar columna",
+    "zoomRange": "Rango de zoom",
+    "minZoom": "Zoom mín",
+    "maxZoom": "Zoom máx"
   },
   "dataDriven": {
     "title": "Color basado en datos",

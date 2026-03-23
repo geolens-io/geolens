@@ -29,6 +29,7 @@ function createMockMap() {
     isStyleLoaded: vi.fn(() => true),
     getStyle: vi.fn(() => ({ layers: [] })),
     moveLayer: vi.fn(),
+    setLayerZoomRange: vi.fn(),
   } as unknown as import('maplibre-gl').Map;
 }
 
