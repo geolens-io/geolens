@@ -645,6 +645,7 @@ async def reupload_file(
     from app.ingest.metadata import (
         add_4326_column,
         clip_to_mercator_bounds,
+        ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
@@ -726,6 +727,7 @@ async def reupload_file(
 
             # 5. Post-process staging table
             if has_geometry:
+                await ensure_geom_column(session, staging_tn)
                 await clip_to_mercator_bounds(session, staging_tn)
                 await add_4326_column(session, staging_tn, effective_srid)
             await grant_reader_access(session, staging_tn)
@@ -826,6 +828,7 @@ async def reupload_service(
     from app.ingest.metadata import (
         add_4326_column,
         clip_to_mercator_bounds,
+        ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
@@ -923,6 +926,7 @@ async def reupload_service(
             except ValueError as exc:
                 raise IngestionError(str(exc)) from exc
 
+            await ensure_geom_column(session, staging_tn)
             await clip_to_mercator_bounds(session, staging_tn)
             await add_4326_column(session, staging_tn, 4326)
             await grant_reader_access(session, staging_tn)
