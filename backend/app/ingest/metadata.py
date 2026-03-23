@@ -380,6 +380,45 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
     }
 
 
+async def ensure_geom_column(session: AsyncSession, table_name: str) -> None:
+    """Rename the geometry column to 'geom' if ogr2ogr used a different name.
+
+    This handles edge cases where ogr2ogr creates 'wkb_geometry' instead of
+    'geom' (e.g. when appending to a pre-existing table from a failed ingest,
+    or when the GDAL driver ignores -lco GEOMETRY_NAME).
+    """
+    _validate_table_name(table_name)
+    result = await session.execute(
+        text(
+            "SELECT f_geometry_column FROM geometry_columns "
+            "WHERE f_table_schema = 'data' AND f_table_name = :table_name"
+        ),
+        {"table_name": table_name},
+    )
+    row = result.first()
+    if row is None:
+        return  # Non-spatial table
+
+    geom_col = row[0]
+    if geom_col == "geom":
+        return  # Already correct
+
+    logger.info(
+        "Renaming geometry column",
+        table=table_name,
+        from_col=geom_col,
+        to_col="geom",
+    )
+    _validate_table_name(geom_col)
+    await session.execute(
+        text(
+            f"ALTER TABLE data.{table_name} "
+            f"RENAME COLUMN {geom_col} TO geom"
+        )
+    )
+    await session.commit()
+
+
 # Web Mercator (EPSG:3857) cannot represent latitudes beyond ±85.06°.
 # Geometries extending past this (e.g. Antarctica at -90°) cause
 # "transform: tolerance condition error" in ST_Transform.

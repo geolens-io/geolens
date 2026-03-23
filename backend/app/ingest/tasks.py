@@ -50,6 +50,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         add_4326_column,
         clip_to_mercator_bounds,
         compute_quality_score,
+        ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
@@ -186,11 +187,15 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 else (srid if srid is not None else 4326)
             )
 
-            # 4a. Clip geometries to Web Mercator bounds (±85.06° lat)
+            # 4a. Normalize geometry column name to 'geom'
+            if has_geometry:
+                await ensure_geom_column(session, table_name)
+
+            # 4b. Clip geometries to Web Mercator bounds (±85.06° lat)
             if has_geometry:
                 await clip_to_mercator_bounds(session, table_name)
 
-            # 4b. Add geom_4326 column
+            # 4c. Add geom_4326 column
             if has_geometry:
                 await add_4326_column(session, table_name, effective_srid)
 
@@ -335,6 +340,7 @@ async def ingest_service(
         add_4326_column,
         clip_to_mercator_bounds,
         compute_quality_score,
+        ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
@@ -422,6 +428,7 @@ async def ingest_service(
                     raise
 
             # 5. Post-processing (identical to ingest_file)
+            await ensure_geom_column(session, table_name)
             await clip_to_mercator_bounds(session, table_name)
             await add_4326_column(session, table_name, 4326)
             await grant_reader_access(session, table_name)
