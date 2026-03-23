@@ -81,6 +81,11 @@ interface ReuploadDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function humanizeLayerName(layer: LayerInfo): string {
+  if (layer.title) return layer.title;
+  return layer.name.replace(/_/g, ' ');
+}
+
 function findPreferredLayer(probeResult: ProbeResponse): LayerInfo | null {
   if (probeResult.layers.length === 0) {
     return null;
@@ -410,12 +415,12 @@ export function ReuploadDialog({
     : t('reupload.file');
 
   const previewSourceValue = sourceType === 'service_url'
-    ? (selectedLayer?.title ?? selectedLayer?.name ?? preview?.layer_name ?? t('common:unknown'))
+    ? (selectedLayer ? humanizeLayerName(selectedLayer) : (preview?.layer_name ?? t('common:unknown')))
     : selectedFile?.name;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('reupload.title')}</DialogTitle>
           <DialogDescription>{descriptions[step]}</DialogDescription>
@@ -590,7 +595,7 @@ export function ReuploadDialog({
                         )}
                         onClick={() => setSelectedLayer(layer)}
                       >
-                        <TableCell>{layer.title || layer.name}</TableCell>
+                        <TableCell className="max-w-[300px] truncate">{humanizeLayerName(layer)}</TableCell>
                         <TableCell>
                           {layer.geometry_type ? getGeometryTypeLabel(t, layer.geometry_type) : '-'}
                         </TableCell>

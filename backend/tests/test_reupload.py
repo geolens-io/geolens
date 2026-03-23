@@ -694,3 +694,12 @@ class TestSchemaDiffComputation:
         assert result["row_count_old"] is None
         assert result["row_count_new"] is None
         assert result["row_count_delta"] == 0
+
+    def test_schema_diff_case_insensitive(self):
+        """Column matching is case-insensitive (ogr2ogr lowercases on import)."""
+        old_cols = [{"name": "label12", "type": "character varying"}]
+        new_cols = [{"name": "LABEL12", "type": "String"}]
+        result = compute_schema_diff(old_cols, new_cols, 10, 10)
+        assert result["columns_added"] == []
+        assert result["columns_removed"] == []
+        assert result["type_changes"] == []

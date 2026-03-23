@@ -138,6 +138,7 @@ async def probe_arcgis_service(
             {
                 "id": layer["id"],
                 "name": layer["name"],
+                "title": layer.get("title"),
                 "geometry_type": _normalize_esri_geom_type(layer.get("geometryType")),
                 "type": "layer",
                 "object_id_field": layer.get("objectIdField") or service_oid or "OBJECTID",
@@ -149,6 +150,7 @@ async def probe_arcgis_service(
             {
                 "id": table["id"],
                 "name": table["name"],
+                "title": table.get("title"),
                 "geometry_type": None,
                 "type": "table",
             }
