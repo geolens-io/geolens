@@ -235,4 +235,58 @@ describe('syncLayersToMap', () => {
     expect(map.addSource).not.toHaveBeenCalled();
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4', 'raster-opacity', 0.7);
   });
+
+  it('vector point layer with opacity 1.0 still sets circle-opacity paint property', () => {
+    const layer = makeLayer({
+      id: 'op1',
+      dataset_geometry_type: 'Point',
+      opacity: 1,
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op1', 'circle-opacity', 1);
+  });
+
+  it('fill layer with opacity 1.0 sets fill-opacity and outline line-opacity', () => {
+    const layer = makeLayer({
+      id: 'op2',
+      dataset_geometry_type: 'Polygon',
+      opacity: 1,
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+
+    // fill-opacity = 0.3 (default) * 1 = 0.3
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2', 'fill-opacity', 0.3);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2-outline', 'line-opacity', 1);
+  });
+
+  it('existing label layer syncs filter during paint update', () => {
+    const layer = makeLayer({
+      id: 'lf1',
+      dataset_geometry_type: 'Polygon',
+      label_config: { column: 'name' },
+      filter: ['==', 'type', 'park'],
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+    // Simulate existing source and label layer
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'source-lf1') return { type: 'vector' };
+      return null;
+    });
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-lf1' || id === 'layer-lf1-outline' || id === 'layer-lf1-label') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+
+    // Label layer filter should be synced
+    expect(map.setFilter).toHaveBeenCalledWith('layer-lf1-label', ['==', 'type', 'park']);
+  });
 });
