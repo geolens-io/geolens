@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   SEQUENTIAL_RAMPS,
   DIVERGING_RAMPS,
@@ -13,6 +14,7 @@ interface ColorRampPickerProps {
 }
 
 export function ColorRampPicker({ rampName, onChange, mode }: ColorRampPickerProps) {
+  const { t } = useTranslation('builder');
   const ramps =
     mode === 'categorical'
       ? [...QUALITATIVE_RAMPS]
@@ -20,6 +22,11 @@ export function ColorRampPicker({ rampName, onChange, mode }: ColorRampPickerPro
 
   return (
     <div className="max-h-40 overflow-y-auto space-y-1">
+      {rampName === 'custom' && (
+        <div className="px-1.5 py-1 text-[10px] italic text-muted-foreground">
+          {t('dataDriven.customColors')}
+        </div>
+      )}
       {ramps.map((ramp) => {
         const colors = getRampColors(ramp.name, 7);
         const isSelected = ramp.name === rampName;

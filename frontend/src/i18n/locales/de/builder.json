@@ -16,6 +16,8 @@
     "styleTab": "Stil",
     "filterTab": "Filter",
     "labelsTab": "Beschriftungen",
+    "filterActive": "Filter aktiv",
+    "labelsActive": "Beschriftungen aktiviert",
     "hideLayer": "Layer ausblenden",
     "showLayer": "Layer einblenden",
     "renameHint": "Doppelklick zum Umbenennen",
@@ -85,7 +87,8 @@
     "quantile": "Quantil",
     "classes": "Klassen",
     "colors": "Farben",
-    "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte."
+    "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte.",
+    "customColors": "Benutzerdefinierte Farben angewendet"
   },
   "search": {
     "title": "Datensatz hinzufügen",
