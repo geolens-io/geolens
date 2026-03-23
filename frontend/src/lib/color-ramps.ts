@@ -6,24 +6,38 @@ export const SEQUENTIAL_RAMPS = [
   { name: 'YlOrRd', label: 'Yellow-Orange-Red' },
   { name: 'YlGnBu', label: 'Yellow-Green-Blue' },
   { name: 'Viridis', label: 'Viridis' },
+  { name: 'Inferno', label: 'Inferno' },
+  { name: 'Plasma', label: 'Plasma' },
   { name: 'Blues', label: 'Blues' },
   { name: 'Greens', label: 'Greens' },
   { name: 'Oranges', label: 'Oranges' },
+  { name: 'Reds', label: 'Reds' },
   { name: 'Purples', label: 'Purples' },
+  { name: 'BuGn', label: 'Blue-Green' },
+  { name: 'BuPu', label: 'Blue-Purple' },
+  { name: 'OrRd', label: 'Orange-Red' },
+  { name: 'YlGn', label: 'Yellow-Green' },
 ] as const;
 
 export const DIVERGING_RAMPS = [
   { name: 'RdYlBu', label: 'Red-Yellow-Blue' },
   { name: 'RdYlGn', label: 'Red-Yellow-Green' },
+  { name: 'RdBu', label: 'Red-Blue' },
   { name: 'BrBG', label: 'Brown-BlueGreen' },
   { name: 'PiYG', label: 'Pink-YellowGreen' },
+  { name: 'PRGn', label: 'Purple-Green' },
+  { name: 'Spectral', label: 'Spectral' },
 ] as const;
 
 export const QUALITATIVE_RAMPS = [
+  { name: 'Set1', label: 'Set 1' },
   { name: 'Set2', label: 'Set 2' },
   { name: 'Set3', label: 'Set 3' },
   { name: 'Paired', label: 'Paired' },
   { name: 'Dark2', label: 'Dark 2' },
+  { name: 'Accent', label: 'Accent' },
+  { name: 'Pastel1', label: 'Pastel 1' },
+  { name: 'Pastel2', label: 'Pastel 2' },
 ] as const;
 
 /**
