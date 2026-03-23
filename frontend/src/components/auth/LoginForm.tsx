@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -22,6 +22,7 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation('auth');
 
   async function handleSubmit(e: FormEvent) {
@@ -31,7 +32,10 @@ export function LoginForm() {
 
     try {
       await login(username, password);
-      navigate('/');
+      const from = (location.state as { from?: string } | null)?.from;
+      const target = from && from.startsWith('/') ? from : '/';
+      sessionStorage.removeItem('geolens-login-redirect');
+      navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t('loginFailed'));
     } finally {
