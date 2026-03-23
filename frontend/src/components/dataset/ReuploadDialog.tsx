@@ -114,7 +114,7 @@ export function ReuploadDialog({
   const [preview, setPreview] = useState<ReuploadPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [serviceUrl, setServiceUrl] = useState('');
+  const [serviceUrl, setServiceUrl] = useState(dataset.source_url ?? '');
   const [serviceToken, setServiceToken] = useState('');
   const [probeResult, setProbeResult] = useState<ProbeResponse | null>(null);
   const [selectedLayer, setSelectedLayer] = useState<LayerInfo | null>(null);
@@ -143,11 +143,11 @@ export function ReuploadDialog({
     setPreview(null);
     setError(null);
     setSelectedFile(null);
-    setServiceUrl('');
+    setServiceUrl(dataset.source_url ?? '');
     setServiceToken('');
     setProbeResult(null);
     setSelectedLayer(null);
-  }, []);
+  }, [dataset.source_url]);
 
   // Only poll when tracking
   const trackingJobId = step === 'tracking' ? jobId : null;
