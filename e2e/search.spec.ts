@@ -10,13 +10,13 @@ test.describe('Search Flow', () => {
 
     // Navigate with query param to bypass hero→sticky transition race condition.
     // This puts us directly in browse mode with a single SearchBar.
-    await page.goto('/?q=Reefs');
+    await page.goto('/?q=Zoning');
     const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
 
     // Focus and re-fill to trigger typeahead (onFocus + onChange open the dropdown)
     await searchInput.click();
-    await searchInput.fill('Reefs');
-    await expect(page.getByRole('option', { name: /Reefs/ })).toBeVisible({
+    await searchInput.fill('Zoning');
+    await expect(page.getByRole('option', { name: /Composite Zoning 2024/ })).toBeVisible({
       timeout: 15_000,
     });
     await searchInput.press('ArrowDown');
@@ -25,7 +25,25 @@ test.describe('Search Flow', () => {
     // Verify dataset detail page
     await expect(page).toHaveURL(/\/datasets\//);
     await expect(
-      page.getByRole('heading', { name: /Reefs/ }),
+      page.getByRole('heading', { name: /Composite Zoning 2024/ }),
     ).toBeVisible();
+  });
+
+  test('result cards stay readable on mobile widths', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/?q=Zoning');
+
+    const card = page.getByTestId('search-result-card').first();
+    await expect(card).toBeVisible();
+    await expect(card.getByText('Composite Zoning 2024')).toBeVisible();
+    await expect(card.getByTestId('dataset-card-specs')).toContainText('EPSG:4326');
+    await expect(card.getByTestId('dataset-card-source')).toContainText('Neglia Engineering Associates');
+
+    const overflow = await card.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
   });
 });

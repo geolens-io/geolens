@@ -51,49 +51,52 @@ export function SearchPage() {
     return () => observer.disconnect();
   }, []);
 
-  const showHero = isLanding && !scrolledPastHero;
   const showStickyBar = !isLanding || scrolledPastHero;
 
   return (
     <>
       <div ref={sentinelRef} className="h-0" />
-      <div className={cn(
-        'sticky top-0 z-30 border-b bg-background/95 backdrop-blur-sm transition-all duration-200',
-        showStickyBar ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none h-0 overflow-hidden border-b-0',
-        showStickyBar && !isLanding ? 'py-2 shadow-sm' : 'py-2.5'
-      )}>
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="max-w-2xl mx-auto [&_input]:h-10 [&_input]:text-base">
-            <SearchBar />
-          </div>
-          {!isLanding && (
-            <div className="mt-2">
+      <div
+        className={cn(
+          'sticky top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur-xl transition-all duration-200',
+          showStickyBar
+            ? 'translate-y-0 opacity-100'
+            : 'pointer-events-none h-0 -translate-y-2 overflow-hidden border-b-0 opacity-0',
+        )}
+      >
+        <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
+          <div className="rounded-[26px] border border-border/60 bg-background/90 px-3 py-3 shadow-[0_24px_45px_-36px_rgba(15,23,42,0.55)]">
+            <SearchBar mode="compact" />
+            {!isLanding && (
+              <div className="mt-3 border-t border-border/50 pt-3">
               <FilterPanel totalResults={data?.numberMatched} />
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    <PageShell maxWidth="wide">
+      <PageShell maxWidth="wide" className="space-y-6 pb-8 pt-6 sm:pt-8">
       {/* Hero: only on landing state */}
       {isLanding && (
-        <>
-          <div className="text-center space-y-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-            <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
+        <section className="relative overflow-hidden rounded-[32px] border border-border/60 bg-gradient-to-br from-background via-background to-muted/60 px-4 py-8 shadow-sm sm:px-8 sm:py-10">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.14),transparent_48%)]" />
+          <div className="relative mx-auto max-w-4xl space-y-5">
+            <div className="space-y-3 text-center">
+              <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t('title')}</h1>
+              <p className="mx-auto max-w-2xl text-sm text-muted-foreground sm:text-base">{t('subtitle')}</p>
+            </div>
+            <SearchBar />
+            {token && <SavedSearches />}
+            <div className="rounded-[26px] border border-border/60 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
+              <FilterPanel totalResults={data?.numberMatched} />
+            </div>
           </div>
-          <SearchBar />
-        </>
+        </section>
       )}
-
-      {/* Saved searches (authenticated users only, landing mode) */}
-      {isLanding && token && <SavedSearches />}
-
-      {/* Filters and result count (landing mode only — active mode renders in sticky bar) */}
-      {isLanding && <FilterPanel totalResults={data?.numberMatched} />}
 
       {/* Loading indicator for refetch (subtle) */}
       {isFetching && data && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
           <Loader2 className="size-4 animate-spin" />
           {t('updating')}
         </div>
@@ -101,7 +104,7 @@ export function SearchPage() {
 
       {/* Loading state (initial) */}
       {isLoading && !data && (
-        <div className="space-y-2">
+        <div className="grid gap-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <DatasetCardSkeleton key={i} />
           ))}
@@ -134,11 +137,11 @@ export function SearchPage() {
 
       {/* Results list */}
       {data && data.features.length > 0 && (
-        <div className="space-y-2">
+        <section className="space-y-3">
           {data.features.map((feature) => (
             <SearchResultCard key={feature.id} feature={feature} />
           ))}
-        </div>
+        </section>
       )}
 
       {/* Pagination */}
@@ -150,7 +153,7 @@ export function SearchPage() {
           onPageChange={(newOffset) => useSearchStore.getState().setPage(newOffset)}
         />
       )}
-    </PageShell>
+      </PageShell>
     </>
   );
 }

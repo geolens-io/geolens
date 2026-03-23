@@ -4,9 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useSearchStore } from '@/stores/search-store';
+import { cn } from '@/lib/utils';
 import { SearchTypeahead } from './SearchTypeahead';
 
-export function SearchBar() {
+interface SearchBarProps {
+  mode?: 'hero' | 'compact';
+  className?: string;
+}
+
+export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const { t } = useTranslation('search');
   const query = useSearchStore((s) => s.q);
   const [value, setValue] = useState(query);
@@ -33,14 +39,26 @@ export function SearchBar() {
   }, []);
 
   const typeaheadId = 'search-typeahead-listbox';
+  const isCompact = mode === 'compact';
   const closeTypeahead = () => {
     setShowTypeahead(false);
     setActiveDescendant(null);
   };
 
   return (
-    <div className="relative w-full max-w-2xl mx-auto">
-      <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-5 text-muted-foreground" />
+    <div
+      className={cn(
+        'relative mx-auto w-full',
+        isCompact ? 'max-w-none' : 'max-w-3xl',
+        className,
+      )}
+    >
+      <Search
+        className={cn(
+          'absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/80',
+          isCompact ? 'size-[18px]' : 'size-5',
+        )}
+      />
       <Input
         ref={inputRef}
         role="combobox"
@@ -67,7 +85,12 @@ export function SearchBar() {
           blurTimeoutRef.current = setTimeout(closeTypeahead, 200);
         }}
         placeholder={t('placeholder')}
-        className="h-12 pl-12 pr-10 text-lg rounded-full border-border/60 shadow-sm focus-visible:ring-primary/30 text-ellipsis"
+        className={cn(
+          'w-full border-border/60 bg-background/95 text-ellipsis shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] placeholder:text-muted-foreground/80 focus-visible:ring-primary/20',
+          isCompact
+            ? 'h-11 rounded-[22px] pl-11 pr-11 text-base'
+            : 'h-14 rounded-[28px] pl-12 pr-12 text-base sm:h-16 sm:text-lg',
+        )}
       />
       {value && (
         <button
@@ -77,7 +100,10 @@ export function SearchBar() {
             closeTypeahead();
           }}
           aria-label={t('clearSearch', { defaultValue: 'Clear search' })}
-          className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          className={cn(
+            'absolute right-4 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground transition-colors hover:text-foreground',
+            isCompact ? 'p-0' : 'p-0.5 hover:bg-accent/60',
+          )}
         >
           <X className="size-4" />
         </button>
