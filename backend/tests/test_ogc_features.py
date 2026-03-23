@@ -412,3 +412,75 @@ async def test_f_param_xml_returns_400(client: AsyncClient, public_dataset: Data
     assert resp.status_code == 400
     data = resp.json()
     assert "Unsupported format" in data["detail"]
+
+
+# ---------------------------------------------------------------------------
+# OGC conformance: null exclusion, top-level links, self link query params
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_link_objects_omit_null_fields(
+    client: AsyncClient, public_dataset: Dataset
+):
+    """Link objects in /collections/{id} response must not contain null values."""
+    resp = await client.get(f"/collections/{public_dataset.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    for link in data["links"]:
+        for key, value in link.items():
+            assert value is not None, f"Link field '{key}' is null in {link}"
+
+
+@pytest.mark.anyio
+async def test_collections_has_top_level_links(
+    client: AsyncClient, public_dataset: Dataset
+):
+    """GET /collections includes top-level links with self and root rels."""
+    resp = await client.get("/collections")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "links" in data
+    assert isinstance(data["links"], list)
+    assert len(data["links"]) > 0
+
+    rels = {link["rel"] for link in data["links"]}
+    assert "self" in rels, f"Missing 'self' rel in top-level links: {rels}"
+    assert "root" in rels, f"Missing 'root' rel in top-level links: {rels}"
+
+
+@pytest.mark.anyio
+async def test_items_self_link_includes_query_params(
+    client: AsyncClient, public_dataset: Dataset
+):
+    """Items self link href includes current limit/offset query params."""
+    # Test with limit only
+    resp = await client.get(
+        f"/collections/{public_dataset.id}/items",
+        params={"limit": 2},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    self_link = next(
+        (link for link in data["links"] if link["rel"] == "self"), None
+    )
+    assert self_link is not None, "Missing self link in items response"
+    assert "limit=2" in self_link["href"], f"limit missing from self link: {self_link['href']}"
+    assert "offset=0" in self_link["href"], f"offset missing from self link: {self_link['href']}"
+
+    # Test with bbox
+    resp2 = await client.get(
+        f"/collections/{public_dataset.id}/items",
+        params={"limit": 2, "bbox": "-75,40,-73,41"},
+    )
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+
+    self_link2 = next(
+        (link for link in data2["links"] if link["rel"] == "self"), None
+    )
+    assert self_link2 is not None, "Missing self link in items response with bbox"
+    assert "-75,40,-73,41" in self_link2["href"], f"bbox missing from self link: {self_link2['href']}"
