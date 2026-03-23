@@ -76,9 +76,6 @@ The script downloads, ingests, and organizes datasets into collections automatic
 
 See [docs/cloud-deployment.md](docs/cloud-deployment.md) for AWS, DigitalOcean, and Kubernetes guides.
 
-- **[geolens-helm](https://github.com/geolens-io/geolens-helm)** — Kubernetes Helm charts
-- **[geolens-deploy](https://github.com/geolens-io/geolens-deploy)** — Cloud marketplace images and production deployment
-
 ## Contributing
 
 Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request.
