@@ -10,6 +10,7 @@ import { useAIStatus } from '@/hooks/use-admin';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -129,6 +130,9 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
               <TabsTrigger value="ai">
                 <Sparkles className="mr-1 size-3.5" />
                 {t('mapCreate.tabAI')}
+                <Badge variant="outline" className="ml-1.5 border-amber-500/50 px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                  {t('chat.experimental')}
+                </Badge>
               </TabsTrigger>
             )}
           </TabsList>
