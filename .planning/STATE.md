@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260324
-last_updated: "2026-03-23T13:07:24Z"
+stopped_at: Completed quick-260323-dxj
+last_updated: "2026-03-23T14:07:44.083Z"
 last_activity: "2026-03-23 - Completed quick task 260324: inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards"
 progress:
   total_phases: 60
@@ -117,6 +117,7 @@ Plan: Not started
 - [Phase quick-260322-t3j]: Amber badge styling (border-amber-500/50 text-amber-600 dark:text-amber-400) for experimental indicator, matching SettingsAITab pattern
 - [Phase quick-260324]: Search cards split long source organization text from compact spec metadata, using clamped source copy plus spec pills for faster scanning
 - [Phase quick-260324]: Search landing and browse states now share a framed shell language across hero, sticky search, filters, and saved searches
+- [Phase quick-260323-dxj]: Use location.state.from for login redirect and sessionStorage for OAuth redirect persistence; reject absolute URLs to prevent open redirects
 
 ### Pending Todos
 
@@ -167,6 +168,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-23 - Completed quick task 260324: inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards
-Last session: 2026-03-23T13:07:24Z
-Stopped at: Completed quick-260324
+Last session: 2026-03-23T14:07:39.288Z
+Stopped at: Completed quick-260323-dxj
 Resume file: None
