@@ -609,6 +609,8 @@ export interface LabelConfig {
   textColor?: string;
   haloColor?: string;
   haloWidth?: number;
+  minZoom?: number;
+  maxZoom?: number;
 }
 
 // Data-driven styling

@@ -64,7 +64,10 @@
     "textColor": "Textfarbe",
     "haloColor": "Halofarbe",
     "haloWidth": "Halobreite",
-    "selectColumn": "Spalte auswählen"
+    "selectColumn": "Spalte auswählen",
+    "zoomRange": "Zoombereich",
+    "minZoom": "Min Zoom",
+    "maxZoom": "Max Zoom"
   },
   "dataDriven": {
     "title": "Datengesteuerte Farbe",

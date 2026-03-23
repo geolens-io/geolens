@@ -348,6 +348,8 @@ export function syncLayersToMap(
             type: 'symbol',
             source: sourceId,
             'source-layer': sourceLayer,
+            minzoom: lc.minZoom ?? 0,
+            maxzoom: lc.maxZoom ?? 22,
             layout: {
               'text-field': ['get', lc.column],
               'text-size': lc.fontSize ?? 12,
@@ -373,6 +375,7 @@ export function syncLayersToMap(
           map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
           map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
           map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
+          map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
           // Sync filter on existing label layer
           if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
             map.setFilter(labelId, layer.filter);
