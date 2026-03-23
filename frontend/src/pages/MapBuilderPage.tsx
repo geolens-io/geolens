@@ -353,7 +353,12 @@ export function MapBuilderPage() {
               <SheetDescription>{t('tooltips.aiChat')}</SheetDescription>
             </SheetHeader>
             <div className="p-3 border-b flex items-center justify-between">
-              <h3 className="text-sm font-medium">{t('aiChat')}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium">{t('aiChat')}</h3>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600 dark:text-amber-400">
+                  {t('chat.experimental')}
+                </Badge>
+              </div>
               <Button variant="ghost" size="icon-xs" onClick={() => dialogs.setShowChat(false)} aria-label={t('tooltips.closeChat')}>
                 <X className="h-3 w-3" />
               </Button>
@@ -379,7 +384,12 @@ export function MapBuilderPage() {
       {!isCompact && dialogs.showChat && id && (
         <div className="w-80 border-l bg-background flex flex-col shrink-0 overflow-hidden">
           <div className="p-3 border-b flex items-center justify-between">
-            <h3 className="text-sm font-medium">{t('aiChat')}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium">{t('aiChat')}</h3>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600 dark:text-amber-400">
+                {t('chat.experimental')}
+              </Badge>
+            </div>
             <Button variant="ghost" size="icon-xs" onClick={() => dialogs.setShowChat(false)} aria-label={t('tooltips.closeChat')}>
               <X className="h-3 w-3" />
             </Button>

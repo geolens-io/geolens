@@ -155,6 +155,7 @@
     "errorForbidden": "You don't have permission to use AI chat.",
     "errorAiUnavailable": "AI service is temporarily unavailable.",
     "retry": "Retry",
+    "experimental": "Experimental",
     "stillWorking": "Still working...",
     "takingLonger": "This is taking longer than usual...",
     "almostThere": "Almost there, hang tight...",
@@ -197,7 +198,7 @@
     "dialogDescription": "Details and metadata about this map."
   },
   "tooltips": {
-    "aiChat": "AI Chat",
+    "aiChat": "AI Chat (Experimental)",
     "share": "Share",
     "mapInfo": "Map info",
     "downloadPng": "Download PNG",

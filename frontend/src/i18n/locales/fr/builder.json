@@ -156,6 +156,7 @@
     "errorForbidden": "Vous n'avez pas la permission d'utiliser le chat IA.",
     "errorAiUnavailable": "Le service IA est temporairement indisponible.",
     "retry": "Réessayer",
+    "experimental": "Experimental",
     "stillWorking": "Traitement en cours...",
     "takingLonger": "Cela prend plus de temps que d'habitude...",
     "suggestions": {
@@ -197,7 +198,7 @@
     "dialogDescription": "Détails et métadonnées de cette carte."
   },
   "tooltips": {
-    "aiChat": "Chat IA",
+    "aiChat": "Chat IA (Experimental)",
     "share": "Partager",
     "mapInfo": "Info carte",
     "downloadPng": "Télécharger PNG",
