@@ -27,6 +27,7 @@ from app.maps.schemas import (
     MapResponse,
     MapSummaryResponse,
     MapUpdate,
+    MapVisibility,
     ShareTokenRequest,
     SharedMapResponse,
     ShareTokenResponse,
@@ -303,6 +304,15 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+
+    # Hard block: prevent publishing maps with non-public datasets
+    if body.visibility and body.visibility == MapVisibility.public:
+        non_public = await validate_public_visibility(db, map_id)
+        if non_public:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot set visibility to public: datasets are not public: {', '.join(non_public)}",
+            )
 
     # Build update kwargs from non-None fields
     kwargs = body.model_dump(exclude_none=True)

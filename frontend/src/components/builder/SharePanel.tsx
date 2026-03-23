@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -112,8 +113,14 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
         setHasNonPublic(false);
         setEmbedTokenRaw(null);
       }
-    } catch {
-      toast.error(t('toasts.visibilityFailed'));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 400) {
+        const match = err.message.match(/datasets are not public: (.+)$/);
+        const datasets = match ? match[1] : err.message;
+        toast.error(t('share.cannotPublish', { datasets }));
+      } else {
+        toast.error(t('toasts.visibilityFailed'));
+      }
     }
   }
 
