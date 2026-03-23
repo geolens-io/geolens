@@ -6,9 +6,9 @@ Utility scripts for GeoLens administration and data seeding.
 
 ### `seed-ago-data.py`
 
-Imports public datasets from an ArcGIS Online organization into GeoLens.
+Imports public datasets from an ArcGIS Online organization into GeoLens via the service connector API.
 
-Discovers all public Feature/Map Services in the org, downloads each layer as GeoJSON, and ingests via the upload API. Layers are assigned to a collection named after the organization. Layer descriptions from AGO are captured as dataset summaries.
+Discovers all public Feature/Map Services in the org and ingests each layer directly from the ArcGIS REST endpoint (no intermediate GeoJSON download). This stores the `source_url` on each dataset, enabling future updates via the UI or the `--update` flag. Layers are assigned to a collection named after the organization.
 
 ```bash
 # Prerequisites
@@ -23,8 +23,8 @@ python scripts/seed-ago-data.py --api-key <key>
 # Import from a different org
 python scripts/seed-ago-data.py --org-url https://otherorg.maps.arcgis.com --api-key <key>
 
-# Resume a partial run (caches downloaded GeoJSON locally)
-python scripts/seed-ago-data.py --api-key <key> --cache-dir /tmp/ago-cache
+# Update existing datasets from their AGO sources
+python scripts/seed-ago-data.py --api-key <key> --update
 
 # Control parallelism (default: 3)
 python scripts/seed-ago-data.py --api-key <key> --concurrency 5
@@ -36,10 +36,10 @@ python scripts/seed-ago-data.py --api-key <key> --concurrency 5
 | `--api-key` | `$GEOLENS_API_KEY` | GeoLens API key |
 | `--base-url` | `http://localhost:8080` | GeoLens base URL |
 | `--dry-run` | off | List layers without importing |
-| `--cache-dir` | none | Cache downloaded GeoJSON for resumable runs |
-| `--concurrency` | 3 | Max parallel download+ingest streams |
+| `--update` | off | Re-import existing datasets from source AGO services |
+| `--concurrency` | 3 | Max parallel ingest streams |
 
-Re-running the script is safe — it skips layers that already exist in the catalog (matched by `source_filename`).
+Re-running without `--update` is safe — it skips layers that already exist (matched by `source_url`). With `--update`, existing datasets are refreshed from their source service via the reupload API.
 
 ### `seed-natural-earth.py`
 
