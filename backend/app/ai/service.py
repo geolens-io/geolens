@@ -663,6 +663,7 @@ async def stream_generate_map(
         map_result = await _validate_and_persist_map(
             session, user, user_roles, spec, basemap_ids=basemap_ids
         )
+        await session.commit()
         yield {"type": "done", **map_result}
 
     except ToolLoopExhaustedError:

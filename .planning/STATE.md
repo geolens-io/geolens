@@ -166,10 +166,11 @@ Plan: Not started
 | 260323-7cr | Fix ingest pipeline geometry column naming bug and improve seed script robustness | 2026-03-23 | 061e72c4 | Verified | [260323-7cr-review-and-fix-seed-ago-data-py-fix-geom](./quick/260323-7cr-review-and-fix-seed-ago-data-py-fix-geom/) |
 | 260324 | inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards | 2026-03-23 | d5846915 | Verified | [260324-inspect-the-search-page-with-playwright-](./quick/260324-inspect-the-search-page-with-playwright-/) |
 | 260323-dxj | redirect to deep link after login | 2026-03-23 | e05f54e0 | Verified | [260323-dxj-redirect-to-deep-link-after-login](./quick/260323-dxj-redirect-to-deep-link-after-login/) |
+| 260323-ees | Fix OGC API Features endpoints for QGIS compatibility | 2026-03-23 | 9fb0b26c | Verified | [260323-ees-verify-ogc-api-features-endpoints-workin](./quick/260323-ees-verify-ogc-api-features-endpoints-workin/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260323-dxj: redirect to deep link after login
+Last activity: 2026-03-23 - Completed quick task 260323-ees: Fix OGC API Features endpoints for QGIS compatibility
 Last session: 2026-03-23T14:36:03.107Z
 Stopped at: Completed quick-260323-ees
 Resume file: None
