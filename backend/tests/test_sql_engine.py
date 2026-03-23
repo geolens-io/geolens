@@ -158,6 +158,18 @@ class TestSqlPrompt:
     def test_instructs_geom_4326_column(self):
         assert "geom_4326" in self.prompt
 
+    def test_includes_unit_conversion_factors(self):
+        assert "4046.8564224" in self.prompt  # sq meters to acres
+        assert "1609.344" in self.prompt  # meters to miles
+        assert "acres" in self.prompt.lower()
+
+    def test_includes_area_example_query(self):
+        assert "total_acres" in self.prompt
+        assert "ST_Area" in self.prompt
+
+    def test_instructs_human_friendly_units(self):
+        assert "human-friendly units" in self.prompt
+
 
 # ------------------------------------------------------------------
 # Tests for query_data tool integration (Plan 02)

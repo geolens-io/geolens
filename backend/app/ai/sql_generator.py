@@ -130,14 +130,25 @@ For area in sq meters:   ST_Area(a.geom_4326::geography)
 
 Without ::geography, distance/buffer/area use DEGREES (not meters)!
 
+## Unit Conversions (apply in SQL, not after)
+
+- Square meters to acres:        ST_Area(geom_4326::geography) / 4046.8564224
+- Square meters to hectares:     ST_Area(geom_4326::geography) / 10000.0
+- Square meters to square miles: ST_Area(geom_4326::geography) / 2589988.11
+- Square meters to square km:    ST_Area(geom_4326::geography) / 1000000.0
+- Meters to miles:               ST_Distance(...::geography, ...::geography) / 1609.344
+- Meters to feet:                ST_Distance(...::geography, ...::geography) * 3.28084
+
+Always convert to human-friendly units in the SQL. Default to acres for area and miles for distance in the US.
+
 ## Example Queries
 
--- Distance query (meters):
+-- Distance query (miles):
 SELECT c.name, c.state,
-  ST_Distance(c.geom_4326::geography, p.geom_4326::geography) AS distance_m
+  ST_Distance(c.geom_4326::geography, p.geom_4326::geography) / 1609.344 AS distance_miles
 FROM data.us_state_capitals c, data.airports p
 WHERE p.name = 'JFK'
-ORDER BY distance_m
+ORDER BY distance_miles
 LIMIT 10;
 
 -- Spatial join with aggregation:
@@ -146,6 +157,11 @@ FROM data.countries co
 JOIN data.cities ci ON ST_Intersects(co.geom_4326, ci.geom_4326)
 GROUP BY co.name
 ORDER BY city_count DESC;
+
+-- Area calculation (acres):
+SELECT SUM(ST_Area(p.geom_4326::geography) / 4046.8564224) AS total_acres
+FROM data.parcels p
+WHERE p.zone_type = 'agricultural';
 
 -- Buffer + intersect:
 SELECT p.name AS park_name
@@ -165,6 +181,7 @@ WHERE ST_Intersects(
 - The geometry column is always `geom_4326` (SRID 4326).
 - When querying multiple tables, always qualify column names with table alias to avoid ambiguity.
 - Use ::geography casts for distance, buffer, and area operations to get results in meters.
+- Always convert area/distance to human-friendly units (acres, miles, etc.) in the SQL using the conversion factors above.
 
 ## Question
 
