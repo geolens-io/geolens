@@ -669,7 +669,7 @@ async def reupload_file(
         )
         dataset = result.scalar_one()
 
-        staging_tn = f"{dataset.table_name}_staging"
+        staging_tn = f"{dataset.table_name[:54]}_staging"
 
         try:
             # 1. Update job to running
@@ -721,8 +721,10 @@ async def reupload_file(
                 else (srid if srid is not None else 4326)
             )
 
-            # 4. Load into staging table
+            # 4. Load into staging table (drop stale staging table first)
             db_conn_str = build_pg_conn_str()
+            await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn} CASCADE"))
+            await session.commit()
             await run_ogr2ogr(file_path, staging_tn, db_conn_str, source_srid=srid, geometry_type=geometry_type)
 
             # 5. Post-process staging table
@@ -857,7 +859,7 @@ async def reupload_service(
         )
         dataset = result.scalar_one()
 
-        staging_tn = f"{dataset.table_name}_staging"
+        staging_tn = f"{dataset.table_name[:54]}_staging"
 
         try:
             job.status = "running"
@@ -889,6 +891,10 @@ async def reupload_service(
 
             db_conn_str = build_pg_conn_str()
             reupload_oid_field = um.get("object_id_field") or "OBJECTID"
+
+            # Drop stale staging table from prior failed attempt
+            await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn} CASCADE"))
+            await session.commit()
 
             async def _run_service_import(layer_name: str) -> None:
                 gdal_source, layer_arg = build_gdal_source(
