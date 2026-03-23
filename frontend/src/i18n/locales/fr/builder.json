@@ -81,6 +81,7 @@
     "equalInterval": "Intervalles égaux",
     "quantile": "Quantile",
     "classes": "Classes",
+    "colors": "Couleurs",
     "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs."
   },
   "search": {

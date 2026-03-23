@@ -1,6 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
+import { HexColorPicker, HexColorInput } from 'react-colorful';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -141,6 +147,44 @@ export function DataDrivenStyleEditor({
     setRamp(newMode === 'categorical' ? 'Set2' : 'YlOrRd');
   }
 
+  const handleCategoryColorChange = useCallback(
+    (value: string, newColor: string) => {
+      const config = layer.style_config;
+      if (!config?.categories) return;
+
+      const updated = config.categories.map((c) =>
+        c.value === value ? { ...c, color: newColor } : c,
+      );
+      const colorProp = getColorProperty(layer.dataset_geometry_type);
+      const valueColorMap: [string, string][] = updated.map((c) => [c.value, c.color]);
+      const expression = buildCategoricalExpression(
+        config.column,
+        valueColorMap,
+        MAP_COLORS.fallback,
+      );
+      const newConfig: StyleConfig = { ...config, categories: updated };
+      const paint = { ...layer.paint, [colorProp]: expression };
+      onStyleConfigChange(layer.id, newConfig, paint);
+    },
+    [layer, onStyleConfigChange],
+  );
+
+  const handleGraduatedColorChange = useCallback(
+    (index: number, newColor: string) => {
+      const config = layer.style_config;
+      if (!config?.colors || !config.breaks) return;
+
+      const updatedColors = [...config.colors];
+      updatedColors[index] = newColor;
+      const colorProp = getColorProperty(layer.dataset_geometry_type);
+      const expression = buildGraduatedExpression(config.column, config.breaks, updatedColors);
+      const newConfig: StyleConfig = { ...config, colors: updatedColors };
+      const paint = { ...layer.paint, [colorProp]: expression };
+      onStyleConfigChange(layer.id, newConfig, paint);
+    },
+    [layer, onStyleConfigChange],
+  );
+
   const hasTooManyCategories =
     mode === 'categorical' && valuesData && valuesData.values.length > 20;
 
@@ -206,6 +250,93 @@ export function DataDrivenStyleEditor({
           <div className="text-xs text-muted-foreground">{t('dataDriven.colorRamp')}</div>
           <ColorRampPicker rampName={ramp} onChange={setRamp} mode={mode} />
         </>
+      )}
+
+      {/* Per-category color editing */}
+      {column && mode === 'categorical' && layer.style_config?.categories && (
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground">{t('dataDriven.colors')}</div>
+          <div className="max-h-36 overflow-y-auto space-y-0.5">
+            {layer.style_config.categories.map((cat) => (
+              <div key={cat.value} className="flex items-center gap-2">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow"
+                      style={{ background: cat.color }}
+                      title={cat.color}
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-3" align="start" side="right">
+                    <HexColorPicker
+                      color={cat.color}
+                      onChange={(hex) => handleCategoryColorChange(cat.value, hex)}
+                    />
+                    <HexColorInput
+                      color={cat.color}
+                      onChange={(hex) => {
+                        if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+                          handleCategoryColorChange(cat.value, hex);
+                        }
+                      }}
+                      className="mt-2 w-full text-xs border rounded px-2 py-1"
+                      prefixed
+                    />
+                  </PopoverContent>
+                </Popover>
+                <span className="text-xs truncate">{cat.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Per-class color editing for graduated */}
+      {column && mode === 'graduated' && layer.style_config?.colors && layer.style_config?.breaks && (
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground">{t('dataDriven.colors')}</div>
+          <div className="max-h-36 overflow-y-auto space-y-0.5">
+            {layer.style_config.colors.map((color, i) => {
+              const breaks = layer.style_config!.breaks!;
+              const label =
+                i === 0
+                  ? `< ${breaks[0]}`
+                  : i === breaks.length
+                    ? `≥ ${breaks[breaks.length - 1]}`
+                    : `${breaks[i - 1]} – ${breaks[i]}`;
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow"
+                        style={{ background: color }}
+                        title={color}
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-3" align="start" side="right">
+                      <HexColorPicker
+                        color={color}
+                        onChange={(hex) => handleGraduatedColorChange(i, hex)}
+                      />
+                      <HexColorInput
+                        color={color}
+                        onChange={(hex) => {
+                          if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+                            handleGraduatedColorChange(i, hex);
+                          }
+                        }}
+                        className="mt-2 w-full text-xs border rounded px-2 py-1"
+                        prefixed
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <span className="text-xs text-muted-foreground truncate">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {column && mode === 'graduated' && (
