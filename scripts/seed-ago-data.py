@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Seed GeoLens with public data from an ArcGIS Online organization.
 
-Discovers all public Feature/Map Services in an ArcGIS Online organization,
-downloads each layer as GeoJSON, and ingests into GeoLens via the three-step
-upload API (upload → preview → commit → poll).
+Discovers all public Feature/Map Services in an ArcGIS Online organization
+and ingests each layer into GeoLens via the service connector API. This
+stores the source URL on each dataset, enabling future updates via the
+reupload API or the --update flag.
 
 Requires: pip install httpx
 
@@ -17,8 +18,8 @@ Usage:
     # Import from a different org
     python scripts/seed-ago-data.py --org-url https://otherorg.maps.arcgis.com --api-key <key>
 
-    # Resume a partial run (caches downloaded GeoJSON locally)
-    python scripts/seed-ago-data.py --api-key <key> --cache-dir /tmp/ago-cache
+    # Update existing datasets from their source AGO services
+    python scripts/seed-ago-data.py --api-key <key> --update
 
     # Control parallelism
     python scripts/seed-ago-data.py --api-key <key> --concurrency 5
@@ -26,13 +27,9 @@ Usage:
 
 import argparse
 import asyncio
-import io
-import json
 import os
 import sys
 import time
-import zipfile
-from pathlib import Path
 
 try:
     import httpx
@@ -54,12 +51,7 @@ DEFAULT_BASE_URL = "http://localhost:8080"
 # Item types that contain downloadable spatial data
 DOWNLOADABLE_TYPES = {"Feature Service", "Map Service"}
 
-# Max features per ArcGIS query (servers typically cap at 1000-2000)
-MAX_RECORD_COUNT = 2000
-
-# Pause between ArcGIS API pages to be respectful
-REQUEST_DELAY = 0.3
-
+SERVICE_TYPE = "ArcGIS FeatureServer"
 
 
 # ---------------------------------------------------------------------------
@@ -124,109 +116,6 @@ async def get_service_layers(
     return layers + tables
 
 
-async def download_layer_geojson(
-    client: httpx.AsyncClient, layer_url: str, layer_name: str
-) -> dict | None:
-    """Download all features from a layer as GeoJSON, handling pagination."""
-    # Get count
-    resp = await client.get(
-        layer_url + "/query",
-        params={"where": "1=1", "returnCountOnly": "true", "f": "json"},
-    )
-    resp.raise_for_status()
-    total_count = resp.json().get("count", 0)
-    if total_count == 0:
-        print(f"    Layer '{layer_name}' has 0 features, skipping")
-        return None
-
-    # Get server max record count
-    resp = await client.get(layer_url, params={"f": "json"})
-    resp.raise_for_status()
-    server_max = resp.json().get("maxRecordCount", 1000)
-    page_size = min(server_max, MAX_RECORD_COUNT)
-
-    print(f"    Downloading {total_count} features (page size: {page_size})...")
-
-    all_features: list[dict] = []
-    offset = 0
-    use_out_sr = True
-
-    while offset < total_count:
-        params: dict = {
-            "where": "1=1",
-            "outFields": "*",
-            "resultOffset": offset,
-            "resultRecordCount": page_size,
-            "f": "geojson",
-        }
-        if use_out_sr:
-            params["outSR"] = "4326"
-
-        resp = await client.get(layer_url + "/query", params=params)
-        resp.raise_for_status()
-
-        try:
-            data = resp.json()
-        except json.JSONDecodeError:
-            print(f"    Failed to parse response for '{layer_name}' at offset {offset}")
-            break
-
-        if "error" in data:
-            err_msg = data["error"].get("message", str(data["error"]))
-            if offset == 0 and use_out_sr:
-                # Retry without outSR — some services don't support reprojection
-                print(f"    Retrying without outSR: {err_msg}")
-                use_out_sr = False
-                continue
-            print(f"    API error for '{layer_name}': {err_msg}")
-            break
-
-        features = data.get("features", [])
-        if not features:
-            break
-
-        all_features.extend(features)
-        offset += len(features)
-        print(f"      {len(all_features)}/{total_count} features...")
-        await asyncio.sleep(REQUEST_DELAY)
-
-    if not all_features:
-        return None
-
-    return {"type": "FeatureCollection", "features": all_features}
-
-
-def geojson_to_zip(geojson: dict, name: str) -> bytes:
-    """Package a GeoJSON dict into a ZIP file for upload to GeoLens."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"{name}.geojson", json.dumps(geojson))
-    return buf.getvalue()
-
-
-# ---------------------------------------------------------------------------
-# Metadata helpers
-# ---------------------------------------------------------------------------
-
-
-def sanitize_name(name: str) -> str:
-    """Create a filesystem/table-safe name."""
-    return (
-        name.replace(" ", "_")
-        .replace("/", "_")
-        .replace("\\", "_")
-        .replace(":", "_")
-        .replace("(", "")
-        .replace(")", "")
-        .lower()
-    )
-
-
-def generate_display_name(layer_name: str) -> str:
-    """Generate a human-readable display name."""
-    return layer_name.replace("_", " ").title()
-
-
 # ---------------------------------------------------------------------------
 # Full discovery: org → items → layers
 # ---------------------------------------------------------------------------
@@ -237,8 +126,8 @@ async def discover_layers(
 ) -> tuple[list[dict], str]:
     """Discover all downloadable layers in an ArcGIS Online organization.
 
-    Returns (layers_manifest, org_name) where each entry in layers_manifest is:
-        {"service_title": ..., "layer_name": ..., "layer_url": ..., "item_id": ...}
+    Returns (layers_manifest, org_name) where each entry has:
+        service_title, layer_name, layer_id, service_url, summary
     """
     org_id, org_name = await get_org_id(client, org_url)
     print(f"Organization: {org_name} (ID: {org_id})")
@@ -264,7 +153,6 @@ async def discover_layers(
     for item in spatial_items:
         title = item.get("title", "untitled")
         item_url = item.get("url", "")
-        item_id = item.get("id", "")
         snippet = item.get("snippet") or ""
 
         if not item_url:
@@ -284,15 +172,14 @@ async def discover_layers(
         for layer in layers:
             layer_id = layer.get("id", 0)
             layer_name = layer.get("name", title)
-            layer_url = f"{item_url.rstrip('/')}/{layer_id}"
             layer_description = layer.get("description") or snippet
 
             manifest.append(
                 {
                     "service_title": title,
                     "layer_name": layer_name,
-                    "layer_url": layer_url,
-                    "item_id": item_id,
+                    "layer_id": layer_id,
+                    "service_url": item_url.rstrip("/"),
                     "summary": layer_description,
                 }
             )
@@ -302,15 +189,15 @@ async def discover_layers(
 
 
 # ---------------------------------------------------------------------------
-# GeoLens API: idempotency check
+# GeoLens API helpers
 # ---------------------------------------------------------------------------
 
 
 async def fetch_existing_datasets(
     client: httpx.AsyncClient, base_url: str, api_key: str
-) -> dict[str, str]:
-    """Paginate GET /api/datasets/ and return mapping of source_filename -> dataset_id."""
-    existing: dict[str, str] = {}
+) -> dict[str, dict]:
+    """Paginate GET /api/datasets/ and return mapping of source_url -> dataset info."""
+    existing: dict[str, dict] = {}
     skip = 0
     limit = 200
     headers = {"X-Api-Key": api_key}
@@ -326,10 +213,20 @@ async def fetch_existing_datasets(
             data = resp.json()
             datasets = data.get("datasets", [])
             for ds in datasets:
-                fname = ds.get("source_filename")
+                source_url = ds.get("source_url")
                 ds_id = ds.get("id")
+                if source_url and ds_id:
+                    existing[source_url] = {
+                        "id": ds_id,
+                        "source_filename": ds.get("source_filename"),
+                    }
+                # Also index by source_filename for backward compat
+                fname = ds.get("source_filename")
                 if fname and ds_id:
-                    existing[fname] = ds_id
+                    existing[f"file:{fname}"] = {
+                        "id": ds_id,
+                        "source_url": source_url,
+                    }
             total = data.get("total", 0)
             skip += limit
             if skip >= total or not datasets:
@@ -341,17 +238,12 @@ async def fetch_existing_datasets(
     return existing
 
 
-# ---------------------------------------------------------------------------
-# GeoLens API: job polling
-# ---------------------------------------------------------------------------
-
-
 async def poll_job(
     client: httpx.AsyncClient,
     base_url: str,
     api_key: str,
     job_id: str,
-    timeout: int = 300,
+    timeout: int = 600,
 ) -> dict:
     """Poll GET /api/jobs/{job_id} until complete or failed."""
     headers = {"X-Api-Key": api_key}
@@ -377,46 +269,46 @@ async def poll_job(
 
 
 # ---------------------------------------------------------------------------
-# GeoLens API: three-step ingest
+# GeoLens API: service ingest (new import)
 # ---------------------------------------------------------------------------
 
 
-async def ingest_dataset(
+async def ingest_via_service(
     client: httpx.AsyncClient,
     base_url: str,
     api_key: str,
-    filename: str,
-    data: bytes,
-    name: str,
+    service_url: str,
+    layer_name: str,
+    layer_id: int,
+    display_name: str,
     summary: str = "",
 ) -> dict:
-    """Ingest a dataset through the GeoLens three-step API.
+    """Ingest a layer via the GeoLens service connector API.
 
-    Steps: upload → preview → commit → poll for completion.
-    Returns the final job status dict.
+    Steps: service/preview → commit → poll for completion.
+    Stores source_url on the dataset for future updates.
     """
     headers = {"X-Api-Key": api_key}
 
-    # Step 1 — Upload
-    upload_resp = await client.post(
-        f"{base_url}/api/ingest/upload",
-        headers=headers,
-        files={"file": (filename, data, "application/zip")},
-    )
-    upload_resp.raise_for_status()
-    job_id = upload_resp.json()["job_id"]
-
-    # Step 2 — Preview
+    # Step 1 — Service preview (creates IngestJob with source_url)
     preview_resp = await client.post(
-        f"{base_url}/api/ingest/preview/{job_id}", headers=headers
+        f"{base_url}/api/services/preview/",
+        headers=headers,
+        json={
+            "url": service_url,
+            "service_type": SERVICE_TYPE,
+            "layer_name": layer_name,
+            "layer_title": display_name,
+            "layer_id": layer_id,
+        },
     )
     preview_resp.raise_for_status()
+    job_id = str(preview_resp.json()["job_id"])
 
-    # Step 3 — Commit
+    # Step 2 — Commit
     commit_body: dict = {
-        "title": name,
+        "title": display_name,
         "visibility": "public",
-        "srid_override": 4326,
     }
     if summary:
         commit_body["summary"] = summary
@@ -427,7 +319,55 @@ async def ingest_dataset(
     )
     commit_resp.raise_for_status()
 
-    # Step 4 — Poll until done
+    # Step 3 — Poll until done
+    return await poll_job(client, base_url, api_key, job_id)
+
+
+# ---------------------------------------------------------------------------
+# GeoLens API: service reupload (update existing)
+# ---------------------------------------------------------------------------
+
+
+async def update_via_service(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    dataset_id: str,
+    service_url: str,
+    layer_name: str,
+    layer_id: int,
+    display_name: str,
+) -> dict:
+    """Update an existing dataset by re-importing from its source service.
+
+    Steps: reupload/service/preview → reupload/{job_id}/commit → poll.
+    """
+    headers = {"X-Api-Key": api_key}
+
+    # Step 1 — Reupload service preview
+    preview_resp = await client.post(
+        f"{base_url}/api/datasets/{dataset_id}/reupload/service/preview",
+        headers=headers,
+        json={
+            "url": service_url,
+            "service_type": SERVICE_TYPE,
+            "layer_name": layer_name,
+            "layer_title": display_name,
+            "layer_id": layer_id,
+        },
+    )
+    preview_resp.raise_for_status()
+    job_id = str(preview_resp.json()["job_id"])
+
+    # Step 2 — Commit reupload
+    commit_resp = await client.post(
+        f"{base_url}/api/datasets/{dataset_id}/reupload/{job_id}/commit",
+        headers=headers,
+        json={},
+    )
+    commit_resp.raise_for_status()
+
+    # Step 3 — Poll until done
     return await poll_job(client, base_url, api_key, job_id)
 
 
@@ -441,89 +381,75 @@ async def process_one(
     index: int,
     total: int,
     sem: asyncio.Semaphore,
-    arcgis_client: httpx.AsyncClient,
-    geolens_client: httpx.AsyncClient,
+    client: httpx.AsyncClient,
     base_url: str,
     api_key: str,
-    existing: dict[str, str],
-    cache_dir: Path | None,
+    existing: dict[str, dict],
+    update_mode: bool,
     results: list[dict],
 ) -> None:
-    """Download one layer from ArcGIS and ingest into GeoLens."""
+    """Import or update one layer via the service connector."""
     layer_name = entry["layer_name"]
-    layer_url = entry["layer_url"]
+    layer_id = entry["layer_id"]
+    service_url = entry["service_url"]
     summary = entry.get("summary", "")
-    safe_name = sanitize_name(layer_name)
-    filename = f"{safe_name}.geojson.zip"
+    display_name = layer_name.replace("_", " ").title()
     tag = f"[{index}/{total}]"
 
-    # Idempotency check
-    if filename in existing:
+    # Check if already exists
+    existing_entry = existing.get(service_url + f"/{layer_id}")
+
+    if existing_entry and not update_mode:
         print(f"  {tag} Skipping {layer_name} (already imported)")
         results.append(
             {
                 "name": layer_name,
                 "status": "skipped",
-                "dataset_id": existing[filename],
+                "dataset_id": existing_entry["id"],
             }
         )
         return
 
     async with sem:
         try:
-            # Check cache
-            cached_geojson = None
-            if cache_dir is not None:
-                cache_path = cache_dir / f"{safe_name}.geojson"
-                if cache_path.exists() and cache_path.stat().st_size > 0:
-                    print(f"  {tag} Loading {layer_name} from cache...")
-                    with open(cache_path) as f:
-                        cached_geojson = json.load(f)
-
-            if cached_geojson is None:
-                print(f"  {tag} Downloading {layer_name}...")
-                cached_geojson = await download_layer_geojson(
-                    arcgis_client, layer_url, layer_name
+            if existing_entry and update_mode:
+                # Update existing dataset
+                dataset_id = existing_entry["id"]
+                print(f"  {tag} Updating {layer_name}...")
+                result = await update_via_service(
+                    client,
+                    base_url,
+                    api_key,
+                    dataset_id,
+                    service_url,
+                    layer_name,
+                    layer_id,
+                    display_name,
                 )
-                if cached_geojson is None:
-                    print(f"  {tag} Skipping {layer_name} (no features)")
-                    results.append(
-                        {"name": layer_name, "status": "skipped_empty"}
-                    )
-                    return
-
-                # Write to cache
-                if cache_dir is not None:
-                    cache_path = cache_dir / f"{safe_name}.geojson"
-                    with open(cache_path, "w") as f:
-                        json.dump(cached_geojson, f)
-
-            feature_count = len(cached_geojson.get("features", []))
-            zip_data = geojson_to_zip(cached_geojson, safe_name)
-            display_name = generate_display_name(layer_name)
-
-            print(
-                f"  {tag} Ingesting {layer_name} ({feature_count} features)..."
-            )
-            result = await ingest_dataset(
-                geolens_client,
-                base_url,
-                api_key,
-                filename,
-                zip_data,
-                display_name,
-                summary=summary,
-            )
+            else:
+                # New import
+                print(f"  {tag} Importing {layer_name}...")
+                result = await ingest_via_service(
+                    client,
+                    base_url,
+                    api_key,
+                    service_url,
+                    layer_name,
+                    layer_id,
+                    display_name,
+                    summary=summary,
+                )
 
             if result.get("status") == "failed":
                 raise RuntimeError(
                     result.get("error_message", "Unknown ingest error")
                 )
 
+            action = "updated" if (existing_entry and update_mode) else "succeeded"
             results.append(
                 {
                     "name": layer_name,
-                    "status": "succeeded",
+                    "status": action,
                     "dataset_id": result.get("dataset_id"),
                 }
             )
@@ -584,7 +510,7 @@ async def assign_collection(
     dataset_ids = [
         r["dataset_id"]
         for r in results
-        if r["status"] in ("succeeded", "skipped") and r.get("dataset_id")
+        if r["status"] in ("succeeded", "updated", "skipped") and r.get("dataset_id")
     ]
 
     if not dataset_ids:
@@ -623,11 +549,26 @@ async def assign_collection(
 
 
 def print_summary(
-    total: int, succeeded: int, skipped: int, failed: int, failures: list[dict]
+    total: int, results: list[dict], update_mode: bool
 ) -> None:
+    succeeded = sum(1 for r in results if r["status"] == "succeeded")
+    updated = sum(1 for r in results if r["status"] == "updated")
+    skipped = sum(
+        1 for r in results if r["status"] in ("skipped", "skipped_empty")
+    )
+    failed = sum(1 for r in results if r["status"] == "failed")
+    failures = [
+        {"name": r["name"], "error": r.get("error", "")}
+        for r in results
+        if r["status"] == "failed"
+    ]
+
     print()
-    print("=== Import Summary ===")
+    label = "Update" if update_mode else "Import"
+    print(f"=== {label} Summary ===")
     print(f"  Succeeded: {succeeded}")
+    if updated:
+        print(f"  Updated:   {updated}")
     print(f"  Skipped:   {skipped}")
     print(f"  Failed:    {failed}")
     print(f"  Total:     {total}")
@@ -669,10 +610,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="List discoverable layers without downloading or importing",
     )
     parser.add_argument(
-        "--cache-dir",
-        type=Path,
-        default=None,
-        help="Directory to cache downloaded GeoJSON (resumes partial runs)",
+        "--update",
+        action="store_true",
+        help="Re-import existing datasets from their source AGO services",
     )
     parser.add_argument(
         "--concurrency",
@@ -711,7 +651,7 @@ async def main(args: argparse.Namespace) -> None:
                     f"  {i:3d}. {entry['layer_name']}  "
                     f"({entry['service_title']})"
                 )
-                print(f"       {entry['layer_url']}")
+                print(f"       {entry['service_url']}/{entry['layer_id']}")
             return
 
         # Validate GeoLens connectivity
@@ -722,61 +662,60 @@ async def main(args: argparse.Namespace) -> None:
             print(f"Cannot reach GeoLens at {base_url}: {exc}")
             sys.exit(1)
 
-        # Cache setup
-        cache_dir: Path | None = args.cache_dir
-        if cache_dir is not None:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            print(f"Using download cache: {cache_dir}")
-
-        # Idempotency check
+        # Idempotency check — index by source_url
         print("Checking existing datasets...")
         existing = await fetch_existing_datasets(client, base_url, api_key)
         if existing:
-            print(f"Found {len(existing)} existing dataset(s) in catalog")
+            # Count unique dataset IDs
+            ds_ids = {v["id"] for v in existing.values() if "id" in v}
+            print(f"Found {len(ds_ids)} existing dataset(s) in catalog")
+
+        # Build lookup by service_url/layer_id
+        existing_by_layer: dict[str, dict] = {}
+        for key, val in existing.items():
+            if not key.startswith("file:"):
+                existing_by_layer[key] = val
 
         # Bounded concurrency
         results: list[dict] = []
         sem = asyncio.Semaphore(args.concurrency)
         total = len(manifest)
 
-        print(f"\nImporting {total} layers...")
+        action = "Updating" if args.update else "Importing"
+        print(f"\n{action} {total} layers...")
 
         async with asyncio.TaskGroup() as tg:
             for i, entry in enumerate(manifest, 1):
+                # Build the lookup key matching source_url stored by ingest_service
+                lookup_key = f"{entry['service_url']}/{entry['layer_id']}"
+                # Also check the base service URL (ingest_service stores it without layer suffix)
+                lookup_existing = existing_by_layer.get(
+                    lookup_key
+                ) or existing_by_layer.get(entry["service_url"])
+
                 tg.create_task(
                     process_one(
                         entry=entry,
                         index=i,
                         total=total,
                         sem=sem,
-                        arcgis_client=client,
-                        geolens_client=client,
+                        client=client,
                         base_url=base_url,
                         api_key=api_key,
-                        existing=existing,
-                        cache_dir=cache_dir,
+                        existing={lookup_key: lookup_existing} if lookup_existing else {},
+                        update_mode=args.update,
                         results=results,
                     )
                 )
 
         # Summary
-        succeeded = sum(1 for r in results if r["status"] == "succeeded")
-        skipped = sum(
-            1 for r in results if r["status"] in ("skipped", "skipped_empty")
-        )
-        failed = sum(1 for r in results if r["status"] == "failed")
-        failures = [
-            {"name": r["name"], "error": r.get("error", "")}
-            for r in results
-            if r["status"] == "failed"
-        ]
+        print_summary(total, results, args.update)
 
-        print_summary(total, succeeded, skipped, failed, failures)
-
-        # Assign to collection
-        print()
-        print("--- Collection Assignment ---")
-        await assign_collection(client, base_url, api_key, org_name, results)
+        # Assign to collection (skip for update-only runs)
+        if not args.update:
+            print()
+            print("--- Collection Assignment ---")
+            await assign_collection(client, base_url, api_key, org_name, results)
 
 
 if __name__ == "__main__":
