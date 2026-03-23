@@ -12,6 +12,7 @@ import {
   DARK_PRESET_ID,
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { getLayerType } from '@/components/builder/map-sync';
 import { getTileTokenWithApiKey } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
 import { getEnvConfig } from '@/lib/env';
@@ -72,13 +73,6 @@ function getOutlineLayerId(sortOrder: number) {
 
 function getLabelLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}-label`;
-}
-
-function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
-  const gt = (geometryType ?? '').toUpperCase();
-  if (gt.includes('POINT')) return 'circle';
-  if (gt.includes('LINE')) return 'line';
-  return 'fill';
 }
 
 export function ViewerMap({

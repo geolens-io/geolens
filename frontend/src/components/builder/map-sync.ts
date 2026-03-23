@@ -4,6 +4,10 @@ import type { TileToken } from '@/api/tiles';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 
+/** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
+ *  These are read separately and applied to the outline line layer for polygons. */
+const CUSTOM_PAINT_PROPS = new Set(['outline-width', 'fill-outline-color']);
+
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
   const style = map.getStyle();
@@ -172,7 +176,11 @@ export function syncLayersToMap(
             }
           }
         }
-        map.setPaintProperty(layerId, 'circle-opacity', layer.opacity ?? 1);
+        {
+          const circleOpacity =
+            ((layer.paint as Record<string, unknown>)?.['circle-opacity'] as number) ?? 1;
+          map.setPaintProperty(layerId, 'circle-opacity', circleOpacity * (layer.opacity ?? 1));
+        }
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
@@ -199,18 +207,26 @@ export function syncLayersToMap(
             }
           }
         }
-        map.setPaintProperty(layerId, 'line-opacity', layer.opacity ?? 1);
+        {
+          const lineOpacity =
+            ((layer.paint as Record<string, unknown>)?.['line-opacity'] as number) ?? 1;
+          map.setPaintProperty(layerId, 'line-opacity', lineOpacity * (layer.opacity ?? 1));
+        }
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
       } else {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+        // Strip custom properties that are not valid MapLibre fill paint props.
+        // 'outline-width' and 'fill-outline-color' are stored in paint JSON but
+        // applied to a separate line layer below.
+        const { 'outline-width': _ow, 'fill-outline-color': _foc, ...fillPaint } = basePaint;
         map.addLayer({
           id: layerId,
           type: 'fill',
           source: sourceId,
           'source-layer': sourceLayer,
-          paint: Object.keys(basePaint).length ? basePaint : {
+          paint: Object.keys(fillPaint).length ? fillPaint : {
             'fill-color': MAP_COLORS.default.fill,
             'fill-opacity': MAP_COLORS.default.fillOpacity,
           },
@@ -218,7 +234,7 @@ export function syncLayersToMap(
         });
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val)) {
+            if (Array.isArray(val) && prop !== 'outline-width' && prop !== 'fill-outline-color') {
               try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
@@ -262,6 +278,7 @@ export function syncLayersToMap(
       const mapLayerId = getLayerId(layer.id);
       if (map.getLayer(mapLayerId)) {
         for (const [prop, val] of Object.entries(rawPaint)) {
+          if (CUSTOM_PAINT_PROPS.has(prop)) continue;
           try {
             const current = map.getPaintProperty(mapLayerId, prop);
             if (JSON.stringify(current) !== JSON.stringify(val)) {
@@ -270,6 +287,24 @@ export function syncLayersToMap(
           } catch (e) {
             if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${mapLayerId}:`, e);
           }
+        }
+        // Sync compound opacity (per-property opacity * master layer opacity)
+        const geomType = getLayerType(layer.dataset_geometry_type);
+        if (geomType === 'fill') {
+          const fillOpacity = (rawPaint['fill-opacity'] as number) ?? 0.3;
+          map.setPaintProperty(mapLayerId, 'fill-opacity', fillOpacity * (layer.opacity ?? 1));
+        } else if (geomType === 'line') {
+          const lineOpacity = (rawPaint['line-opacity'] as number) ?? 1;
+          map.setPaintProperty(mapLayerId, 'line-opacity', lineOpacity * (layer.opacity ?? 1));
+        } else {
+          const circleOpacity = (rawPaint['circle-opacity'] as number) ?? 1;
+          map.setPaintProperty(mapLayerId, 'circle-opacity', circleOpacity * (layer.opacity ?? 1));
+        }
+        // Sync filter
+        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+          map.setFilter(mapLayerId, layer.filter);
+        } else {
+          map.setFilter(mapLayerId, null);
         }
       }
       // Sync outline layer paint for fill layers
@@ -289,6 +324,13 @@ export function syncLayersToMap(
             if (cur !== outlineWidth) map.setPaintProperty(outId, 'line-width', outlineWidth);
           } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-width on ${outId}:`, e); }
         }
+        map.setPaintProperty(outId, 'line-opacity', layer.opacity ?? 1);
+        // Sync outline filter
+        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+          map.setFilter(outId, layer.filter);
+        } else {
+          map.setFilter(outId, null);
+        }
       }
     }
 
@@ -298,7 +340,6 @@ export function syncLayersToMap(
       if (layer.label_config?.column) {
         const lc = layer.label_config;
         const geomType = getLayerType(layer.dataset_geometry_type);
-        const sourceLayer = `data.${layer.dataset_table_name}`;
 
         if (!map.getLayer(labelId)) {
           // Add label layer

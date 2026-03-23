@@ -170,10 +170,11 @@ Plan: Not started
 | 260323-dxj | redirect to deep link after login | 2026-03-23 | e05f54e0 | Verified | [260323-dxj-redirect-to-deep-link-after-login](./quick/260323-dxj-redirect-to-deep-link-after-login/) |
 | 260323-ees | Fix OGC API Features endpoints for QGIS compatibility | 2026-03-23 | 9fb0b26c | Verified | [260323-ees-verify-ogc-api-features-endpoints-workin](./quick/260323-ees-verify-ogc-api-features-endpoints-workin/) |
 | 260323-jqk | Fix closed transaction error in AI map generate | 2026-03-23 | 8dd86717 | Verified | [260323-jqk-fix-closed-transaction-error-in-ai-map-c](./quick/260323-jqk-fix-closed-transaction-error-in-ai-map-c/) |
+| 260323-lik | Thorough QA pass on map layer configuration — correctness, best practices, KISS | 2026-03-23 | c4f7f3db | Verified | [260323-lik-thorough-qa-pass-on-map-layer-configurat](./quick/260323-lik-thorough-qa-pass-on-map-layer-configurat/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260323-jqk: Fix closed transaction error in AI map generate
+Last activity: 2026-03-23 - Completed quick task 260323-lik: Thorough QA pass on map layer configuration
 Last session: 2026-03-23T19:38:37.135Z
 Stopped at: Completed quick-260323-lik
 Resume file: None
