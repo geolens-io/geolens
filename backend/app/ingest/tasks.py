@@ -380,7 +380,7 @@ async def ingest_service(
                 )
 
             # 3. Build GDAL source string
-            object_id_field = um.get("object_id_field", "OBJECTID")
+            object_id_field = um.get("object_id_field") or "OBJECTID"
             gdal_source, layer_arg = build_gdal_source(
                 service_type_raw, source_url, source_layer, layer_id, token=token,
                 order_field=object_id_field,
@@ -885,7 +885,7 @@ async def reupload_service(
                 )
 
             db_conn_str = build_pg_conn_str()
-            reupload_oid_field = um.get("object_id_field", "OBJECTID")
+            reupload_oid_field = um.get("object_id_field") or "OBJECTID"
 
             async def _run_service_import(layer_name: str) -> None:
                 gdal_source, layer_arg = build_gdal_source(
