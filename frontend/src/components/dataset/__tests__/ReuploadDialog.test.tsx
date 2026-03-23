@@ -352,6 +352,35 @@ describe('ReuploadDialog', () => {
     );
   });
 
+  it('pre-fills service URL from dataset source_url', async () => {
+    const user = userEvent.setup();
+    const dataset = makeDataset();
+    dataset.source_url = 'https://services.arcgis.com/org/arcgis/rest/services/Layer/FeatureServer';
+
+    render(
+      <ReuploadDialog
+        dataset={dataset}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Service URL' }));
+    const urlInput = screen.getByLabelText('Service URL') as HTMLInputElement;
+    expect(urlInput.value).toBe(
+      'https://services.arcgis.com/org/arcgis/rest/services/Layer/FeatureServer',
+    );
+  });
+
+  it('service URL is empty when dataset has no source_url', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'Service URL' }));
+    const urlInput = screen.getByLabelText('Service URL') as HTMLInputElement;
+    expect(urlInput.value).toBe('');
+  });
+
   it('shows schema warning copy for service-source previews with destructive changes', async () => {
     const user = userEvent.setup();
     servicePreviewMutateAsync.mockResolvedValueOnce(
