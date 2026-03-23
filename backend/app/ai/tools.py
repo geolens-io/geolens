@@ -216,6 +216,27 @@ CHAT_TOOLS_ANTHROPIC = [
         },
     },
     {
+        "name": "set_opacity",
+        "description": (
+            "Set the opacity of a layer. Works for both vector and raster layers. "
+            "Use values from 0.0 (fully transparent) to 1.0 (fully opaque)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "layer_id": {
+                    "type": "string",
+                    "description": "Layer ID (UUID)",
+                },
+                "opacity": {
+                    "type": "number",
+                    "description": "Opacity value from 0.0 (transparent) to 1.0 (opaque)",
+                },
+            },
+            "required": ["layer_id", "opacity"],
+        },
+    },
+    {
         "name": "remove_layer",
         "description": "Remove a layer from the map entirely.",
         "input_schema": {
