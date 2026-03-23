@@ -164,10 +164,11 @@ Plan: Not started
 | 260322-t3j | AI functionality gaps: set_opacity tool, metadata error toasts, experimental badges | 2026-03-23 | c0070076 | Verified | [260322-t3j-review-ai-functionality-admin-toggle-met](./quick/260322-t3j-review-ai-functionality-admin-toggle-met/) |
 | 260323-7cr | Fix ingest pipeline geometry column naming bug and improve seed script robustness | 2026-03-23 | 061e72c4 | Verified | [260323-7cr-review-and-fix-seed-ago-data-py-fix-geom](./quick/260323-7cr-review-and-fix-seed-ago-data-py-fix-geom/) |
 | 260324 | inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards | 2026-03-23 | d5846915 | Verified | [260324-inspect-the-search-page-with-playwright-](./quick/260324-inspect-the-search-page-with-playwright-/) |
+| 260323-dxj | redirect to deep link after login | 2026-03-23 | e05f54e0 | Verified | [260323-dxj-redirect-to-deep-link-after-login](./quick/260323-dxj-redirect-to-deep-link-after-login/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260324: inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards
+Last activity: 2026-03-23 - Completed quick task 260323-dxj: redirect to deep link after login
 Last session: 2026-03-23T14:07:39.288Z
 Stopped at: Completed quick-260323-dxj
 Resume file: None
