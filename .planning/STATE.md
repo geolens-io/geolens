@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260322-t3j
-last_updated: "2026-03-23T01:10:34.351Z"
-last_activity: "2026-03-22 - Completed quick task 260322-qg3: Evaluate whether helm/, packer/, ami/ directories should move to separate repos"
+stopped_at: Completed quick-260324
+last_updated: "2026-03-23T13:07:24Z"
+last_activity: "2026-03-23 - Completed quick task 260324: inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -115,6 +115,8 @@ Plan: Not started
 - [Phase quick-260322-ndc]: Post-import SQL (ST_MakePoint/ST_GeomFromText) for XLSX geometry construction over VRT wrapper
 - [Phase quick-260322-qg3]: Keep all infra directories in monorepo -- coupling cost exceeds organizational benefit at single-developer scale
 - [Phase quick-260322-t3j]: Amber badge styling (border-amber-500/50 text-amber-600 dark:text-amber-400) for experimental indicator, matching SettingsAITab pattern
+- [Phase quick-260324]: Search cards split long source organization text from compact spec metadata, using clamped source copy plus spec pills for faster scanning
+- [Phase quick-260324]: Search landing and browse states now share a framed shell language across hero, sticky search, filters, and saved searches
 
 ### Pending Todos
 
@@ -160,10 +162,11 @@ Plan: Not started
 | 260322-qg3 | Evaluate whether helm/, packer/, ami/ directories should move to separate repos | 2026-03-22 | 8534fa38 | Verified | [260322-qg3-evaluate-whether-helm-packer-ami-directo](./quick/260322-qg3-evaluate-whether-helm-packer-ami-directo/) |
 | 260322-t3j | AI functionality gaps: set_opacity tool, metadata error toasts, experimental badges | 2026-03-23 | c0070076 | Verified | [260322-t3j-review-ai-functionality-admin-toggle-met](./quick/260322-t3j-review-ai-functionality-admin-toggle-met/) |
 | 260323-7cr | Fix ingest pipeline geometry column naming bug and improve seed script robustness | 2026-03-23 | 061e72c4 | Verified | [260323-7cr-review-and-fix-seed-ago-data-py-fix-geom](./quick/260323-7cr-review-and-fix-seed-ago-data-py-fix-geom/) |
+| 260324 | inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards | 2026-03-23 | d5846915 | Verified | [260324-inspect-the-search-page-with-playwright-](./quick/260324-inspect-the-search-page-with-playwright-/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260323-7cr: Fix ingest geometry column naming bug
-Last session: 2026-03-23T01:10:28.709Z
-Stopped at: Completed quick-260322-t3j
+Last activity: 2026-03-23 - Completed quick task 260324: inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards
+Last session: 2026-03-23T13:07:24Z
+Stopped at: Completed quick-260324
 Resume file: None
