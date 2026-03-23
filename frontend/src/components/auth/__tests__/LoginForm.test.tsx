@@ -16,17 +16,28 @@ vi.mock('@/hooks/use-auth', () => ({
   }),
 }));
 
+const mockLocationState: { from?: string } = {};
+
 vi.mock('react-router', async () => {
   const actual = await vi.importActual('react-router');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useLocation: () => ({
+      pathname: '/login',
+      search: '',
+      hash: '',
+      key: 'default',
+      state: mockLocationState,
+    }),
   };
 });
 
 describe('LoginForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLocationState.from = undefined;
+    sessionStorage.clear();
   });
 
   it('renders username and password fields', () => {
@@ -68,6 +79,66 @@ describe('LoginForm', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /signing in/i })).toBeInTheDocument();
+    });
+  });
+
+  it('navigates to state.from after successful login', async () => {
+    mockLogin.mockResolvedValue(undefined);
+    mockLocationState.from = '/datasets/abc';
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), 'admin');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/datasets/abc', { replace: true });
+    });
+  });
+
+  it('navigates to / when no state.from is present', async () => {
+    mockLogin.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), 'admin');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
+    });
+  });
+
+  it('ignores external URLs in state.from (security)', async () => {
+    mockLogin.mockResolvedValue(undefined);
+    mockLocationState.from = 'https://evil.com/steal';
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), 'admin');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
+    });
+  });
+
+  it('clears sessionStorage redirect after login', async () => {
+    mockLogin.mockResolvedValue(undefined);
+    sessionStorage.setItem('geolens-login-redirect', '/datasets/abc');
+    mockLocationState.from = '/datasets/abc';
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), 'admin');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem('geolens-login-redirect')).toBeNull();
     });
   });
 });

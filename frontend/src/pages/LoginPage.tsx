@@ -42,7 +42,9 @@ export function LoginPage() {
   });
 
   if (token) {
-    return <Navigate to="/" replace />;
+    const from = (location.state as { from?: string } | null)?.from;
+    const target = from && from.startsWith('/') ? from : '/';
+    return <Navigate to={target} replace />;
   }
 
   return (

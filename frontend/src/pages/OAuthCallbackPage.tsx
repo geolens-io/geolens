@@ -41,7 +41,10 @@ export function OAuthCallbackPage() {
     getMe()
       .then((user) => {
         useAuthStore.getState().setAuth(token, refreshToken, parseInt(expiresIn, 10), user);
-        navigate('/', { replace: true });
+        const redirect = sessionStorage.getItem('geolens-login-redirect');
+        sessionStorage.removeItem('geolens-login-redirect');
+        const target = redirect && redirect.startsWith('/') ? redirect : '/';
+        navigate(target, { replace: true });
       })
       .catch(() => {
         useAuthStore.getState().logout();
