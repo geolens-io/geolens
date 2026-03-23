@@ -283,7 +283,8 @@ async def update_map(
 ) -> Map:
     """Update map fields. If 'layers' key present, replace all layers.
 
-    Raises ValueError if not found. Commits and refreshes.
+    Raises ValueError if not found. Flushes but does NOT commit --
+    callers must own the commit lifecycle.
     """
     result = await session.execute(select(Map).where(Map.id == map_id))
     map_obj = result.scalar_one_or_none()
@@ -302,7 +303,7 @@ async def update_map(
     if layers is not None:
         await _replace_layers(session, map_id, layers)
 
-    await session.commit()
+    await session.flush()
     await session.refresh(map_obj)
     return map_obj
 

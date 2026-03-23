@@ -185,6 +185,7 @@ async def generate_map_endpoint(
             detail="AI map generation failed unexpectedly",
         )
 
+    await db.commit()
     return MapGenerateResponse(**result)
 
 
