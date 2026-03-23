@@ -222,33 +222,7 @@ One issue: `addressing_style: "path"` is hardcoded in `s3.py`. DO Spaces support
 
 ### Helm Chart Listing (EKS)
 
-**Readiness: Needs Work** — no Helm chart exists.
-
-Required structure:
-```
-helm/geolens/
-  Chart.yaml
-  values.yaml
-  templates/
-    api-deployment.yaml
-    api-service.yaml
-    worker-deployment.yaml
-    frontend-deployment.yaml
-    frontend-service.yaml
-    ingress.yaml
-    migration-job.yaml
-    configmap.yaml
-    secret.yaml
-    serviceaccount.yaml
-    hpa.yaml
-    _helpers.tpl
-```
-
-Key `values.yaml` parameters: image registry/tag per component, database URL/SSL/pooler settings, storage provider/S3 config, auth secrets, ingress settings, resource requests/limits, replica counts.
-
-AWS Marketplace Helm requirements: all images in Marketplace-managed ECR, image refs parameterized via `values.yaml`, chart pushed as OCI artifact.
-
-**Effort:** ~2-3 days including testing.
+**Readiness: Done** — Helm chart lives in the [geolens-helm](https://github.com/geolens-io/geolens-helm) repo with deployments for API, frontend, worker, migrate job, ingress, HPA, PDB, and ServiceMonitor templates.
 
 ### Licensing & Metering
 

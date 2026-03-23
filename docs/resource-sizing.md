@@ -1,6 +1,6 @@
 # Resource Sizing
 
-CPU and memory recommendations per service for each deployment target. All K8s values match the defaults in `helm/geolens/values.yaml`.
+CPU and memory recommendations per service for each deployment target. All K8s values match the defaults in the [geolens-helm](https://github.com/geolens-io/geolens-helm) chart's `values.yaml`.
 
 ## Kubernetes
 
