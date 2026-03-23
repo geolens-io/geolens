@@ -62,6 +62,7 @@ def _build_arcgis_response(
     layers = [
         LayerInfo(
             name=layer["name"],
+            title=layer.get("title"),
             geometry_type=layer.get("geometry_type"),
             feature_count=layer.get("feature_count"),
             layer_type=layer.get("type", "layer"),

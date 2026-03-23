@@ -588,6 +588,20 @@ async def get_dataset_rows(
     return rows, approx_total, column_info or [], next_cursor
 
 
+_TYPE_EQUIVALENCES = {
+    "string": "character varying",
+    "integer": "integer",
+    "real": "double precision",
+    "int": "integer",
+    "int64": "bigint",
+    "float": "double precision",
+}
+
+
+def _normalize_col_type(col_type: str) -> str:
+    return _TYPE_EQUIVALENCES.get(col_type.lower(), col_type.lower())
+
+
 def compute_schema_diff(
     old_columns: list[dict],
     new_columns: list[dict],
@@ -596,25 +610,33 @@ def compute_schema_diff(
 ) -> dict:
     """Compute the difference between old and new column schemas.
 
-    Returns a dict with columns_added, columns_removed, type_changes,
-    row_count_old, row_count_new, and row_count_delta.
+    Column matching is case-insensitive (ogr2ogr lowercases on import,
+    but remote sources report original case). Type comparison normalizes
+    common OGR-to-PostgreSQL type mappings (e.g. String ↔ character varying).
     """
-    old_names = {c["name"] for c in old_columns}
-    new_names = {c["name"] for c in new_columns}
-    old_by_name = {c["name"]: c["type"] for c in old_columns}
-    new_by_name = {c["name"]: c["type"] for c in new_columns}
+    old_by_lower = {c["name"].lower(): c for c in old_columns}
+    new_by_lower = {c["name"].lower(): c for c in new_columns}
+    old_keys = set(old_by_lower)
+    new_keys = set(new_by_lower)
 
     return {
         "columns_added": [
-            {"name": n, "type": new_by_name[n]} for n in sorted(new_names - old_names)
+            {"name": new_by_lower[n]["name"], "type": new_by_lower[n]["type"]}
+            for n in sorted(new_keys - old_keys)
         ],
         "columns_removed": [
-            {"name": n, "type": old_by_name[n]} for n in sorted(old_names - new_names)
+            {"name": old_by_lower[n]["name"], "type": old_by_lower[n]["type"]}
+            for n in sorted(old_keys - new_keys)
         ],
         "type_changes": [
-            {"name": n, "old_type": old_by_name[n], "new_type": new_by_name[n]}
-            for n in sorted(old_names & new_names)
-            if old_by_name[n] != new_by_name[n]
+            {
+                "name": new_by_lower[n]["name"],
+                "old_type": old_by_lower[n]["type"],
+                "new_type": new_by_lower[n]["type"],
+            }
+            for n in sorted(old_keys & new_keys)
+            if _normalize_col_type(old_by_lower[n]["type"])
+            != _normalize_col_type(new_by_lower[n]["type"])
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
