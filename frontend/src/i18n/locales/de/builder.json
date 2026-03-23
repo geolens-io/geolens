@@ -156,6 +156,7 @@
     "errorForbidden": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
     "errorAiUnavailable": "Der KI-Dienst ist vorübergehend nicht verfügbar.",
     "retry": "Erneut versuchen",
+    "experimental": "Experimentell",
     "stillWorking": "Noch in Bearbeitung...",
     "takingLonger": "Dies dauert länger als gewöhnlich...",
     "suggestions": {
@@ -197,7 +198,7 @@
     "dialogDescription": "Details und Metadaten zu dieser Karte."
   },
   "tooltips": {
-    "aiChat": "KI-Chat",
+    "aiChat": "KI-Chat (Experimentell)",
     "share": "Teilen",
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
