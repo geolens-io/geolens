@@ -684,7 +684,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--update",
         action="store_true",
-        help="Re-import existing datasets from their source AGO services",
+        help="Upsert mode: import new layers and refresh existing ones from source",
     )
     parser.add_argument(
         "--concurrency",
