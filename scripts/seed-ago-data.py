@@ -28,6 +28,7 @@ Usage:
 import argparse
 import asyncio
 import os
+import re
 import sys
 import time
 
@@ -399,8 +400,6 @@ async def enrich_metadata(
     if entry.get("source_org"):
         patch_body["source_organization"] = entry["source_org"]
     if entry.get("license"):
-        # Strip HTML tags for clean text
-        import re
         patch_body["license"] = re.sub(r"<[^>]+>", "", entry["license"]).strip()
 
     if patch_body:
@@ -410,8 +409,8 @@ async def enrich_metadata(
                 headers=headers,
                 json=patch_body,
             )
-        except Exception:
-            pass  # Non-fatal
+        except Exception as exc:
+            print(f"  Warning: metadata enrichment failed for {dataset_id}: {exc}")
 
     # Get the record_id for keyword assignment
     tags = entry.get("tags") or []
@@ -433,8 +432,8 @@ async def enrich_metadata(
                 headers=headers,
                 json={"keyword": tag, "keyword_type": "theme"},
             )
-    except Exception:
-        pass  # Non-fatal
+    except Exception as exc:
+        print(f"  Warning: keyword assignment failed for {dataset_id}: {exc}")
 
 
 # ---------------------------------------------------------------------------
