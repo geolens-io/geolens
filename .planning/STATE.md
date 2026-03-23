@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260323-ees
-last_updated: "2026-03-23T14:36:07.222Z"
-last_activity: "2026-03-23 - Completed quick task 260323-dxj: redirect to deep link after login"
+stopped_at: Completed quick-260323-jqk
+last_updated: "2026-03-23T18:24:32.884Z"
+last_activity: "2026-03-23 - Completed quick task 260323-ees: Fix OGC API Features endpoints for QGIS compatibility"
 progress:
-  total_phases: 60
+  total_phases: 61
   completed_phases: 60
   total_plans: 118
   completed_plans: 118
@@ -119,6 +119,7 @@ Plan: Not started
 - [Phase quick-260324]: Search landing and browse states now share a framed shell language across hero, sticky search, filters, and saved searches
 - [Phase quick-260323-dxj]: Use location.state.from for login redirect and sessionStorage for OAuth redirect persistence; reject absolute URLs to prevent open redirects
 - [Phase quick-260323-ees]: Use pydantic model_serializer decorator for null exclusion in OGCLink rather than model_config exclude_none
+- [Phase quick-260323-jqk]: update_map uses flush() so begin_nested() savepoints in AI service work correctly; callers own commit lifecycle
 
 ### Pending Todos
 
@@ -167,10 +168,11 @@ Plan: Not started
 | 260324 | inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards | 2026-03-23 | d5846915 | Verified | [260324-inspect-the-search-page-with-playwright-](./quick/260324-inspect-the-search-page-with-playwright-/) |
 | 260323-dxj | redirect to deep link after login | 2026-03-23 | e05f54e0 | Verified | [260323-dxj-redirect-to-deep-link-after-login](./quick/260323-dxj-redirect-to-deep-link-after-login/) |
 | 260323-ees | Fix OGC API Features endpoints for QGIS compatibility | 2026-03-23 | 9fb0b26c | Verified | [260323-ees-verify-ogc-api-features-endpoints-workin](./quick/260323-ees-verify-ogc-api-features-endpoints-workin/) |
+| 260323-jqk | Fix closed transaction error in AI map generate | 2026-03-23 | 8dd86717 | Verified | [260323-jqk-fix-closed-transaction-error-in-ai-map-c](./quick/260323-jqk-fix-closed-transaction-error-in-ai-map-c/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260323-ees: Fix OGC API Features endpoints for QGIS compatibility
-Last session: 2026-03-23T14:36:03.107Z
-Stopped at: Completed quick-260323-ees
+Last activity: 2026-03-23 - Completed quick task 260323-jqk: Fix closed transaction error in AI map generate
+Last session: 2026-03-23T18:24:31.658Z
+Stopped at: Completed quick-260323-jqk
 Resume file: None
