@@ -86,10 +86,10 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
         }}
         placeholder={t('placeholder')}
         className={cn(
-          'w-full border-border/60 bg-background/95 text-ellipsis shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] placeholder:text-muted-foreground/80 focus-visible:ring-primary/20',
+          'w-full border-border/60 bg-background text-ellipsis shadow-sm placeholder:text-muted-foreground/80 focus-visible:ring-primary/15',
           isCompact
-            ? 'h-11 rounded-[22px] pl-11 pr-11 text-base'
-            : 'h-14 rounded-[28px] pl-12 pr-12 text-base sm:h-16 sm:text-lg',
+            ? 'h-11 rounded-[20px] pl-11 pr-11 text-base'
+            : 'h-14 rounded-[24px] pl-12 pr-12 text-base',
         )}
       />
       {value && (

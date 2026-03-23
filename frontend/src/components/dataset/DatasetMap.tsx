@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Focus, Maximize2, Minimize2, PenLine } from 'lucide-react';
 import { toast } from 'sonner';
+import maplibregl from 'maplibre-gl';
 import type { LngLatBoundsLike, MapLibreEvent, StyleSpecification } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
@@ -212,17 +213,37 @@ export function DatasetMap({
   }, [isReady, activeMode, tdSetMode]);
 
   // --- Select mode click handler ---
+  // Use canvas click instead of map.on('click') because TerraDraw's adapter
+  // intercepts pointer events and prevents MapLibre click events from firing.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || activeMode !== 'select') return;
 
-    const handleMapClick = (e: maplibregl.MapMouseEvent) => {
-      selectFeatureFromMap(map, e.point);
+    const canvas = map.getCanvas();
+    let pointerDownPos: { x: number; y: number } | null = null;
+    const handlePointerDown = (e: PointerEvent) => {
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+    };
+    const handlePointerUp = (e: PointerEvent) => {
+      // Only treat as click if pointer didn't move (not a drag)
+      if (!pointerDownPos) return;
+      const dx = e.clientX - pointerDownPos.x;
+      const dy = e.clientY - pointerDownPos.y;
+      pointerDownPos = null;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) return;
+
+      // Skip if a TerraDraw feature is already selected (drag/edit in progress)
+      if (useDrawingStore.getState().selectedFeature) return;
+      const rect = canvas.getBoundingClientRect();
+      const point = new maplibregl.Point(e.clientX - rect.left, e.clientY - rect.top);
+      selectFeatureFromMap(map, point);
     };
 
-    map.on('click', handleMapClick);
+    canvas.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    canvas.addEventListener('pointerup', handlePointerUp, { capture: true });
     return () => {
-      map.off('click', handleMapClick);
+      canvas.removeEventListener('pointerdown', handlePointerDown, { capture: true } as EventListenerOptions);
+      canvas.removeEventListener('pointerup', handlePointerUp, { capture: true } as EventListenerOptions);
     };
   }, [activeMode, mapInstance, selectFeatureFromMap]);
 
@@ -893,7 +914,10 @@ export function DatasetMap({
           if (!open) setEditingAttributes(false);
         }}
         columns={columnInfo ?? []}
-        onSubmit={handleEditAttributeSubmit}
+        onSubmit={async (properties) => {
+          await handleEditAttributeSubmit(properties);
+          setEditingAttributes(false);
+        }}
         onCancel={() => setEditingAttributes(false)}
         initialValues={selectedFeature?.properties}
       />
@@ -905,6 +929,11 @@ export function DatasetMap({
             <AlertDialogTitle>{t('map.deleteFeatureTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('map.deleteFeatureDescription')}
+              {selectedFeature?.gid != null && (
+                <span className="block mt-1 text-xs text-muted-foreground">
+                  Feature ID: {selectedFeature.gid}
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

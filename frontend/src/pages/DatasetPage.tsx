@@ -595,7 +595,7 @@ export function DatasetPage() {
         statsLine={statsLine}
         leadingContent={
           <div className="flex items-center gap-2">
-            <AddToMapButton datasetId={dataset.id} />
+            <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />
             {isRaster && dataset.raster?.connect && (
               <Button asChild variant="default" size="sm">
                 <a href={`/api/datasets/${dataset.id}/download/cog`} download>
@@ -640,7 +640,7 @@ export function DatasetPage() {
             datasetId={id}
             columnInfo={dataset.column_info}
             containerRef={mapContainerRef}
-            canEdit={isEditor && !isRaster && !isVrt && !isTable && import.meta.env.VITE_ENABLE_GEOMETRY_EDITING === 'true'}
+            canEdit={isEditor && !isRaster && !isVrt && !isTable}
             recordType={dataset.record_type}
             rasterTileUrl={dataset.raster?.tile_url}
             tileVersion={dataset.updated_at}

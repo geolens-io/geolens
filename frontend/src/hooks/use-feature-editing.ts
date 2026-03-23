@@ -252,8 +252,14 @@ export function useFeatureEditing({
       const features = map.queryRenderedFeatures(point, { layers: queryLayers });
       if (!features || features.length === 0) return;
 
-      const gid = features[0].id ?? features[0].properties?.gid;
-      if (gid === undefined || gid === null) return;
+      // MVT feature ID is stored in _vectorTileFeature.id by MapLibre,
+      // promoted to feature.id via promoteId, or available as a property.
+      const f0 = features[0] as typeof features[0] & { _vectorTileFeature?: { id?: number } };
+      const gid = features[0].id ?? features[0].properties?.gid ?? f0._vectorTileFeature?.id;
+      if (gid === undefined || gid === null) {
+        toast.info(t('map.featureNotSelectable'));
+        return;
+      }
 
       try {
         const fullFeature = await getFeature(datasetId, gid);

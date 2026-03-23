@@ -312,6 +312,24 @@ describe('DatasetMap editing UI states', () => {
     expect(screen.getByText('Delete this feature? This cannot be undone.')).toBeInTheDocument();
   });
 
+  it('shows feature ID in delete confirmation dialog', () => {
+    drawingState.selectedFeature = { gid: 42, tdId: 'td-1', properties: {} };
+
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete feature/i }));
+
+    expect(screen.getByText('Feature ID: 42')).toBeInTheDocument();
+  });
+
   it('hides edit button when canEdit is false', () => {
     render(
       <DatasetMap

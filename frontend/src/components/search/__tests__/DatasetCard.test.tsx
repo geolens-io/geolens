@@ -123,6 +123,25 @@ describe('DatasetCard', () => {
     expect(screen.getByText(/Natural Earth/)).toBeInTheDocument();
   });
 
+  it('does not render the metadata completeness badge on cards', () => {
+    render(
+      <DatasetCard
+        feature={makeFeature({
+          quality_detail: {
+            overall: 73,
+            metadata_completeness: 80,
+            geometry_validity: 90,
+            attribute_completeness: 70,
+            crs_defined: 100,
+            computed_at: '2026-03-02T00:00:00Z',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/Completeness:/i)).not.toBeInTheDocument();
+  });
+
   it('renders Vector type badge for vector datasets', () => {
     render(<DatasetCard feature={makeFeature({ record_type: undefined, geometry_type: 'Polygon' })} />);
 

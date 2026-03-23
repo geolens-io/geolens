@@ -18,6 +18,7 @@ import {
   useDeleteSavedSearch,
 } from '@/hooks/use-saved-searches';
 import { useSearchStore } from '@/stores/search-store';
+import { cn } from '@/lib/utils';
 
 /**
  * Save Search button with dialog — intended for use inside FilterPanel toolbar.
@@ -99,7 +100,7 @@ export function SaveSearchButton() {
  * Saved search chips — lightweight horizontal row of quick-access shortcuts.
  * Renders nothing when there are no saved searches or still loading.
  */
-export function SavedSearches() {
+export function SavedSearches({ className }: { className?: string }) {
   const { t } = useTranslation('search');
 
   const { data, isLoading } = useSavedSearches();
@@ -121,7 +122,7 @@ export function SavedSearches() {
 
   return (
     <div
-      className="flex flex-wrap items-center gap-2 rounded-[24px] border border-border/60 bg-background/80 px-3 py-3 shadow-sm backdrop-blur-sm"
+      className={cn('flex flex-wrap items-center gap-2', className)}
       aria-label={t('savedSearches.savedSearchesLabel', {
         defaultValue: 'Saved searches',
       })}
@@ -129,7 +130,7 @@ export function SavedSearches() {
       {searches.map((search) => (
         <div
           key={search.id}
-          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 py-1.5 pl-3 pr-1.5 text-xs font-medium text-secondary-foreground shadow-sm"
+          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background/80 py-1.5 pl-3 pr-1.5 text-xs font-medium text-secondary-foreground"
         >
           <button
             type="button"

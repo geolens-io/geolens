@@ -17,7 +17,6 @@ import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { cn } from '@/lib/utils';
 
 export function SearchPage() {
   const { t } = useTranslation('search');
@@ -56,103 +55,100 @@ export function SearchPage() {
   return (
     <>
       <div ref={sentinelRef} className="h-0" />
-      <div
-        className={cn(
-          'sticky top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur-xl transition-all duration-200',
-          showStickyBar
-            ? 'translate-y-0 opacity-100'
-            : 'pointer-events-none h-0 -translate-y-2 overflow-hidden border-b-0 opacity-0',
-        )}
-      >
-        <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
-          <div className="rounded-[26px] border border-border/60 bg-background/90 px-3 py-3 shadow-[0_24px_45px_-36px_rgba(15,23,42,0.55)]">
-            <SearchBar mode="compact" />
-            {!isLanding && (
-              <div className="mt-3 border-t border-border/50 pt-3">
-              <FilterPanel totalResults={data?.numberMatched} />
-              </div>
-            )}
+      {showStickyBar && (
+        <div className="sticky top-0 z-30 border-b border-border/60 bg-background/92 backdrop-blur-xl">
+          <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
+            <div className="rounded-[24px] border border-border/60 bg-background px-3 py-3 shadow-sm">
+              <SearchBar mode="compact" />
+              {!isLanding && (
+                <div className="mt-3 border-t border-border/50 pt-3">
+                  <FilterPanel totalResults={data?.numberMatched} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       <PageShell maxWidth="wide" className="space-y-6 pb-8 pt-6 sm:pt-8">
-      {/* Hero: only on landing state */}
-      {isLanding && (
-        <section className="relative overflow-hidden rounded-[32px] border border-border/60 bg-gradient-to-br from-background via-background to-muted/60 px-4 py-8 shadow-sm sm:px-8 sm:py-10">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.14),transparent_48%)]" />
-          <div className="relative mx-auto max-w-4xl space-y-5">
-            <div className="space-y-3 text-center">
-              <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{t('title')}</h1>
-              <p className="mx-auto max-w-2xl text-sm text-muted-foreground sm:text-base">{t('subtitle')}</p>
+        {isLanding && (
+          <section className="rounded-[28px] border border-border/60 bg-muted/20 px-4 py-6 sm:px-6 sm:py-7 md:px-8 lg:px-10">
+            <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
+              <div className="space-y-2 text-center">
+                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('title')}</h1>
+                <p className="mx-auto max-w-2xl text-sm text-muted-foreground">
+                  {t('subtitle')}
+                </p>
+              </div>
+              <SearchBar className="max-w-4xl" />
+              {token && <SavedSearches className="justify-center" />}
             </div>
-            <SearchBar />
-            {token && <SavedSearches />}
-            <div className="rounded-[26px] border border-border/60 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
-              <FilterPanel totalResults={data?.numberMatched} />
+            <div className="mx-auto mt-5 max-w-5xl border-t border-border/50 pt-4 md:mt-6 md:pt-5">
+              <div className="md:px-1">
+                <FilterPanel totalResults={data?.numberMatched} />
+              </div>
             </div>
+          </section>
+        )}
+
+        {/* Loading indicator for refetch (subtle) */}
+        {isFetching && data && (
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+            <Loader2 className="size-4 animate-spin" />
+            {t('updating')}
           </div>
-        </section>
-      )}
+        )}
 
-      {/* Loading indicator for refetch (subtle) */}
-      {isFetching && data && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
-          <Loader2 className="size-4 animate-spin" />
-          {t('updating')}
-        </div>
-      )}
+        {/* Loading state (initial) */}
+        {isLoading && !data && (
+          <div className="grid gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <DatasetCardSkeleton key={i} />
+            ))}
+          </div>
+        )}
 
-      {/* Loading state (initial) */}
-      {isLoading && !data && (
-        <div className="grid gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <DatasetCardSkeleton key={i} />
-          ))}
-        </div>
-      )}
+        {/* Error state */}
+        {error && (
+          <ErrorState message={t('error.message', { message: error.message })} />
+        )}
 
-      {/* Error state */}
-      {error && (
-        <ErrorState message={t('error.message', { message: error.message })} />
-      )}
+        {/* Empty state */}
+        {data && data.numberMatched === 0 && (
+          <EmptyState
+            icon={SearchX}
+            title={t('empty.title')}
+            description={t('empty.description')}
+            action={
+              token ? (
+                <Button asChild>
+                  <Link to="/import">
+                    <Upload className="h-4 w-4 mr-1" />
+                    {t('empty.cta')}
+                  </Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
 
-      {/* Empty state */}
-      {data && data.numberMatched === 0 && (
-        <EmptyState
-          icon={SearchX}
-          title={t('empty.title')}
-          description={t('empty.description')}
-          action={
-            token ? (
-              <Button asChild>
-                <Link to="/import">
-                  <Upload className="h-4 w-4 mr-1" />
-                  {t('empty.cta')}
-                </Link>
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
+        {/* Results list */}
+        {data && data.features.length > 0 && (
+          <section className="space-y-3">
+            {data.features.map((feature) => (
+              <SearchResultCard key={feature.id} feature={feature} />
+            ))}
+          </section>
+        )}
 
-      {/* Results list */}
-      {data && data.features.length > 0 && (
-        <section className="space-y-3">
-          {data.features.map((feature) => (
-            <SearchResultCard key={feature.id} feature={feature} />
-          ))}
-        </section>
-      )}
-
-      {/* Pagination */}
-      {data && data.numberMatched > 0 && (
-        <Pagination
-          total={data.numberMatched}
-          offset={offset}
-          limit={limit}
-          onPageChange={(newOffset) => useSearchStore.getState().setPage(newOffset)}
-        />
-      )}
+        {/* Pagination */}
+        {data && data.numberMatched > 0 && (
+          <Pagination
+            total={data.numberMatched}
+            offset={offset}
+            limit={limit}
+            onPageChange={(newOffset) => useSearchStore.getState().setPage(newOffset)}
+          />
+        )}
       </PageShell>
     </>
   );
