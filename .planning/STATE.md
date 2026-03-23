@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260323-dxj
-last_updated: "2026-03-23T14:07:44.083Z"
-last_activity: "2026-03-23 - Completed quick task 260324: inspect the search page with Playwright and modernize the search UI/UX, with special attention to result cards"
+stopped_at: Completed quick-260323-ees
+last_updated: "2026-03-23T14:36:07.222Z"
+last_activity: "2026-03-23 - Completed quick task 260323-dxj: redirect to deep link after login"
 progress:
   total_phases: 60
   completed_phases: 60
@@ -118,6 +118,7 @@ Plan: Not started
 - [Phase quick-260324]: Search cards split long source organization text from compact spec metadata, using clamped source copy plus spec pills for faster scanning
 - [Phase quick-260324]: Search landing and browse states now share a framed shell language across hero, sticky search, filters, and saved searches
 - [Phase quick-260323-dxj]: Use location.state.from for login redirect and sessionStorage for OAuth redirect persistence; reject absolute URLs to prevent open redirects
+- [Phase quick-260323-ees]: Use pydantic model_serializer decorator for null exclusion in OGCLink rather than model_config exclude_none
 
 ### Pending Todos
 
@@ -169,6 +170,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-23 - Completed quick task 260323-dxj: redirect to deep link after login
-Last session: 2026-03-23T14:07:39.288Z
-Stopped at: Completed quick-260323-dxj
+Last session: 2026-03-23T14:36:03.107Z
+Stopped at: Completed quick-260323-ees
 Resume file: None
