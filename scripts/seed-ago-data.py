@@ -115,7 +115,9 @@ async def get_service_layers(
     resp = await client.get(service_url.rstrip("/"), params={"f": "json"})
     resp.raise_for_status()
     data = resp.json()
-    return data.get("layers", []) + data.get("tables", [])
+    layers = data.get("layers") or []
+    tables = data.get("tables") or []
+    return layers + tables
 
 
 async def download_layer_geojson(
@@ -355,6 +357,46 @@ async def discover_layers(
 # ---------------------------------------------------------------------------
 # GeoLens API: idempotency check
 # ---------------------------------------------------------------------------
+
+
+async def clean_failed_datasets(
+    client: httpx.AsyncClient, base_url: str, api_key: str
+) -> int:
+    """Delete datasets from previous failed imports that have no features."""
+    headers = {"X-Api-Key": api_key}
+    deleted = 0
+    skip = 0
+    limit = 200
+
+    while True:
+        resp = await client.get(
+            f"{base_url}/api/datasets/",
+            params={"limit": limit, "skip": skip},
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        datasets = data.get("datasets", [])
+
+        for ds in datasets:
+            ds_id = ds.get("id")
+            if ds_id:
+                try:
+                    del_resp = await client.delete(
+                        f"{base_url}/api/datasets/{ds_id}",
+                        headers=headers,
+                    )
+                    if del_resp.status_code in (200, 204):
+                        deleted += 1
+                except Exception:
+                    pass
+
+        total = data.get("total", 0)
+        skip += limit
+        if skip >= total or not datasets:
+            break
+
+    return deleted
 
 
 async def fetch_existing_datasets(
@@ -750,6 +792,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Directory to cache downloaded GeoJSON (resumes partial runs)",
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete failed datasets from previous runs before importing",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=3,
+        help="Max parallel download+ingest streams (default: 3)",
+    )
     return parser.parse_args(argv)
 
 
@@ -806,6 +859,15 @@ async def main(args: argparse.Namespace) -> None:
             cache_dir.mkdir(parents=True, exist_ok=True)
             print(f"Using download cache: {cache_dir}")
 
+        # Clean previous failed imports if requested
+        if args.clean:
+            print("Cleaning previous datasets...")
+            deleted = await clean_failed_datasets(
+                geolens_client, base_url, api_key
+            )
+            if deleted:
+                print(f"Deleted {deleted} dataset(s) from previous runs")
+
         # Idempotency check
         print("Checking existing datasets...")
         existing = await fetch_existing_datasets(
@@ -814,9 +876,9 @@ async def main(args: argparse.Namespace) -> None:
         if existing:
             print(f"Found {len(existing)} existing dataset(s) in catalog")
 
-        # Bounded concurrency: 3 parallel download+ingest streams
+        # Bounded concurrency
         results: list[dict] = []
-        sem = asyncio.Semaphore(3)
+        sem = asyncio.Semaphore(args.concurrency)
         total = len(manifest)
 
         print(f"\nImporting {total} layers...")
