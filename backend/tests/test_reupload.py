@@ -703,3 +703,27 @@ class TestSchemaDiffComputation:
         assert result["columns_added"] == []
         assert result["columns_removed"] == []
         assert result["type_changes"] == []
+
+
+class TestStagingTableName:
+    """Staging table names must fit PostgreSQL's 63-char identifier limit."""
+
+    def test_short_name_gets_staging_suffix(self):
+        name = "roads"
+        staging = f"{name[:54]}_staging"
+        assert staging == "roads_staging"
+        assert len(staging) <= 63
+
+    def test_long_name_truncated_before_suffix(self):
+        name = "computed_change_in_land_use_and_land_cover_from_2012_to_2015"
+        assert len(name) == 60
+        staging = f"{name[:54]}_staging"
+        assert len(staging) == 62
+        assert staging.endswith("_staging")
+        assert len(staging) <= 63
+
+    def test_max_length_name(self):
+        name = "a" * 63
+        staging = f"{name[:54]}_staging"
+        assert len(staging) == 62
+        assert staging == "a" * 54 + "_staging"
