@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260323-jqk
-last_updated: "2026-03-23T18:24:32.884Z"
-last_activity: "2026-03-23 - Completed quick task 260323-ees: Fix OGC API Features endpoints for QGIS compatibility"
+stopped_at: Completed quick-260323-lik
+last_updated: "2026-03-23T19:38:41.668Z"
+last_activity: "2026-03-23 - Completed quick task 260323-jqk: Fix closed transaction error in AI map generate"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -120,6 +120,7 @@ Plan: Not started
 - [Phase quick-260323-dxj]: Use location.state.from for login redirect and sessionStorage for OAuth redirect persistence; reject absolute URLs to prevent open redirects
 - [Phase quick-260323-ees]: Use pydantic model_serializer decorator for null exclusion in OGCLink rather than model_config exclude_none
 - [Phase quick-260323-jqk]: update_map uses flush() so begin_nested() savepoints in AI service work correctly; callers own commit lifecycle
+- [Phase quick-260323-lik]: Always set opacity explicitly on initial layer creation regardless of value to prevent stale state on basemap reload
 
 ### Pending Todos
 
@@ -173,6 +174,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-23 - Completed quick task 260323-jqk: Fix closed transaction error in AI map generate
-Last session: 2026-03-23T18:24:31.658Z
-Stopped at: Completed quick-260323-jqk
+Last session: 2026-03-23T19:38:37.135Z
+Stopped at: Completed quick-260323-lik
 Resume file: None
