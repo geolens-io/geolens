@@ -62,11 +62,10 @@ describe('SearchResultCard', () => {
     it('renders geometry type, feature count, and CRS in metadata line', () => {
       render(<SearchResultCard feature={makeFeature()} />);
 
-      // Metadata is rendered inside a single span with dot separators
-      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
-      expect(metaSpan?.textContent).toContain('Polygon');
-      expect(metaSpan?.textContent).toContain('195');
-      expect(metaSpan?.textContent).toContain('EPSG:4326');
+      const specs = screen.getByTestId('dataset-card-specs');
+      expect(specs).toHaveTextContent('Polygon');
+      expect(specs).toHaveTextContent('195');
+      expect(specs).toHaveTextContent('EPSG:4326');
     });
 
     it('renders Vector type badge', () => {
@@ -78,7 +77,7 @@ describe('SearchResultCard', () => {
     it('renders source organization', () => {
       render(<SearchResultCard feature={makeFeature()} />);
 
-      expect(screen.getByText(/Natural Earth/)).toBeInTheDocument();
+      expect(screen.getByTestId('dataset-card-source')).toHaveTextContent('Natural Earth');
     });
 
     it('renders updated-by attribution', () => {
@@ -106,9 +105,9 @@ describe('SearchResultCard', () => {
       );
 
       expect(screen.getByText('Raster')).toBeInTheDocument();
-      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
-      expect(metaSpan?.textContent).toContain('4 bands');
-      expect(metaSpan?.textContent).toContain('10 m');
+      const specs = screen.getByTestId('dataset-card-specs');
+      expect(specs).toHaveTextContent('4 bands');
+      expect(specs).toHaveTextContent('10 m');
     });
   });
 
@@ -128,10 +127,10 @@ describe('SearchResultCard', () => {
       );
 
       expect(screen.getByText('Virtual Raster')).toBeInTheDocument();
-      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
-      expect(metaSpan?.textContent).toContain('Mosaic');
-      expect(metaSpan?.textContent).toContain('12 sources');
-      expect(metaSpan?.textContent).toContain('3 bands');
+      const specs = screen.getByTestId('dataset-card-specs');
+      expect(specs).toHaveTextContent('Mosaic');
+      expect(specs).toHaveTextContent('12 sources');
+      expect(specs).toHaveTextContent('3 bands');
     });
 
     it('renders band_stack as "Band Stack"', () => {
@@ -147,8 +146,7 @@ describe('SearchResultCard', () => {
         />,
       );
 
-      const metaSpan = document.querySelector('.text-xs.text-muted-foreground.flex');
-      expect(metaSpan?.textContent).toContain('Band Stack');
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('Band Stack');
     });
   });
 

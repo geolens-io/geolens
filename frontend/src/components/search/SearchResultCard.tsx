@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, ImageOff, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -29,13 +30,54 @@ function capitalizeVrtType(vrtType: string): string {
     .join(' ');
 }
 
+function buildCardSpecs(
+  properties: OGCRecordResponse['properties'],
+  t: TFunction<'search'>,
+): string[] {
+  const recordType = properties.record_type ?? 'vector_dataset';
+  const isRaster = recordType === 'raster_dataset';
+  const isVrt = recordType === 'vrt_dataset';
+  const specs: string[] = [];
+
+  if (!isRaster && !isVrt && properties.geometry_type) {
+    specs.push(getGeometryTypeLabel(t, properties.geometry_type));
+  }
+
+  if (isRaster && properties.band_count != null) {
+    specs.push(t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' }));
+  }
+
+  if (isRaster && properties.gsd != null) {
+    const label = formatGsd(properties.gsd, properties.crs);
+    if (label) specs.push(label);
+  }
+
+  if (isVrt && properties.vrt_type) {
+    specs.push(capitalizeVrtType(properties.vrt_type));
+  }
+
+  if (isVrt && properties.source_count != null) {
+    specs.push(t('card.sourceCount', { count: properties.source_count, defaultValue: '{{count}} sources' }));
+  }
+
+  if (isVrt && properties.band_count != null) {
+    specs.push(t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' }));
+  }
+
+  if (!isRaster && !isVrt && properties.feature_count != null) {
+    specs.push(t('card.featureCount', { count: properties.feature_count }));
+  }
+
+  if (properties.crs) specs.push(properties.crs);
+
+  return specs;
+}
+
 export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const { t, i18n } = useTranslation('search');
   const { properties } = feature;
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
-  const isRaster = recordType === 'raster_dataset';
-  const isVrt = recordType === 'vrt_dataset';
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
@@ -71,194 +113,179 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
     (!properties.updated_by_display || updatedByIdentity === unknownIdentityLabel);
 
   const recordStatus = properties.record_status;
+  const cardSpecs = isCollection ? [] : buildCardSpecs(properties, t);
+  const sourceOrganization =
+    !isCollection && typeof properties.source_organization === 'string'
+      ? properties.source_organization.trim()
+      : '';
+  const displayKeywords = !isCollection
+    ? properties.keywords?.filter((k) => k !== 'synthetic' && k !== 'perf-seed') ?? []
+    : [];
 
   return (
-    <Link to={linkPath} className="group block">
-      <Card className="flex flex-col sm:flex-row gap-0 py-0 overflow-hidden cursor-pointer group-hover:shadow-md group-hover:border-primary/20 group-hover:bg-accent/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out">
-        {/* Content section */}
-        <div className="flex-1 p-3 min-w-0">
-          <span className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-2 sm:line-clamp-1">
-            {properties.title}
-          </span>
-
-          {/* Row 2: type badge + status badges + inline metadata */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            {/* Status badges (non-collection only) */}
-            {!isCollection && recordStatus && recordStatus !== 'published' && (() => {
-              const statusStyles: Record<string, string> = {
-                draft: 'text-xs border-amber-500/50 text-amber-600 dark:text-amber-400',
-                ready: 'text-xs border-blue-500/50 text-blue-600 dark:text-blue-400',
-                internal: 'text-xs border-slate-500/50 text-slate-600 dark:text-slate-400',
-                archived: 'text-xs',
-                deprecated: 'text-xs text-muted-foreground',
-              };
-              const statusVariants: Record<string, 'outline' | 'secondary'> = {
-                draft: 'outline',
-                ready: 'outline',
-                internal: 'outline',
-                archived: 'secondary',
-                deprecated: 'outline',
-              };
-              const label = t(`card.status.${recordStatus}`, {
-                defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
-              });
-              return (
-                <Badge
-                  variant={statusVariants[recordStatus] ?? 'outline'}
-                  className={statusStyles[recordStatus] ?? 'text-xs'}
-                >
-                  {label}
-                </Badge>
-              );
-            })()}
-            {!isCollection && properties.keywords?.includes('synthetic') && (
-              <Badge variant="outline" className="text-xs border-purple-500/50 text-purple-600 dark:text-purple-400">
-                {t('card.testData', { defaultValue: 'Test Data' })}
-              </Badge>
-            )}
-
-            <RecordTypeBadge recordType={recordType} />
-
-            {/* Type-specific inline metadata */}
-            {isCollection ? (
-              properties.dataset_count != null && (
-                <Badge variant="secondary" className="text-xs">
-                  {t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })}
-                </Badge>
-              )
-            ) : (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                {/* Vector: geometry type */}
-                {!isRaster && !isVrt && properties.geometry_type && (
-                  <>{getGeometryTypeLabel(t, properties.geometry_type)}</>
-                )}
-                {/* Raster: band count */}
-                {isRaster && properties.band_count != null && (
-                  <>{t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' })}</>
-                )}
-                {/* Raster: gsd */}
-                {isRaster && properties.gsd != null && (() => {
-                  const label = formatGsd(properties.gsd, properties.crs);
-                  return label ? <><span aria-hidden>·</span>{label}</> : null;
+    <Link to={linkPath} className="group block" data-testid="search-result-card">
+      <Card className="cursor-pointer overflow-hidden border-border/60 bg-card/90 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-lg">
+        <div className="flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_14rem]">
+          <div className="min-w-0 p-4 sm:p-5">
+            <div className="flex flex-col gap-3.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Status badges (non-collection only) */}
+                {!isCollection && recordStatus && recordStatus !== 'published' && (() => {
+                  const statusStyles: Record<string, string> = {
+                    draft: 'text-xs border-amber-500/50 text-amber-600 dark:text-amber-400',
+                    ready: 'text-xs border-blue-500/50 text-blue-600 dark:text-blue-400',
+                    internal: 'text-xs border-slate-500/50 text-slate-600 dark:text-slate-400',
+                    archived: 'text-xs',
+                    deprecated: 'text-xs text-muted-foreground',
+                  };
+                  const statusVariants: Record<string, 'outline' | 'secondary'> = {
+                    draft: 'outline',
+                    ready: 'outline',
+                    internal: 'outline',
+                    archived: 'secondary',
+                    deprecated: 'outline',
+                  };
+                  const label = t(`card.status.${recordStatus}`, {
+                    defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
+                  });
+                  return (
+                    <Badge
+                      variant={statusVariants[recordStatus] ?? 'outline'}
+                      className={statusStyles[recordStatus] ?? 'text-xs'}
+                    >
+                      {label}
+                    </Badge>
+                  );
                 })()}
-                {/* VRT: vrt_type label */}
-                {isVrt && properties.vrt_type && (
-                  <>{capitalizeVrtType(properties.vrt_type)}</>
-                )}
-                {/* VRT: source count */}
-                {isVrt && properties.source_count != null && (
-                  <><span aria-hidden>·</span>{t('card.sourceCount', { count: properties.source_count, defaultValue: '{{count}} sources' })}</>
-                )}
-                {/* VRT: band count */}
-                {isVrt && properties.band_count != null && (
-                  <><span aria-hidden>·</span>{t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' })}</>
-                )}
-                {/* Vector: feature count */}
-                {!isRaster && !isVrt && properties.feature_count != null && (
-                  <><span aria-hidden>·</span>{t('card.featureCount', { count: properties.feature_count })}</>
-                )}
-                {/* CRS */}
-                {properties.crs && (
-                  <><span aria-hidden>·</span>{properties.crs}</>
-                )}
-                {/* Source organization */}
-                {properties.source_organization && (
-                  <><span aria-hidden>·</span>{properties.source_organization}</>
-                )}
-              </span>
-            )}
-
-            {!isCollection && (
-              <QualityBadge score={properties.quality_detail?.overall ?? null} />
-            )}
-          </div>
-
-          {/* Row 3: tags (non-collection only, max 2) */}
-          {!isCollection && (() => {
-            const displayKeywords = properties.keywords?.filter(
-              (k) => k !== 'synthetic' && k !== 'perf-seed'
-            ) ?? [];
-            return displayKeywords.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1">
-                {displayKeywords.slice(0, 2).map((tag) => (
-                  <Badge key={tag} variant="outline" className="text-xs font-normal text-muted-foreground">
-                    {tag}
+                {!isCollection && properties.keywords?.includes('synthetic') && (
+                  <Badge variant="outline" className="text-xs border-purple-500/50 text-purple-600 dark:text-purple-400">
+                    {t('card.testData', { defaultValue: 'Test Data' })}
                   </Badge>
-                ))}
-                {displayKeywords.length > 2 && (
-                  <span className="text-xs text-muted-foreground self-center">
-                    {t('card.moretags', { count: displayKeywords.length - 2 })}
-                  </span>
+                )}
+
+                <RecordTypeBadge recordType={recordType} />
+
+                {isCollection && properties.dataset_count != null && (
+                  <Badge variant="secondary" className="text-xs">
+                    {t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })}
+                  </Badge>
+                )}
+
+                {!isCollection && (
+                  <QualityBadge score={properties.quality_detail?.overall ?? null} />
                 )}
               </div>
-            ) : null;
-          })()}
 
-          {/* Row 4: Footer */}
-          {isCollection ? (
-            // Collection footer: description or created date
-            properties.description ? (
-              <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2">
-                {properties.description}
-              </p>
-            ) : properties.created ? (
-              <div className="mt-1.5 text-xs text-muted-foreground">
-                {t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })}
+              <div className="space-y-2">
+                <span className="block text-lg font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-2">
+                  {properties.title}
+                </span>
+
+                {!isCollection && sourceOrganization && (
+                  <p
+                    className="max-w-3xl text-sm leading-6 text-muted-foreground line-clamp-2"
+                    data-testid="dataset-card-source"
+                    title={sourceOrganization}
+                  >
+                    {sourceOrganization}
+                  </p>
+                )}
+
+                {isCollection && properties.description && (
+                  <p className="max-w-3xl text-sm leading-6 text-muted-foreground line-clamp-2">
+                    {properties.description}
+                  </p>
+                )}
               </div>
-            ) : null
-          ) : (
-            // Dataset footer: provenance attribution
-            <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              {hasMissingProvenance ? (
-                <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
-                  {properties.created
-                    ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
-                    : noUpdateMetadataLabel}
-                </span>
+
+              {!isCollection && cardSpecs.length > 0 && (
+                <div className="flex flex-wrap gap-1.5" data-testid="dataset-card-specs">
+                  {cardSpecs.map((item) => (
+                    <span
+                      key={item}
+                      className="inline-flex items-center rounded-full border border-border/60 bg-muted/45 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {!isCollection && displayKeywords.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {displayKeywords.slice(0, 2).map((tag) => (
+                    <Badge key={tag} variant="outline" className="border-border/60 bg-background/70 text-xs font-normal text-muted-foreground">
+                      {tag}
+                    </Badge>
+                  ))}
+                  {displayKeywords.length > 2 && (
+                    <span className="self-center text-xs text-muted-foreground">
+                      {t('card.moretags', { count: displayKeywords.length - 2 })}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {isCollection ? (
+                !properties.description && properties.created ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })}
+                  </div>
+                ) : null
               ) : (
-                <span
-                  className="inline-flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap"
-                  data-testid="dataset-card-updated-attribution"
-                >
-                  <span className="shrink-0">{updatedByLabel}</span>
-                  <span className="max-w-[14rem] truncate" title={updatedByIdentity}>
-                    {updatedByIdentity}
-                  </span>
-                  <span aria-hidden className="shrink-0">&#8226;</span>
-                  <span className="shrink-0" title={updatedAbsolute}>
-                    {updatedRelative}
-                  </span>
-                </span>
+                <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
+                  {hasMissingProvenance ? (
+                    <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
+                      {properties.created
+                        ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
+                        : noUpdateMetadataLabel}
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5"
+                      data-testid="dataset-card-updated-attribution"
+                    >
+                      <span className="shrink-0">{updatedByLabel}</span>
+                      <span className="max-w-[14rem] truncate" title={updatedByIdentity}>
+                        {updatedByIdentity}
+                      </span>
+                      <span aria-hidden className="shrink-0">&#8226;</span>
+                      <span className="shrink-0" title={updatedAbsolute}>
+                        {updatedRelative}
+                      </span>
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* Preview column (right side, hidden on mobile) */}
-        <div className="hidden sm:block sm:w-40 sm:flex-shrink-0 sm:border-l border-border/50 bg-muted/20 sm:p-3">
-          {isCollection ? (
-            // Collection: folder icon placeholder
-            <div className="flex items-center justify-center h-[120px] w-full bg-muted/30 rounded-md">
-              <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+          <div className="hidden border-t border-border/50 bg-muted/20 p-4 md:flex md:min-h-full md:border-l md:border-t-0">
+            <div className="flex w-full items-center justify-center overflow-hidden rounded-[20px] border border-border/50 bg-background/60">
+              {isCollection ? (
+                <div className="flex h-[140px] w-full items-center justify-center bg-muted/25">
+                  <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+              ) : quicklookSrc ? (
+                <img
+                  src={quicklookSrc}
+                  alt={t('datasetCard.quicklookAlt', { name: properties.title })}
+                  className="h-[140px] w-full object-cover"
+                />
+              ) : qlLoading ? (
+                <div className="flex h-[140px] w-full items-center justify-center bg-muted/25">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : qlError ? (
+                <div className="flex h-[140px] w-full flex-col items-center justify-center gap-1 bg-muted/25 text-muted-foreground">
+                  <ImageOff className="h-5 w-5 opacity-50" />
+                  <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
+                </div>
+              ) : (
+                <BBoxPreview bbox={bbox} />
+              )}
             </div>
-          ) : quicklookSrc ? (
-            <img
-              src={quicklookSrc}
-              alt={t('datasetCard.quicklookAlt', { name: properties.title })}
-              className="w-full h-full object-cover rounded-md"
-            />
-          ) : qlLoading ? (
-            <div className="flex items-center justify-center h-[120px] w-full bg-muted/30 rounded-md">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : qlError ? (
-            <div className="flex flex-col items-center justify-center h-[120px] w-full bg-muted/30 rounded-md text-muted-foreground gap-1">
-              <ImageOff className="h-5 w-5 opacity-50" />
-              <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
-            </div>
-          ) : (
-            <BBoxPreview bbox={bbox} />
-          )}
+          </div>
         </div>
       </Card>
     </Link>

@@ -45,7 +45,11 @@ export function SaveSearchButton() {
   return (
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 rounded-full border-border/60 bg-background/85 shadow-sm hover:bg-accent/60"
+        >
           <Bookmark className="size-4" />
           <span className="hidden sm:inline">{t('savedSearches.saveButton')}</span>
           <span className="sm:hidden">
@@ -117,7 +121,7 @@ export function SavedSearches() {
 
   return (
     <div
-      className="flex items-center gap-1.5 overflow-x-auto"
+      className="flex flex-wrap items-center gap-2 rounded-[24px] border border-border/60 bg-background/80 px-3 py-3 shadow-sm backdrop-blur-sm"
       aria-label={t('savedSearches.savedSearchesLabel', {
         defaultValue: 'Saved searches',
       })}
@@ -125,12 +129,12 @@ export function SavedSearches() {
       {searches.map((search) => (
         <div
           key={search.id}
-          className="group inline-flex shrink-0 items-center gap-1 rounded-full border bg-secondary/50 py-1 pl-2.5 pr-1 text-xs font-medium text-secondary-foreground"
+          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 py-1.5 pl-3 pr-1.5 text-xs font-medium text-secondary-foreground shadow-sm"
         >
           <button
             type="button"
             onClick={() => handleLoad(search.params)}
-            className="truncate text-left transition-colors hover:text-foreground"
+            className="max-w-[14rem] truncate text-left transition-colors hover:text-foreground"
           >
             {search.name}
           </button>
@@ -140,7 +144,7 @@ export function SavedSearches() {
               defaultValue: 'Remove saved search',
             })}
             onClick={(e) => handleDelete(e, search.id)}
-            className="rounded-full p-0.5 opacity-60 transition-colors hover:bg-destructive/20 hover:opacity-100"
+            className="rounded-full bg-background/70 p-1 opacity-70 transition-colors hover:bg-destructive/20 hover:opacity-100"
           >
             <X className="size-3" />
           </button>

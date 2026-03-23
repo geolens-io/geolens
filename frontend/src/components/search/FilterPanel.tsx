@@ -215,7 +215,18 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
   const renderDesktopLocationFilter = () => {
     if (bbox) {
       return (
-        <div className="cursor-pointer" onClick={() => setSpatialPanelOpen(true)}>
+        <div
+          className="cursor-pointer"
+          onClick={() => setSpatialPanelOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setSpatialPanelOpen(true);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+        >
           <FilterChip
             label={t('filters.areaSelected', { defaultValue: 'Area selected' })}
             onRemove={() => {
@@ -239,7 +250,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
 
   return (
     <>
-      <div className="space-y-3 md:hidden">
+      <div className="space-y-4 md:hidden">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm text-muted-foreground">
             {totalResults !== undefined ? (
@@ -251,6 +262,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
               type="button"
               variant={activeFilterCount > 0 ? 'default' : 'outline'}
               size="sm"
+              className="rounded-full border-border/60 shadow-sm"
               onClick={() => {
                 syncLocalDates();
                 setMobileFiltersOpen(true);
@@ -347,7 +359,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
       </div>
 
       {/* Desktop: Primary filter row */}
-      <div className="hidden flex-wrap items-center gap-3 md:flex">
+      <div className="hidden flex-wrap items-center gap-2.5 md:flex">
         <div className="flex items-center gap-2">
           <ToggleGroup
             type="single"
@@ -505,7 +517,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
           </Button>
         )}
 
-        <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="ml-auto flex items-center gap-3 rounded-full bg-muted/35 px-3 py-1.5 text-sm text-muted-foreground">
           {totalResults !== undefined && (
             <span>
               {bbox || geometry
@@ -521,7 +533,10 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
       {recordType && (
         recordType === 'vector_dataset' || organizations.length > 0 || srids.length > 0
       ) && (
-        <div className="hidden md:flex items-center gap-3 px-1 pt-2 border-t border-border/40" data-testid="secondary-filter-row">
+        <div
+          className="hidden flex-wrap items-center gap-3 rounded-[20px] border border-border/50 bg-muted/20 px-3 py-2 md:flex"
+          data-testid="secondary-filter-row"
+        >
           <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
             {recordType === 'vector_dataset'
               ? t('filters.vector', { defaultValue: 'Vector' })
