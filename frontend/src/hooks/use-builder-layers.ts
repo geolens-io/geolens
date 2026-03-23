@@ -338,6 +338,9 @@ export function useBuilderLayers(
     }
   }
 
+  // Custom paint props stored in JSON but not valid MapLibre fill paint properties
+  const CUSTOM_PROPS = new Set(['outline-width', 'fill-outline-color']);
+
   function handleStyleConfigChange(
     layerId: string,
     config: StyleConfig | null,
@@ -350,7 +353,7 @@ export function useBuilderLayers(
     );
     setHasUnsavedChanges(true);
 
-    // Live map update — apply all paint properties (including expressions)
+    // Live map update — apply paint properties (including expressions)
     const map = mapInstanceRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
@@ -358,31 +361,45 @@ export function useBuilderLayers(
     if (!map.getLayer(mapLayerId)) return;
 
     for (const [prop, value] of Object.entries(paint)) {
-      if (value !== undefined) {
+      if (value !== undefined && !CUSTOM_PROPS.has(prop)) {
         try {
           map.setPaintProperty(
             mapLayerId,
             prop,
             value as Parameters<MaplibreMap['setPaintProperty']>[2],
           );
-        } catch {
-          // Expression may be invalid — skip silently
+        } catch (e) {
+          if (import.meta.env.DEV) console.debug(`[builder] Failed to set ${prop}:`, e);
         }
+      }
+    }
+
+    // Also sync custom props to the outline layer
+    const outlineId = `layer-${layerId}-outline`;
+    if (map.getLayer(outlineId)) {
+      if (paint['fill-outline-color'] !== undefined) {
+        try { map.setPaintProperty(outlineId, 'line-color', paint['fill-outline-color']); } catch {}
+      }
+      if (paint['outline-width'] !== undefined) {
+        try { map.setPaintProperty(outlineId, 'line-width', paint['outline-width']); } catch {}
       }
     }
   }
 
   function handlePaintChange(layerId: string, newPaint: Record<string, unknown>) {
-    setLocalLayers((prev) =>
-      prev.map((l) => (l.id === layerId ? { ...l, paint: newPaint } : l)),
-    );
+    let resolvedLayer: MapLayerResponse | undefined;
+    setLocalLayers((prev) => {
+      const updated = prev.map((l) => (l.id === layerId ? { ...l, paint: newPaint } : l));
+      resolvedLayer = updated.find((l) => l.id === layerId);
+      return updated;
+    });
     setHasUnsavedChanges(true);
 
     // Live map update
     const map = mapInstanceRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
-    const layer = localLayers.find((l) => l.id === layerId);
+    const layer = resolvedLayer ?? localLayers.find((l) => l.id === layerId);
     if (!layer) return;
 
     const mapLayerId = `layer-${layerId}`;
@@ -447,16 +464,19 @@ export function useBuilderLayers(
   }
 
   function handleOpacityChange(layerId: string, newOpacity: number) {
-    setLocalLayers((prev) =>
-      prev.map((l) => (l.id === layerId ? { ...l, opacity: newOpacity } : l)),
-    );
+    let resolvedLayer: MapLayerResponse | undefined;
+    setLocalLayers((prev) => {
+      const updated = prev.map((l) => (l.id === layerId ? { ...l, opacity: newOpacity } : l));
+      resolvedLayer = updated.find((l) => l.id === layerId);
+      return updated;
+    });
     setHasUnsavedChanges(true);
 
     // Live map update
     const map = mapInstanceRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
-    const layer = localLayers.find((l) => l.id === layerId);
+    const layer = resolvedLayer ?? localLayers.find((l) => l.id === layerId);
     if (!layer) return;
 
     const mapLayerId = `layer-${layerId}`;
