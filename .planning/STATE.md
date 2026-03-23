@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260323-lik
-last_updated: "2026-03-23T19:38:41.668Z"
-last_activity: "2026-03-23 - Completed quick task 260323-jqk: Fix closed transaction error in AI map generate"
+stopped_at: Completed quick-260323-r43
+last_updated: "2026-03-23T23:56:06.001Z"
+last_activity: "2026-03-23 - Completed quick task 260323-lik: Thorough QA pass on map layer configuration"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -121,6 +121,7 @@ Plan: Not started
 - [Phase quick-260323-ees]: Use pydantic model_serializer decorator for null exclusion in OGCLink rather than model_config exclude_none
 - [Phase quick-260323-jqk]: update_map uses flush() so begin_nested() savepoints in AI service work correctly; callers own commit lifecycle
 - [Phase quick-260323-lik]: Always set opacity explicitly on initial layer creation regardless of value to prevent stale state on basemap reload
+- [Phase quick-260323-r43]: Enforce validate_public_visibility as pre-update gate in update_map_endpoint; parse dataset names from 400 error detail for frontend display
 
 ### Pending Todos
 
@@ -171,10 +172,11 @@ Plan: Not started
 | 260323-ees | Fix OGC API Features endpoints for QGIS compatibility | 2026-03-23 | 9fb0b26c | Verified | [260323-ees-verify-ogc-api-features-endpoints-workin](./quick/260323-ees-verify-ogc-api-features-endpoints-workin/) |
 | 260323-jqk | Fix closed transaction error in AI map generate | 2026-03-23 | 8dd86717 | Verified | [260323-jqk-fix-closed-transaction-error-in-ai-map-c](./quick/260323-jqk-fix-closed-transaction-error-in-ai-map-c/) |
 | 260323-lik | Thorough QA pass on map layer configuration — correctness, best practices, KISS | 2026-03-23 | c4f7f3db | Verified | [260323-lik-thorough-qa-pass-on-map-layer-configurat](./quick/260323-lik-thorough-qa-pass-on-map-layer-configurat/) |
+| 260323-r43 | Audit sharing/access/embed: hard-block non-public datasets, findings report | 2026-03-23 | 757280ce | Verified | [260323-r43-audit-sharing-access-embed-functionality](./quick/260323-r43-audit-sharing-access-embed-functionality/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260323-lik: Thorough QA pass on map layer configuration
-Last session: 2026-03-23T19:38:37.135Z
-Stopped at: Completed quick-260323-lik
+Last activity: 2026-03-23 - Completed quick task 260323-r43: Audit sharing/access/embed functionality
+Last session: 2026-03-23T23:56:01.800Z
+Stopped at: Completed quick-260323-r43
 Resume file: None
