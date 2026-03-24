@@ -166,10 +166,10 @@ export function useAIStatus() {
 }
 
 // Share token hooks
-export function useShareTokens(skip = 0, limit = 50) {
+export function useShareTokens(skip = 0, limit = 50, search?: string, status?: string) {
   return useQuery({
-    queryKey: ['admin', 'share-tokens', skip, limit],
-    queryFn: () => listShareTokens({ skip, limit }),
+    queryKey: ['admin', 'share-tokens', skip, limit, search, status],
+    queryFn: () => listShareTokens({ skip, limit, search, status }),
     placeholderData: keepPreviousData,
   });
 }

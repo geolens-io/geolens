@@ -120,11 +120,13 @@ export async function revokeApiKey(keyId: string): Promise<void> {
 
 // Share tokens
 export async function listShareTokens(
-  params: { skip?: number; limit?: number } = {},
+  params: { skip?: number; limit?: number; search?: string; status?: string } = {},
 ): Promise<AdminShareTokenListResponse> {
   const query = new URLSearchParams();
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.search) query.set('search', params.search);
+  if (params.status) query.set('status', params.status);
   const qs = query.toString();
   return apiFetch<AdminShareTokenListResponse>(`/admin/share-tokens${qs ? `?${qs}` : ''}`);
 }

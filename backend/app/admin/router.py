@@ -607,12 +607,14 @@ async def get_infrastructure(
 async def list_share_tokens_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    search: str | None = Query(None, max_length=200),
+    status: str | None = Query(None, pattern="^(active|expired|revoked)$"),
     db: AsyncSession = Depends(get_db),
 ) -> AdminShareTokenListResponse:
     """List all share tokens with map info (admin only)."""
     from app.maps.service import list_share_tokens
 
-    tokens, total = await list_share_tokens(db, skip, limit)
+    tokens, total = await list_share_tokens(db, skip, limit, search=search, status_filter=status)
     return AdminShareTokenListResponse(
         tokens=[AdminShareTokenResponse(**t) for t in tokens],
         total=total,

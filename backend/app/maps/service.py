@@ -840,11 +840,37 @@ async def list_share_tokens(
     session: AsyncSession,
     skip: int = 0,
     limit: int = 50,
+    search: str | None = None,
+    status_filter: str | None = None,
 ) -> tuple[list[dict], int]:
     """List all share tokens with map names and embed token counts for admin view."""
     from app.embed_tokens.models import EmbedToken
 
-    count_stmt = select(func.count()).select_from(MapShareToken)
+    # Build base filter conditions
+    conditions = []
+    if search:
+        conditions.append(Map.name.ilike(f"%{search}%"))
+    if status_filter == "active":
+        conditions.append(MapShareToken.is_active.is_(True))
+        conditions.append(
+            or_(
+                MapShareToken.expires_at.is_(None),
+                MapShareToken.expires_at > func.now(),
+            )
+        )
+    elif status_filter == "expired":
+        conditions.append(MapShareToken.is_active.is_(True))
+        conditions.append(MapShareToken.expires_at <= func.now())
+    elif status_filter == "revoked":
+        conditions.append(MapShareToken.is_active.is_(False))
+
+    count_stmt = (
+        select(func.count())
+        .select_from(MapShareToken)
+        .join(Map, MapShareToken.map_id == Map.id)
+    )
+    for cond in conditions:
+        count_stmt = count_stmt.where(cond)
     total = (await session.execute(count_stmt)).scalar_one()
 
     embed_count_sub = (
@@ -871,6 +897,8 @@ async def list_share_tokens(
         .offset(skip)
         .limit(limit)
     )
+    for cond in conditions:
+        stmt = stmt.where(cond)
     result = await session.execute(stmt)
     rows = result.all()
 

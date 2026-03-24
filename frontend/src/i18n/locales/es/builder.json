@@ -122,7 +122,7 @@
     "copyShareLink": "Copiar enlace para compartir",
     "copyEmbedCode": "Copiar código de inserción",
     "cannotPublish": "No se puede publicar: los conjuntos de datos {{datasets}} no son públicos",
-    "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
+    "embedTokenInfo": "Este mapa incluye capas restringidas. El acceso se concede automáticamente al compartir o insertar.",
     "expirationLabel": "Caducidad",
     "expirationPlaceholder": "Sin caducidad",
     "expirationHint": "Dejar en blanco para un enlace sin fecha de caducidad",
