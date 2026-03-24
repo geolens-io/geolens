@@ -514,10 +514,21 @@ export function useBuilderLayers(
     const layer = localLayers.find((l) => l.id === layerId);
     if (!layer?.dataset_extent_bbox) return;
     const bbox = layer.dataset_extent_bbox;
-    map.fitBounds(
-      [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
-      { padding: 40, maxZoom: 18 },
-    );
+    // Validate bbox: must be 4 finite numbers with valid ranges
+    if (
+      bbox.length !== 4 ||
+      bbox.some((v) => !Number.isFinite(v)) ||
+      bbox[0] >= bbox[2] ||
+      bbox[1] >= bbox[3]
+    ) return;
+    try {
+      map.fitBounds(
+        [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
+        { padding: 40, maxZoom: 18 },
+      );
+    } catch {
+      // Silently ignore invalid bounds (e.g. out-of-range coordinates)
+    }
   }
 
   function handleRemove(layerId: string) {
