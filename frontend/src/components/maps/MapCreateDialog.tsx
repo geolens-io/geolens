@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { useCreateMap } from '@/hooks/use-maps';
 import { streamGenerateMap } from '@/api/maps';
-import { useAIStatus } from '@/hooks/use-admin';
+import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -35,8 +35,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
   const [progressLabel, setProgressLabel] = useState('');
   const [generateError, setGenerateError] = useState<string | null>(null);
   const createMap = useCreateMap();
-  const { data: aiStatus } = useAIStatus();
-  const aiAvailable = aiStatus?.configured && aiStatus?.enabled;
+  const { isAIAvailable: aiAvailable } = useAIAvailability();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
