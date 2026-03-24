@@ -6,14 +6,14 @@ Upload your GIS data, search and preview it instantly, build styled interactive 
 
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-ready-blue?logo=docker)](docker-compose.yml)
-[![GitHub last commit](https://img.shields.io/github/last-commit/Carto-Concepts/geolens)](https://github.com/Carto-Concepts/geolens/commits/main)
+[![GitHub last commit](https://img.shields.io/github/last-commit/geolens-io/geolens)](https://github.com/geolens-io/geolens/commits/main)
 
 <p align="center">
   <img src="docs/images/geolens-hero.png" alt="GeoLens — dataset detail with interactive map preview" width="900">
 </p>
 
 <p align="center">
-  <img src="docs/images/geolens-catalog.png" alt="GeoLens — searchable data catalog with filters" width="900">
+  <img src="docs/images/geolens-map-builder.png" alt="GeoLens — multi-layer map builder with styling controls" width="900">
 </p>
 
 ### Why GeoLens?
@@ -24,34 +24,34 @@ Most open-source GIS catalogs (GeoServer, GeoNode) are heavyweight Java stacks d
 
 | | |
 |---|---|
-| **Map Builder** | Create multi-layer interactive maps with custom styling, filters, and labels |
+| **Map Builder** | Create multi-layer interactive maps with custom styling, filters, labels, and per-category color ramps |
 | **AI Chat** | Talk to your map — style layers, filter data, and run spatial queries in natural language (Claude or OpenAI) |
 | **Semantic Search** | Find datasets by meaning, not just keywords, powered by pgvector embeddings |
 | **AI Metadata** | One-click AI-generated summaries, keywords, lineage, and quality statements for any dataset |
-| **Search & Discovery** | Full-text search, spatial/bbox filtering, type facets, keyword tags, and collection browsing |
-| **Vector & Raster** | Upload Shapefiles, GeoJSON, GeoPackage, CSV, GeoTIFF, COG, and VRT — served as vector tiles (ST_AsMVT) or raster tiles (Titiler) |
+| **Search & Discovery** | Full-text search, spatial/bbox filtering, type facets, keyword tags, saved searches, and collection browsing |
+| **Vector & Raster** | Upload Shapefiles, GeoJSON, GeoPackage, CSV, XLSX, GeoTIFF, COG, and VRT — served as vector tiles (ST_AsMVT) or raster tiles (Titiler) |
 | **Export** | Download in GeoJSON, Shapefile, GeoPackage, CSV, or KML |
-| **Sharing & Embeds** | Public share links and embeddable map iframes with token-based access control |
-| **OGC API** | Standards-compliant Features and Tiles endpoints |
-| **Admin Panel** | User management, roles, audit logging, AI provider configuration |
+| **Sharing & Embeds** | Public share links with expiration, embeddable map iframes with domain-restricted token-based access |
+| **OGC Standards** | OGC API Features, Records, and STAC endpoints for interoperability with QGIS, ArcGIS, and other clients |
+| **Admin Panel** | User management, roles, permissions, audit logging, published maps registry, AI provider configuration |
+| **Auth** | JWT + API keys + OAuth/OIDC (Google, Microsoft, custom providers) |
 | **i18n** | English, Spanish, French, German |
-| **Auth** | JWT + API key authentication for UI and programmatic access |
 
 ## Quick Start
 
 **Prerequisites:** Docker Engine 24+ and Docker Compose v2.
 
 ```bash
-git clone https://github.com/Carto-Concepts/geolens.git
+git clone https://github.com/geolens-io/geolens.git
 cd geolens
 docker compose up -d
 ```
 
-Open `http://localhost:8080` — log in with `admin` / `admin` and change the password.
+Open `http://localhost:8080` — log in with `admin` / `admin` and change the password immediately.
 
 ### Seed with sample data
 
-Populate your catalog with 130 [Natural Earth](https://www.naturalearthdata.com/) vector datasets in one command:
+Populate your catalog with 130 [Natural Earth](https://www.naturalearthdata.com/) vector datasets:
 
 ```bash
 pip install httpx
@@ -72,13 +72,36 @@ The script downloads, ingests, and organizes datasets into collections automatic
 | Cache | Valkey (Redis-compatible) |
 | Reverse Proxy | nginx |
 
-## Cloud Deployment
+## Configuration
 
-See [docs/cloud-deployment.md](docs/cloud-deployment.md) for AWS, DigitalOcean, and Kubernetes guides.
+GeoLens is configured through environment variables. Key settings:
+
+| Variable | Description | Default |
+|---|---|---|
+| `GEOLENS_ADMIN_USERNAME` | Initial admin username | (required) |
+| `GEOLENS_ADMIN_PASSWORD` | Initial admin password | (required) |
+| `JWT_SECRET_KEY` | Secret for JWT signing | (required) |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
+| `STORAGE_PROVIDER` | `local` or `s3` | `local` |
+
+See [docs/configuration-reference.md](docs/configuration-reference.md) for the full reference.
+
+## Documentation
+
+| Guide | Description |
+|---|---|
+| [Install Guide](docs/install-guide.md) | Detailed setup instructions |
+| [Configuration Reference](docs/configuration-reference.md) | All environment variables and settings |
+| [Admin Guide](docs/admin-guide.md) | User management, permissions, and system settings |
+| [Cloud Deployment](docs/cloud-deployment.md) | AWS, DigitalOcean, and Kubernetes guides |
+| [Database Design](docs/database-design.md) | Schema documentation |
+| [AI Map Features](docs/llm-map-features.md) | AI chat and map generation |
+| [AI Data Features](docs/llm-data-features.md) | Semantic search and metadata generation |
+| [Testing & CI](docs/testing-and-ci.md) | Test suites and CI/CD |
 
 ## Contributing
 
-Contributions are welcome. Please open an issue to discuss proposed changes before submitting a pull request.
+Contributions are welcome! See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for development setup, code style, and PR guidelines.
 
 ## License
 
