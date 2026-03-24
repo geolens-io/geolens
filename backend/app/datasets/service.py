@@ -20,6 +20,18 @@ from app.datasets.models import AttributeMetadata, Dataset, DatasetGrant, Record
 logger = logging.getLogger(__name__)
 
 _COLUMN_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_SAFE_TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+
+
+def _safe_table_ref(table_name: str) -> str:
+    """Return a safely quoted 'data.table_name' SQL identifier.
+
+    Validates that the name contains only safe characters and quotes it
+    to prevent SQL injection in DDL statements (CREATE/DROP/ALTER).
+    """
+    if not _SAFE_TABLE_NAME_RE.match(table_name):
+        raise ValueError(f"Invalid table name: {table_name!r}")
+    return f'"data"."{table_name}"'
 
 
 class DependentVrtError(Exception):
@@ -87,9 +99,8 @@ async def create_empty_dataset(
         col_defs.append(f"{col.name.lower()} {pg_type}")
 
     columns_sql = ", ".join(col_defs)
-    safe_tn = table_name.replace('"', '')
     create_sql = (
-        f'CREATE TABLE "data"."{safe_tn}" ('
+        f"CREATE TABLE {_safe_table_ref(table_name)} ("
         f"gid SERIAL PRIMARY KEY, "
         f"geom geometry(Geometry, 4326), "
         f"geom_4326 geometry(Geometry, 4326), "
@@ -332,8 +343,7 @@ async def delete_dataset(
                 await storage.delete(key)
     else:
         # Vector datasets: drop the PostGIS data table
-        safe_tn = table_name.replace('"', '')
-        await session.execute(text(f'DROP TABLE IF EXISTS "data"."{safe_tn}"'))
+        await session.execute(text(f"DROP TABLE IF EXISTS {_safe_table_ref(table_name)}"))
 
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)

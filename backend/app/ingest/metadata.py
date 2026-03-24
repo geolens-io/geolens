@@ -31,6 +31,12 @@ def _validate_table_name(table_name: str) -> None:
         )
 
 
+def _qtable(table_name: str) -> str:
+    """Return quoted 'data.table_name' identifier after validation."""
+    _validate_table_name(table_name)
+    return f'"data"."{table_name}"'
+
+
 async def construct_point_geometry(
     session: AsyncSession,
     table_name: str,
@@ -113,7 +119,9 @@ async def get_table_srid(session: AsyncSession, table_name: str) -> int | None:
     """Get the SRID of the geom column for a table in the data schema."""
     _validate_table_name(table_name)
     result = await session.execute(
-        text(f"SELECT Find_SRID('data', '{table_name}', 'geom')")
+        text("SELECT Find_SRID('data', :table_name, 'geom')").bindparams(
+            table_name=table_name
+        )
     )
     row = result.scalar_one_or_none()
     return int(row) if row is not None else None
@@ -124,9 +132,8 @@ async def get_geometry_type(session: AsyncSession, table_name: str) -> str | Non
 
     Returns the type in uppercase for consistent casing across all sources.
     """
-    _validate_table_name(table_name)
     result = await session.execute(
-        text(f"SELECT GeometryType(geom) FROM data.{table_name} LIMIT 1")
+        text(f"SELECT GeometryType(geom) FROM {_qtable(table_name)} LIMIT 1")
     )
     value = result.scalar_one_or_none()
     return value.upper() if value else None
@@ -134,8 +141,7 @@ async def get_geometry_type(session: AsyncSession, table_name: str) -> str | Non
 
 async def get_feature_count(session: AsyncSession, table_name: str) -> int:
     """Count the number of features (rows) in the table."""
-    _validate_table_name(table_name)
-    result = await session.execute(text(f"SELECT COUNT(*) FROM data.{table_name}"))
+    result = await session.execute(text(f"SELECT COUNT(*) FROM {_qtable(table_name)}"))
     return result.scalar_one()
 
 
@@ -343,9 +349,9 @@ async def _table_has_geometry(session: AsyncSession, table_name: str) -> bool:
     result = await session.execute(
         text(
             "SELECT EXISTS(SELECT 1 FROM information_schema.columns "
-            f"WHERE table_schema='data' AND table_name='{table_name}' "
+            "WHERE table_schema='data' AND table_name=:table_name "
             "AND column_name='geom')"
-        )
+        ).bindparams(table_name=table_name)
     )
     return result.scalar_one()
 
@@ -453,28 +459,28 @@ async def add_4326_column(
     If source_srid is 4326, copies geom directly (ensuring SRID is set).
     Otherwise, reprojects via ST_Transform.
     """
-    _validate_table_name(table_name)
+    tref = _qtable(table_name)
 
     await session.execute(
         text(
-            f"ALTER TABLE data.{table_name} "
+            f"ALTER TABLE {tref} "
             f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
         )
     )
 
     if source_srid == 4326:
         await session.execute(
-            text(f"UPDATE data.{table_name} SET geom_4326 = ST_SetSRID(geom, 4326)")
+            text(f"UPDATE {tref} SET geom_4326 = ST_SetSRID(geom, 4326)")
         )
     else:
         await session.execute(
-            text(f"UPDATE data.{table_name} SET geom_4326 = ST_Transform(geom, 4326)")
+            text(f"UPDATE {tref} SET geom_4326 = ST_Transform(geom, 4326)")
         )
 
     await session.execute(
         text(
             f"CREATE INDEX IF NOT EXISTS idx_{table_name}_geom_4326 "
-            f"ON data.{table_name} USING GIST (geom_4326)"
+            f"ON {tref} USING GIST (geom_4326)"
         )
     )
 
@@ -482,7 +488,7 @@ async def add_4326_column(
     await session.execute(
         text(
             f"CREATE INDEX IF NOT EXISTS idx_{table_name}_gid "
-            f"ON data.{table_name} (gid)"
+            f"ON {tref} (gid)"
         )
     )
 
@@ -491,8 +497,7 @@ async def add_4326_column(
 
 async def grant_reader_access(session: AsyncSession, table_name: str) -> None:
     """Grant SELECT on the table to geolens_reader role."""
-    _validate_table_name(table_name)
-    await session.execute(text(f"GRANT SELECT ON data.{table_name} TO geolens_reader"))
+    await session.execute(text(f"GRANT SELECT ON {_qtable(table_name)} TO geolens_reader"))
     await session.commit()
 
 
