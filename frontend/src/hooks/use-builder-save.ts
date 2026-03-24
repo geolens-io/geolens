@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate, useBlocker } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -7,6 +7,47 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
 import type { MapLayerResponse } from '@/types/api';
+
+/** Capture a 400x250 JPEG thumbnail from the map canvas and upload it. */
+function captureThumbnail(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
+  map.triggerRepaint();
+  map.once('idle', () => {
+    try {
+      const srcCanvas = map.getCanvas();
+      const thumbW = 400;
+      const thumbH = 250;
+      const targetRatio = thumbW / thumbH;
+      const srcW = srcCanvas.width;
+      const srcH = srcCanvas.height;
+      const srcRatio = srcW / srcH;
+
+      let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+      if (srcRatio > targetRatio) {
+        cropW = Math.round(srcH * targetRatio);
+        cropX = Math.round((srcW - cropW) / 2);
+      } else {
+        cropH = Math.round(srcW / targetRatio);
+        cropY = Math.round((srcH - cropH) / 2);
+      }
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = thumbW;
+      offscreen.height = thumbH;
+      const ctx = offscreen.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
+        const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
+        uploadThumbnail(mapId, dataUri).then(() => {
+          queryClient.invalidateQueries({ queryKey: ['maps'] });
+        }).catch(() => {
+          // Silent failure for thumbnails
+        });
+      }
+    } catch {
+      // Silent failure for thumbnails
+    }
+  });
+}
 
 interface SaveState {
   mapId: string | undefined;
@@ -17,6 +58,7 @@ interface SaveState {
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
+  hasThumbnail?: boolean;
 }
 
 export function useBuilderSave(state: SaveState) {
@@ -70,44 +112,7 @@ export function useBuilderSave(state: SaveState) {
           // Capture thumbnail and upload (fire-and-forget)
           const m = mapInstanceRef.current;
           if (m && id) {
-            m.triggerRepaint();
-            m.once('idle', () => {
-              try {
-                const srcCanvas = m.getCanvas();
-                const thumbW = 400;
-                const thumbH = 250;
-                const targetRatio = thumbW / thumbH;
-                const srcW = srcCanvas.width;
-                const srcH = srcCanvas.height;
-                const srcRatio = srcW / srcH;
-
-                // Crop center of source to match target aspect ratio
-                let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
-                if (srcRatio > targetRatio) {
-                  cropW = Math.round(srcH * targetRatio);
-                  cropX = Math.round((srcW - cropW) / 2);
-                } else {
-                  cropH = Math.round(srcW / targetRatio);
-                  cropY = Math.round((srcH - cropH) / 2);
-                }
-
-                const offscreen = document.createElement('canvas');
-                offscreen.width = thumbW;
-                offscreen.height = thumbH;
-                const ctx = offscreen.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
-                  const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
-                  uploadThumbnail(id, dataUri).then(() => {
-                    queryClient.invalidateQueries({ queryKey: ['maps'] });
-                  }).catch(() => {
-                    // Silent failure for thumbnails
-                  });
-                }
-              } catch {
-                // Silent failure for thumbnails
-              }
-            });
+            captureThumbnail(m, id, queryClient);
           }
         },
         onError: () => {
@@ -157,6 +162,27 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.mapDuplicateFailed'));
     }
   }
+
+  // Auto-capture thumbnail on first map load if none exists
+  const thumbCaptured = useRef(false);
+  useEffect(() => {
+    if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
+    const m = state.mapInstanceRef.current;
+    if (!m) return;
+    const id = state.mapId;
+    function onIdle() {
+      if (thumbCaptured.current) return;
+      thumbCaptured.current = true;
+      captureThumbnail(m!, id, queryClient);
+    }
+    if (m.loaded()) {
+      onIdle();
+    } else {
+      m.once('idle', onIdle);
+      return () => { m.off('idle', onIdle); };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.mapId, state.hasThumbnail]);
 
   // Warn before tab close / refresh with unsaved changes
   useEffect(() => {
