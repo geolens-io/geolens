@@ -1122,14 +1122,14 @@ async def update_dataset_metadata(
         )
     except ValueError as e:
         msg = str(e)
-        if "Cannot publish" in msg:
+        if "not found" in msg.lower():
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=msg,
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dataset not found",
             )
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=msg,
         )
 
     # Log the metadata edit
