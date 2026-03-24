@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, Globe, Users, Lock, MoreHorizontal } from 'lucide-react';
@@ -100,6 +100,11 @@ export function MapBuilderPage() {
     hasUnsavedChanges: layers.hasUnsavedChanges,
     hasThumbnail: !!mapData?.thumbnail,
   });
+
+  const handleMapRef = useCallback((map: MaplibreMap | null) => {
+    layers.handleMapRef(map);
+    if (map) save.maybeAutoCaptureThumbnail(map);
+  }, [layers.handleMapRef, save.maybeAutoCaptureThumbnail]);
 
   if (isLoading) {
     return (
@@ -340,7 +345,7 @@ export function MapBuilderPage() {
             layers={layers.localLayers}
             basemapStyle={layers.localBasemap}
             initialViewState={layers.initialViewState}
-            onMapRef={layers.handleMapRef}
+            onMapRef={handleMapRef}
             showBasemapLabels={layers.showBasemapLabels}
           />
         </MapErrorBoundary>

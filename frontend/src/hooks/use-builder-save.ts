@@ -163,26 +163,19 @@ export function useBuilderSave(state: SaveState) {
     }
   }
 
-  // Auto-capture thumbnail on first map load if none exists
+  // Auto-capture thumbnail on first map load if none exists.
+  // Called from handleMapRef when the map instance becomes available.
   const thumbCaptured = useRef(false);
-  useEffect(() => {
+  function maybeAutoCaptureThumbnail(map: MaplibreMap) {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
-    const m = state.mapInstanceRef.current;
-    if (!m) return;
+    thumbCaptured.current = true;
     const id = state.mapId;
-    function onIdle() {
-      if (thumbCaptured.current) return;
-      thumbCaptured.current = true;
-      captureThumbnail(m!, id, queryClient);
-    }
-    if (m.loaded()) {
-      onIdle();
+    if (map.loaded()) {
+      captureThumbnail(map, id, queryClient);
     } else {
-      m.once('idle', onIdle);
-      return () => { m.off('idle', onIdle); };
+      map.once('idle', () => captureThumbnail(map, id, queryClient));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.mapId, state.hasThumbnail]);
+  }
 
   // Warn before tab close / refresh with unsaved changes
   useEffect(() => {
@@ -214,6 +207,7 @@ export function useBuilderSave(state: SaveState) {
     handleSave,
     handleExportPNG,
     handleFork,
+    maybeAutoCaptureThumbnail,
     isSaving: updateMap.isPending,
     isForkPending: duplicateMutation.isPending,
     blocker,
