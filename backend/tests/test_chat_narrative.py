@@ -39,6 +39,14 @@ def test_system_prompt_has_narrative_instructions():
     assert "Never show raw SQL" in prompt or "never show raw SQL" in prompt.lower()
 
 
+def test_system_prompt_fill_opacity_example():
+    """Example paint in system prompt uses visible opacity (0.7), not faint (0.3)."""
+    prompt = build_chat_system_prompt([_make_layer()])
+    assert "fill-opacity" in prompt
+    assert '"fill-opacity": 0.7' in prompt
+    assert '"fill-opacity": 0.3' not in prompt
+
+
 # --- Error message mapping ---
 
 

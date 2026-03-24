@@ -164,6 +164,45 @@ describe('ChatPanel', () => {
     expect(await screen.findByText('Filtered to parks')).toBeInTheDocument();
   });
 
+  it('passes raw user message to streamChatMessage without enrichment', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield { event: 'done', data: { explanation: 'ok' } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'color @Parks red');
+
+    await waitFor(() => {
+      expect(mockStreamChat).toHaveBeenCalledTimes(1);
+    });
+    // First arg is mapId, second is message — should be raw text, no [Context:] or [Intent:]
+    const message = mockStreamChat.mock.calls[0][1];
+    expect(message).toBe('color @Parks red');
+    expect(message).not.toContain('[Context:');
+    expect(message).not.toContain('[Intent:');
+  });
+
+  it('dispatches set_opacity to onOpacityChange', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [{ type: 'set_opacity', layer_id: 'layer-1', opacity: 0.5 }],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Set opacity' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({ onOpacityChange: vi.fn() });
+    await typeAndSend(user, 'make it transparent');
+
+    await waitFor(() => {
+      expect(props.onOpacityChange).toHaveBeenCalledWith('layer-1', 0.5);
+    });
+  });
+
   it('does not re-apply actions when streaming partially succeeds then fails', async () => {
     // Stream applies one action then throws
     mockStreamChat.mockImplementation(async function* () {
