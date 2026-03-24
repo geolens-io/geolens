@@ -115,8 +115,13 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
-        const match = err.message.match(/datasets are not public: (.+)$/);
-        const datasets = match ? match[1] : err.message;
+        let datasets = err.message;
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.datasets) datasets = parsed.datasets.join(', ');
+        } catch {
+          // Legacy format or unparseable — use raw message
+        }
         toast.error(t('share.cannotPublish', { datasets }));
       } else {
         toast.error(t('toasts.visibilityFailed'));

@@ -642,6 +642,21 @@ async def validate_public_visibility(
     return [row[0] for row in result.all()]
 
 
+async def find_public_maps_using_dataset(
+    session: AsyncSession, dataset_id: uuid.UUID
+) -> list[str]:
+    """Return names of public maps that contain the given dataset. Empty = safe to restrict."""
+    stmt = (
+        select(Map.name)
+        .select_from(MapLayer)
+        .join(Map, MapLayer.map_id == Map.id)
+        .where(MapLayer.dataset_id == dataset_id)
+        .where(Map.visibility == "public")
+    )
+    result = await session.execute(stmt)
+    return [row[0] for row in result.all()]
+
+
 async def create_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,

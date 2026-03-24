@@ -306,6 +306,89 @@ class TestUpdateMap:
         )
         assert resp.status_code == 403
 
+    async def test_update_map_rejects_public_with_non_public_datasets(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PUT /maps/{id} with visibility=public returns 400 when map has non-public datasets."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Restricted DS",
+            visibility="restricted",
+        )
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Add layer referencing the non-public dataset
+        await client.post(
+            f"/maps/{map_id}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+        # Attempt to set visibility to public
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "Restricted DS" in detail["datasets"]
+        assert detail["message"] == "Cannot set visibility to public: map contains non-public datasets"
+
+    async def test_update_map_allows_public_with_all_public_datasets(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PUT /maps/{id} with visibility=public succeeds when all datasets are public."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Public DS",
+            visibility="public",
+        )
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        await client.post(
+            f"/maps/{map_id}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["visibility"] == "public"
+
+    async def test_update_map_public_no_layers_succeeds(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ):
+        """PUT /maps/{id} with visibility=public succeeds for maps with no layers."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["visibility"] == "public"
+
 
 # ---------------------------------------------------------------------------
 # Delete map

@@ -306,12 +306,15 @@ async def update_map_endpoint(
     await check_map_ownership(map_obj, user, db)
 
     # Hard block: prevent publishing maps with non-public datasets
-    if body.visibility and body.visibility == MapVisibility.public:
+    if body.visibility == MapVisibility.public:
         non_public = await validate_public_visibility(db, map_id)
         if non_public:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot set visibility to public: datasets are not public: {', '.join(non_public)}",
+                detail={
+                    "message": "Cannot set visibility to public: map contains non-public datasets",
+                    "datasets": non_public,
+                },
             )
 
     # Build update kwargs from non-None fields

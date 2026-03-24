@@ -384,6 +384,15 @@ async def update_user_metadata(
         record.summary = summary
         metadata_mutated = True
     if visibility is not None:
+        # Block making a dataset non-public if it's used in public maps
+        if visibility != "public" and record.visibility == "public":
+            from app.maps.service import find_public_maps_using_dataset
+
+            public_maps = await find_public_maps_using_dataset(session, dataset_id)
+            if public_maps:
+                raise ValueError(
+                    f"Cannot restrict visibility: dataset is used in public maps: {', '.join(public_maps)}"
+                )
         record.visibility = visibility
         metadata_mutated = True
     if license is not None:
