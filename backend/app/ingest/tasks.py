@@ -558,15 +558,17 @@ async def _apply_reupload_swap(
     )
     live_exists = live_exists_result.scalar()
 
+    from app.ingest.metadata import _qtable
+
     if live_exists:
         await session.execute(
-            text(f"ALTER TABLE data.{table_name} RENAME TO {table_name}_old")
+            text(f"ALTER TABLE {_qtable(table_name)} RENAME TO \"{table_name}_old\"")
         )
     await session.execute(
-        text(f"ALTER TABLE data.{staging_table} RENAME TO {table_name}")
+        text(f"ALTER TABLE {_qtable(staging_table)} RENAME TO \"{table_name}\"")
     )
     if live_exists:
-        await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}_old"))
+        await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(table_name + '_old')}"))
 
     # Update dataset metadata in the same transaction as swap
     dataset.srid = metadata["srid"]
@@ -643,6 +645,7 @@ async def reupload_file(
     from app.database import async_session
     from app.datasets.models import Dataset
     from app.ingest.metadata import (
+        _qtable,
         add_4326_column,
         clip_to_mercator_bounds,
         ensure_geom_column,
@@ -723,7 +726,7 @@ async def reupload_file(
 
             # 4. Load into staging table (drop stale staging table first)
             db_conn_str = build_pg_conn_str()
-            await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn} CASCADE"))
+            await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE"))
             await session.commit()
             await run_ogr2ogr(file_path, staging_tn, db_conn_str, source_srid=srid, geometry_type=geometry_type)
 
@@ -794,7 +797,7 @@ async def reupload_file(
             # Clean up staging table on failure
             await session.rollback()
             try:
-                await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn}"))
+                await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}"))
                 await session.commit()
             except Exception:
                 pass
@@ -828,6 +831,7 @@ async def reupload_service(
     from app.database import async_session
     from app.datasets.models import Dataset
     from app.ingest.metadata import (
+        _qtable,
         add_4326_column,
         clip_to_mercator_bounds,
         ensure_geom_column,
@@ -893,7 +897,7 @@ async def reupload_service(
             reupload_oid_field = um.get("object_id_field") or "OBJECTID"
 
             # Drop stale staging table from prior failed attempt
-            await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn} CASCADE"))
+            await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE"))
             await session.commit()
 
             async def _run_service_import(layer_name: str) -> None:
@@ -971,7 +975,7 @@ async def reupload_service(
         except Exception as exc:
             await session.rollback()
             try:
-                await session.execute(text(f"DROP TABLE IF EXISTS data.{staging_tn}"))
+                await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}"))
                 await session.commit()
             except Exception:
                 pass

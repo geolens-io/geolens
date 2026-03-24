@@ -849,7 +849,8 @@ async def list_share_tokens(
     # Build base filter conditions
     conditions = []
     if search:
-        conditions.append(Map.name.ilike(f"%{search}%"))
+        escaped = search.replace("%", r"\%").replace("_", r"\_")
+        conditions.append(Map.name.ilike(f"%{escaped}%"))
     if status_filter == "active":
         conditions.append(MapShareToken.is_active.is_(True))
         conditions.append(
