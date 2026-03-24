@@ -139,6 +139,10 @@ export function MapBuilderPage() {
     name: l.display_name ?? l.dataset_name,
     styleConfig: l.style_config,
     visible: l.visible,
+    show_in_legend: l.show_in_legend ?? true,
+    geometryType: l.dataset_geometry_type,
+    paint: l.paint,
+    layerType: l.layer_type,
   }));
 
   return (
@@ -305,6 +309,7 @@ export function MapBuilderPage() {
             onRename={layers.handleDisplayNameChange}
             onRemove={layers.handleRemove}
             onZoomToLayer={layers.handleZoomToLayer}
+            onToggleLegend={layers.handleToggleLegend}
             onAddDataClick={() => dialogs.setShowAddData(true)}
           />
 

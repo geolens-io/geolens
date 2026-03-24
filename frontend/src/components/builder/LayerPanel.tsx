@@ -38,6 +38,7 @@ interface LayerPanelProps {
   onRename: (layerId: string, newName: string | null) => void;
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
+  onToggleLegend: (id: string) => void;
   onAddDataClick?: () => void;
 }
 
@@ -59,6 +60,7 @@ export function LayerPanel({
   onRename,
   onRemove,
   onZoomToLayer,
+  onToggleLegend,
   onAddDataClick,
 }: LayerPanelProps) {
   const { t } = useTranslation('builder');
@@ -134,6 +136,7 @@ export function LayerPanel({
                   onRename={onRename}
                   onRemove={onRemove}
                   onZoomToLayer={onZoomToLayer}
+                  onToggleLegend={onToggleLegend}
                 />
               ))}
             </div>
