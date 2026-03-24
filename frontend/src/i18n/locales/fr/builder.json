@@ -170,15 +170,9 @@
       "searchDatasets": "Rechercher des jeux de données à ajouter à cette carte",
       "addDataset": "Ajouter un autre jeu de données à cette carte",
       "heatmap": "Créer une carte thermique de {{name}}",
-      "sizeBy": "Dimensionner {{name}} par {{column}}",
-      "cluster": "Regrouper les points de {{name}}",
-      "colorBy": "Colorer {{name}} par {{column}}",
+      "colorByAttribute": "Colorer {{name}} par un attribut",
       "areaLabels": "Afficher les étiquettes de surface sur {{name}}",
-      "varyWidth": "Varier la largeur de {{name}} par {{column}}",
-      "adjustOpacity": "Ajuster l'opacité de {{name}}",
-      "distribution": "Afficher la distribution de {{column}} dans {{name}}",
-      "categories": "Colorer {{name}} par catégories de {{column}}",
-      "filterByDate": "Filtrer {{name}} par plage de dates"
+      "adjustOpacity": "Ajuster l'opacité de {{name}}"
     },
     "commands": {
       "style": "Modifier l'apparence de la couche",

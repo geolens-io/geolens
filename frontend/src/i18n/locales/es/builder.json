@@ -170,15 +170,9 @@
       "searchDatasets": "Buscar conjuntos de datos para agregar a este mapa",
       "addDataset": "Agregar otro conjunto de datos a este mapa",
       "heatmap": "Crear un mapa de calor de {{name}}",
-      "sizeBy": "Dimensionar {{name}} por {{column}}",
-      "cluster": "Agrupar puntos de {{name}}",
-      "colorBy": "Colorear {{name}} por {{column}}",
+      "colorByAttribute": "Colorear {{name}} por un atributo",
       "areaLabels": "Mostrar etiquetas de área en {{name}}",
-      "varyWidth": "Variar ancho de {{name}} por {{column}}",
-      "adjustOpacity": "Ajustar opacidad de {{name}}",
-      "distribution": "Mostrar distribución de {{column}} en {{name}}",
-      "categories": "Colorear {{name}} por categorías de {{column}}",
-      "filterByDate": "Filtrar {{name}} por rango de fechas"
+      "adjustOpacity": "Ajustar opacidad de {{name}}"
     },
     "commands": {
       "style": "Cambiar apariencia de capa",

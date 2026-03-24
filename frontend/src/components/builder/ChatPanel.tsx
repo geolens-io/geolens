@@ -7,7 +7,6 @@ import { ApiError } from '@/api/client';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import { ChatInput } from './ChatInput';
-import { enrichMessage } from './chat-enrichment';
 import { getSmartSuggestions } from './chat-suggestions';
 
 interface ChatMessage {
@@ -159,7 +158,6 @@ export function ChatPanel({
   async function handleSend() {
     if (!input.trim() || isLoading) return;
     const userMsg = input.trim();
-    const enrichedMsg = enrichMessage(userMsg, layers);
     setInput('');
     const history = buildHistory();
     setMessages((prev) => [
@@ -173,7 +171,7 @@ export function ChatPanel({
     const pendingActions: ChatAction[] = [];
     try {
 
-      for await (const { event, data } of streamChatMessage(mapId, enrichedMsg, layers, i18n.language, history, controller.signal)) {
+      for await (const { event, data } of streamChatMessage(mapId, userMsg, layers, i18n.language, history, controller.signal)) {
         switch (event) {
           case 'token':
             text += data.text;
@@ -271,7 +269,7 @@ export function ChatPanel({
       } else {
         // No actions applied yet — safe to retry via non-streaming
         try {
-          const response = await sendChatMessage(mapId, enrichedMsg, layers, i18n.language, history);
+          const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, history);
           for (const action of response.actions) handleChatAction(action);
           setMessages((prev) => [
             ...prev,

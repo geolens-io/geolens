@@ -170,15 +170,9 @@
       "searchDatasets": "Find datasets to add to this map",
       "addDataset": "Add another dataset to this map",
       "heatmap": "Create a heatmap of {{name}}",
-      "sizeBy": "Size {{name}} by {{column}}",
-      "cluster": "Cluster {{name}} points",
-      "colorBy": "Color {{name}} by {{column}}",
+      "colorByAttribute": "Color {{name}} by an attribute",
       "areaLabels": "Show area labels on {{name}}",
-      "varyWidth": "Vary {{name}} width by {{column}}",
-      "adjustOpacity": "Adjust {{name}} opacity",
-      "distribution": "Show distribution of {{column}} in {{name}}",
-      "categories": "Color {{name}} by {{column}} categories",
-      "filterByDate": "Filter {{name}} by date range"
+      "adjustOpacity": "Adjust {{name}} opacity"
     },
     "commands": {
       "style": "Change layer appearance",

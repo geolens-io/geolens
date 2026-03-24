@@ -1,7 +1,6 @@
 import { getSmartSuggestions } from '../chat-suggestions';
 import type { MapLayerResponse } from '@/types/api';
 
-// Mock t function that returns the key with interpolated values
 function mockT(key: string, params?: Record<string, string>): string {
   let result = key;
   if (params) {
@@ -20,10 +19,7 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
     dataset_geometry_type: 'Polygon',
     dataset_table_name: 'test_table',
     dataset_extent_bbox: null,
-    dataset_column_info: [
-      { name: 'value', type: 'numeric' },
-      { name: 'name', type: 'text' },
-    ],
+    dataset_column_info: null,
     dataset_feature_count: 100,
     dataset_sample_values: null,
     display_name: null,
@@ -48,39 +44,29 @@ describe('getSmartSuggestions', () => {
     expect(result.length).toBeLessThanOrEqual(4);
   });
 
-  it('generates point-specific suggestions (heatmap, cluster)', () => {
-    const layer = makeLayer({
-      dataset_geometry_type: 'Point',
-      style_config: null,
-    });
+  it('generates point-specific suggestions (heatmap)', () => {
+    const layer = makeLayer({ dataset_geometry_type: 'Point', style_config: null });
     const result = getSmartSuggestions([layer], mockT as never);
     expect(result.some((s) => s.includes('chat.suggestions.heatmap'))).toBe(true);
   });
 
-  it('generates polygon-specific suggestions (colorBy, areaLabels)', () => {
-    const layer = makeLayer({
-      dataset_geometry_type: 'Polygon',
-      style_config: null,
-    });
+  it('generates polygon-specific suggestions (colorByAttribute, areaLabels)', () => {
+    const layer = makeLayer({ dataset_geometry_type: 'Polygon', style_config: null });
     const result = getSmartSuggestions([layer], mockT as never);
-    expect(result.some((s) => s.includes('chat.suggestions.colorBy'))).toBe(true);
+    expect(result.some((s) => s.includes('chat.suggestions.colorByAttribute'))).toBe(true);
     expect(result.some((s) => s.includes('chat.suggestions.areaLabels'))).toBe(true);
   });
 
-  it('generates line-specific suggestions (varyWidth)', () => {
-    const layer = makeLayer({
-      dataset_geometry_type: 'LineString',
-      dataset_column_info: [{ name: 'speed', type: 'numeric' }],
-    });
+  it('generates line-specific suggestions (colorByAttribute)', () => {
+    const layer = makeLayer({ dataset_geometry_type: 'LineString' });
     const result = getSmartSuggestions([layer], mockT as never);
-    expect(result.some((s) => s.includes('chat.suggestions.varyWidth'))).toBe(true);
+    expect(result.some((s) => s.includes('chat.suggestions.colorByAttribute'))).toBe(true);
   });
 
   it('generates raster suggestions (adjustOpacity)', () => {
     const layer = makeLayer({
       dataset_geometry_type: '',
       layer_type: 'raster' as MapLayerResponse['layer_type'],
-      dataset_column_info: [],
     });
     const result = getSmartSuggestions([layer], mockT as never);
     expect(result.some((s) => s.includes('chat.suggestions.adjustOpacity'))).toBe(true);
@@ -92,53 +78,18 @@ describe('getSmartSuggestions', () => {
     expect(result[0]).toContain('chat.suggestions.addDataset');
   });
 
-  it('generates column-type-aware suggestions for numeric columns', () => {
-    const layer = makeLayer({
-      dataset_geometry_type: 'LineString',
-      dataset_column_info: [{ name: 'population', type: 'integer' }],
-    });
-    const result = getSmartSuggestions([layer], mockT as never);
-    expect(result.some((s) => s.includes('chat.suggestions.distribution'))).toBe(true);
-  });
-
-  it('generates column-type-aware suggestions for text columns', () => {
-    const layer = makeLayer({
-      dataset_geometry_type: 'LineString',
-      dataset_column_info: [{ name: 'category', type: 'varchar' }],
-    });
-    const result = getSmartSuggestions([layer], mockT as never);
-    expect(result.some((s) => s.includes('chat.suggestions.categories'))).toBe(true);
-  });
-
-  it('generates temporal suggestions for date columns', () => {
-    const layer = makeLayer({
-      dataset_geometry_type: 'LineString',
-      dataset_column_info: [{ name: 'created_at', type: 'timestamp' }],
-    });
-    const result = getSmartSuggestions([layer], mockT as never);
-    expect(result.some((s) => s.includes('chat.suggestions.filterByDate'))).toBe(true);
-  });
-
   it('uses bracket syntax for layer names with spaces', () => {
-    const layer = makeLayer({
-      display_name: 'My Layer',
-      dataset_geometry_type: 'Point',
-      style_config: null,
-    });
+    const layer = makeLayer({ display_name: 'My Layer', dataset_geometry_type: 'Point', style_config: null });
     const result = getSmartSuggestions([layer], mockT as never);
     expect(result.some((s) => s.includes('@[My Layer]'))).toBe(true);
   });
 
-  it('skips point heatmap/cluster for already-styled layers', () => {
+  it('skips heatmap for already-styled point layers', () => {
     const layer = makeLayer({
       dataset_geometry_type: 'Point',
       style_config: { mode: 'categorical', column: 'type' } as MapLayerResponse['style_config'],
-      dataset_column_info: [{ name: 'count', type: 'numeric' }],
     });
     const result = getSmartSuggestions([layer], mockT as never);
     expect(result.some((s) => s.includes('chat.suggestions.heatmap'))).toBe(false);
-    expect(result.some((s) => s.includes('chat.suggestions.cluster'))).toBe(false);
-    // Should still have sizeBy for numeric column
-    expect(result.some((s) => s.includes('chat.suggestions.sizeBy'))).toBe(true);
   });
 });

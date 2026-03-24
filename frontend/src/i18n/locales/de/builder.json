@@ -170,15 +170,9 @@
       "searchDatasets": "Datensätze finden, die zu dieser Karte hinzugefügt werden können",
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
       "heatmap": "Heatmap von {{name}} erstellen",
-      "sizeBy": "{{name}} nach {{column}} skalieren",
-      "cluster": "Punkte von {{name}} gruppieren",
-      "colorBy": "{{name}} nach {{column}} einfärben",
+      "colorByAttribute": "{{name}} nach einem Attribut einfärben",
       "areaLabels": "Flächenbeschriftungen auf {{name}} anzeigen",
-      "varyWidth": "Breite von {{name}} nach {{column}} variieren",
-      "adjustOpacity": "Deckkraft von {{name}} anpassen",
-      "distribution": "Verteilung von {{column}} in {{name}} anzeigen",
-      "categories": "{{name}} nach {{column}}-Kategorien einfärben",
-      "filterByDate": "{{name}} nach Datumsbereich filtern"
+      "adjustOpacity": "Deckkraft von {{name}} anpassen"
     },
     "commands": {
       "style": "Layer-Aussehen ändern",
