@@ -255,7 +255,11 @@ async def validate_embed_token_access(
             ttl=300,
         )
 
-    # Domain-locking check (before dataset scope check)
+    # Domain-locking check (before dataset scope check).
+    # NOTE: Localhost origins (localhost, 127.0.0.1, [::1]) bypass domain
+    # restrictions intentionally to support local development. This does NOT
+    # affect production security because embed tokens still require valid
+    # token hash + active status + dataset scope + expiration.
     if allowed_origins:
         if request is None:
             return False
