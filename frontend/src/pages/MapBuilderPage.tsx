@@ -192,7 +192,7 @@ export function MapBuilderPage() {
         {!dialogs.sidebarCollapsed && (
           <div
             onPointerDown={handleDragStart}
-            className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 z-10 transition-colors"
+            className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 z-10 transition-colors"
             aria-hidden="true"
           />
         )}
