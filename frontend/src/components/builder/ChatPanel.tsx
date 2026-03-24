@@ -328,7 +328,7 @@ export function ChatPanel({
             <div className="flex flex-wrap gap-1.5 px-1 justify-center">
               {(layers.length === 0
                 ? [t('chat.suggestions.searchDatasets')]
-                : getSmartSuggestions(layers)
+                : getSmartSuggestions(layers, t)
               ).map((suggestion) => (
                 <button
                   key={suggestion}

@@ -7,23 +7,27 @@ export interface MentionItem {
 }
 
 interface MentionDropdownProps {
+  id: string;
   items: MentionItem[];
   selectedIndex: number;
   onSelect: (index: number) => void;
   type: '@' | '/';
 }
 
-export function MentionDropdown({ items, selectedIndex, onSelect, type }: MentionDropdownProps) {
+export function MentionDropdown({ id, items, selectedIndex, onSelect, type }: MentionDropdownProps) {
   if (items.length === 0) return null;
 
   return (
     <div
+      id={id}
       className="absolute bottom-full left-0 w-full mb-1 max-h-48 overflow-y-auto rounded-lg border bg-popover shadow-md text-sm z-50"
       role="listbox"
+      aria-label={type === '@' ? 'Layers' : 'Commands'}
     >
       {items.map((item, index) => (
         <div
           key={item.id}
+          id={`${id}-option-${index}`}
           role="option"
           aria-selected={index === selectedIndex}
           className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${
