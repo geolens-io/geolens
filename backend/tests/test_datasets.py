@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from app.auth.models import User
 from app.datasets.models import Dataset, Record
+from app.maps.models import Map, MapLayer
 
 
 # ---------------------------------------------------------------------------
@@ -262,3 +263,67 @@ class TestUpdateMetadata:
         assert data["srid"] == 4326
         assert data["geometry_type"] == "MultiPolygon"
         assert data["feature_count"] == 42
+
+    async def test_restrict_dataset_blocked_when_used_in_public_map(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PATCH /datasets/{id} with visibility=restricted returns 422 when used in a public map."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Public In Map DS",
+        )
+
+        # Create a public map with this dataset as a layer
+        map_obj = Map(
+            name="Public Map With DS",
+            visibility="public",
+            created_by=admin_id,
+        )
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+
+        layer = MapLayer(
+            map_id=map_obj.id,
+            dataset_id=ds.id,
+            sort_order=0,
+        )
+        test_db_session.add(layer)
+        await test_db_session.commit()
+
+        # Attempt to restrict dataset visibility
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "restricted"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "Public Map With DS" in resp.json()["detail"]
+
+    async def test_restrict_dataset_allowed_when_no_public_maps(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PATCH /datasets/{id} with visibility=restricted succeeds when not in any public map."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Unreferenced DS",
+        )
+
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"visibility": "restricted"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["visibility"] == "restricted"
