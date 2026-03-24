@@ -39,3 +39,13 @@ export async function updateEmbedTokenOrigins(
     },
   );
 }
+
+export async function revokeEmbedToken(
+  mapId: string,
+  tokenId: string,
+): Promise<EmbedTokenResponse> {
+  return apiFetch<EmbedTokenResponse>(
+    `/maps/${mapId}/embed-tokens/${tokenId}/`,
+    { method: 'DELETE' },
+  );
+}
