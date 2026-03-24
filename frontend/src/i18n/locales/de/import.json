@@ -65,7 +65,7 @@
     "helpText": "WFS- oder ArcGIS-Feature-Service-URL einfügen",
     "tokenLabel": "Zugriffstoken (optional)",
     "tokenPlaceholder": "ArcGIS-Token, API-Schlüssel oder WFS-Zugriffstoken",
-    "tokenHelpText": "Für ArcGIS Online: API-Schlüssel von your-org.maps.arcgis.com > Settings verwenden, oder Token generieren unter your-org.maps.arcgis.com/sharing/rest/generateToken. Token laufen ab (Standard 60 Min.) -- längere Gültigkeit für große Datensätze anfordern. Für WFS: Zugriffstoken Ihres Anbieters verwenden. Wird nicht gespeichert.",
+    "tokenHelpText": "Für ArcGIS Online: API-Schlüssel auf developers.arcgis.com erstellen, oder kurzlebigen Token unter your-org.maps.arcgis.com/sharing/rest/generateToken generieren. Für WFS: Zugriffstoken Ihres Anbieters verwenden. Token werden nicht gespeichert.",
     "connect": "Verbinden",
     "connecting": "Verbindung zum Dienst wird hergestellt...",
     "loadingPreview": "Layer-Vorschau wird geladen...",

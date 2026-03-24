@@ -65,7 +65,7 @@
     "helpText": "Pegue una URL de servicio WFS o ArcGIS Feature Service",
     "tokenLabel": "Token de acceso (opcional)",
     "tokenPlaceholder": "Token de ArcGIS, clave API o token de acceso WFS",
-    "tokenHelpText": "Para ArcGIS Online: use una clave API de su-org.maps.arcgis.com > Settings, o genere un token en su-org.maps.arcgis.com/sharing/rest/generateToken. Los tokens expiran (60 min por defecto) -- solicite mayor duracion para conjuntos grandes. Para WFS, use el token de acceso de su proveedor. No se almacena.",
+    "tokenHelpText": "Para ArcGIS Online: cree una clave API en developers.arcgis.com, o genere un token temporal en su-org.maps.arcgis.com/sharing/rest/generateToken. Para WFS, use el token de acceso de su proveedor. Los tokens no se almacenan.",
     "connect": "Conectar",
     "connecting": "Conectando al servicio...",
     "loadingPreview": "Cargando vista previa de la capa...",
