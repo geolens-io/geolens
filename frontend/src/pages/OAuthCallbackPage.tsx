@@ -14,11 +14,14 @@ export function OAuthCallbackPage() {
     if (processedRef.current) return;
     processedRef.current = true;
 
-    const params = new URLSearchParams(window.location.search);
+    // Read tokens from URL fragment (not query params) to avoid server log exposure
+    const hash = window.location.hash.replace(/^#/, '');
+    const params = new URLSearchParams(hash || window.location.search);
 
     // Check for error param first (OAuth callback failure)
     const error = params.get('error');
     if (error) {
+      window.history.replaceState({}, '', '/oauth/callback');
       navigate('/login', { replace: true, state: { oauthError: decodeURIComponent(error) } });
       return;
     }
@@ -27,7 +30,7 @@ export function OAuthCallbackPage() {
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
 
-    // Clean URL immediately
+    // Clean URL immediately (remove fragment with tokens)
     window.history.replaceState({}, '', '/oauth/callback');
 
     if (!token || !refreshToken || !expiresIn) {

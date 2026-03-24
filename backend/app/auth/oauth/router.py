@@ -124,7 +124,7 @@ async def oauth_callback(
 
         redirect_url = (
             f"{frontend_url}/oauth/callback"
-            f"?token={access_token}"
+            f"#token={access_token}"
             f"&refresh_token={refresh_token}"
             f"&expires_in={expire_minutes * 60}"
         )
@@ -134,7 +134,7 @@ async def oauth_callback(
         raise  # Let 404s from build_oauth_client pass through
     except Exception as e:
         logger.warning("oauth_callback_error", provider=provider_slug, error=str(e))
-        error_url = f"{frontend_url}/oauth/callback?error={quote(str(e))}"
+        error_url = f"{frontend_url}/oauth/callback#error={quote(str(e))}"
         return RedirectResponse(url=error_url, status_code=302)
 
 
