@@ -167,7 +167,7 @@
     "stillWorking": "Noch in Bearbeitung...",
     "takingLonger": "Dies dauert länger als gewöhnlich...",
     "suggestions": {
-      "searchDatasets": "Datasätze finden, die zu dieser Karte hinzugefügt werden können",
+      "searchDatasets": "Datensätze finden, die zu dieser Karte hinzugefügt werden können",
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
       "heatmap": "Heatmap von {{name}} erstellen",
       "sizeBy": "{{name}} nach {{column}} skalieren",
@@ -187,7 +187,9 @@
       "query": "Datenfragen stellen",
       "add": "Datensatz hinzufügen"
     },
-    "mentionHint": "@ zum Erwähnen eines Layers, / für Befehle"
+    "mentionHint": "@ zum Erwähnen eines Layers, / für Befehle",
+    "layersDropdown": "Ebenen",
+    "commandsDropdown": "Befehle"
   },
   "basemap": {
     "title": "Basiskarte",

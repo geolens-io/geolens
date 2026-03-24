@@ -193,6 +193,7 @@ export function ChatInput({
           selectedIndex={selectedIndex}
           onSelect={selectItem}
           type={triggerState!.type}
+          label={triggerState!.type === '@' ? t('chat.layersDropdown') : t('chat.commandsDropdown')}
         />
       )}
       <textarea

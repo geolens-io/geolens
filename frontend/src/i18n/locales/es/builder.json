@@ -187,7 +187,9 @@
       "query": "Hacer preguntas sobre datos",
       "add": "Agregar un conjunto de datos"
     },
-    "mentionHint": "Escriba @ para mencionar una capa, / para comandos"
+    "mentionHint": "Escriba @ para mencionar una capa, / para comandos",
+    "layersDropdown": "Capas",
+    "commandsDropdown": "Comandos"
   },
   "basemap": {
     "title": "Mapa base",

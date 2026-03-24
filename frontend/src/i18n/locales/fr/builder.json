@@ -182,12 +182,14 @@
     },
     "commands": {
       "style": "Modifier l'apparence de la couche",
-      "filter": "Filtrer les entites",
-      "label": "Ajouter ou modifier les etiquettes",
-      "query": "Poser des questions sur les donnees",
-      "add": "Ajouter un jeu de donnees"
+      "filter": "Filtrer les entités",
+      "label": "Ajouter ou modifier les étiquettes",
+      "query": "Poser des questions sur les données",
+      "add": "Ajouter un jeu de données"
     },
-    "mentionHint": "Tapez @ pour mentionner une couche, / pour les commandes"
+    "mentionHint": "Tapez @ pour mentionner une couche, / pour les commandes",
+    "layersDropdown": "Couches",
+    "commandsDropdown": "Commandes"
   },
   "basemap": {
     "title": "Fond de carte",
