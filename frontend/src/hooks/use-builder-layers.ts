@@ -568,6 +568,15 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }
 
+  function handleToggleLegend(layerId: string) {
+    setLocalLayers((prev) =>
+      prev.map((l) =>
+        l.id === layerId ? { ...l, show_in_legend: !l.show_in_legend } : l,
+      ),
+    );
+    setHasUnsavedChanges(true);
+  }
+
   function markDirty() {
     setHasUnsavedChanges(true);
   }
@@ -600,6 +609,7 @@ export function useBuilderLayers(
     handleAiAddDataset,
     handleAiRemoveLayer,
     handleQueryResult,
+    handleToggleLegend,
     handleDismissEphemeral,
     clearEphemeralLayer,
     markDirty,

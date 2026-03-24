@@ -101,6 +101,7 @@ export function useBuilderSave(state: SaveState) {
             label_config: l.label_config ?? null,
             style_config: l.style_config ?? null,
             layer_type: l.layer_type ?? null,
+            show_in_legend: l.show_in_legend ?? true,
           })),
         },
       },

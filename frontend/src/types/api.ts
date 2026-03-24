@@ -662,6 +662,7 @@ export interface MapLayerResponse {
   style_config?: StyleConfig | null;
   layer_type?: string | null;
   dataset_record_type?: string | null;
+  show_in_legend?: boolean;
 }
 
 export interface MapResponse {
@@ -755,6 +756,7 @@ export interface SharedLayerResponse {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
+  show_in_legend?: boolean;
   tile_url: string;
 }
 

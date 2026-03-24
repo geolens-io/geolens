@@ -35,7 +35,9 @@ export function LayerLegend({
   onToggle,
 }: LayerLegendProps) {
   const { t } = useTranslation('common');
-  const sorted = [...layers].sort((a, b) => a.sort_order - b.sort_order);
+  const sorted = [...layers]
+    .filter((l) => l.show_in_legend !== false)
+    .sort((a, b) => a.sort_order - b.sort_order);
 
   return (
     <>
