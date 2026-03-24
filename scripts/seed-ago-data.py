@@ -28,6 +28,7 @@ Usage:
 import argparse
 import asyncio
 import os
+import random
 import re
 import sys
 import time
@@ -252,7 +253,7 @@ async def poll_job(
     base_url: str,
     api_key: str,
     job_id: str,
-    timeout: int = 600,
+    timeout: int = 1200,
 ) -> dict:
     """Poll GET /api/jobs/{job_id} until complete or failed."""
     headers = {"X-Api-Key": api_key}
@@ -291,6 +292,7 @@ async def ingest_via_service(
     layer_id: int,
     display_name: str,
     summary: str = "",
+    timeout: int = 1200,
 ) -> dict:
     """Ingest a layer via the GeoLens service connector API.
 
@@ -329,7 +331,7 @@ async def ingest_via_service(
     commit_resp.raise_for_status()
 
     # Step 3 — Poll until done
-    return await poll_job(client, base_url, api_key, job_id)
+    return await poll_job(client, base_url, api_key, job_id, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +348,7 @@ async def update_via_service(
     layer_name: str,
     layer_id: int,
     display_name: str,
+    timeout: int = 1200,
 ) -> dict:
     """Update an existing dataset by re-importing from its source service.
 
@@ -377,7 +380,7 @@ async def update_via_service(
     commit_resp.raise_for_status()
 
     # Step 3 — Poll until done
-    return await poll_job(client, base_url, api_key, job_id)
+    return await poll_job(client, base_url, api_key, job_id, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +444,10 @@ async def enrich_metadata(
 # ---------------------------------------------------------------------------
 
 
+MAX_RETRIES = 3
+BACKOFF_BASE = 5  # seconds
+
+
 async def process_one(
     entry: dict,
     index: int,
@@ -452,6 +459,7 @@ async def process_one(
     existing: dict[str, dict],
     update_mode: bool,
     results: list[dict],
+    timeout: int = 1200,
 ) -> None:
     """Import or update one layer via the service connector."""
     layer_name = entry["layer_name"]
@@ -477,54 +485,82 @@ async def process_one(
 
     async with sem:
         try:
-            if existing_entry and update_mode:
-                # Update existing dataset
-                dataset_id = existing_entry["id"]
-                print(f"  {tag} Updating {layer_name}...")
-                result = await update_via_service(
-                    client,
-                    base_url,
-                    api_key,
-                    dataset_id,
-                    service_url,
-                    layer_name,
-                    layer_id,
-                    display_name,
-                )
+            last_exc = None
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    if existing_entry and update_mode:
+                        # Update existing dataset
+                        dataset_id = existing_entry["id"]
+                        print(f"  {tag} Updating {layer_name}...")
+                        result = await update_via_service(
+                            client,
+                            base_url,
+                            api_key,
+                            dataset_id,
+                            service_url,
+                            layer_name,
+                            layer_id,
+                            display_name,
+                            timeout=timeout,
+                        )
+                    else:
+                        # New import
+                        print(f"  {tag} Importing {layer_name}...")
+                        result = await ingest_via_service(
+                            client,
+                            base_url,
+                            api_key,
+                            service_url,
+                            layer_name,
+                            layer_id,
+                            display_name,
+                            summary=summary,
+                            timeout=timeout,
+                        )
+
+                    if result.get("status") == "failed":
+                        raise RuntimeError(
+                            result.get("error_message", "Unknown ingest error")
+                        )
+
+                    dataset_id = result.get("dataset_id")
+                    action = "updated" if (existing_entry and update_mode) else "succeeded"
+
+                    # Enrich with AGO metadata (source org, license, tags)
+                    if dataset_id and action == "succeeded":
+                        await enrich_metadata(client, base_url, api_key, dataset_id, entry)
+
+                    results.append(
+                        {
+                            "name": layer_name,
+                            "status": action,
+                            "dataset_id": dataset_id,
+                        }
+                    )
+                    print(f"  {tag} Done {layer_name}")
+                    break  # success, exit retry loop
+
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code >= 500 and attempt < MAX_RETRIES:
+                        delay = BACKOFF_BASE * (3 ** (attempt - 1))  # 5s, 15s, 45s
+                        jitter = delay * (0.5 + random.random())  # 50-150% of delay
+                        print(f"  {tag} Retry {attempt}/{MAX_RETRIES} for {layer_name} after {exc.response.status_code} (waiting {jitter:.0f}s)")
+                        last_exc = exc
+                        await asyncio.sleep(jitter)
+                        continue
+                    # Non-5xx or exhausted retries — fall through to outer handler
+                    raise
+
+                except Exception:
+                    raise  # Don't retry non-HTTP errors
+
             else:
-                # New import
-                print(f"  {tag} Importing {layer_name}...")
-                result = await ingest_via_service(
-                    client,
-                    base_url,
-                    api_key,
-                    service_url,
-                    layer_name,
-                    layer_id,
-                    display_name,
-                    summary=summary,
+                # All retries exhausted
+                results.append(
+                    {"name": layer_name, "status": "failed", "error": f"Failed after {MAX_RETRIES} retries: {last_exc}"}
                 )
-
-            if result.get("status") == "failed":
-                raise RuntimeError(
-                    result.get("error_message", "Unknown ingest error")
-                )
-
-            dataset_id = result.get("dataset_id")
-            action = "updated" if (existing_entry and update_mode) else "succeeded"
-
-            # Enrich with AGO metadata (source org, license, tags)
-            if dataset_id and action == "succeeded":
-                await enrich_metadata(client, base_url, api_key, dataset_id, entry)
-
-            results.append(
-                {
-                    "name": layer_name,
-                    "status": action,
-                    "dataset_id": dataset_id,
-                }
-            )
-            print(f"  {tag} Done {layer_name}")
+                print(f"  {tag} Failed {layer_name} after {MAX_RETRIES} retries: {last_exc}")
+                return
 
         except Exception as exc:
             results.append(
@@ -688,8 +724,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=3,
-        help="Max parallel download+ingest streams (default: 3)",
+        default=1,
+        help="Max parallel download+ingest streams (default: 1)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=1200,
+        help="Job poll timeout in seconds (default: 1200)",
     )
     return parser.parse_args(argv)
 
@@ -704,7 +746,7 @@ async def main(args: argparse.Namespace) -> None:
     api_key = args.api_key
 
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(300.0, connect=30.0),
+        timeout=httpx.Timeout(660.0, connect=30.0),
         follow_redirects=True,
     ) as client:
         # Discover layers from ArcGIS
@@ -776,6 +818,7 @@ async def main(args: argparse.Namespace) -> None:
                         existing={lookup_key: lookup_existing} if lookup_existing else {},
                         update_mode=args.update,
                         results=results,
+                        timeout=args.timeout,
                     )
                 )
 
