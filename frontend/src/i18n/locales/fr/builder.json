@@ -122,7 +122,7 @@
     "copyShareLink": "Copier le lien de partage",
     "copyEmbedCode": "Copier le code d'intégration",
     "cannotPublish": "Impossible de publier : les jeux de données {{datasets}} ne sont pas publics",
-    "embedTokenInfo": "Des couches non publiques sont incluses. Un jeton d'intégration gère l'accès automatiquement.",
+    "embedTokenInfo": "Cette carte contient des couches restreintes. L'accès est accordé automatiquement lors du partage ou de l'intégration.",
     "expirationLabel": "Expiration",
     "expirationPlaceholder": "Pas d'expiration",
     "expirationHint": "Laisser vide pour un lien sans expiration",

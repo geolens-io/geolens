@@ -122,7 +122,7 @@
     "copyShareLink": "Freigabelink kopieren",
     "copyEmbedCode": "Einbettungscode kopieren",
     "cannotPublish": "Veröffentlichung nicht möglich: Datensätze {{datasets}} sind nicht öffentlich",
-    "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
+    "embedTokenInfo": "Diese Karte enthält eingeschränkte Layer. Der Zugriff wird beim Teilen oder Einbetten automatisch gewährt.",
     "expirationLabel": "Ablaufdatum",
     "expirationPlaceholder": "Kein Ablaufdatum",
     "expirationHint": "Leer lassen für einen Link ohne Ablaufdatum",

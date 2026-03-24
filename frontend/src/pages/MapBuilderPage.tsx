@@ -163,16 +163,24 @@ export function MapBuilderPage() {
 
         {/* Header */}
         <div className="p-3 border-b space-y-2">
-          <input
-            type="text"
-            value={localName}
-            onChange={(e) => {
-              setLocalName(e.target.value);
-              layers.markDirty();
-            }}
-            className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 w-full hover:bg-accent/30 transition-colors"
-            title={localName}
-          />
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={localName}
+              onChange={(e) => {
+                setLocalName(e.target.value);
+                layers.markDirty();
+              }}
+              className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 w-full hover:bg-accent/30 transition-colors"
+              title={localName}
+            />
+            {mapData && (
+              <Badge variant="outline" className="flex items-center gap-1 text-[10px] px-1.5 py-0 shrink-0">
+                <VisibilityIcon visibility={mapData.visibility} />
+                {getVisibilityLabel(t, mapData.visibility)}
+              </Badge>
+            )}
+          </div>
           <input
             type="text"
             value={localDescription}

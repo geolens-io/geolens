@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -33,7 +33,8 @@ import {
 import { DataTablePagination } from '@/components/admin/DataTablePagination';
 import { DataTableSkeleton } from '@/components/admin/DataTableSkeleton';
 import { Link } from 'react-router';
-import { Link2Off, ChevronDown, ChevronRight, Key, ShieldOff } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Link2Off, ChevronDown, ChevronRight, Key, ShieldOff, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AdminShareTokenResponse, AdminEmbedTokenResponse } from '@/types/api';
 import { formatDate } from '@/lib/format';
@@ -218,12 +219,24 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
 
 export function AdminSharedMapsPage() {
   const { t } = useTranslation('admin');
-  useDocumentTitle('Admin Shared Maps');
+  useDocumentTitle('Admin Published Maps');
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const skip = page * PAGE_SIZE;
-  const { data, isLoading, isError } = useShareTokens(skip, PAGE_SIZE);
+  const { data, isLoading, isError } = useShareTokens(skip, PAGE_SIZE, debouncedSearch || undefined, statusFilter || undefined);
   const revoke = useAdminRevokeShareToken();
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const total = data?.total ?? 0;
   const tokens = data?.tokens ?? [];
@@ -255,6 +268,29 @@ export function AdminSharedMapsPage() {
       <div className="p-6">
         <Card>
           <CardContent className="pt-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder={t('sharedMaps.searchPlaceholder')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex gap-1">
+                {(['', 'active', 'expired', 'revoked'] as const).map((value) => (
+                  <Button
+                    key={value}
+                    variant={statusFilter === value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => { setStatusFilter(value); setPage(0); }}
+                  >
+                    {t(`sharedMaps.filter${value ? value.charAt(0).toUpperCase() + value.slice(1) : 'All'}`)}
+                  </Button>
+                ))}
+              </div>
+            </div>
             <Table>
               <TableHeader>
                 <TableRow>

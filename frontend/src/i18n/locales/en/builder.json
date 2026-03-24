@@ -122,7 +122,7 @@
     "copyShareLink": "Copy share link",
     "copyEmbedCode": "Copy embed code",
     "cannotPublish": "Cannot publish: datasets {{datasets}} are not public",
-    "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
+    "embedTokenInfo": "This map includes restricted layers. Access is granted automatically when shared or embedded.",
     "expirationLabel": "Expiration",
     "expirationPlaceholder": "No expiration",
     "expirationHint": "Leave blank for a link that never expires",
