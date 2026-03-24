@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createEmbedToken, listEmbedTokens, updateEmbedTokenOrigins } from '@/api/embed-tokens';
+import { createEmbedToken, listEmbedTokens, updateEmbedTokenOrigins, revokeEmbedToken } from '@/api/embed-tokens';
 
 export function useCreateEmbedToken() {
   const qc = useQueryClient();
@@ -41,6 +41,18 @@ export function useUpdateEmbedToken() {
     }) => updateEmbedTokenOrigins(mapId, tokenId, allowedOrigins),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['map-embed-tokens', variables.mapId] });
+    },
+  });
+}
+
+export function useRevokeEmbedToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ mapId, tokenId }: { mapId: string; tokenId: string }) =>
+      revokeEmbedToken(mapId, tokenId),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['map-embed-tokens', variables.mapId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'embed-tokens'] });
     },
   });
 }

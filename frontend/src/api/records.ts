@@ -3,10 +3,11 @@ import type {
   ContactCreate,
   ContactResponse,
   ContactListResponse,
+  DistributionResponse,
+  DistributionListResponse,
   KeywordCreate,
   KeywordResponse,
   KeywordListResponse,
-  DistributionListResponse,
 } from '@/types/api';
 
 // Contacts
@@ -41,7 +42,54 @@ export async function deleteKeyword(recordId: string, keywordId: string): Promis
   await apiFetch(`/records/${recordId}/keywords/${keywordId}/`, { method: 'DELETE' });
 }
 
+// Contacts - update
+export async function updateContact(
+  recordId: string,
+  contactId: string,
+  data: Partial<ContactCreate>,
+): Promise<ContactResponse> {
+  return apiFetch<ContactResponse>(`/records/${recordId}/contacts/${contactId}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
 // Distributions
 export async function listDistributions(recordId: string): Promise<DistributionListResponse> {
   return apiFetch<DistributionListResponse>(`/records/${recordId}/distributions/`);
+}
+
+export interface DistributionCreate {
+  distribution_type: string;
+  format: string;
+  url: string;
+  title?: string;
+  description?: string;
+  protocol?: string;
+  media_type?: string;
+}
+
+export async function createDistribution(
+  recordId: string,
+  data: DistributionCreate,
+): Promise<DistributionResponse> {
+  return apiFetch<DistributionResponse>(`/records/${recordId}/distributions/`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDistribution(
+  recordId: string,
+  distributionId: string,
+  data: Partial<DistributionCreate>,
+): Promise<DistributionResponse> {
+  return apiFetch<DistributionResponse>(`/records/${recordId}/distributions/${distributionId}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteDistribution(recordId: string, distributionId: string): Promise<void> {
+  await apiFetch(`/records/${recordId}/distributions/${distributionId}/`, { method: 'DELETE' });
 }
