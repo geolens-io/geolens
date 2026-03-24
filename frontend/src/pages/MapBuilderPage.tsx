@@ -61,6 +61,36 @@ export function MapBuilderPage() {
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Resizable sidebar state
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    window.innerWidth >= 1024 ? 320 : 256
+  );
+  const isDraggingRef = useRef(false);
+
+  const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    isDraggingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const newWidth = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 200), 600);
+      setSidebarWidth(newWidth);
+    };
+
+    const onUp = () => {
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+      isDraggingRef.current = false;
+      mapInstanceRef.current?.resize();
+    };
+
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onUp);
+  }, [sidebarWidth]);
+
   // Composed hooks
   const dialogs = useBuilderDialogs(aiAvailable);
   const layers = useBuilderLayers(
@@ -150,12 +180,22 @@ export function MapBuilderPage() {
       {/* Sidebar */}
       <div
         className={cn(
-          "relative border-r bg-background flex flex-col shrink-0 overflow-hidden transition-all duration-200",
-          dialogs.sidebarCollapsed ? "w-0 border-r-0" : "w-64 lg:w-80"
+          "relative border-r bg-background flex flex-col shrink-0 overflow-hidden",
+          dialogs.sidebarCollapsed ? "w-0 border-r-0 transition-all duration-200" : "",
+          !dialogs.sidebarCollapsed && !isDraggingRef.current ? "transition-all duration-200" : ""
         )}
+        style={dialogs.sidebarCollapsed ? undefined : { width: sidebarWidth }}
         onTransitionEnd={() => { mapInstanceRef.current?.resize(); }}
         {...(dialogs.sidebarCollapsed ? { inert: true } : {})}
       >
+        {/* Drag handle for resize */}
+        {!dialogs.sidebarCollapsed && (
+          <div
+            onPointerDown={handleDragStart}
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 z-10 transition-colors"
+            aria-hidden="true"
+          />
+        )}
         {/* Edge collapse button */}
         {!dialogs.sidebarCollapsed && (
           <button
