@@ -56,10 +56,14 @@ function ColorizedGeometryIcon({
   layerId: string;
 }) {
   const gt = (geometryType ?? '').toUpperCase();
-  const Icon = gt.includes('POINT') ? Circle : gt.includes('LINE') ? Minus : Pentagon;
+  const isLine = gt.includes('LINE');
+  const Icon = gt.includes('POINT') ? Circle : isLine ? Minus : Pentagon;
 
   if (colors.length <= 1) {
-    return <Icon className="h-3.5 w-3.5" fill={colors[0] ?? '#6366f1'} strokeWidth={0} />;
+    const color = colors[0] ?? '#6366f1';
+    return isLine
+      ? <Icon className="h-3.5 w-3.5" stroke={color} strokeWidth={3} />
+      : <Icon className="h-3.5 w-3.5" fill={color} strokeWidth={0} />;
   }
 
   const gradientId = `layer-grad-${layerId}`;
@@ -78,7 +82,9 @@ function ColorizedGeometryIcon({
           </linearGradient>
         </defs>
       </svg>
-      <Icon className="h-3.5 w-3.5" fill={`url(#${gradientId})`} strokeWidth={0} />
+      {isLine
+        ? <Icon className="h-3.5 w-3.5" stroke={`url(#${gradientId})`} strokeWidth={3} />
+        : <Icon className="h-3.5 w-3.5" fill={`url(#${gradientId})`} strokeWidth={0} />}
     </span>
   );
 }
