@@ -304,6 +304,103 @@ test.describe.serial('Map Builder', () => {
     expect(postCloseFocus.insideDialog).toBe(false);
   });
 
+  test('zoom to layer changes map viewport', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+
+    // Open the per-layer "More actions" menu (inside the layer row, not the header tray)
+    const layerRow = page.getByRole('button', { name: /hide layer .+ more actions/i }).first();
+    const moreBtn = layerRow.getByLabel(/more actions/i);
+    await moreBtn.click();
+
+    // Click "Zoom to layer"
+    const zoomItem = page.getByRole('menuitem', { name: /zoom to layer/i });
+    await expect(zoomItem).toBeVisible();
+    await zoomItem.click();
+
+    // Map should still be functional — canvas visible, no error toasts
+    await page.waitForTimeout(1_500);
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+  });
+
+  test('sidebar drag handle resizes sidebar', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+
+    // Clear persisted width
+    await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-width'));
+
+    // Get the drag handle and sidebar
+    const handle = page.locator('[class*="cursor-col-resize"]');
+    await expect(handle).toBeVisible();
+    const sidebar = page.locator('.border-r.bg-background');
+
+    const widthBefore = await sidebar.evaluate((el) => el.offsetWidth);
+
+    // Find a y-coordinate where the handle is actually hittable (avoid icons/buttons)
+    const hitX = await page.evaluate(() => {
+      const h = document.querySelector('[class*="cursor-col-resize"]');
+      if (!h) return null;
+      const rect = h.getBoundingClientRect();
+      // Scan to find a hittable x
+      for (let x = Math.floor(rect.left); x <= Math.ceil(rect.right); x++) {
+        const el = document.elementFromPoint(x, rect.top + 50);
+        if (h.contains(el) || el === h) return x;
+      }
+      return null;
+    });
+    expect(hitX).toBeTruthy();
+
+    const box = await handle.boundingBox();
+    expect(box).toBeTruthy();
+    const startY = box!.y + 50; // Use a point near top, away from layer controls
+
+    await page.mouse.move(hitX!, startY);
+    await page.mouse.down();
+    await page.mouse.move(hitX! + 100, startY, { steps: 15 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+
+    const widthAfter = await sidebar.evaluate((el) => el.offsetWidth);
+    expect(widthAfter).toBeGreaterThan(widthBefore);
+
+    // Verify width persisted to localStorage
+    const stored = await page.evaluate(() => localStorage.getItem('geolens-builder-sidebar-width'));
+    expect(stored).toBe(String(widthAfter));
+
+    // Reload and verify persistence
+    await page.reload();
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    const widthAfterReload = await sidebar.evaluate((el) => el.offsetWidth);
+    expect(widthAfterReload).toBe(widthAfter);
+  });
+
+  test('sidebar collapsed state persists across reload', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+
+    // Clear stored state
+    await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-collapsed'));
+
+    // Collapse sidebar
+    const collapseBtn = page.getByRole('button', { name: /collapse sidebar/i });
+    await collapseBtn.click();
+    await expect(page.getByRole('button', { name: /expand sidebar/i })).toBeVisible();
+
+    // Reload — should stay collapsed
+    await page.reload();
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /expand sidebar/i })).toBeVisible();
+
+    // Expand and reload — should stay expanded
+    await page.getByRole('button', { name: /expand sidebar/i }).click();
+    await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
+    await page.reload();
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
+  });
+
   test('no error toasts from raster tile 404s', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
