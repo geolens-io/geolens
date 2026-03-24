@@ -4,6 +4,7 @@ Handles file saving, validation, table name generation, job creation,
 and table registration for existing PostGIS tables.
 """
 
+import re
 import uuid
 from pathlib import Path
 
@@ -107,7 +108,8 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
         from app.storage import get_storage
 
         storage = get_storage()
-        s3_key = f"staging/{job_id}/{file.filename}"
+        safe_name = Path(file.filename).name  # strip path traversal
+        s3_key = f"staging/{job_id}/{safe_name}"
         content = await file.read()
         await storage.put(s3_key, content)
         return s3_key
@@ -115,7 +117,8 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
     staging_dir = Path(settings.upload_staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    dest = staging_dir / f"{job_id}_{file.filename}"
+    safe_name = Path(file.filename).name  # strip path traversal
+    dest = staging_dir / f"{job_id}_{safe_name}"
     with open(dest, "wb") as f:
         while chunk := await file.read(8192):
             f.write(chunk)
@@ -240,14 +243,21 @@ async def register_existing_table(
     """
     table_name = request.table_name
 
+    # Validate table name to prevent SQL injection
+    if not re.match(r"^[a-z0-9_]+$", table_name):
+        raise ValueError(
+            f"Invalid table name: {table_name!r}. "
+            "Must contain only lowercase letters, digits, and underscores."
+        )
+
     # Verify table exists in data schema
     result = await session.execute(
         text(
             "SELECT EXISTS ("
             "  SELECT 1 FROM information_schema.tables "
-            f"  WHERE table_schema = 'data' AND table_name = '{table_name}'"
+            "  WHERE table_schema = 'data' AND table_name = :table_name"
             ")"
-        )
+        ).bindparams(table_name=table_name)
     )
     if not result.scalar():
         raise ValueError(f"Table 'data.{table_name}' does not exist.")
@@ -267,9 +277,9 @@ async def register_existing_table(
     geom_result = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
-            f"WHERE table_schema = 'data' AND table_name = '{table_name}' "
+            "WHERE table_schema = 'data' AND table_name = :table_name "
             "AND column_name IN ('geom', 'geom_4326')"
-        )
+        ).bindparams(table_name=table_name)
     )
     geom_cols = {row[0] for row in geom_result.all()}
 
