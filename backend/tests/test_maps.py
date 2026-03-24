@@ -1960,3 +1960,90 @@ class TestLayerTypeRoundTrip:
         assert resp.status_code == 201
         data = resp.json()
         assert data["layer_type"] == "raster_geolens"
+
+
+class TestShowInLegendRoundTrip:
+    """Tests for show_in_legend persistence."""
+
+    async def test_new_layer_defaults_show_in_legend_true(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/{id}/layers/ defaults show_in_legend to true."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        assert resp.json()["show_in_legend"] is True
+
+    async def test_show_in_legend_round_trip_via_put(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PUT /maps/{id} with show_in_legend=false persists and returns on GET."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Add layer
+        await client.post(
+            f"/maps/{map_id}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+        # Update with show_in_legend=false
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "layers": [
+                    {"dataset_id": str(ds.id), "sort_order": 0, "show_in_legend": False},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        layers = resp.json()["layers"]
+        assert len(layers) == 1
+        assert layers[0]["show_in_legend"] is False
+
+        # Verify it persists on GET
+        resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        assert resp.json()["layers"][0]["show_in_legend"] is False
+
+    async def test_show_in_legend_defaults_true_when_omitted_in_put(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PUT /maps/{id} without show_in_legend defaults to true."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "layers": [
+                    {"dataset_id": str(ds.id), "sort_order": 0},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["layers"][0]["show_in_legend"] is True
