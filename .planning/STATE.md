@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260324-kte
-last_updated: "2026-03-24T19:09:39.968Z"
-last_activity: "2026-03-24 - Completed quick task 260324-jni: Fix seed-ago-data.py 502 errors and poll timeouts"
+stopped_at: Completed quick-260324-mo7
+last_updated: "2026-03-24T20:35:48.883Z"
+last_activity: "2026-03-24 - Completed quick task 260324-kte: Merge layer list item symbology/geometry into single colorized icon"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -124,6 +124,7 @@ Plan: Not started
 - [Phase quick-260323-r43]: Enforce validate_public_visibility as pre-update gate in update_map_endpoint; parse dataset names from 400 error detail for frontend display
 - [Phase quick-260324-jni]: nginx proxy_read_timeout 600s for /api/; httpx client timeout 660s (10% above nginx); seed script default concurrency=1; poll_job timeout 1200s; retry 5xx with exponential backoff + jitter
 - [Phase quick-260324-kte]: Use fill-based Lucide icon coloring with SVG linearGradient for multi-color layer indicators
+- [Phase quick-260324-mo7]: All visible layers appear in legend by default; show_in_legend toggle in More Actions menu; ColorizedGeometryIcon extracted to shared layer-icons.tsx
 
 ### Pending Todos
 
@@ -177,10 +178,12 @@ Plan: Not started
 | 260323-r43 | Audit sharing/access/embed: hard-block non-public datasets, findings report | 2026-03-23 | 757280ce | Verified | [260323-r43-audit-sharing-access-embed-functionality](./quick/260323-r43-audit-sharing-access-embed-functionality/) |
 | 260324-cn5 | Map chat @mention layers, slash commands, smart suggestions, message enrichment | 2026-03-24 | 06c6ed11 | Verified | [260324-cn5-map-chat-mention-layers-slash-commands-a](./quick/260324-cn5-map-chat-mention-layers-slash-commands-a/) |
 | 260324-jni | Fix seed-ago-data.py 502 errors: nginx proxy timeouts, retry with backoff, configurable timeout | 2026-03-24 | 9995d4c0 | Verified | [260324-jni-investigate-and-fix-seed-ago-data-py-imp](./quick/260324-jni-investigate-and-fix-seed-ago-data-py-imp/) |
+| 260324-kte | Merge layer list item symbology/geometry into single colorized icon | 2026-03-24 | 5bd186a8 | Needs Review | [260324-kte-inspect-the-map-creator-layer-list-item-](./quick/260324-kte-inspect-the-map-creator-layer-list-item-/) |
+| 260324-mo7 | Map builder legend: show all visible layers, per-layer toggle, persist setting | 2026-03-24 | 77b89a83 | Needs Review | [260324-mo7-map-builder-legend-control-show-all-visi](./quick/260324-mo7-map-builder-legend-control-show-all-visi/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-24 - Completed quick task 260324-jni: Fix seed-ago-data.py 502 errors and poll timeouts
-Last session: 2026-03-24T19:09:38.741Z
-Stopped at: Completed quick-260324-kte
+Last activity: 2026-03-24 - Completed quick task 260324-mo7: Map builder legend control - show all visible layers
+Last session: 2026-03-24T20:35:44.762Z
+Stopped at: Completed quick-260324-mo7
 Resume file: None
