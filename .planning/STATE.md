@@ -173,10 +173,11 @@ Plan: Not started
 | 260323-jqk | Fix closed transaction error in AI map generate | 2026-03-23 | 8dd86717 | Verified | [260323-jqk-fix-closed-transaction-error-in-ai-map-c](./quick/260323-jqk-fix-closed-transaction-error-in-ai-map-c/) |
 | 260323-lik | Thorough QA pass on map layer configuration — correctness, best practices, KISS | 2026-03-23 | c4f7f3db | Verified | [260323-lik-thorough-qa-pass-on-map-layer-configurat](./quick/260323-lik-thorough-qa-pass-on-map-layer-configurat/) |
 | 260323-r43 | Audit sharing/access/embed: hard-block non-public datasets, findings report | 2026-03-23 | 757280ce | Verified | [260323-r43-audit-sharing-access-embed-functionality](./quick/260323-r43-audit-sharing-access-embed-functionality/) |
+| 260324-cn5 | Map chat @mention layers, slash commands, smart suggestions, message enrichment | 2026-03-24 | 06c6ed11 | Complete | [260324-cn5-map-chat-mention-layers-slash-commands-a](./quick/260324-cn5-map-chat-mention-layers-slash-commands-a/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-23 - Completed quick task 260323-r43: Audit sharing/access/embed functionality
-Last session: 2026-03-23T23:56:01.800Z
-Stopped at: Completed quick-260323-r43
+Last activity: 2026-03-24 - Completed quick task 260324-cn5: Map chat @mention, slash commands, smart suggestions
+Last session: 2026-03-24T13:26:15.000Z
+Stopped at: Completed quick-260324-cn5
 Resume file: None
