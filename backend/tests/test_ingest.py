@@ -502,3 +502,181 @@ class TestCsvNonSpatialPipeline:
                 text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
             )
             await test_db_session.commit()
+
+    async def test_non_spatial_csv_distributions(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Non-spatial CSV table should produce only csv download + ogc_features distributions."""
+        from sqlalchemy import text
+
+        table_name = "test_csv_nonspatial_dists"
+
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table_name} ("
+                    "  gid serial PRIMARY KEY,"
+                    "  name text,"
+                    "  value integer"
+                    ")"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (name, value) VALUES "
+                    "('Alice', 100), ('Bob', 200)"
+                )
+            )
+            await test_db_session.commit()
+
+            resp = await client.post(
+                "/ingest/register",
+                json={"table_name": table_name, "title": "Test CSV Dists"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            dataset_id = resp.json()["dataset_id"]
+
+            # Get record_id to query distributions
+            resp = await client.get(
+                f"/datasets/{dataset_id}",
+                headers=admin_auth_header,
+                follow_redirects=True,
+            )
+            assert resp.status_code == 200
+            record_id = resp.json()["record_id"]
+
+            resp = await client.get(
+                f"/records/{record_id}/distributions/",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            distributions = resp.json()["distributions"]
+
+            dist_types = [(d["distribution_type"], d.get("format")) for d in distributions]
+            assert ("download", "csv") in dist_types
+            assert ("ogc_features", "geojson") in dist_types
+            assert len(distributions) == 2, f"Expected 2 distributions, got {len(distributions)}: {dist_types}"
+            # Ensure spatial formats are NOT present
+            assert ("download", "gpkg") not in dist_types
+            assert ("download", "geojson") not in dist_types
+            assert ("download", "shp") not in dist_types
+            assert ("vector_tiles", "pbf") not in dist_types
+
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+            )
+            await test_db_session.commit()
+
+    async def test_non_spatial_xlsx_distributions(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Non-spatial XLSX-derived table should produce only csv download + ogc_features distributions."""
+        from sqlalchemy import text
+
+        table_name = "test_xlsx_nonspatial"
+
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table_name} ("
+                    "  gid serial PRIMARY KEY,"
+                    "  name text,"
+                    "  value integer"
+                    ")"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (name, value) VALUES "
+                    "('X1', 10), ('X2', 20)"
+                )
+            )
+            await test_db_session.commit()
+
+            resp = await client.post(
+                "/ingest/register",
+                json={"table_name": table_name, "title": "Test XLSX Table"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            dataset_id = resp.json()["dataset_id"]
+
+            # Get record_id to query distributions
+            resp = await client.get(
+                f"/datasets/{dataset_id}",
+                headers=admin_auth_header,
+                follow_redirects=True,
+            )
+            assert resp.status_code == 200
+            record_id = resp.json()["record_id"]
+
+            resp = await client.get(
+                f"/records/{record_id}/distributions/",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            distributions = resp.json()["distributions"]
+
+            dist_types = [(d["distribution_type"], d.get("format")) for d in distributions]
+            assert ("download", "csv") in dist_types
+            assert ("ogc_features", "geojson") in dist_types
+            assert len(distributions) == 2, f"Expected 2 distributions, got {len(distributions)}: {dist_types}"
+            assert ("vector_tiles", "pbf") not in dist_types
+
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+            )
+            await test_db_session.commit()
+
+    async def test_non_spatial_ogc_items(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """OGC items endpoint returns features with geometry:null for non-spatial dataset."""
+        from sqlalchemy import text
+
+        table_name = "test_nonspatial_ogc"
+
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table_name} ("
+                    "  gid serial PRIMARY KEY,"
+                    "  name text,"
+                    "  value integer"
+                    ")"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table_name} (name, value) VALUES "
+                    "('Alice', 100), ('Bob', 200)"
+                )
+            )
+            await test_db_session.commit()
+
+            resp = await client.post(
+                "/ingest/register",
+                json={"table_name": table_name, "title": "Test OGC NonSpatial"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            dataset_id = resp.json()["dataset_id"]
+
+            resp = await client.get(
+                f"/collections/{dataset_id}/items",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["numberMatched"] == 2
+            for feature in data["features"]:
+                assert feature["geometry"] is None
+
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+            )
+            await test_db_session.commit()

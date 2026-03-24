@@ -329,10 +329,15 @@ async def generate_distributions(
     dataset_id: uuid.UUID,
     record_id: uuid.UUID,
     table_name: str,
+    geometry_type: str | None = None,
 ) -> list[RecordDistribution]:
     """Generate standard distribution records for a dataset.
 
-    Creates 6 distribution rows (4 download formats + OGC features + vector tiles).
+    For spatial datasets (geometry_type is not None): creates 6 distribution rows
+    (4 download formats + OGC features + vector tiles).
+    For non-spatial datasets (geometry_type is None): creates only csv download
+    + OGC features (2 rows).
+
     All are marked auto_generated=True. Uses merge semantics: existing rows with
     the same (record_id, distribution_type, format) are left untouched (INSERT ON
     CONFLICT DO NOTHING equivalent via check-then-insert).
@@ -341,6 +346,7 @@ async def generate_distributions(
         dataset_id: Dataset PK (used in URL paths).
         record_id: Record PK (FK in record_distributions).
         table_name: Dataset table name (used in vector tile URL).
+        geometry_type: Geometry type string, or None for non-spatial datasets.
     """
     created = []
 
@@ -353,6 +359,13 @@ async def generate_distributions(
         media_type,
         is_primary,
     ) in _DISTRIBUTION_TEMPLATES:
+        # Non-spatial datasets: only csv download + ogc_features
+        if geometry_type is None:
+            if not (
+                (dist_type == "download" and fmt == "csv")
+                or dist_type == "ogc_features"
+            ):
+                continue
         url = url_tpl.format(dataset_id=dataset_id)
 
         # Check if already exists
@@ -380,7 +393,11 @@ async def generate_distributions(
         session.add(dist)
         created.append(dist)
 
-    # Vector tiles (uses table_name, not dataset_id)
+    # Vector tiles (uses table_name, not dataset_id) — skip for non-spatial datasets
+    if geometry_type is None:
+        await session.flush()
+        return created
+
     existing = await session.execute(
         select(RecordDistribution).where(
             RecordDistribution.record_id == record_id,

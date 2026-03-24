@@ -208,7 +208,7 @@ async def create_dataset(
     # record.id is the Record PK (used as FK in record_distributions).
     from app.records.service import generate_distributions
 
-    await generate_distributions(session, dataset.id, record.id, table_name)
+    await generate_distributions(session, dataset.id, record.id, table_name, geometry_type=geometry_type)
 
     # Auto-generate attribute metadata from column_info
     if column_info:
