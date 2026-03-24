@@ -47,6 +47,12 @@ def test_system_prompt_fill_opacity_example():
     assert '"fill-opacity": 0.3' not in prompt
 
 
+def test_system_prompt_has_mention_syntax_hint():
+    """System prompt tells the LLM how to resolve @LayerName references."""
+    prompt = build_chat_system_prompt([_make_layer()])
+    assert "@LayerName" in prompt or "@[Layer Name]" in prompt
+
+
 # --- Error message mapping ---
 
 
