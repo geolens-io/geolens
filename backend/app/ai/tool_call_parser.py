@@ -10,6 +10,8 @@ import re
 
 _FUNCTION_RE = re.compile(r"<function=(\w+)>(.*?)</function>", re.DOTALL)
 _PARAMETER_RE = re.compile(r"<parameter=(\w+)>(.*?)</parameter>", re.DOTALL)
+# Wrapper tags some models emit around function blocks
+_TOOL_CALL_WRAPPER_RE = re.compile(r"</?tool_call>", re.IGNORECASE)
 
 
 def _coerce_value(value: str) -> int | float | str:
@@ -47,5 +49,8 @@ def parse_xml_tool_calls(text: str) -> tuple[list[tuple[str, dict]], str]:
 
         tool_calls.append((fn_name, params))
 
-    cleaned = _FUNCTION_RE.sub("", text).strip()
+    cleaned = _FUNCTION_RE.sub("", text)
+    # Strip wrapper tags (e.g. <tool_call> / </tool_call>) that some models
+    # emit around function blocks
+    cleaned = _TOOL_CALL_WRAPPER_RE.sub("", cleaned).strip()
     return tool_calls, cleaned
