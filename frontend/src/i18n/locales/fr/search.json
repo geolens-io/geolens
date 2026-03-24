@@ -65,7 +65,7 @@
     "datasetCount_other": "{{count}} jeux de données"
   },
   "datasetCard": {
-    "quicklookAlt": "Preview of {{name}}",
+    "quicklookAlt": "Aperçu de {{name}}",
     "previewUnavailable": "Apercu non disponible"
   },
   "card": {
@@ -121,7 +121,7 @@
     "columnName": "Nom de colonne",
     "columnType": "Type",
     "addColumn": "Ajouter une colonne",
-    "removeColumn": "Remove column",
+    "removeColumn": "Supprimer la colonne",
     "submit": "Créer le jeu de données",
     "submitting": "Création...",
     "success": "Jeu de données créé avec succès",

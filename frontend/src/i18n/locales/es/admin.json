@@ -392,7 +392,7 @@
       "namePlaceholder": "Mi mapa base personalizado",
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
       "urlError": "La URL debe contener los marcadores {z}/{x}/{y} o terminar con .json",
-      "removeBasemap": "Remove basemap",
+      "removeBasemap": "Eliminar mapa base",
       "add": "Agregar",
       "saved": "Mapas base guardados",
       "saveFailed": "Error al guardar los mapas base"

@@ -31,7 +31,7 @@
     "columns": "Spalten",
     "rename": "Umbenennen",
     "zoomToLayer": "Auf Layer zoomen",
-    "moreActions": "More actions"
+    "moreActions": "Weitere Aktionen"
   },
   "style": {
     "fill": "Füllung",
@@ -48,7 +48,7 @@
   "filters": {
     "title": "Filter",
     "addFilter": "Filter hinzufügen",
-    "removeFilter": "Remove filter",
+    "removeFilter": "Filter entfernen",
     "field": "Feld",
     "op": "Op",
     "value": "Wert",
@@ -213,7 +213,7 @@
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
     "expandSidebar": "Seitenleiste ausklappen",
-    "closeChat": "Close chat",
+    "closeChat": "Chat schließen",
     "allSaved": "Alle Änderungen gespeichert",
     "moreActions": "Weitere Aktionen"
   },
