@@ -104,6 +104,7 @@ def _build_layer_response(
         filter=layer.filter,
         label_config=layer.label_config,
         style_config=layer.style_config,
+        show_in_legend=layer.show_in_legend,
     )
 
 
