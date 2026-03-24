@@ -61,10 +61,16 @@ export function MapBuilderPage() {
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Resizable sidebar state
-  const [sidebarWidth, setSidebarWidth] = useState(() =>
-    window.innerWidth >= 1024 ? 320 : 256
-  );
+  // Resizable sidebar state (persisted to localStorage)
+  const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (stored) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed) && parsed >= 200 && parsed <= 600) return parsed;
+    }
+    return window.innerWidth >= 1024 ? 320 : 256;
+  });
   const isDraggingRef = useRef(false);
 
   const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -75,15 +81,17 @@ export function MapBuilderPage() {
     const startX = e.clientX;
     const startWidth = sidebarWidth;
 
+    let lastWidth = startWidth;
     const onMove = (moveEvent: PointerEvent) => {
-      const newWidth = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 200), 600);
-      setSidebarWidth(newWidth);
+      lastWidth = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 200), 600);
+      setSidebarWidth(lastWidth);
     };
 
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       isDraggingRef.current = false;
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(lastWidth));
       mapInstanceRef.current?.resize();
     };
 
