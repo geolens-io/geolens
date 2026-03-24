@@ -419,16 +419,23 @@ export function syncLayersToMap(
 
   managedSourcesRef.current = desiredSources;
 
-  // Reorder layers so first in array renders on top (matches UI list order).
-  // Reverse iterate: moveLayer() without beforeId moves to top of stack,
-  // so last-processed (index 0) ends up on top.
+  reorderDataLayers(map, layers);
+}
+
+/** Reorder MapLibre layers so first in array renders on top (matches UI list).
+ *  Reverse iterate: moveLayer() without beforeId moves to top of stack,
+ *  so last-processed (index 0) ends up on top.
+ *  Labels are moved above all data layers so they are never obscured. */
+export function reorderDataLayers(
+  map: MaplibreMap,
+  layers: Pick<MapLayerResponse, 'id'>[],
+) {
   for (let i = layers.length - 1; i >= 0; i--) {
     const lid = getLayerId(layers[i].id);
     const oid = getOutlineLayerId(layers[i].id);
     if (map.getLayer(lid)) map.moveLayer(lid);
     if (map.getLayer(oid)) map.moveLayer(oid);
   }
-  // Label layers on top so labels are never obscured by data layers.
   for (let i = layers.length - 1; i >= 0; i--) {
     const labelId = getLabelLayerId(layers[i].id);
     if (map.getLayer(labelId)) map.moveLayer(labelId);

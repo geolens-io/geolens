@@ -7,7 +7,7 @@ import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
-import { syncLayersToMap, reorderBasemapLabels, getSourceId, getLayerId, getOutlineLayerId, getLabelLayerId } from './map-sync';
+import { syncLayersToMap, reorderDataLayers, reorderBasemapLabels, getSourceId, getLayerId, getOutlineLayerId, getLabelLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
@@ -256,26 +256,7 @@ export function BuilderMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    // Reverse iterate so first layer in array ends up on top.
-    for (let i = layers.length - 1; i >= 0; i--) {
-      const layerId = getLayerId(layers[i].id);
-      const outlineId = getOutlineLayerId(layers[i].id);
-      if (map.getLayer(layerId)) {
-        map.moveLayer(layerId);
-      }
-      if (map.getLayer(outlineId)) {
-        map.moveLayer(outlineId);
-      }
-    }
-    // Label layers on top so labels are never obscured by data layers.
-    for (let i = layers.length - 1; i >= 0; i--) {
-      const labelId = getLabelLayerId(layers[i].id);
-      if (map.getLayer(labelId)) {
-        map.moveLayer(labelId);
-      }
-    }
-
-    // Keep basemap labels above data layers
+    reorderDataLayers(map, layers);
     reorderBasemapLabels(map, showBasemapLabels);
   }, [layers, mapReady, showBasemapLabels]);
 
