@@ -249,14 +249,14 @@ export function BuilderMap({
     }
   }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url]);
 
-  // Layer ordering
+  // Layer ordering — runs on reorder to sync MapLibre z-order with UI list.
+  // syncLayersToMap handles ordering on initial add and basemap switch;
+  // this effect catches user-triggered reorders (move up/down, drag).
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !mapReady) return;
 
     // Reverse iterate so first layer in array ends up on top.
-    // Move data/outline layers first, then label layers on top so labels
-    // are never obscured by data layers above them in the stack.
     for (let i = layers.length - 1; i >= 0; i--) {
       const layerId = getLayerId(layers[i].id);
       const outlineId = getOutlineLayerId(layers[i].id);
@@ -267,6 +267,7 @@ export function BuilderMap({
         map.moveLayer(outlineId);
       }
     }
+    // Label layers on top so labels are never obscured by data layers.
     for (let i = layers.length - 1; i >= 0; i--) {
       const labelId = getLabelLayerId(layers[i].id);
       if (map.getLayer(labelId)) {
