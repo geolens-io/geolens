@@ -24,15 +24,20 @@ async def get_distinct_values(
     limit: int = 100,
     *,
     allowed_tables: set[str] | None = None,
-) -> list[str]:
-    """Return distinct non-null text values for a column, ordered alphabetically."""
+) -> list:
+    """Return distinct non-null values for a column, preserving native types.
+
+    Numeric and boolean values are returned in their native Python types so
+    that MapLibre match expressions do strict-type comparisons correctly.
+    Text values remain strings.
+    """
     _validate_identifier(table_name, "table name")
     _validate_identifier(column_name, "column name")
     if allowed_tables is not None and table_name not in allowed_tables:
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
     sql = text(
-        f"SELECT DISTINCT {column_name}::text AS val "
+        f"SELECT DISTINCT {column_name} AS val "
         f"FROM data.{table_name} "
         f"WHERE {column_name} IS NOT NULL "
         f"ORDER BY val LIMIT :limit"
