@@ -18,7 +18,9 @@ class IngestJob(Base):
     dataset_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.datasets.id", ondelete="SET NULL"), nullable=True
     )
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
     source_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)

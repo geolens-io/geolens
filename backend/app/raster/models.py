@@ -120,6 +120,29 @@ class VrtGeneration(Base):
     )
 
 
+class VrtSourceLink(Base):
+    """Tracks which COG datasets are sources for a VRT dataset."""
+
+    __tablename__ = "vrt_source_links"
+    __table_args__ = {"schema": "catalog"}
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    vrt_dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False,
+        index=True,
+    )
+    source_dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.datasets.id", ondelete="RESTRICT"), nullable=False,
+        index=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class DatasetAsset(Base):
     """STAC-aligned asset reference table.
 
