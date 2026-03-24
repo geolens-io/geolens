@@ -11,10 +11,8 @@ import {
   MoreVertical,
   Pencil,
   Locate,
-  Grid3x3,
   ChevronDown,
   ChevronUp,
-  Layers,
   Filter,
   Type,
 } from 'lucide-react';
@@ -148,13 +146,7 @@ export function LayerItem({
         </Button>
 
         <div className="shrink-0">
-          {caps.kind === 'vrt' ? (
-            <Layers className="h-3.5 w-3.5 text-muted-foreground" />
-          ) : caps.kind === 'raster' ? (
-            <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />
-          ) : (
-            <ColorizedGeometryIcon geometryType={layer.dataset_geometry_type} colors={layerColors} layerId={layer.id} />
-          )}
+          <ColorizedGeometryIcon geometryType={layer.dataset_geometry_type} colors={layerColors} layerId={layer.id} layerType={caps.kind} />
         </div>
 
         {editing ? (

@@ -1,4 +1,4 @@
-import { Circle, Minus, Pentagon } from 'lucide-react';
+import { Circle, Minus, Pentagon, Grid3x3, Layers } from 'lucide-react';
 import { getColorProperty } from '@/lib/color-ramps';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -6,11 +6,21 @@ export function ColorizedGeometryIcon({
   geometryType,
   colors,
   layerId,
+  layerType,
 }: {
   geometryType: string | null;
   colors: string[];
   layerId: string;
+  layerType?: string;
 }) {
+  // Raster/VRT layers use muted gray icons — no color tinting
+  if (layerType === 'vrt') {
+    return <Layers className="h-3.5 w-3.5 text-muted-foreground" />;
+  }
+  if (layerType === 'raster') {
+    return <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />;
+  }
+
   const gt = (geometryType ?? '').toUpperCase();
   const isLine = gt.includes('LINE');
   const Icon = gt.includes('POINT') ? Circle : isLine ? Minus : Pentagon;

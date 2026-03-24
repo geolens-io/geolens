@@ -79,6 +79,7 @@ export function MapLegend({ layers }: MapLegendProps) {
                   style_config: layer.styleConfig,
                 })}
                 layerId={`legend-${idx}`}
+                layerType={layer.layerType}
               />
               <span className="font-medium text-foreground truncate">{layer.name}</span>
             </div>
