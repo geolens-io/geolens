@@ -168,11 +168,17 @@
     "takingLonger": "Cela prend plus de temps que d'habitude...",
     "suggestions": {
       "searchDatasets": "Rechercher des jeux de données à ajouter à cette carte",
-      "colorByAttribute": "Colorer « {{name}} » à l'aide d'un champ",
-      "addLabels": "Ajouter des libellés pour « {{name}} »",
-      "filterByAttribute": "Filtrer « {{name}} » à l'aide d'un champ",
-      "styleAllLayers": "Appliquer un thème de couleurs à toutes les couches",
-      "addDataset": "Ajouter un autre jeu de données à cette carte"
+      "addDataset": "Ajouter un autre jeu de données à cette carte",
+      "heatmap": "Créer une carte thermique de {{name}}",
+      "sizeBy": "Dimensionner {{name}} par {{column}}",
+      "cluster": "Regrouper les points de {{name}}",
+      "colorBy": "Colorer {{name}} par {{column}}",
+      "areaLabels": "Afficher les étiquettes de surface sur {{name}}",
+      "varyWidth": "Varier la largeur de {{name}} par {{column}}",
+      "adjustOpacity": "Ajuster l'opacité de {{name}}",
+      "distribution": "Afficher la distribution de {{column}} dans {{name}}",
+      "categories": "Colorer {{name}} par catégories de {{column}}",
+      "filterByDate": "Filtrer {{name}} par plage de dates"
     },
     "commands": {
       "style": "Modifier l'apparence de la couche",

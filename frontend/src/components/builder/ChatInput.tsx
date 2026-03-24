@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { MapLayerResponse } from '@/types/api';
 import { MentionDropdown, type MentionItem } from './MentionDropdown';
 
@@ -17,13 +18,7 @@ interface TriggerState {
   query: string;
 }
 
-const SLASH_COMMANDS: MentionItem[] = [
-  { id: 'style', label: '/style', description: 'Change layer appearance' },
-  { id: 'filter', label: '/filter', description: 'Filter features' },
-  { id: 'label', label: '/label', description: 'Add or change labels' },
-  { id: 'query', label: '/query', description: 'Ask data questions' },
-  { id: 'add', label: '/add', description: 'Add a dataset' },
-];
+const SLASH_COMMAND_IDS = ['style', 'filter', 'label', 'query', 'add'] as const;
 
 function detectTrigger(value: string, cursorPos: number): TriggerState | null {
   const before = value.slice(0, cursorPos);
@@ -64,9 +59,18 @@ export function ChatInput({
   disabled = false,
   placeholder,
 }: ChatInputProps) {
+  const { t } = useTranslation('builder');
   const [triggerState, setTriggerState] = useState<TriggerState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const listboxId = useId();
+
+  // Build slash commands with i18n descriptions
+  const slashCommands: MentionItem[] = SLASH_COMMAND_IDS.map((id) => ({
+    id,
+    label: `/${id}`,
+    description: t(`chat.commands.${id}`),
+  }));
 
   // Build layer items for dropdown
   const layerItems: MentionItem[] = layers.map((l) => ({
@@ -77,10 +81,13 @@ export function ChatInput({
 
   // Filtered items based on trigger
   const filteredItems = triggerState
-    ? filterItems(triggerState.type === '@' ? layerItems : SLASH_COMMANDS, triggerState.query)
+    ? filterItems(triggerState.type === '@' ? layerItems : slashCommands, triggerState.query)
     : [];
 
   const dropdownOpen = triggerState !== null && filteredItems.length > 0;
+
+  // Active option id for aria-activedescendant
+  const activeOptionId = dropdownOpen ? `${listboxId}-option-${selectedIndex}` : undefined;
 
   // Reset selected index when query or items change
   useEffect(() => {
@@ -181,6 +188,7 @@ export function ChatInput({
     <div className="relative flex-1">
       {dropdownOpen && (
         <MentionDropdown
+          id={listboxId}
           items={filteredItems}
           selectedIndex={selectedIndex}
           onSelect={selectItem}
@@ -193,9 +201,15 @@ export function ChatInput({
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onClick={handleClick}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t('chat.mentionHint')}
         disabled={disabled}
         rows={1}
+        role="combobox"
+        aria-expanded={dropdownOpen}
+        aria-controls={dropdownOpen ? listboxId : undefined}
+        aria-activedescendant={activeOptionId}
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
         className="flex w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
         style={{ minHeight: '2rem' }}
       />

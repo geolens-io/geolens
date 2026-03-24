@@ -168,11 +168,17 @@
     "almostThere": "Almost there, hang tight...",
     "suggestions": {
       "searchDatasets": "Find datasets to add to this map",
-      "colorByAttribute": "Color \"{{name}}\" using a field",
-      "addLabels": "Add labels for \"{{name}}\"",
-      "filterByAttribute": "Filter \"{{name}}\" using a field",
-      "styleAllLayers": "Apply a color theme across all layers",
-      "addDataset": "Add another dataset to this map"
+      "addDataset": "Add another dataset to this map",
+      "heatmap": "Create a heatmap of {{name}}",
+      "sizeBy": "Size {{name}} by {{column}}",
+      "cluster": "Cluster {{name}} points",
+      "colorBy": "Color {{name}} by {{column}}",
+      "areaLabels": "Show area labels on {{name}}",
+      "varyWidth": "Vary {{name}} width by {{column}}",
+      "adjustOpacity": "Adjust {{name}} opacity",
+      "distribution": "Show distribution of {{column}} in {{name}}",
+      "categories": "Color {{name}} by {{column}} categories",
+      "filterByDate": "Filter {{name}} by date range"
     },
     "commands": {
       "style": "Change layer appearance",

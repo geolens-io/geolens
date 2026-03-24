@@ -168,11 +168,17 @@
     "takingLonger": "Dies dauert länger als gewöhnlich...",
     "suggestions": {
       "searchDatasets": "Datasätze finden, die zu dieser Karte hinzugefügt werden können",
-      "colorByAttribute": "„{{name}}“ mithilfe eines Feldes einfärben",
-      "addLabels": "Beschriftungen für „{{name}}“ hinzufügen",
-      "filterByAttribute": "„{{name}}“ mithilfe eines Feldes filtern",
-      "styleAllLayers": "Ein Farbschema auf alle Ebenen anwenden",
-      "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen"
+      "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
+      "heatmap": "Heatmap von {{name}} erstellen",
+      "sizeBy": "{{name}} nach {{column}} skalieren",
+      "cluster": "Punkte von {{name}} gruppieren",
+      "colorBy": "{{name}} nach {{column}} einfärben",
+      "areaLabels": "Flächenbeschriftungen auf {{name}} anzeigen",
+      "varyWidth": "Breite von {{name}} nach {{column}} variieren",
+      "adjustOpacity": "Deckkraft von {{name}} anpassen",
+      "distribution": "Verteilung von {{column}} in {{name}} anzeigen",
+      "categories": "{{name}} nach {{column}}-Kategorien einfärben",
+      "filterByDate": "{{name}} nach Datumsbereich filtern"
     },
     "commands": {
       "style": "Layer-Aussehen ändern",

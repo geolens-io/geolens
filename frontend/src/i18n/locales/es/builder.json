@@ -168,11 +168,17 @@
     "takingLonger": "Esto está tardando más de lo habitual...",
     "suggestions": {
       "searchDatasets": "Buscar conjuntos de datos para agregar a este mapa",
-      "colorByAttribute": "Colorear \"{{name}}\" usando un campo",
-      "addLabels": "Agregar etiquetas para \"{{name}}\"",
-      "filterByAttribute": "Filtrar \"{{name}}\" usando un campo",
-      "styleAllLayers": "Aplicar un tema de color a todas las capas",
-      "addDataset": "Agregar otro conjunto de datos a este mapa"
+      "addDataset": "Agregar otro conjunto de datos a este mapa",
+      "heatmap": "Crear un mapa de calor de {{name}}",
+      "sizeBy": "Dimensionar {{name}} por {{column}}",
+      "cluster": "Agrupar puntos de {{name}}",
+      "colorBy": "Colorear {{name}} por {{column}}",
+      "areaLabels": "Mostrar etiquetas de área en {{name}}",
+      "varyWidth": "Variar ancho de {{name}} por {{column}}",
+      "adjustOpacity": "Ajustar opacidad de {{name}}",
+      "distribution": "Mostrar distribución de {{column}} en {{name}}",
+      "categories": "Colorear {{name}} por categorías de {{column}}",
+      "filterByDate": "Filtrar {{name}} por rango de fechas"
     },
     "commands": {
       "style": "Cambiar apariencia de capa",

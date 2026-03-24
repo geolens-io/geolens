@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import type { MapLayerResponse } from '@/types/api';
 
 /**
@@ -31,7 +32,7 @@ function mentionName(layer: MapLayerResponse): string {
   return name.includes(' ') ? `@[${name}]` : `@${name}`;
 }
 
-export function getSmartSuggestions(layers: MapLayerResponse[]): string[] {
+export function getSmartSuggestions(layers: MapLayerResponse[], t: TFunction): string[] {
   const suggestions: string[] = [];
 
   for (const layer of layers) {
@@ -47,46 +48,46 @@ export function getSmartSuggestions(layers: MapLayerResponse[]): string[] {
     // Geometry-specific suggestions (prioritize unstyled layers)
     if (geom.includes('point')) {
       if (!layer.style_config && suggestions.length < 4) {
-        suggestions.push(`Create a heatmap of ${mention}`);
+        suggestions.push(t('chat.suggestions.heatmap', { name: mention }));
       }
       if (numericCols.length > 0 && suggestions.length < 4) {
-        suggestions.push(`Size ${mention} by ${numericCols[0].name}`);
+        suggestions.push(t('chat.suggestions.sizeBy', { name: mention, column: numericCols[0].name }));
       }
       if (!layer.style_config && suggestions.length < 4) {
-        suggestions.push(`Cluster ${mention} points`);
+        suggestions.push(t('chat.suggestions.cluster', { name: mention }));
       }
     } else if (geom.includes('polygon') || geom.includes('multipolygon')) {
       if (numericCols.length > 0 && !layer.style_config && suggestions.length < 4) {
-        suggestions.push(`Color ${mention} by ${numericCols[0].name}`);
+        suggestions.push(t('chat.suggestions.colorBy', { name: mention, column: numericCols[0].name }));
       }
       if (suggestions.length < 4) {
-        suggestions.push(`Show area labels on ${mention}`);
+        suggestions.push(t('chat.suggestions.areaLabels', { name: mention }));
       }
     } else if (geom.includes('line')) {
       if (numericCols.length > 0 && suggestions.length < 4) {
-        suggestions.push(`Vary ${mention} width by ${numericCols[0].name}`);
+        suggestions.push(t('chat.suggestions.varyWidth', { name: mention, column: numericCols[0].name }));
       }
     } else if (layer.layer_type === 'raster' || geom === '') {
       if (suggestions.length < 4) {
-        suggestions.push(`Adjust ${mention} opacity`);
+        suggestions.push(t('chat.suggestions.adjustOpacity', { name: mention }));
       }
     }
 
     // Column-type-aware suggestions
     if (numericCols.length > 0 && suggestions.length < 4) {
-      suggestions.push(`Show distribution of ${numericCols[0].name} in ${mention}`);
+      suggestions.push(t('chat.suggestions.distribution', { name: mention, column: numericCols[0].name }));
     }
     if (textCols.length > 0 && suggestions.length < 4) {
-      suggestions.push(`Color ${mention} by ${textCols[0].name} categories`);
+      suggestions.push(t('chat.suggestions.categories', { name: mention, column: textCols[0].name }));
     }
     if (temporalCols.length > 0 && suggestions.length < 4) {
-      suggestions.push(`Filter ${mention} by date range`);
+      suggestions.push(t('chat.suggestions.filterByDate', { name: mention }));
     }
   }
 
   // Always end with "Add another dataset" if room
   if (suggestions.length < 4) {
-    suggestions.push('Add another dataset');
+    suggestions.push(t('chat.suggestions.addDataset'));
   }
 
   return suggestions.slice(0, 4);
