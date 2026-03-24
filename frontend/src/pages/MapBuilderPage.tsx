@@ -47,6 +47,10 @@ import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/hooks/use-builder-layers';
 import { useBuilderSave } from '@/hooks/use-builder-save';
 
+const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 600;
+
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
@@ -62,15 +66,15 @@ export function MapBuilderPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Resizable sidebar state (persisted to localStorage)
-  const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     if (stored) {
       const parsed = Number(stored);
-      if (Number.isFinite(parsed) && parsed >= 200 && parsed <= 600) return parsed;
+      if (Number.isFinite(parsed) && parsed >= SIDEBAR_MIN && parsed <= SIDEBAR_MAX) return parsed;
     }
     return window.innerWidth >= 1024 ? 320 : 256;
   });
+  const sidebarWidthRef = useRef(sidebarWidth);
   const isDraggingRef = useRef(false);
 
   const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -79,25 +83,25 @@ export function MapBuilderPage() {
     target.setPointerCapture(e.pointerId);
     isDraggingRef.current = true;
     const startX = e.clientX;
-    const startWidth = sidebarWidth;
+    const startWidth = sidebarWidthRef.current;
 
-    let lastWidth = startWidth;
     const onMove = (moveEvent: PointerEvent) => {
-      lastWidth = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 200), 600);
-      setSidebarWidth(lastWidth);
+      const w = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), SIDEBAR_MIN), SIDEBAR_MAX);
+      sidebarWidthRef.current = w;
+      setSidebarWidth(w);
     };
 
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       isDraggingRef.current = false;
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(lastWidth));
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
       mapInstanceRef.current?.resize();
     };
 
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
-  }, [sidebarWidth]);
+  }, []);
 
   // Composed hooks
   const dialogs = useBuilderDialogs(aiAvailable);

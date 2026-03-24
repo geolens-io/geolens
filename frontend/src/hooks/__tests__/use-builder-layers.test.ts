@@ -248,116 +248,53 @@ describe('useBuilderLayers', () => {
       } as unknown as MaplibreMap;
     }
 
-    it('calls fitBounds with valid bbox', () => {
+    function setupZoom(bbox: number[] | null, layerId = 'layer-1') {
       const mockMap = createMockMap();
       const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer({
-        dataset_extent_bbox: [-75.15, 40.63, -74.14, 41.14],
-      });
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
+      const layer = makeMockLayer({ dataset_extent_bbox: bbox });
+      const { result } = renderBuilderLayers(makeMapData([layer]), mapRef);
+      return { mockMap, result, layerId };
+    }
 
-      act(() => {
-        result.current.handleZoomToLayer('layer-1');
-      });
-
+    it('calls fitBounds with valid bbox', () => {
+      const { mockMap, result } = setupZoom([-75.15, 40.63, -74.14, 41.14]);
+      act(() => { result.current.handleZoomToLayer('layer-1'); });
       expect(mockMap.fitBounds).toHaveBeenCalledWith(
         [[-75.15, 40.63], [-74.14, 41.14]],
         { padding: 40, maxZoom: 18 },
       );
     });
 
-    it('skips silently when layer has null bbox', () => {
-      const mockMap = createMockMap();
-      const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer({ dataset_extent_bbox: null });
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
-
-      act(() => {
-        result.current.handleZoomToLayer('layer-1');
-      });
-
-      expect(mockMap.fitBounds).not.toHaveBeenCalled();
-    });
-
-    it('skips silently for unknown layer id', () => {
-      const mockMap = createMockMap();
-      const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer();
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
-
-      act(() => {
-        result.current.handleZoomToLayer('nonexistent');
-      });
-
-      expect(mockMap.fitBounds).not.toHaveBeenCalled();
-    });
-
-    it('skips when bbox has NaN values', () => {
-      const mockMap = createMockMap();
-      const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer({
-        dataset_extent_bbox: [NaN, 40, -74, 41],
-      });
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
-
-      act(() => {
-        result.current.handleZoomToLayer('layer-1');
-      });
-
-      expect(mockMap.fitBounds).not.toHaveBeenCalled();
-    });
-
-    it('skips when bbox has inverted ranges', () => {
-      const mockMap = createMockMap();
-      const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer({
-        dataset_extent_bbox: [-74, 41, -75, 40], // min > max
-      });
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
-
-      act(() => {
-        result.current.handleZoomToLayer('layer-1');
-      });
-
-      expect(mockMap.fitBounds).not.toHaveBeenCalled();
-    });
-
     it('handles zero-extent bbox for point geometries', () => {
-      const mockMap = createMockMap();
-      const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer({
-        dataset_extent_bbox: [10, 20, 10, 20], // single point
-      });
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
-
-      act(() => {
-        result.current.handleZoomToLayer('layer-1');
-      });
-
+      const { mockMap, result } = setupZoom([10, 20, 10, 20]);
+      act(() => { result.current.handleZoomToLayer('layer-1'); });
       expect(mockMap.fitBounds).toHaveBeenCalledWith(
         [[10, 20], [10, 20]],
         { padding: 40, maxZoom: 18 },
       );
     });
 
+    it.each([
+      ['null bbox', null],
+      ['NaN values', [NaN, 40, -74, 41]],
+      ['inverted ranges', [-74, 41, -75, 40]],
+    ])('skips when bbox has %s', (_label, bbox) => {
+      const { mockMap, result } = setupZoom(bbox as number[] | null);
+      act(() => { result.current.handleZoomToLayer('layer-1'); });
+      expect(mockMap.fitBounds).not.toHaveBeenCalled();
+    });
+
+    it('skips for unknown layer id', () => {
+      const { mockMap, result } = setupZoom([-75, 40, -74, 41]);
+      act(() => { result.current.handleZoomToLayer('nonexistent'); });
+      expect(mockMap.fitBounds).not.toHaveBeenCalled();
+    });
+
     it('skips when map instance is null', () => {
       const mapRef = { current: null } as React.RefObject<MaplibreMap | null>;
-      const layer = makeMockLayer({
-        dataset_extent_bbox: [-75, 40, -74, 41],
-      });
-      const mapData = makeMapData([layer]);
-      const { result } = renderBuilderLayers(mapData, mapRef);
-
-      // Should not throw
-      act(() => {
-        result.current.handleZoomToLayer('layer-1');
-      });
+      const layer = makeMockLayer({ dataset_extent_bbox: [-75, 40, -74, 41] });
+      const { result } = renderBuilderLayers(makeMapData([layer]), mapRef);
+      act(() => { result.current.handleZoomToLayer('layer-1'); });
     });
   });
 });
