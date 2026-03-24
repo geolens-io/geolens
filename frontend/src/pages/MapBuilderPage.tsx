@@ -39,8 +39,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { MapErrorBoundary } from '@/components/error';
 import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
-import { useAIStatus } from '@/hooks/use-admin';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { getVisibilityLabel } from '@/i18n/labels';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useBuilderLayout } from '@/hooks/use-builder-layout';
@@ -55,10 +54,8 @@ export function MapBuilderPage() {
   const addLayer = useAddLayer();
   const removeLayer = useRemoveLayer();
 
-  const { data: aiStatus } = useAIStatus();
-  const { can } = usePermissions();
+  const { isAIAvailable: aiAvailable } = useAIAvailability();
   useDocumentTitle(mapData?.name ?? 'Map Builder');
-  const aiAvailable = aiStatus?.configured && aiStatus?.enabled && can('use_ai_chat');
   const { isCompact } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
