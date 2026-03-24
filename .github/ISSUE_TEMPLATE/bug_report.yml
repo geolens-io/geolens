@@ -1,0 +1,85 @@
+name: Bug Report
+description: Report a bug in GeoLens
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill out the sections below so we can reproduce and fix the issue.
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots or screen recordings.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of GeoLens is affected?
+      options:
+        - Search / Catalog
+        - Dataset Detail
+        - Map Builder
+        - Collections
+        - Import / Ingestion
+        - Admin Panel
+        - Sharing / Embed
+        - Tiles / Rendering
+        - Auth / Permissions
+        - API / OGC
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GeoLens version
+      description: Version tag or commit hash (check Admin > Overview).
+      placeholder: e.g., v12.3 or abc1234
+    validations:
+      required: false
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker Compose
+        - Kubernetes / Helm
+        - AWS AMI
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Browser, OS, relevant logs, or anything else.
+    validations:
+      required: false
