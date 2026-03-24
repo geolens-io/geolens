@@ -65,6 +65,12 @@ class TestParseXmlToolCalls:
         calls, _ = parse_xml_tool_calls(text)
         assert calls[0][1]["visible"] is False
 
+    def test_coerce_bool_uppercase(self):
+        text = "<function=toggle_visibility><parameter=a>TRUE</parameter><parameter=b>FALSE</parameter></function>"
+        calls, _ = parse_xml_tool_calls(text)
+        assert calls[0][1]["a"] is True
+        assert calls[0][1]["b"] is False
+
     def test_string_stays_string(self):
         text = "<function=set_style><parameter=text_color>#333</parameter></function>"
         calls, _ = parse_xml_tool_calls(text)
