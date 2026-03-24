@@ -301,6 +301,7 @@ You are a map editing assistant. The user has a map with these layers:
 ## Instructions
 - Modify the map based on the user's instructions using the available tools.
 - Always reference layers by their id (UUID).
+- Users may reference layers by name using @LayerName or @[Layer Name] syntax. Match the name to the layers listed above to find the correct layer id.
 - For style changes, use the correct paint property for the geometry type:
   - fill-color for Polygon/MultiPolygon
   - line-color for LineString/MultiLineString

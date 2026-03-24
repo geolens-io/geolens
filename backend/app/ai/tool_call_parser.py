@@ -4,19 +4,37 @@ Some OpenAI-compatible providers (Ollama, LM Studio, vLLM) emit tool calls
 as XML-like text instead of using the structured function-calling API.
 This module detects and parses those patterns so they can be executed
 through the existing tool pipeline.
+
+Known formats:
+  - Qwen:   <tool_call><function=name>...</function></tool_call>
+  - Llama:  <|tool_call|><function=name>...</function><|/tool_call|>
+  - Others: <tool-call>...<function=name>...</function></tool-call>
 """
 
 import re
 
 _FUNCTION_RE = re.compile(r"<function=(\w+)>(.*?)</function>", re.DOTALL)
 _PARAMETER_RE = re.compile(r"<parameter=(\w+)>(.*?)</parameter>", re.DOTALL)
-# Wrapper tags some models emit around function blocks
-_TOOL_CALL_WRAPPER_RE = re.compile(r"</?tool_call>", re.IGNORECASE)
+
+# Wrapper tags various models emit around function blocks.
+# Matches: <tool_call>, </tool_call>, <|tool_call|>, <|/tool_call|>,
+#          <tool-call>, </tool-call>, and case variants.
+_TOOL_CALL_WRAPPER_RE = re.compile(
+    r"<\|?/?tool[-_]call\|?>",
+    re.IGNORECASE,
+)
 
 
-def _coerce_value(value: str) -> int | float | str:
-    """Coerce a string value to int, float, or leave as str."""
+def _coerce_value(value: str) -> int | float | bool | str:
+    """Coerce a string value to int, float, bool, or leave as str."""
     v = value.strip()
+
+    # Boolean
+    if v.lower() == "true":
+        return True
+    if v.lower() == "false":
+        return False
+
     try:
         return int(v)
     except ValueError:
@@ -33,8 +51,16 @@ def parse_xml_tool_calls(text: str) -> tuple[list[tuple[str, dict]], str]:
 
     Returns (tool_calls, cleaned_text) where:
     - tool_calls: list of (tool_name, tool_input_dict) tuples
-    - cleaned_text: original text with <function>...</function> blocks removed, trimmed
+    - cleaned_text: original text with XML tool blocks removed, trimmed
+
+    Fast-path: if the text contains no ``<function`` marker, returns
+    immediately without running any regex.
     """
+    # Fast path — skip regex scan when there are no XML tool calls
+    if "<function" not in text.lower():
+        cleaned = _TOOL_CALL_WRAPPER_RE.sub("", text).strip()
+        return [], cleaned
+
     tool_calls: list[tuple[str, dict]] = []
 
     for fn_match in _FUNCTION_RE.finditer(text):
@@ -50,7 +76,5 @@ def parse_xml_tool_calls(text: str) -> tuple[list[tuple[str, dict]], str]:
         tool_calls.append((fn_name, params))
 
     cleaned = _FUNCTION_RE.sub("", text)
-    # Strip wrapper tags (e.g. <tool_call> / </tool_call>) that some models
-    # emit around function blocks
     cleaned = _TOOL_CALL_WRAPPER_RE.sub("", cleaned).strip()
     return tool_calls, cleaned
