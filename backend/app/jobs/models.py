@@ -16,7 +16,7 @@ class IngestJob(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     dataset_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("catalog.datasets.id"), nullable=True
+        ForeignKey("catalog.datasets.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     source_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
