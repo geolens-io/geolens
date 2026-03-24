@@ -8,6 +8,7 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import json
 import uuid
 
 from httpx import AsyncClient
@@ -337,7 +338,9 @@ class TestUpdateMap:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        raw_detail = resp.json()["detail"]
+        # ProblemDetail handler serializes dict detail as a JSON string
+        detail = json.loads(raw_detail) if isinstance(raw_detail, str) else raw_detail
         assert "Restricted DS" in detail["datasets"]
         assert detail["message"] == "Cannot set visibility to public: map contains non-public datasets"
 
