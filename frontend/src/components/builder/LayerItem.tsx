@@ -46,11 +46,41 @@ import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 
-function GeometryIcon({ geometryType }: { geometryType: string | null }) {
+function ColorizedGeometryIcon({
+  geometryType,
+  colors,
+  layerId,
+}: {
+  geometryType: string | null;
+  colors: string[];
+  layerId: string;
+}) {
   const gt = (geometryType ?? '').toUpperCase();
-  if (gt.includes('POINT')) return <Circle className="h-3 w-3" />;
-  if (gt.includes('LINE')) return <Minus className="h-3 w-3" />;
-  return <Pentagon className="h-3 w-3" />;
+  const Icon = gt.includes('POINT') ? Circle : gt.includes('LINE') ? Minus : Pentagon;
+
+  if (colors.length <= 1) {
+    return <Icon className="h-3.5 w-3.5" fill={colors[0] ?? '#6366f1'} strokeWidth={0} />;
+  }
+
+  const gradientId = `layer-grad-${layerId}`;
+  return (
+    <span className="relative inline-flex h-3.5 w-3.5">
+      <svg width="0" height="0" className="absolute">
+        <defs>
+          <linearGradient id={gradientId}>
+            {colors.map((c, i) => (
+              <stop
+                key={i}
+                offset={`${(i / (colors.length - 1)) * 100}%`}
+                stopColor={c}
+              />
+            ))}
+          </linearGradient>
+        </defs>
+      </svg>
+      <Icon className="h-3.5 w-3.5" fill={`url(#${gradientId})`} strokeWidth={0} />
+    </span>
+  );
 }
 
 function getLayerColors(layer: MapLayerResponse): string[] {
@@ -166,23 +196,15 @@ export function LayerItem({
           )}
         </Button>
 
-        <div className="shrink-0 text-muted-foreground">
+        <div className="shrink-0">
           {caps.kind === 'vrt' ? (
-            <Layers className="h-3 w-3" />
+            <Layers className="h-3.5 w-3.5 text-muted-foreground" />
           ) : caps.kind === 'raster' ? (
-            <Grid3x3 className="h-3 w-3" />
+            <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (
-            <GeometryIcon geometryType={layer.dataset_geometry_type} />
+            <ColorizedGeometryIcon geometryType={layer.dataset_geometry_type} colors={layerColors} layerId={layer.id} />
           )}
         </div>
-
-        {!isRaster && (
-          <div className="flex h-3 w-3 rounded-sm shrink-0 border border-border overflow-hidden">
-            {layerColors.map((color, i) => (
-              <div key={i} className="flex-1" style={{ backgroundColor: color }} />
-            ))}
-          </div>
-        )}
 
         {editing ? (
           <input
