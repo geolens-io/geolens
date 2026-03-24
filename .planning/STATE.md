@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260324-mo7
-last_updated: "2026-03-24T20:35:48.883Z"
-last_activity: "2026-03-24 - Completed quick task 260324-kte: Merge layer list item symbology/geometry into single colorized icon"
+stopped_at: Completed quick-260324-o6s
+last_updated: "2026-03-24T22:17:33.056Z"
+last_activity: "2026-03-24 - Completed quick task 260324-mo7: Map builder legend control - show all visible layers"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -125,6 +125,7 @@ Plan: Not started
 - [Phase quick-260324-jni]: nginx proxy_read_timeout 600s for /api/; httpx client timeout 660s (10% above nginx); seed script default concurrency=1; poll_job timeout 1200s; retry 5xx with exponential backoff + jitter
 - [Phase quick-260324-kte]: Use fill-based Lucide icon coloring with SVG linearGradient for multi-color layer indicators
 - [Phase quick-260324-mo7]: All visible layers appear in legend by default; show_in_legend toggle in More Actions menu; ColorizedGeometryIcon extracted to shared layer-icons.tsx
+- [Phase quick-260324-o6s]: Use pointer events with setPointerCapture for sidebar drag resize; bbox validation with try/catch for zoom-to-layer safety
 
 ### Pending Todos
 
@@ -184,6 +185,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-24 - Completed quick task 260324-mo7: Map builder legend control - show all visible layers
-Last session: 2026-03-24T20:35:44.762Z
-Stopped at: Completed quick-260324-mo7
+Last session: 2026-03-24T22:17:33.052Z
+Stopped at: Completed quick-260324-o6s
 Resume file: None
