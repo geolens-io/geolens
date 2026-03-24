@@ -31,7 +31,7 @@
     "columns": "Colonnes",
     "rename": "Renommer",
     "zoomToLayer": "Zoomer sur la couche",
-    "moreActions": "More actions"
+    "moreActions": "Plus d'actions"
   },
   "style": {
     "fill": "Remplissage",
@@ -48,7 +48,7 @@
   "filters": {
     "title": "Filtres",
     "addFilter": "Ajouter un filtre",
-    "removeFilter": "Remove filter",
+    "removeFilter": "Supprimer le filtre",
     "field": "Champ",
     "op": "Op",
     "value": "Valeur",
@@ -163,7 +163,7 @@
     "errorForbidden": "Vous n'avez pas la permission d'utiliser le chat IA.",
     "errorAiUnavailable": "Le service IA est temporairement indisponible.",
     "retry": "Réessayer",
-    "experimental": "Experimental",
+    "experimental": "Expérimental",
     "stillWorking": "Traitement en cours...",
     "takingLonger": "Cela prend plus de temps que d'habitude...",
     "suggestions": {
@@ -213,7 +213,7 @@
     "save": "Enregistrer ({{shortcut}})",
     "collapseSidebar": "Réduire le panneau latéral",
     "expandSidebar": "Développer le panneau latéral",
-    "closeChat": "Close chat",
+    "closeChat": "Fermer le chat",
     "allSaved": "Toutes les modifications enregistrées",
     "moreActions": "Plus d'actions"
   },

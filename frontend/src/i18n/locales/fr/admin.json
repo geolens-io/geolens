@@ -392,7 +392,7 @@
       "namePlaceholder": "Mon fond de carte personnalisé",
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
       "urlError": "L'URL doit contenir les variables {z}/{x}/{y} ou se terminer par .json",
-      "removeBasemap": "Remove basemap",
+      "removeBasemap": "Supprimer le fond de carte",
       "add": "Ajouter",
       "saved": "Fonds de carte enregistrés",
       "saveFailed": "Échec de l'enregistrement des fonds de carte"

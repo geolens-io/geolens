@@ -189,7 +189,7 @@
     "fileCount_other": "{{count}} Dateien bereit zum Import",
     "importAllDefaults": "Alle mit Standardwerten importieren",
     "committed": "Übernommen",
-    "removeFile": "Remove file",
+    "removeFile": "Datei entfernen",
     "importProgress": "Importfortschritt",
     "uploadMore": "Weitere hochladen"
   }

@@ -65,7 +65,7 @@
     "datasetCount_other": "{{count}} Datensätze"
   },
   "datasetCard": {
-    "quicklookAlt": "Preview of {{name}}",
+    "quicklookAlt": "Vorschau von {{name}}",
     "previewUnavailable": "Vorschau nicht verfugbar"
   },
   "card": {
@@ -121,7 +121,7 @@
     "columnName": "Spaltenname",
     "columnType": "Typ",
     "addColumn": "Spalte hinzufügen",
-    "removeColumn": "Remove column",
+    "removeColumn": "Spalte entfernen",
     "submit": "Datensatz erstellen",
     "submitting": "Wird erstellt...",
     "success": "Datensatz erfolgreich erstellt",

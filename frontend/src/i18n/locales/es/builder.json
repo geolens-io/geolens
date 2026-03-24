@@ -31,7 +31,7 @@
     "columns": "Columnas",
     "rename": "Renombrar",
     "zoomToLayer": "Zoom a la capa",
-    "moreActions": "More actions"
+    "moreActions": "Más acciones"
   },
   "style": {
     "fill": "Relleno",
@@ -48,7 +48,7 @@
   "filters": {
     "title": "Filtros",
     "addFilter": "Agregar filtro",
-    "removeFilter": "Remove filter",
+    "removeFilter": "Eliminar filtro",
     "field": "Campo",
     "op": "Op",
     "value": "Valor",
@@ -213,7 +213,7 @@
     "save": "Guardar ({{shortcut}})",
     "collapseSidebar": "Contraer barra lateral",
     "expandSidebar": "Expandir barra lateral",
-    "closeChat": "Close chat",
+    "closeChat": "Cerrar chat",
     "allSaved": "Todos los cambios guardados",
     "moreActions": "Más acciones"
   },

@@ -65,7 +65,7 @@
     "datasetCount_other": "{{count}} conjuntos de datos"
   },
   "datasetCard": {
-    "quicklookAlt": "Preview of {{name}}",
+    "quicklookAlt": "Vista previa de {{name}}",
     "previewUnavailable": "Vista previa no disponible"
   },
   "card": {
@@ -121,7 +121,7 @@
     "columnName": "Nombre de columna",
     "columnType": "Tipo",
     "addColumn": "Agregar columna",
-    "removeColumn": "Remove column",
+    "removeColumn": "Eliminar columna",
     "submit": "Crear conjunto de datos",
     "submitting": "Creando...",
     "success": "Conjunto de datos creado exitosamente",

@@ -392,7 +392,7 @@
       "namePlaceholder": "Meine Basiskarte",
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
       "urlError": "URL muss {z}/{x}/{y}-Platzhalter enthalten oder mit .json enden",
-      "removeBasemap": "Remove basemap",
+      "removeBasemap": "Basiskarte entfernen",
       "add": "Hinzufügen",
       "saved": "Basiskarten gespeichert",
       "saveFailed": "Basiskarten konnten nicht gespeichert werden"
