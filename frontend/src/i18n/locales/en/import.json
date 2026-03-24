@@ -65,7 +65,7 @@
     "helpText": "Paste a WFS or ArcGIS Feature Service URL",
     "tokenLabel": "Access Token (optional)",
     "tokenPlaceholder": "ArcGIS token, API key, or WFS access token",
-    "tokenHelpText": "For ArcGIS Online: use an API Key from your-org.maps.arcgis.com > Settings, or generate a token at your-org.maps.arcgis.com/sharing/rest/generateToken. Tokens expire (default 60 min) -- request longer expiry for large datasets. For WFS, use your provider's access token. Not stored.",
+    "tokenHelpText": "For ArcGIS Online: create an API key at developers.arcgis.com, or generate a short-lived token at your-org.maps.arcgis.com/sharing/rest/generateToken. For WFS, use your provider's access token. Tokens are not stored.",
     "connect": "Connect",
     "connecting": "Connecting to service...",
     "loadingPreview": "Loading layer preview...",
