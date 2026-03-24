@@ -90,3 +90,37 @@ class TestParseXmlToolCalls:
         text = "<function=set_label><parameter=layer_id>  abc  </parameter></function>"
         calls, cleaned = parse_xml_tool_calls(text)
         assert calls[0][1]["layer_id"] == "abc"
+
+    def test_tool_call_wrapper_stripped_with_function(self):
+        """Qwen-style output wraps <function> blocks in <tool_call> tags."""
+        text = (
+            "I'll style the layer.\n\n"
+            "<tool_call>\n"
+            "<function=set_style><parameter=layer_id>abc</parameter></function>\n"
+            "</tool_call>"
+        )
+        calls, cleaned = parse_xml_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0] == ("set_style", {"layer_id": "abc"})
+        assert "<tool_call>" not in cleaned
+        assert "</tool_call>" not in cleaned
+        assert cleaned == "I'll style the layer."
+
+    def test_tool_call_wrapper_stripped_without_function(self):
+        """Bare <tool_call> wrapper with no inner <function> block."""
+        text = "<tool_call>some text</tool_call>"
+        calls, cleaned = parse_xml_tool_calls(text)
+        assert calls == []
+        assert cleaned == "some text"
+
+    def test_tool_call_wrapper_case_insensitive(self):
+        text = (
+            "Thinking.\n"
+            "<Tool_Call>\n"
+            "<function=set_label><parameter=layer_id>x</parameter></function>\n"
+            "</Tool_Call>"
+        )
+        calls, cleaned = parse_xml_tool_calls(text)
+        assert len(calls) == 1
+        assert "Tool_Call" not in cleaned
+        assert cleaned == "Thinking."
