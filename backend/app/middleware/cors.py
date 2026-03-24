@@ -60,6 +60,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Allow-Methods"] = (
             "GET, POST, PUT, PATCH, DELETE, OPTIONS"
         )
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token"
+        )
         response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
         response.headers["Access-Control-Max-Age"] = "3600"
