@@ -98,6 +98,7 @@ export function MapBuilderPage() {
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
+    hasThumbnail: !!mapData?.thumbnail,
   });
 
   if (isLoading) {
