@@ -1492,6 +1492,97 @@ class TestUpdateShareToken:
 
 
 # ---------------------------------------------------------------------------
+# Admin share token listing (search & filter)
+# ---------------------------------------------------------------------------
+
+
+class TestAdminShareTokenListing:
+    async def test_admin_list_share_tokens(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """GET /admin/share-tokens returns tokens with total count."""
+        # Ensure at least one share token exists
+        await _make_public_map_with_share_token(client, admin_auth_header)
+
+        resp = await client.get("/admin/share-tokens", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tokens" in data
+        assert "total" in data
+        assert data["total"] >= 1
+
+    async def test_admin_search_share_tokens(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ):
+        """GET /admin/share-tokens?search=... filters by map name."""
+        # Create a map with a unique name and share it
+        unique_name = f"SearchTest_{uuid.uuid4().hex[:6]}"
+        created = await _create_map(client, admin_auth_header, name=unique_name)
+        map_id = created["id"]
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+
+        # Search for the unique name
+        resp = await client.get(
+            f"/admin/share-tokens?search={unique_name}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] >= 1
+        assert any(unique_name in t["map_name"] for t in data["tokens"])
+
+        # Search for nonexistent name
+        resp = await client.get(
+            "/admin/share-tokens?search=zzz_nonexistent_xyz",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    async def test_admin_filter_share_tokens_by_status(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """GET /admin/share-tokens?status=active returns only active tokens."""
+        await _make_public_map_with_share_token(client, admin_auth_header)
+
+        resp = await client.get(
+            "/admin/share-tokens?status=active",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # All returned tokens should be active (is_active=true and not expired)
+        for token in data["tokens"]:
+            assert token["is_active"] is True
+
+    async def test_admin_filter_invalid_status_rejected(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """GET /admin/share-tokens?status=invalid returns 422."""
+        resp = await client.get(
+            "/admin/share-tokens?status=invalid",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+
+    async def test_admin_share_tokens_requires_admin(
+        self, client: AsyncClient, viewer_auth_header: dict
+    ):
+        """GET /admin/share-tokens as viewer returns 403."""
+        resp = await client.get(
+            "/admin/share-tokens", headers=viewer_auth_header
+        )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # Dataset maps endpoint
 # ---------------------------------------------------------------------------
 

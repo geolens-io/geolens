@@ -211,6 +211,36 @@ class TestRegister:
         assert resp.status_code == 400
         assert "does not exist" in resp.json()["detail"].lower()
 
+    async def test_register_table_rejects_sql_injection(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """POST /ingest/register with SQL injection in table_name returns 400."""
+        resp = await client.post(
+            "/ingest/register",
+            json={
+                "table_name": "test'; DROP TABLE data.users; --",
+                "title": "Exploit",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "invalid table name" in resp.json()["detail"].lower()
+
+    async def test_register_table_rejects_uppercase(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """POST /ingest/register with uppercase table_name returns 400."""
+        resp = await client.post(
+            "/ingest/register",
+            json={
+                "table_name": "MyTable",
+                "title": "Bad",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "invalid table name" in resp.json()["detail"].lower()
+
 
 # ---------------------------------------------------------------------------
 # Job status endpoint tests
