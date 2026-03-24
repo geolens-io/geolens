@@ -34,8 +34,11 @@ python scripts/seed-ago-data.py --org-url https://otherorg.maps.arcgis.com --api
 # Upsert — import new layers AND refresh existing ones
 python scripts/seed-ago-data.py --api-key <key> --update
 
-# Control parallelism (default: 3)
-python scripts/seed-ago-data.py --api-key <key> --concurrency 5
+# Control parallelism (default: 1)
+python scripts/seed-ago-data.py --api-key <key> --concurrency 3
+
+# Set job poll timeout (default: 1200s)
+python scripts/seed-ago-data.py --api-key <key> --timeout 1800
 ```
 
 | Flag | Default | Description |
@@ -45,7 +48,8 @@ python scripts/seed-ago-data.py --api-key <key> --concurrency 5
 | `--base-url` | `http://localhost:8080` | GeoLens base URL |
 | `--dry-run` | off | List layers without importing |
 | `--update` | off | Upsert mode: import new layers and refresh existing ones from source |
-| `--concurrency` | 3 | Max parallel ingest streams |
+| `--concurrency` | 1 | Max parallel ingest streams |
+| `--timeout` | 1200 | Job poll timeout in seconds |
 
 **Behavior by mode:**
 

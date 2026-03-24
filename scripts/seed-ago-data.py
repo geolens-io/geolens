@@ -485,7 +485,6 @@ async def process_one(
 
     async with sem:
         try:
-            last_exc = None
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     if existing_entry and update_mode:
@@ -545,22 +544,10 @@ async def process_one(
                         delay = BACKOFF_BASE * (3 ** (attempt - 1))  # 5s, 15s, 45s
                         jitter = delay * (0.5 + random.random())  # 50-150% of delay
                         print(f"  {tag} Retry {attempt}/{MAX_RETRIES} for {layer_name} after {exc.response.status_code} (waiting {jitter:.0f}s)")
-                        last_exc = exc
                         await asyncio.sleep(jitter)
                         continue
                     # Non-5xx or exhausted retries — fall through to outer handler
                     raise
-
-                except Exception:
-                    raise  # Don't retry non-HTTP errors
-
-            else:
-                # All retries exhausted
-                results.append(
-                    {"name": layer_name, "status": "failed", "error": f"Failed after {MAX_RETRIES} retries: {last_exc}"}
-                )
-                print(f"  {tag} Failed {layer_name} after {MAX_RETRIES} retries: {last_exc}")
-                return
 
         except Exception as exc:
             results.append(
@@ -731,7 +718,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--timeout",
         type=int,
         default=1200,
-        help="Job poll timeout in seconds (default: 1200)",
+        help="Job poll timeout in seconds (default: 1200, min: 30)",
     )
     return parser.parse_args(argv)
 
@@ -834,6 +821,10 @@ async def main(args: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     args = parse_args()
+
+    if args.timeout < 30:
+        print("Error: --timeout must be at least 30 seconds", file=sys.stderr)
+        sys.exit(1)
 
     if args.dry_run:
         asyncio.run(main(args))

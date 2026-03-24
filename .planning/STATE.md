@@ -122,6 +122,7 @@ Plan: Not started
 - [Phase quick-260323-jqk]: update_map uses flush() so begin_nested() savepoints in AI service work correctly; callers own commit lifecycle
 - [Phase quick-260323-lik]: Always set opacity explicitly on initial layer creation regardless of value to prevent stale state on basemap reload
 - [Phase quick-260323-r43]: Enforce validate_public_visibility as pre-update gate in update_map_endpoint; parse dataset names from 400 error detail for frontend display
+- [Phase quick-260324-jni]: nginx proxy_read_timeout 600s for /api/; httpx client timeout 660s (10% above nginx); seed script default concurrency=1; poll_job timeout 1200s; retry 5xx with exponential backoff + jitter
 
 ### Pending Todos
 
@@ -174,10 +175,11 @@ Plan: Not started
 | 260323-lik | Thorough QA pass on map layer configuration — correctness, best practices, KISS | 2026-03-23 | c4f7f3db | Verified | [260323-lik-thorough-qa-pass-on-map-layer-configurat](./quick/260323-lik-thorough-qa-pass-on-map-layer-configurat/) |
 | 260323-r43 | Audit sharing/access/embed: hard-block non-public datasets, findings report | 2026-03-23 | 757280ce | Verified | [260323-r43-audit-sharing-access-embed-functionality](./quick/260323-r43-audit-sharing-access-embed-functionality/) |
 | 260324-cn5 | Map chat @mention layers, slash commands, smart suggestions, message enrichment | 2026-03-24 | 06c6ed11 | Verified | [260324-cn5-map-chat-mention-layers-slash-commands-a](./quick/260324-cn5-map-chat-mention-layers-slash-commands-a/) |
+| 260324-jni | Fix seed-ago-data.py 502 errors: nginx proxy timeouts, retry with backoff, configurable timeout | 2026-03-24 | 9995d4c0 | Verified | [260324-jni-investigate-and-fix-seed-ago-data-py-imp](./quick/260324-jni-investigate-and-fix-seed-ago-data-py-imp/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-24 - Completed quick task 260324-cn5: Map chat @mention, slash commands, smart suggestions
-Last session: 2026-03-24T13:26:15.000Z
-Stopped at: Completed quick-260324-cn5
+Last activity: 2026-03-24 - Completed quick task 260324-jni: Fix seed-ago-data.py 502 errors and poll timeouts
+Last session: 2026-03-24T18:24:01.000Z
+Stopped at: Completed quick-260324-jni
 Resume file: None

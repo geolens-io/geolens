@@ -1,7 +1,7 @@
 """Job status API endpoints: poll ingestion job progress and retry."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,6 +20,58 @@ router = APIRouter(prefix="/jobs", tags=["Admin"])
 
 # Jobs running longer than this are considered stale and auto-failed.
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
+# Jobs stuck in "pending" longer than this are considered orphaned (never queued).
+PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
+
+
+@router.post("/cleanup/stale")
+async def cleanup_stale_jobs(
+    user: User = Depends(require_permission("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Fail all stale jobs: pending >1h or running >1h.
+
+    Admin-only. Use after a failed bulk import to clean up orphaned jobs.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
+
+    # Orphaned pending jobs
+    result = await db.execute(
+        select(IngestJob).where(
+            IngestJob.status == "pending",
+            IngestJob.created_at < cutoff,
+        )
+    )
+    pending_jobs = list(result.scalars())
+    for job in pending_jobs:
+        job.status = "failed"
+        job.error_message = "Stale: pending for over 1 hour (never queued)"
+        job.completed_at = now
+
+    # Stale running jobs
+    running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
+    result = await db.execute(
+        select(IngestJob).where(
+            IngestJob.status == "running",
+            IngestJob.started_at < running_cutoff,
+        )
+    )
+    running_jobs = list(result.scalars())
+    for job in running_jobs:
+        job.status = "failed"
+        job.error_message = (
+            f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
+        )
+        job.completed_at = now
+
+    await db.commit()
+
+    return {
+        "pending_failed": len(pending_jobs),
+        "running_failed": len(running_jobs),
+        "total_cleaned": len(pending_jobs) + len(running_jobs),
+    }
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
@@ -55,13 +107,26 @@ async def get_job_status(
                 detail="Not authorized to view this job",
             )
 
+    now = datetime.now(timezone.utc)
+
     # Auto-fail jobs stuck in "running" beyond the timeout
     if job.status == "running" and job.started_at is not None:
-        elapsed = (datetime.now(timezone.utc) - job.started_at).total_seconds()
+        elapsed = (now - job.started_at).total_seconds()
         if elapsed > JOB_TIMEOUT_SECONDS:
             job.status = "failed"
             job.error_message = f"Timed out after {int(elapsed)}s"
-            job.completed_at = datetime.now(timezone.utc)
+            job.completed_at = now
+            await db.commit()
+
+    # Auto-fail jobs stuck in "pending" beyond the timeout (orphaned / never queued)
+    if job.status == "pending" and job.created_at is not None:
+        elapsed = (now - job.created_at).total_seconds()
+        if elapsed > PENDING_TIMEOUT_SECONDS:
+            job.status = "failed"
+            job.error_message = (
+                f"Stale: pending for {int(elapsed)}s without being processed"
+            )
+            job.completed_at = now
             await db.commit()
 
     # Extract collision warning from user_metadata if present
