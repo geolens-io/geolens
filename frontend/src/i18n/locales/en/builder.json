@@ -187,7 +187,9 @@
       "query": "Ask data questions",
       "add": "Add a dataset"
     },
-    "mentionHint": "Type @ to mention a layer, / for commands"
+    "mentionHint": "Type @ to mention a layer, / for commands",
+    "layersDropdown": "Layers",
+    "commandsDropdown": "Commands"
   },
   "basemap": {
     "title": "Basemap",

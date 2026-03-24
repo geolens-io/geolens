@@ -12,9 +12,10 @@ interface MentionDropdownProps {
   selectedIndex: number;
   onSelect: (index: number) => void;
   type: '@' | '/';
+  label: string;
 }
 
-export function MentionDropdown({ id, items, selectedIndex, onSelect, type }: MentionDropdownProps) {
+export function MentionDropdown({ id, items, selectedIndex, onSelect, type, label }: MentionDropdownProps) {
   if (items.length === 0) return null;
 
   return (
@@ -22,7 +23,7 @@ export function MentionDropdown({ id, items, selectedIndex, onSelect, type }: Me
       id={id}
       className="absolute bottom-full left-0 w-full mb-1 max-h-48 overflow-y-auto rounded-lg border bg-popover shadow-md text-sm z-50"
       role="listbox"
-      aria-label={type === '@' ? 'Layers' : 'Commands'}
+      aria-label={label}
     >
       {items.map((item, index) => (
         <div
