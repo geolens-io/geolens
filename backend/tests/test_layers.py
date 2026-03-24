@@ -261,8 +261,177 @@ class TestAddColumn:
         data = resp.json()
         return data["id"], data["title"]
 
-    # Column add/drop tests removed — those endpoints are now on the
-    # datasets router at /datasets/{id}/columns/ (see test_datasets.py)
+    async def test_add_column_valid(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """POST /layers/{id}/columns/ adds a new column."""
+        ds_id, ds_name = await self._create_layer(client, editor_auth_header)
+
+        resp = await client.post(
+            f"/layers/{ds_id}/columns/",
+            json={"column": {"name": "score", "type": "integer"}},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        col_names = [c["name"] for c in data["columns"]]
+        assert "score" in col_names
+        assert "existing_col" in col_names
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_add_column_duplicate(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """POST /layers/{id}/columns/ with existing column name returns 400."""
+        ds_id, ds_name = await self._create_layer(client, editor_auth_header)
+
+        resp = await client.post(
+            f"/layers/{ds_id}/columns/",
+            json={"column": {"name": "existing_col", "type": "text"}},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 400
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_add_column_reserved_name(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """POST /layers/{id}/columns/ with reserved name returns 400."""
+        ds_id, ds_name = await self._create_layer(client, editor_auth_header)
+
+        resp = await client.post(
+            f"/layers/{ds_id}/columns/",
+            json={"column": {"name": "gid", "type": "integer"}},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code in (400, 422)
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_add_column_invalid_type(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """POST /layers/{id}/columns/ with invalid type returns 422."""
+        ds_id, ds_name = await self._create_layer(client, editor_auth_header)
+
+        resp = await client.post(
+            f"/layers/{ds_id}/columns/",
+            json={"column": {"name": "bad_col", "type": "jsonb"}},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 422
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_add_column_viewer_forbidden(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        viewer_auth_header: dict,
+        admin_auth_header: dict,
+    ):
+        """POST /layers/{id}/columns/ as viewer returns 403."""
+        ds_id, ds_name = await self._create_layer(client, editor_auth_header)
+
+        resp = await client.post(
+            f"/layers/{ds_id}/columns/",
+            json={"column": {"name": "viewer_col", "type": "text"}},
+            headers=viewer_auth_header,
+        )
+        assert resp.status_code == 403
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+
+# ---------------------------------------------------------------------------
+# Column CRUD - Drop Column
+# ---------------------------------------------------------------------------
+
+
+class TestDropColumn:
+    async def _create_layer_with_col(self, client, headers):
+        """Helper: create a layer with a droppable column."""
+        resp = await client.post(
+            "/layers/",
+            json={
+                "title": "Drop Test Layer",
+                "geometry_type": "Point",
+                "columns": [
+                    {"name": "drop_me", "type": "text"},
+                    {"name": "keep_me", "type": "integer"},
+                ],
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        return data["id"], data["title"]
+
+    async def test_drop_column_valid(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """DELETE /layers/{id}/columns/{name} removes the column."""
+        ds_id, ds_name = await self._create_layer_with_col(client, editor_auth_header)
+
+        resp = await client.delete(
+            f"/layers/{ds_id}/columns/drop_me",
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        col_names = [c["name"] for c in data["columns"]]
+        assert "drop_me" not in col_names
+        assert "keep_me" in col_names
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_drop_column_reserved(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """DELETE /layers/{id}/columns/gid returns 400 for reserved column."""
+        ds_id, ds_name = await self._create_layer_with_col(client, editor_auth_header)
+
+        resp = await client.delete(
+            f"/layers/{ds_id}/columns/gid",
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 400
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_drop_column_nonexistent(
+        self, client: AsyncClient, editor_auth_header: dict, admin_auth_header: dict
+    ):
+        """DELETE /layers/{id}/columns/{name} for missing column returns 400."""
+        ds_id, ds_name = await self._create_layer_with_col(client, editor_auth_header)
+
+        resp = await client.delete(
+            f"/layers/{ds_id}/columns/nonexistent",
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 400
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
+
+    async def test_drop_column_viewer_forbidden(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        viewer_auth_header: dict,
+        admin_auth_header: dict,
+    ):
+        """DELETE /layers/{id}/columns/{name} as viewer returns 403."""
+        ds_id, ds_name = await self._create_layer_with_col(client, editor_auth_header)
+
+        resp = await client.delete(
+            f"/layers/{ds_id}/columns/drop_me",
+            headers=viewer_auth_header,
+        )
+        assert resp.status_code == 403
+
+        await _cleanup_layer(client, admin_auth_header, ds_id, ds_name)
 
 
 # ---------------------------------------------------------------------------
