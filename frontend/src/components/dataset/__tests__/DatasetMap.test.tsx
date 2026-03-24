@@ -359,6 +359,33 @@ describe('DatasetMap editing UI states', () => {
   });
 });
 
+describe('DatasetMap non-spatial behavior', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = false;
+    drawingState.activeMode = null;
+    drawingState.setDrawing.mockReset();
+  });
+
+  it('renders shell without crash when geometryType is null', () => {
+    render(
+      <DatasetMap bbox={null} tableName="nonspatial_table" geometryType={null} />,
+    );
+
+    const shell = screen.getByTestId('dataset-map-shell');
+    expect(shell).toBeInTheDocument();
+    expect(shell).toHaveAttribute('role', 'region');
+  });
+
+  it('does not show edit trigger or zoom for non-spatial dataset', () => {
+    render(
+      <DatasetMap bbox={null} tableName="nonspatial_table" geometryType={null} datasetId="ds-1" canEdit />,
+    );
+
+    expect(screen.queryByTestId('dataset-map-edit-trigger')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Zoom to dataset extent')).not.toBeInTheDocument();
+  });
+});
+
 describe('DatasetMap callback props', () => {
   beforeEach(() => {
     drawingState.isDrawing = false;

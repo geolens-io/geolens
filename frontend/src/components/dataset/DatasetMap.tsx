@@ -428,6 +428,7 @@ export function DatasetMap({
   const addVectorLayers = useCallback(
     (map: MaplibreMap) => {
       if (!tableName || vectorLayersAdded.current) return;
+      if (!geometryType) return;
       if (map.getSource('vector-tile-source')) return;
 
       try {
