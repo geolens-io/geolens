@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260324-o6s
-last_updated: "2026-03-24T22:17:33.056Z"
-last_activity: "2026-03-24 - Completed quick task 260324-mo7: Map builder legend control - show all visible layers"
+stopped_at: Completed quick-260324-qu5
+last_updated: "2026-03-24T23:42:12.407Z"
+last_activity: "2026-03-24 - Completed quick task 260324-qln: Write FEATURES.md one-pager"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -126,6 +126,7 @@ Plan: Not started
 - [Phase quick-260324-kte]: Use fill-based Lucide icon coloring with SVG linearGradient for multi-color layer indicators
 - [Phase quick-260324-mo7]: All visible layers appear in legend by default; show_in_legend toggle in More Actions menu; ColorizedGeometryIcon extracted to shared layer-icons.tsx
 - [Phase quick-260324-o6s]: Use pointer events with setPointerCapture for sidebar drag resize; bbox validation with try/catch for zoom-to-layer safety
+- [Phase quick-260324-qu5]: Non-spatial datasets get exactly 2 distributions (csv download + ogc_features); geometry_type param gates generate_distributions filtering
 
 ### Pending Todos
 
@@ -187,6 +188,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-24 - Completed quick task 260324-qln: Write FEATURES.md one-pager
-Last session: 2026-03-24T23:13:00.000Z
-Stopped at: Completed quick-260324-qln
+Last session: 2026-03-24T23:42:07.945Z
+Stopped at: Completed quick-260324-qu5
 Resume file: None
