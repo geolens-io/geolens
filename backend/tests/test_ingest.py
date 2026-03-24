@@ -328,6 +328,95 @@ class TestJobStatus:
         resp = await client.get(f"/jobs/{job.id}", headers=editor_headers)
         assert resp.status_code == 403
 
+    async def test_job_status_auto_fails_stale_pending(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """GET /jobs/{id} auto-fails a pending job older than 1 hour."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.auth.models import User
+
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin_user = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="stale.geojson",
+            file_path="/tmp/fake.geojson",
+            created_by=admin_user.id,
+            status="pending",
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        # Backdate created_at to 2 hours ago
+        job.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "failed"
+        assert "pending" in data["error_message"].lower()
+
+
+class TestJobCleanup:
+    async def test_cleanup_requires_admin(self, client: AsyncClient):
+        """POST /jobs/cleanup/stale without auth returns 401."""
+        resp = await client.post("/jobs/cleanup/stale")
+        assert resp.status_code == 401
+
+    async def test_cleanup_stale_jobs(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """POST /jobs/cleanup/stale marks old pending jobs as failed."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.auth.models import User
+
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin_user = result.scalar_one()
+
+        # Create a stale pending job (2 hours old)
+        stale_job = IngestJob(
+            source_filename="stale.geojson",
+            created_by=admin_user.id,
+            status="pending",
+        )
+        test_db_session.add(stale_job)
+        await test_db_session.commit()
+        await test_db_session.refresh(stale_job)
+
+        stale_job.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        await test_db_session.commit()
+
+        # Create a fresh pending job (should NOT be cleaned up)
+        fresh_job = IngestJob(
+            source_filename="fresh.geojson",
+            created_by=admin_user.id,
+            status="pending",
+        )
+        test_db_session.add(fresh_job)
+        await test_db_session.commit()
+        await test_db_session.refresh(fresh_job)
+
+        resp = await client.post("/jobs/cleanup/stale", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pending_failed"] >= 1
+
+        # Verify stale job is failed
+        await test_db_session.refresh(stale_job)
+        assert stale_job.status == "failed"
+
+        # Verify fresh job is still pending
+        await test_db_session.refresh(fresh_job)
+        assert fresh_job.status == "pending"
+
 
 # ---------------------------------------------------------------------------
 # Non-spatial CSV pipeline tests
@@ -389,7 +478,9 @@ class TestCsvNonSpatialPipeline:
                 headers=admin_auth_header,
                 follow_redirects=True,
             )
-            assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+            assert resp.status_code == 200, (
+                f"Expected 200, got {resp.status_code}: {resp.text}"
+            )
             ds = resp.json()
             assert ds["record_type"] == "table"
             assert ds["geometry_type"] is None

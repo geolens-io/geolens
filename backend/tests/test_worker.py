@@ -101,6 +101,26 @@ def test_worker_module_is_importable():
 # ---------------------------------------------------------------------------
 
 
+def _make_mock_session(*result_lists):
+    """Create a mock async session that returns different results per execute call.
+
+    Each argument is a list of mock jobs for that query (running query first,
+    pending query second).
+    """
+    results = []
+    for job_list in result_lists:
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = job_list
+        results.append(mock_result)
+
+    mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    mock_session.execute = AsyncMock(side_effect=results)
+    mock_session.commit = AsyncMock()
+    return mock_session
+
+
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_marks_running_as_failed():
     """recover_stale_jobs should mark all running IngestJobs as failed."""
@@ -112,20 +132,34 @@ async def test_recover_stale_jobs_marks_running_as_failed():
     fake_job.error_message = None
     fake_job.completed_at = None
 
-    mock_result = MagicMock()
-    mock_result.scalars.return_value = [fake_job]
-
-    mock_session = AsyncMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=False)
-    mock_session.execute = AsyncMock(return_value=mock_result)
-    mock_session.commit = AsyncMock()
+    mock_session = _make_mock_session([fake_job], [])
 
     with patch("app.database.async_session", return_value=mock_session):
         await recover_stale_jobs()
 
     assert fake_job.status == "failed"
-    assert "Stale" in fake_job.error_message
+    assert "worker restarted" in fake_job.error_message
+    assert fake_job.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
+    """recover_stale_jobs should mark old pending jobs as failed."""
+    from app.worker import recover_stale_jobs
+
+    fake_job = MagicMock()
+    fake_job.id = uuid4()
+    fake_job.status = "pending"
+    fake_job.error_message = None
+    fake_job.completed_at = None
+
+    mock_session = _make_mock_session([], [fake_job])
+
+    with patch("app.database.async_session", return_value=mock_session):
+        await recover_stale_jobs()
+
+    assert fake_job.status == "failed"
+    assert "pending" in fake_job.error_message
     assert fake_job.completed_at is not None
 
 
@@ -146,14 +180,7 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     job2.error_message = None
     job2.completed_at = None
 
-    mock_result = MagicMock()
-    mock_result.scalars.return_value = [job1, job2]
-
-    mock_session = AsyncMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=False)
-    mock_session.execute = AsyncMock(return_value=mock_result)
-    mock_session.commit = AsyncMock()
+    mock_session = _make_mock_session([job1, job2], [])
 
     with patch("app.database.async_session", return_value=mock_session):
         with patch("app.worker.log") as mock_log:

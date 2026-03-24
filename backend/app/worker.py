@@ -10,7 +10,7 @@ Usage:
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import structlog
@@ -28,16 +28,25 @@ log = structlog.get_logger()
 
 
 async def recover_stale_jobs() -> None:
-    """Mark any jobs left in 'running' state as failed.
+    """Mark any jobs left in 'running' or orphaned 'pending' state as failed.
 
-    This handles the case where the previous worker was killed while
-    processing a job. Each recovered job is logged individually with
-    its job_id for traceability.
+    This handles two cases:
+    1. Worker was killed while processing a job (status='running')
+    2. Job was created but never queued — e.g., the HTTP request that
+       would have called defer_async() got a 502 (status='pending'
+       with no corresponding procrastinate task, older than 1 hour)
+
+    Each recovered job is logged individually with its job_id for
+    traceability.
     """
     from app.database import async_session
     from app.jobs.models import IngestJob
 
+    now = datetime.now(timezone.utc)
+    pending_cutoff = now - timedelta(hours=1)
+
     async with async_session() as session:
+        # Recover running jobs (worker crash)
         result = await session.execute(
             select(IngestJob).where(IngestJob.status == "running")
         )
@@ -45,16 +54,36 @@ async def recover_stale_jobs() -> None:
         for job in stale_jobs:
             job.status = "failed"
             job.error_message = "Stale: worker restarted while job was running"
-            job.completed_at = datetime.now(timezone.utc)
+            job.completed_at = now
             log.warning(
                 "Recovered stale running job",
                 job_id=str(job.id),
             )
+
+        # Recover orphaned pending jobs (never queued)
+        result = await session.execute(
+            select(IngestJob).where(
+                IngestJob.status == "pending",
+                IngestJob.created_at < pending_cutoff,
+            )
+        )
+        orphaned_jobs = list(result.scalars())
+        for job in orphaned_jobs:
+            job.status = "failed"
+            job.error_message = "Stale: job was pending for over 1 hour (never queued)"
+            job.completed_at = now
+            log.warning(
+                "Recovered orphaned pending job",
+                job_id=str(job.id),
+            )
+
         await session.commit()
-        if stale_jobs:
+        total = len(stale_jobs) + len(orphaned_jobs)
+        if total:
             log.info(
                 "Stale job recovery complete",
-                recovered_count=len(stale_jobs),
+                running_recovered=len(stale_jobs),
+                pending_recovered=len(orphaned_jobs),
             )
 
 
