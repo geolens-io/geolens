@@ -173,7 +173,15 @@
       "filterByAttribute": "„{{name}}“ mithilfe eines Feldes filtern",
       "styleAllLayers": "Ein Farbschema auf alle Ebenen anwenden",
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen"
-    }
+    },
+    "commands": {
+      "style": "Layer-Aussehen ändern",
+      "filter": "Features filtern",
+      "label": "Beschriftungen hinzufügen oder ändern",
+      "query": "Datenfragen stellen",
+      "add": "Datensatz hinzufügen"
+    },
+    "mentionHint": "@ zum Erwähnen eines Layers, / für Befehle"
   },
   "basemap": {
     "title": "Basiskarte",

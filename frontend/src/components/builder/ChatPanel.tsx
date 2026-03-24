@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, Loader2, RotateCcw, SendHorizontal, Square } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
+import { ChatInput } from './ChatInput';
+import { enrichMessage } from './chat-enrichment';
+import { getSmartSuggestions } from './chat-suggestions';
 
 interface ChatMessage {
   id: string;
@@ -28,43 +30,6 @@ interface ChatPanelProps {
   onRemove: (layerId: string) => void;
   onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
   onOpacityChange?: (layerId: string, opacity: number) => void;
-}
-
-function getContextSuggestions(
-  t: (key: string, options?: Record<string, unknown>) => string,
-  layers: MapLayerResponse[],
-): string[] {
-  if (layers.length === 0) {
-    return [t('chat.suggestions.searchDatasets')];
-  }
-
-  const suggestions: string[] = [];
-
-  for (const layer of layers) {
-    if (suggestions.length >= 3) break;
-    const name = layer.display_name ?? layer.dataset_name;
-
-    if (!layer.style_config && suggestions.length < 3) {
-      suggestions.push(t('chat.suggestions.colorByAttribute', { name }));
-    }
-    if (!layer.label_config && suggestions.length < 3) {
-      suggestions.push(t('chat.suggestions.addLabels', { name }));
-    }
-    if (!layer.filter && suggestions.length < 3) {
-      suggestions.push(t('chat.suggestions.filterByAttribute', { name }));
-    }
-  }
-
-  if (layers.length > 1 && suggestions.length < 4) {
-    suggestions.push(t('chat.suggestions.styleAllLayers'));
-  }
-
-  // Always include "Add a dataset" as last option, up to 4 total
-  if (suggestions.length < 4) {
-    suggestions.push(t('chat.suggestions.addDataset'));
-  }
-
-  return suggestions.slice(0, 4);
 }
 
 export function ChatPanel({
@@ -194,6 +159,7 @@ export function ChatPanel({
   async function handleSend() {
     if (!input.trim() || isLoading) return;
     const userMsg = input.trim();
+    const enrichedMsg = enrichMessage(userMsg, layers);
     setInput('');
     const history = buildHistory();
     setMessages((prev) => [
@@ -207,7 +173,7 @@ export function ChatPanel({
     const pendingActions: ChatAction[] = [];
     try {
 
-      for await (const { event, data } of streamChatMessage(mapId, userMsg, layers, i18n.language, history, controller.signal)) {
+      for await (const { event, data } of streamChatMessage(mapId, enrichedMsg, layers, i18n.language, history, controller.signal)) {
         switch (event) {
           case 'token':
             text += data.text;
@@ -305,7 +271,7 @@ export function ChatPanel({
       } else {
         // No actions applied yet — safe to retry via non-streaming
         try {
-          const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, history);
+          const response = await sendChatMessage(mapId, enrichedMsg, layers, i18n.language, history);
           for (const action of response.actions) handleChatAction(action);
           setMessages((prev) => [
             ...prev,
@@ -348,13 +314,6 @@ export function ChatPanel({
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }
-
   const timeoutMessage = getTimeoutMessage(elapsedSeconds);
 
   return (
@@ -367,7 +326,10 @@ export function ChatPanel({
               {t('chat.emptyState')}
             </p>
             <div className="flex flex-wrap gap-1.5 px-1 justify-center">
-              {getContextSuggestions(t, layers).map((suggestion) => (
+              {(layers.length === 0
+                ? [t('chat.suggestions.searchDatasets')]
+                : getSmartSuggestions(layers)
+              ).map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
@@ -458,13 +420,13 @@ export function ChatPanel({
 
       {/* Input area */}
       <div className="border-t px-3 py-2 flex items-center gap-2">
-        <Input
+        <ChatInput
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={t('chat.placeholder')}
-          className="text-sm h-8"
+          onChange={setInput}
+          onSubmit={handleSend}
+          layers={layers}
           disabled={isLoading}
+          placeholder={t('chat.placeholder')}
         />
         {isLoading ? (
           <Button

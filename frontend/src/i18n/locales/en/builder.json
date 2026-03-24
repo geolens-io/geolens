@@ -173,7 +173,15 @@
       "filterByAttribute": "Filter \"{{name}}\" using a field",
       "styleAllLayers": "Apply a color theme across all layers",
       "addDataset": "Add another dataset to this map"
-    }
+    },
+    "commands": {
+      "style": "Change layer appearance",
+      "filter": "Filter features",
+      "label": "Add or change labels",
+      "query": "Ask data questions",
+      "add": "Add a dataset"
+    },
+    "mentionHint": "Type @ to mention a layer, / for commands"
   },
   "basemap": {
     "title": "Basemap",

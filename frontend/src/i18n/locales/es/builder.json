@@ -173,7 +173,15 @@
       "filterByAttribute": "Filtrar \"{{name}}\" usando un campo",
       "styleAllLayers": "Aplicar un tema de color a todas las capas",
       "addDataset": "Agregar otro conjunto de datos a este mapa"
-    }
+    },
+    "commands": {
+      "style": "Cambiar apariencia de capa",
+      "filter": "Filtrar entidades",
+      "label": "Agregar o cambiar etiquetas",
+      "query": "Hacer preguntas sobre datos",
+      "add": "Agregar un conjunto de datos"
+    },
+    "mentionHint": "Escriba @ para mencionar una capa, / para comandos"
   },
   "basemap": {
     "title": "Mapa base",

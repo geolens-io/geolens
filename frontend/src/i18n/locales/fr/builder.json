@@ -173,7 +173,15 @@
       "filterByAttribute": "Filtrer « {{name}} » à l'aide d'un champ",
       "styleAllLayers": "Appliquer un thème de couleurs à toutes les couches",
       "addDataset": "Ajouter un autre jeu de données à cette carte"
-    }
+    },
+    "commands": {
+      "style": "Modifier l'apparence de la couche",
+      "filter": "Filtrer les entites",
+      "label": "Ajouter ou modifier les etiquettes",
+      "query": "Poser des questions sur les donnees",
+      "add": "Ajouter un jeu de donnees"
+    },
+    "mentionHint": "Tapez @ pour mentionner une couche, / pour les commandes"
   },
   "basemap": {
     "title": "Fond de carte",
