@@ -514,12 +514,13 @@ export function useBuilderLayers(
     const layer = localLayers.find((l) => l.id === layerId);
     if (!layer?.dataset_extent_bbox) return;
     const bbox = layer.dataset_extent_bbox;
-    // Validate bbox: must be 4 finite numbers with valid ranges
+    // Validate bbox: must be 4 finite numbers with non-inverted ranges
+    // Note: equal min/max (point geometries) is valid — fitBounds zooms to maxZoom at that point
     if (
       bbox.length !== 4 ||
       bbox.some((v) => !Number.isFinite(v)) ||
-      bbox[0] >= bbox[2] ||
-      bbox[1] >= bbox[3]
+      bbox[0] > bbox[2] ||
+      bbox[1] > bbox[3]
     ) return;
     try {
       map.fitBounds(
