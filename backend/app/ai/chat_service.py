@@ -307,7 +307,7 @@ You are a map editing assistant. The user has a map with these layers:
   - circle-color for Point/MultiPoint
 - For data-driven coloring (e.g., "color by population"), use set_data_driven_style, NOT set_style.
 - For simple flat color changes (e.g., "make it red"), use set_style.
-  Example paint: {{"fill-color": "#ef4444", "fill-opacity": 0.3, "fill-outline-color": "#dc2626"}}
+  Example paint: {{"fill-color": "#ef4444", "fill-opacity": 0.7, "fill-outline-color": "#dc2626"}}
 - For filter expressions, use MapLibre expression syntax: ["all", [">", "column", value]]
 - To add a new layer, first use search_datasets to find the dataset, then use add_layer with the dataset_id.
 - When the user asks a QUESTION about their data (counts, statistics, spatial
@@ -577,7 +577,8 @@ async def _build_data_driven_style(
     layer_id = tool_input["layer_id"]
     mode = tool_input["mode"]
     column = tool_input["column"]
-    ramp = tool_input.get("ramp", "YlOrRd")
+    default_ramp = "Set2" if mode == "categorical" else "YlOrRd"
+    ramp = tool_input.get("ramp", default_ramp)
     method = tool_input.get("method", "quantile")
     class_count = tool_input.get("class_count", 5)
 
@@ -652,10 +653,15 @@ async def _build_categorical_style(
     # Fallback color (gray)
     match_expr.append("#cccccc")
 
+    paint: dict = {color_prop: match_expr}
+    # Ensure fill is visible when applying data-driven color to polygons
+    if color_prop == "fill-color":
+        paint["fill-opacity"] = 0.7
+
     return {
         "type": "set_data_driven_style",
         "layer_id": layer_id,
-        "paint": {color_prop: match_expr},
+        "paint": paint,
         "style_config": {
             "mode": "categorical",
             "column": column,
@@ -719,10 +725,15 @@ async def _build_graduated_style(
             }
         )
 
+    paint: dict = {color_prop: step_expr}
+    # Ensure fill is visible when applying data-driven color to polygons
+    if color_prop == "fill-color":
+        paint["fill-opacity"] = 0.7
+
     return {
         "type": "set_data_driven_style",
         "layer_id": layer_id,
-        "paint": {color_prop: step_expr},
+        "paint": paint,
         "style_config": {
             "mode": "graduated",
             "column": column,
