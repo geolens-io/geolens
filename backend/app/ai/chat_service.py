@@ -657,6 +657,7 @@ async def _build_categorical_style(
     # Ensure fill is visible when applying data-driven color to polygons
     if color_prop == "fill-color":
         paint["fill-opacity"] = 0.7
+        paint["fill-outline-color"] = "#374151"  # neutral dark gray outline
 
     return {
         "type": "set_data_driven_style",
@@ -729,6 +730,7 @@ async def _build_graduated_style(
     # Ensure fill is visible when applying data-driven color to polygons
     if color_prop == "fill-color":
         paint["fill-opacity"] = 0.7
+        paint["fill-outline-color"] = "#374151"  # neutral dark gray outline
 
     return {
         "type": "set_data_driven_style",
