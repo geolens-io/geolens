@@ -87,8 +87,9 @@ async def create_empty_dataset(
         col_defs.append(f"{col.name.lower()} {pg_type}")
 
     columns_sql = ", ".join(col_defs)
+    safe_tn = table_name.replace('"', '')
     create_sql = (
-        f"CREATE TABLE data.{table_name} ("
+        f'CREATE TABLE "data"."{safe_tn}" ('
         f"gid SERIAL PRIMARY KEY, "
         f"geom geometry(Geometry, 4326), "
         f"geom_4326 geometry(Geometry, 4326), "
@@ -331,7 +332,8 @@ async def delete_dataset(
                 await storage.delete(key)
     else:
         # Vector datasets: drop the PostGIS data table
-        await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        safe_tn = table_name.replace('"', '')
+        await session.execute(text(f'DROP TABLE IF EXISTS "data"."{safe_tn}"'))
 
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
