@@ -23,6 +23,7 @@ class MapLayerInput(BaseModel):
     label_config: dict | None = None
     style_config: dict | None = None
     layer_type: str | None = None  # auto-detected from record_type if omitted
+    show_in_legend: bool = True
 
 
 class MapCreate(BaseModel):
@@ -64,6 +65,7 @@ class MapLayerResponse(BaseModel):
     filter: list | dict | None = None
     label_config: dict | None = None
     style_config: dict | None = None
+    show_in_legend: bool = True
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,6 +134,7 @@ class SharedLayerResponse(BaseModel):
     filter: list | dict | None = None
     label_config: dict | None = None
     style_config: dict | None = None
+    show_in_legend: bool = True
     tile_url: str
 
 

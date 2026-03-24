@@ -367,6 +367,7 @@ async def _replace_layers(
             filter=layer_data.get("filter"),
             label_config=layer_data.get("label_config"),
             style_config=layer_data.get("style_config"),
+            show_in_legend=layer_data.get("show_in_legend", True),
         )
         session.add(new_layer)
 
@@ -527,6 +528,7 @@ async def duplicate_map(
             filter=layer.filter,
             label_config=layer.label_config,
             style_config=layer.style_config,
+            show_in_legend=layer.show_in_legend,
         )
         session.add(new_layer)
 
@@ -817,6 +819,7 @@ async def get_shared_map(
                 "filter": layer.filter,
                 "label_config": layer.label_config,
                 "style_config": layer.style_config,
+                "show_in_legend": layer.show_in_legend,
                 "tile_url": tile_url,
             }
         )

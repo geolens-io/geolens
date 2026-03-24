@@ -80,6 +80,7 @@ class MapLayer(Base):
     filter: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     label_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     style_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    show_in_legend: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
