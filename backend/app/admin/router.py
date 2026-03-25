@@ -48,6 +48,7 @@ def _user_response(user) -> UserResponse:
         email=user.email,
         is_active=user.is_active,
         status=user.status,
+        last_login_at=user.last_login_at,
         created_at=user.created_at,
         roles=sorted(r.name for r in user.roles),
     )
