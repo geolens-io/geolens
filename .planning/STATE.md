@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260325-jpw
-last_updated: "2026-03-25T18:21:23.502Z"
-last_activity: "2026-03-25 - Completed quick task 260325-hrk: Enhance legend and layer icons"
+stopped_at: Completed quick-260325-l6p
+last_updated: "2026-03-25T19:22:29.816Z"
+last_activity: "2026-03-25 - Completed quick task 260325-jpw: Fill/stroke visibility toggles"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -135,6 +135,7 @@ Plan: Not started
 - [Phase quick-260325-ff5]: Generic for-of loop in handlePaintChange is extensible without code changes per new property
 - [Phase quick-260325-hrk]: Fixed polygon detection: gt.includes('MULTI') incorrectly matched MULTIPOINT/MULTILINESTRING -- changed to gt.includes('POLYGON')
 - [Phase quick-260325-jpw]: Use CUSTOM_PAINT_PROPS set for generic filtering instead of hardcoded destructuring in syncLayersToMap fill branch
+- [Phase quick-260325-l6p]: Export CUSTOM_PAINT_PROPS as single source of truth from map-sync.ts
 
 ### Pending Todos
 
@@ -202,10 +203,11 @@ Plan: Not started
 | 260326 | Assess current search page UI/UX with Playwright MCP; findings and cleanup recommendations | 2026-03-25 | 4fd2d847 | Verified | [260326-use-playwright-mcp-server-to-assess-the-](./quick/260326-use-playwright-mcp-server-to-assess-the-/) |
 | 260327 | Implement search-page audit findings from quick 260326 | 2026-03-25 | 28154160 | Verified | [260327-implement-the-search-page-audit-findings](./quick/260327-implement-the-search-page-audit-findings/) |
 | 260325-hrk | Enhance legend and layer icons to reflect configured styles | 2026-03-25 | 4eaa0085 | Verified | [260325-hrk-enhance-legend-and-layer-icons-to-reflec](./quick/260325-hrk-enhance-legend-and-layer-icons-to-reflec/) |
+| 260325-jpw | Fill/stroke visibility toggles in LayerStyleEditor | 2026-03-25 | 443a42e8 | Verified | [260325-jpw-fill-stroke-visibility-toggles-in-layers](./quick/260325-jpw-fill-stroke-visibility-toggles-in-layers/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260325-hrk: Enhance legend and layer icons
-Last session: 2026-03-25T18:21:23.498Z
-Stopped at: Completed quick-260325-jpw
+Last activity: 2026-03-25 - Completed quick task 260325-jpw: Fill/stroke visibility toggles
+Last session: 2026-03-25T19:22:28.287Z
+Stopped at: Completed quick-260325-l6p
 Resume file: None
