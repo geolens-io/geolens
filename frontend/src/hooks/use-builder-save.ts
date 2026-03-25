@@ -134,9 +134,10 @@ export function useBuilderSave(state: SaveState) {
           state.setHasUnsavedChanges(false);
 
           // Capture thumbnail and upload (fire-and-forget)
-          const m = mapInstanceRef.current;
-          if (m && id) {
-            captureThumbnail(m, id, queryClient);
+          // Use `map` captured before mutate — mapInstanceRef.current may be
+          // transiently null during re-render (callback ref identity change).
+          if (map && id) {
+            captureThumbnail(map, id, queryClient);
           }
         },
         onError: () => {
