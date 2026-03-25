@@ -647,14 +647,28 @@ async def admin_revoke_share_token(
     token_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Revoke (soft-delete) a share token (admin only)."""
+    """Revoke (soft-delete) a share token and cascade to its embed tokens (admin only)."""
+    from app.embed_tokens.models import EmbedToken
+    from app.embed_tokens.service import bulk_revoke_embed_tokens
     from app.maps.service import revoke_share_token
 
-    revoked = await revoke_share_token(db, token_id)
-    if not revoked:
+    token_obj = await revoke_share_token(db, token_id)
+    if token_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Share token not found",
         )
+
+    # Cascade: revoke all active embed tokens for this map
+    result = await db.execute(
+        select(EmbedToken.id).where(
+            EmbedToken.map_id == token_obj.map_id,
+            EmbedToken.is_active.is_(True),
+        )
+    )
+    embed_ids = [row[0] for row in result.all()]
+    if embed_ids:
+        await bulk_revoke_embed_tokens(db, embed_ids)
+
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

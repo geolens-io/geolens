@@ -215,6 +215,7 @@ export function useBulkRevokeEmbedTokens() {
     mutationFn: (tokenIds: string[]) => bulkRevokeEmbedTokens(tokenIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'embed-tokens'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'share-tokens'] });
     },
   });
 }

@@ -907,6 +907,50 @@ class TestShareToken:
         )
         assert resp.status_code == 403
 
+    async def test_admin_revoke_share_token_cascades_embed_tokens(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """DELETE /admin/share-tokens/{id} cascades to deactivate embed tokens."""
+        # Create a public map with a share token
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        share_resp = await client.post(
+            f"/maps/{map_id}/share", headers=admin_auth_header
+        )
+        assert share_resp.status_code == 200
+        share_token_id = share_resp.json()["id"]
+
+        # Create an embed token for the map
+        embed_resp = await client.post(
+            f"/maps/{map_id}/embed-tokens/",
+            json={"name": "Cascade Test Embed"},
+            headers=admin_auth_header,
+        )
+        assert embed_resp.status_code == 201
+        embed_token_id = embed_resp.json()["id"]
+
+        # Admin revokes the share token via admin endpoint
+        revoke_resp = await client.delete(
+            f"/admin/share-tokens/{share_token_id}",
+            headers=admin_auth_header,
+        )
+        assert revoke_resp.status_code == 204
+
+        # Verify the embed token was cascade-deactivated
+        embed_list = await client.get(
+            f"/maps/{map_id}/embed-tokens/", headers=admin_auth_header
+        )
+        tokens = embed_list.json()["tokens"]
+        cascade_token = [t for t in tokens if t["id"] == embed_token_id]
+        assert len(cascade_token) == 1
+        assert cascade_token[0]["is_active"] is False
+
 
 # ---------------------------------------------------------------------------
 # Get shared map
