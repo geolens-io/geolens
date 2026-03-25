@@ -43,7 +43,14 @@
     "color": "Couleur",
     "width": "Largeur",
     "radius": "Rayon",
-    "styledBy": "Stylisé par : {{column}}"
+    "styledBy": "Stylisé par : {{column}}",
+    "pattern": "Motif",
+    "dash": {
+      "solid": "Continu",
+      "dashed": "Tirets",
+      "dotted": "Pointillés",
+      "dashDot": "Tiret-point"
+    }
   },
   "filters": {
     "title": "Filtres",

@@ -43,7 +43,14 @@
     "color": "Color",
     "width": "Width",
     "radius": "Radius",
-    "styledBy": "Styled by: {{column}}"
+    "styledBy": "Styled by: {{column}}",
+    "pattern": "Pattern",
+    "dash": {
+      "solid": "Solid",
+      "dashed": "Dashed",
+      "dotted": "Dotted",
+      "dashDot": "Dash-dot"
+    }
   },
   "filters": {
     "title": "Filters",

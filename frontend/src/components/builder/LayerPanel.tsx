@@ -31,6 +31,7 @@ interface LayerPanelProps {
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
   onLabelChange: (layerId: string, config: LabelConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
+  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onToggleVisibility: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
@@ -53,6 +54,7 @@ export function LayerPanel({
   onFilterChange,
   onLabelChange,
   onStyleConfigChange,
+  onLayoutChange,
   onToggleVisibility,
   onMoveUp,
   onMoveDown,
@@ -130,6 +132,7 @@ export function LayerPanel({
                   onFilterChange={onFilterChange}
                   onLabelChange={onLabelChange}
                   onStyleConfigChange={onStyleConfigChange}
+                  onLayoutChange={onLayoutChange}
                   onToggleVisibility={onToggleVisibility}
                   onMoveUp={onMoveUp}
                   onMoveDown={onMoveDown}

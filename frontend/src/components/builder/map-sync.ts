@@ -207,9 +207,10 @@ export function syncLayersToMap(
             'line-color': MAP_COLORS.default.fill,
             'line-width': 2,
           },
-          layout: (layer.layout as Record<string, unknown>) ?? {
+          layout: {
             'line-cap': 'round',
             'line-join': 'round',
+            ...((layer.layout as Record<string, unknown>) ?? {}),
           },
         });
         if (hasExpressions) {

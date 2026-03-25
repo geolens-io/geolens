@@ -43,7 +43,14 @@
     "color": "Color",
     "width": "Ancho",
     "radius": "Radio",
-    "styledBy": "Estilizado por: {{column}}"
+    "styledBy": "Estilizado por: {{column}}",
+    "pattern": "Patr\u00f3n",
+    "dash": {
+      "solid": "S\u00f3lido",
+      "dashed": "Guiones",
+      "dotted": "Puntos",
+      "dashDot": "Gui\u00f3n-punto"
+    }
   },
   "filters": {
     "title": "Filtros",

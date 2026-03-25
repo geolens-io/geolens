@@ -43,7 +43,14 @@
     "color": "Farbe",
     "width": "Breite",
     "radius": "Radius",
-    "styledBy": "Stilisiert nach: {{column}}"
+    "styledBy": "Stilisiert nach: {{column}}",
+    "pattern": "Muster",
+    "dash": {
+      "solid": "Durchgehend",
+      "dashed": "Gestrichelt",
+      "dotted": "Gepunktet",
+      "dashDot": "Strich-Punkt"
+    }
   },
   "filters": {
     "title": "Filter",
