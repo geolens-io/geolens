@@ -28,6 +28,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
+  const isTable = dataset.record_type === 'table';
 
   return (
     <DropdownMenu>
@@ -78,18 +79,20 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
               }
             >
               <Copy className="mr-2 size-3.5" />
-              Copy Feature URL
+              Copy API URL
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                copyToClipboard(
-                  `${window.location.origin}/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`,
-                )
-              }
-            >
-              <Copy className="mr-2 size-3.5" />
-              Copy Tile URL
-            </DropdownMenuItem>
+            {!isTable && (
+              <DropdownMenuItem
+                onClick={() =>
+                  copyToClipboard(
+                    `${window.location.origin}/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`,
+                  )
+                }
+              >
+                <Copy className="mr-2 size-3.5" />
+                Copy Tile URL
+              </DropdownMenuItem>
+            )}
           </>
         )}
       </DropdownMenuContent>

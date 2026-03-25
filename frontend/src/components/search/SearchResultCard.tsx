@@ -64,7 +64,10 @@ function buildCardSpecs(
   }
 
   if (!isRaster && !isVrt && properties.feature_count != null) {
-    specs.push(t('card.featureCount', { count: properties.feature_count }));
+    const isTable = recordType === 'table';
+    specs.push(isTable
+      ? t('card.rowCount', { count: properties.feature_count })
+      : t('card.featureCount', { count: properties.feature_count }));
   }
 
   if (properties.crs) specs.push(properties.crs);

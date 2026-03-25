@@ -71,6 +71,8 @@
   "card": {
     "featureCount_one": "{{count}} entidad",
     "featureCount_other": "{{count}} entidades",
+    "rowCount_one": "{{count}} fila",
+    "rowCount_other": "{{count}} filas",
     "updatedBy": "Actualizado por",
     "neverEdited": "Nunca",
     "unknown": "Desconocido",

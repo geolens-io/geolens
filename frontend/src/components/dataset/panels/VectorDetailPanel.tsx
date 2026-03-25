@@ -102,6 +102,7 @@ export function VectorDetailPanel(props: DetailPanelProps) {
           columnInfo={dataset.column_info}
           capability={capabilities.theme_category}
           tableName={dataset.table_name}
+          recordType={dataset.record_type}
         />
       </TabsContent>
       <TabsContent value="access" className="space-y-6">

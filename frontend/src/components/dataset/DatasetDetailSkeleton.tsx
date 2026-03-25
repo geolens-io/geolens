@@ -1,7 +1,12 @@
 import { PageShell } from '@/components/layout/PageShell';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
-export function DatasetDetailSkeleton() {
+interface DatasetDetailSkeletonProps {
+  isTable?: boolean;
+}
+
+export function DatasetDetailSkeleton({ isTable }: DatasetDetailSkeletonProps = {}) {
   return (
     <PageShell>
       {/* Breadcrumb skeleton */}
@@ -17,7 +22,7 @@ export function DatasetDetailSkeleton() {
       </div>
 
       {/* Hero map placeholder */}
-      <Skeleton className="h-80 lg:h-96 w-full rounded-lg" />
+      <Skeleton className={cn('w-full rounded-lg', isTable ? 'h-[60vh]' : 'h-80 lg:h-96')} data-testid="hero-skeleton" />
 
       {/* Title and description placeholders */}
       <div className="space-y-2">
