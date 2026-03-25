@@ -379,6 +379,11 @@ async def generate_distributions(
         if existing.scalar_one_or_none() is not None:
             continue
 
+        # For non-spatial datasets, CSV download becomes primary (gpkg is filtered out)
+        effective_primary = is_primary
+        if geometry_type is None and dist_type == "download" and fmt == "csv":
+            effective_primary = True
+
         dist = RecordDistribution(
             record_id=record_id,
             distribution_type=dist_type,
@@ -387,7 +392,7 @@ async def generate_distributions(
             title=title,
             protocol=protocol,
             media_type=media_type,
-            is_primary=is_primary,
+            is_primary=effective_primary,
             auto_generated=True,
         )
         session.add(dist)

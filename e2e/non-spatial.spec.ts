@@ -2,8 +2,6 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 
 test.describe.serial('Non-spatial CSV', () => {
-  let datasetUrl = '';
-
   test('upload non-spatial CSV and complete ingestion', async ({ page }) => {
     test.slow();
 
@@ -29,17 +27,13 @@ test.describe.serial('Non-spatial CSV', () => {
       .first()
       .click();
 
-    // Wait for ingestion to complete
+    // Wait for job tracking UI to appear (Import Progress heading or View Dataset link)
     await expect(
-      page.getByText(/complete|tracking|success|Import Progress/i),
+      page.getByText(/Import Progress|View Dataset/),
     ).toBeVisible({ timeout: 30_000 });
-
-    // Store the URL for subsequent tests
-    datasetUrl = page.url();
   });
 
   test('dataset page shows graceful non-spatial state', async ({ page }) => {
-    // Navigate via search to find the uploaded dataset
     await page.goto('/?q=sample-nonspatial');
     const link = page
       .getByRole('link', { name: /sample-nonspatial/i })
@@ -56,32 +50,25 @@ test.describe.serial('Non-spatial CSV', () => {
     // No error toasts visible
     const errorToast = page.locator('[data-sonner-toast][data-type="error"]');
     await expect(errorToast).toHaveCount(0);
-
-    // Store URL for next test
-    datasetUrl = page.url();
   });
 
   test('attribute table shows rows for non-spatial dataset', async ({
     page,
   }) => {
-    // Navigate to the dataset page
-    await page.goto(datasetUrl || '/?q=sample-nonspatial');
-    if (!datasetUrl) {
-      const link = page
-        .getByRole('link', { name: /sample-nonspatial/i })
-        .first();
-      await expect(link).toBeVisible({ timeout: 15_000 });
-      await link.click();
-      await page.waitForURL(/\/datasets\//);
-    }
+    await page.goto('/?q=sample-nonspatial');
+    const link = page
+      .getByRole('link', { name: /sample-nonspatial/i })
+      .first();
+    await expect(link).toBeVisible({ timeout: 15_000 });
+    await link.click();
+    await page.waitForURL(/\/datasets\//);
 
     // Wait for the page to load
     await expect(
       page.getByRole('heading', { level: 1 }),
     ).toBeVisible({ timeout: 10_000 });
 
-    // Look for attribute table content — the table should show the CSV rows
-    // Check for at least one of the expected values in the page
+    // Check for expected CSV row values in the attribute table
     await expect(page.getByText('Alice')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Bob')).toBeVisible();
     await expect(page.getByText('Charlie')).toBeVisible();
