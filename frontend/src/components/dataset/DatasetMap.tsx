@@ -442,8 +442,8 @@ export function DatasetMap({
           maxzoom: 22,
         });
 
-        const isPoint = geometryType?.toUpperCase().includes('POINT') ?? false;
-        const isLine = geometryType?.toUpperCase().includes('LINE') ?? false;
+        const isPoint = geometryType.toUpperCase().includes('POINT');
+        const isLine = geometryType.toUpperCase().includes('LINE');
 
         if (isPoint) {
           map.addLayer({

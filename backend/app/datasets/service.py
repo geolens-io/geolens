@@ -203,7 +203,7 @@ async def create_dataset(
     # Eager-load the record relationship
     await session.refresh(dataset, ["record"])
 
-    # Auto-generate standard distribution records (6 per dataset).
+    # Auto-generate standard distribution records (6 for spatial, 2 for non-spatial).
     # IMPORTANT: dataset.id is the Dataset PK (used in URL paths),
     # record.id is the Record PK (used as FK in record_distributions).
     from app.records.service import generate_distributions
