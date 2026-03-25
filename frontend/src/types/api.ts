@@ -988,6 +988,8 @@ export interface AdminShareTokenListResponse {
 export interface EmbedTokenResponse {
   id: string;
   map_id: string;
+  name?: string | null;
+  scoped_dataset_ids?: string[];
   token_hint: string;
   allowed_origins: string[] | null;
   expires_at: string;

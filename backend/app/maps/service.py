@@ -928,16 +928,16 @@ async def list_share_tokens(
 async def revoke_share_token(
     session: AsyncSession,
     token_id: uuid.UUID,
-) -> bool:
-    """Soft-revoke a share token by setting is_active=False. Returns True if found."""
+) -> MapShareToken | None:
+    """Soft-revoke a share token by setting is_active=False. Returns token if found, None otherwise."""
     result = await session.execute(
         select(MapShareToken).where(MapShareToken.id == token_id)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
-        return False
+        return None
     token_obj.is_active = False
-    return True
+    return token_obj
 
 
 async def get_maps_for_dataset(
