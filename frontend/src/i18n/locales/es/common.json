@@ -122,7 +122,9 @@
     "previewError": "Ocurrió un error inesperado al previsualizar la capa.",
     "remotePreviewError": "No se pudo previsualizar la capa remota. El servicio puede no estar disponible o el formato de la capa no es compatible.",
     "datasetMembershipNotFound": "Membresía del conjunto de datos no encontrada",
-    "sharedMapExpired": "Este enlace de mapa compartido ha caducado o ha sido revocado"
+    "sharedMapExpired": "Este enlace de mapa compartido ha caducado o ha sido revocado",
+    "forbidden": "403",
+    "forbiddenAdmin": "Prohibido — Se requiere acceso de administrador"
   },
   "settings": {
     "tabs": {
