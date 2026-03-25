@@ -84,6 +84,7 @@
     "raster": "Raster",
     "vrt": "Virtual Raster",
     "collection": "Collection",
+    "table": "Table",
     "noUpdateMetadata": "No update metadata",
     "status": {
       "draft": "Draft",

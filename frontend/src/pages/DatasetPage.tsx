@@ -473,7 +473,7 @@ export function DatasetPage() {
             {dataset.feature_count != null && (
               <>
                 <Sep />
-                <span>{dataset.feature_count.toLocaleString()} features</span>
+                <span>{dataset.feature_count.toLocaleString()} {isTable ? 'rows' : 'features'}</span>
               </>
             )}
             {dataset.srid && (
@@ -595,7 +595,7 @@ export function DatasetPage() {
         statsLine={statsLine}
         leadingContent={
           <div className="flex items-center gap-2">
-            <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />
+            {!isTable && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {isRaster && dataset.raster?.connect && (
               <Button asChild variant="default" size="sm">
                 <a href={`/api/datasets/${dataset.id}/download/cog`} download>
@@ -604,7 +604,7 @@ export function DatasetPage() {
                 </a>
               </Button>
             )}
-            <ConnectDropdown dataset={dataset} />
+            {!isTable && <ConnectDropdown dataset={dataset} />}
           </div>
         }
       />
