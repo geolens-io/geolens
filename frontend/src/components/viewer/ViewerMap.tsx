@@ -358,9 +358,9 @@ export function ViewerMap({
             map.setFilter(layerId, layer.filter);
           }
           const outlineColor =
-            (layer.paint as Record<string, unknown>)?.['fill-outline-color'] as string | undefined;
+            (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined;
           const outlineWidth =
-            (layer.paint as Record<string, unknown>)?.['outline-width'] as number | undefined;
+            (layer.paint as Record<string, unknown>)?.['_outline-width'] as number | undefined;
           map.addLayer({
             id: outlineId,
             type: 'line',

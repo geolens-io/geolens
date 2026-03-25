@@ -10,7 +10,7 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
     "fill": {
         "fill-color",
         "fill-opacity",
-        "fill-outline-color",
+        "_outline-color",
         "fill-antialias",
         "fill-translate",
         "fill-translate-anchor",

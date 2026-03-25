@@ -17,8 +17,8 @@ interface LayerStyleEditorProps {
 const FILL_DEFAULTS = {
   'fill-color': MAP_COLORS.default.fill,
   'fill-opacity': MAP_COLORS.default.fillOpacity,
-  'fill-outline-color': MAP_COLORS.default.stroke,
-  'outline-width': 1,
+  '_outline-color': MAP_COLORS.default.stroke,
+  '_outline-width': 1,
 };
 
 const LINE_DEFAULTS = {
@@ -92,17 +92,17 @@ export function LayerStyleEditor({
             <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
             <StyleColorPicker
               label={t('style.color')}
-              color={getPaintValue(paint, 'fill-outline-color', FILL_DEFAULTS['fill-outline-color'])}
-              onChange={(hex) => handlePaintProp('fill-outline-color', hex)}
+              color={getPaintValue(paint, '_outline-color', FILL_DEFAULTS['_outline-color'])}
+              onChange={(hex) => handlePaintProp('_outline-color', hex)}
             />
             <SliderRow
               label={t('style.width')}
-              value={getPaintValue(paint, 'outline-width', FILL_DEFAULTS['outline-width'])}
+              value={getPaintValue(paint, '_outline-width', FILL_DEFAULTS['_outline-width'])}
               min={0}
               max={10}
               step={0.5}
               format="px"
-              onChange={(val) => handlePaintProp('outline-width', val)}
+              onChange={(val) => handlePaintProp('_outline-width', val)}
             />
           </>
         )}

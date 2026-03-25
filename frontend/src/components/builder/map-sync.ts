@@ -6,7 +6,7 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
  *  These are read separately and applied to the outline line layer for polygons. */
-const CUSTOM_PAINT_PROPS = new Set(['outline-width', 'fill-outline-color']);
+const CUSTOM_PAINT_PROPS = new Set(['_outline-width', '_outline-color']);
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
@@ -75,6 +75,22 @@ export function simplifyPaint(paint: Record<string, unknown>): Record<string, un
     }
   }
   return result;
+}
+
+const OPACITY_DEFAULTS: Record<string, number> = {
+  fill: 0.3,
+  line: 1,
+  circle: 1,
+};
+
+export function getCompoundOpacity(
+  paint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+  masterOpacity: number,
+): number {
+  const propKey = `${geomType}-opacity`;
+  const propOpacity = (paint[propKey] as number) ?? OPACITY_DEFAULTS[geomType];
+  return propOpacity * masterOpacity;
 }
 
 /** Imperatively add all data layers to the map. Safe to call repeatedly. */
@@ -176,11 +192,7 @@ export function syncLayersToMap(
             }
           }
         }
-        {
-          const circleOpacity =
-            ((layer.paint as Record<string, unknown>)?.['circle-opacity'] as number) ?? 1;
-          map.setPaintProperty(layerId, 'circle-opacity', circleOpacity * (layer.opacity ?? 1));
-        }
+        map.setPaintProperty(layerId, 'circle-opacity', getCompoundOpacity(rawPaint, 'circle', layer.opacity ?? 1));
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
@@ -207,20 +219,16 @@ export function syncLayersToMap(
             }
           }
         }
-        {
-          const lineOpacity =
-            ((layer.paint as Record<string, unknown>)?.['line-opacity'] as number) ?? 1;
-          map.setPaintProperty(layerId, 'line-opacity', lineOpacity * (layer.opacity ?? 1));
-        }
+        map.setPaintProperty(layerId, 'line-opacity', getCompoundOpacity(rawPaint, 'line', layer.opacity ?? 1));
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
       } else {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
         // Strip custom properties that are not valid MapLibre fill paint props.
-        // 'outline-width' and 'fill-outline-color' are stored in paint JSON but
+        // '_outline-width' and '_outline-color' are stored in paint JSON but
         // applied to a separate line layer below.
-        const { 'outline-width': _ow, 'fill-outline-color': _foc, ...fillPaint } = basePaint;
+        const { '_outline-width': _ow, '_outline-color': _foc, ...fillPaint } = basePaint;
         map.addLayer({
           id: layerId,
           type: 'fill',
@@ -234,27 +242,23 @@ export function syncLayersToMap(
         });
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val) && prop !== 'outline-width' && prop !== 'fill-outline-color') {
+            if (Array.isArray(val) && prop !== '_outline-width' && prop !== '_outline-color') {
               try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
         }
-        {
-          const fillOpacity =
-            ((layer.paint as Record<string, unknown>)?.['fill-opacity'] as number) ?? 0.3;
-          map.setPaintProperty(layerId, 'fill-opacity', fillOpacity * (layer.opacity ?? 1));
-        }
+        map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', layer.opacity ?? 1));
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(layerId, layer.filter);
         }
-        // Custom paint properties: 'fill-outline-color' and 'outline-width' are stored
+        // Custom paint properties: '_outline-color' and '_outline-width' are stored
         // in the layer's paint JSON but are NOT standard MapLibre fill paint properties.
         // They are read here and applied to a separate 'line' layer that acts as the
         // polygon outline, because MapLibre's native fill-outline-color is fixed at 1px.
         const outlineColor =
-          (layer.paint as Record<string, unknown>)?.['fill-outline-color'] as string | undefined;
+          (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined;
         const outlineWidth =
-          (layer.paint as Record<string, unknown>)?.['outline-width'] as number | undefined;
+          (layer.paint as Record<string, unknown>)?.['_outline-width'] as number | undefined;
         map.addLayer({
           id: outlineId,
           type: 'line',
@@ -290,16 +294,8 @@ export function syncLayersToMap(
         }
         // Sync compound opacity (per-property opacity * master layer opacity)
         const geomType = getLayerType(layer.dataset_geometry_type);
-        if (geomType === 'fill') {
-          const fillOpacity = (rawPaint['fill-opacity'] as number) ?? 0.3;
-          map.setPaintProperty(mapLayerId, 'fill-opacity', fillOpacity * (layer.opacity ?? 1));
-        } else if (geomType === 'line') {
-          const lineOpacity = (rawPaint['line-opacity'] as number) ?? 1;
-          map.setPaintProperty(mapLayerId, 'line-opacity', lineOpacity * (layer.opacity ?? 1));
-        } else {
-          const circleOpacity = (rawPaint['circle-opacity'] as number) ?? 1;
-          map.setPaintProperty(mapLayerId, 'circle-opacity', circleOpacity * (layer.opacity ?? 1));
-        }
+        const opacityProp = `${geomType}-opacity`;
+        map.setPaintProperty(mapLayerId, opacityProp, getCompoundOpacity(rawPaint, geomType, layer.opacity ?? 1));
         // Sync filter
         if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
           map.setFilter(mapLayerId, layer.filter);
@@ -310,8 +306,8 @@ export function syncLayersToMap(
       // Sync outline layer paint for fill layers
       const outId = getOutlineLayerId(layer.id);
       if (map.getLayer(outId)) {
-        const outlineColor = rawPaint['fill-outline-color'];
-        const outlineWidth = rawPaint['outline-width'];
+        const outlineColor = rawPaint['_outline-color'];
+        const outlineWidth = rawPaint['_outline-width'];
         if (typeof outlineColor === 'string') {
           try {
             const cur = map.getPaintProperty(outId, 'line-color');
