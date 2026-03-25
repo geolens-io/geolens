@@ -67,15 +67,17 @@ async def get_upload_config(
     db: AsyncSession = Depends(get_db),
 ) -> UploadConfigResponse:
     """Return upload configuration including presigned upload availability."""
-    from app.persistent_config import UPLOAD_MAX_SIZE_MB
+    from app.persistent_config import UPLOAD_ALLOWED_EXTENSIONS, UPLOAD_MAX_SIZE_MB
 
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
+    allowed_exts = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
     return UploadConfigResponse(
         presigned_uploads=settings.storage_provider == "s3",
         presigned_threshold_bytes=settings.presigned_multipart_threshold_mb
         * 1024
         * 1024,
         max_file_size_bytes=max_size_mb * 1024 * 1024,
+        allowed_extensions=allowed_exts,
     )
 
 

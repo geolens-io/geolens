@@ -67,6 +67,10 @@ def validate_file_content(file_path: str, filename: str) -> None:
     if len(header) == 0:
         raise ValueError("The uploaded file is empty.")
 
+    # Skip magic-byte validation for extensions without known content rules
+    if suffix not in EXTENSION_CONTENT_MAP:
+        return
+
     try:
         detected = puremagic.from_string(header, filename=filename)
     except puremagic.PureError:

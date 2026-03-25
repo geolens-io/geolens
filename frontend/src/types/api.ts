@@ -1045,6 +1045,7 @@ export interface UploadConfig {
   presigned_uploads: boolean;
   presigned_threshold_bytes: number;
   max_file_size_bytes: number;
+  allowed_extensions: string;
 }
 
 export interface PresignedUploadRequest {

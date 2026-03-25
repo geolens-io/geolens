@@ -233,9 +233,10 @@ export function UploadForm() {
   }
 
   // idle
+  const allowedExtensions = uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean);
   return (
     <div className="space-y-4">
-      <FileDropzone onFilesAccepted={handleFilesAccepted} />
+      <FileDropzone onFilesAccepted={handleFilesAccepted} allowedExtensions={allowedExtensions} />
     </div>
   );
 }
