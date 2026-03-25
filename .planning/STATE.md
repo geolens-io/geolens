@@ -184,10 +184,11 @@ Plan: Not started
 | 260324-mo7 | Map builder legend: show all visible layers, per-layer toggle, persist setting | 2026-03-24 | 77b89a83 | Needs Review | [260324-mo7-map-builder-legend-control-show-all-visi](./quick/260324-mo7-map-builder-legend-control-show-all-visi/) |
 | 260324-o6s | Fix Zoom to Layer in map creator and make sidebar expandable from default size | 2026-03-24 | 9de4ff81 | Needs Review | [260324-o6s-fix-zoom-to-layer-in-map-creator-and-mak](./quick/260324-o6s-fix-zoom-to-layer-in-map-creator-and-mak/) |
 | 260324-qln | Write comprehensive FEATURES.md one-pager (778 words, 13 capability areas) | 2026-03-24 | e1edc777 | Verified | [260324-qln-write-a-comprehensive-but-succinct-one-p](./quick/260324-qln-write-a-comprehensive-but-succinct-one-p/) |
+| 260324-qu5 | Test non-spatial data support end-to-end | 2026-03-24 | bf5d46c4 | Verified | [260324-qu5-test-non-spatial-data-support-end-to-end](./quick/260324-qu5-test-non-spatial-data-support-end-to-end/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-24 - Completed quick task 260324-qln: Write FEATURES.md one-pager
+Last activity: 2026-03-24 - Completed quick task 260324-qu5: Test non-spatial data support end-to-end
 Last session: 2026-03-24T23:42:07.945Z
 Stopped at: Completed quick-260324-qu5
 Resume file: None
