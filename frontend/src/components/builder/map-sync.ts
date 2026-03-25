@@ -176,12 +176,17 @@ export function syncLayersToMap(
 
       if (type === 'circle') {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+        // Strip custom properties that are not valid MapLibre circle paint props.
+        const circlePaint: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(basePaint)) {
+          if (!CUSTOM_PAINT_PROPS.has(k)) circlePaint[k] = v;
+        }
         map.addLayer({
           id: layerId,
           type: 'circle',
           source: sourceId,
           'source-layer': sourceLayer,
-          paint: Object.keys(basePaint).length ? basePaint : {
+          paint: Object.keys(circlePaint).length ? circlePaint : {
             'circle-radius': 5,
             'circle-color': MAP_COLORS.default.fill,
             'circle-stroke-color': MAP_COLORS.default.stroke,
@@ -191,7 +196,7 @@ export function syncLayersToMap(
         });
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val)) {
+            if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
               try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
@@ -205,12 +210,17 @@ export function syncLayersToMap(
         // line-dasharray is stored in layout JSON but is a MapLibre paint property
         const storedLayout = (layer.layout as Record<string, unknown>) ?? {};
         const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
-        const linePaint = Object.keys(basePaint).length ? basePaint : {
-          'line-color': MAP_COLORS.default.fill,
-          'line-width': 2,
-        };
+        // Strip custom properties that are not valid MapLibre line paint props.
+        const linePaint: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(basePaint)) {
+          if (!CUSTOM_PAINT_PROPS.has(k)) linePaint[k] = v;
+        }
+        if (Object.keys(linePaint).length === 0) {
+          linePaint['line-color'] = MAP_COLORS.default.fill;
+          linePaint['line-width'] = 2;
+        }
         if (dasharray) {
-          (linePaint as Record<string, unknown>)['line-dasharray'] = dasharray;
+          linePaint['line-dasharray'] = dasharray;
         }
         map.addLayer({
           id: layerId,
@@ -226,7 +236,7 @@ export function syncLayersToMap(
         });
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val)) {
+            if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
               try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
