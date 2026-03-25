@@ -86,27 +86,16 @@ export function LayerStyleEditor({
 
   function handleToggleStroke() {
     const next = { ...paint };
-    if (geomType === 'circle') {
-      if (strokeEnabled) {
-        next['_outline-width-saved'] = getPaintValue(paint, 'circle-stroke-width', CIRCLE_DEFAULTS['circle-stroke-width']);
-        next['circle-stroke-width'] = 0;
-        next['_stroke-disabled'] = true;
-      } else {
-        next['circle-stroke-width'] = getPaintValue(paint, '_outline-width-saved', CIRCLE_DEFAULTS['circle-stroke-width']);
-        delete next['_stroke-disabled'];
-        delete next['_outline-width-saved'];
-      }
+    const widthKey = geomType === 'circle' ? 'circle-stroke-width' : '_outline-width';
+    const defaultWidth = geomType === 'circle' ? CIRCLE_DEFAULTS['circle-stroke-width'] : FILL_DEFAULTS['_outline-width'];
+    if (strokeEnabled) {
+      next['_outline-width-saved'] = getPaintValue(paint, widthKey, defaultWidth);
+      next[widthKey] = 0;
+      next['_stroke-disabled'] = true;
     } else {
-      // polygon
-      if (strokeEnabled) {
-        next['_outline-width-saved'] = getPaintValue(paint, '_outline-width', FILL_DEFAULTS['_outline-width']);
-        next['_outline-width'] = 0;
-        next['_stroke-disabled'] = true;
-      } else {
-        next['_outline-width'] = getPaintValue(paint, '_outline-width-saved', FILL_DEFAULTS['_outline-width']);
-        delete next['_stroke-disabled'];
-        delete next['_outline-width-saved'];
-      }
+      next[widthKey] = getPaintValue(paint, '_outline-width-saved', defaultWidth);
+      delete next['_stroke-disabled'];
+      delete next['_outline-width-saved'];
     }
     onPaintChange(layer.id, next);
   }
@@ -222,12 +211,12 @@ export function LayerStyleEditor({
             />
             <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
             <div className="flex gap-1">
-              {LINE_DASH_PRESETS.map((preset) => {
+              {(() => {
                 const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
                 const currentDash = LINE_DASH_PRESETS.find(
                   (p) => JSON.stringify(p.value) === JSON.stringify(currentDashValue),
                 )?.key ?? 'solid';
-                return (
+                return LINE_DASH_PRESETS.map((preset) => (
                   <button
                     key={preset.key}
                     type="button"
@@ -245,8 +234,8 @@ export function LayerStyleEditor({
                   >
                     {t(`style.dash.${preset.key}`)}
                   </button>
-                );
-              })}
+                ));
+              })()}
             </div>
           </>
         )}
