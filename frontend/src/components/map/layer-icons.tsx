@@ -12,6 +12,7 @@ function darkenColor(hex: string): string {
 
 export interface StyleHints {
   strokeColor?: string;      // polygon _outline-color or circle-stroke-color
+  strokeDisabled?: boolean;  // _stroke-disabled — suppresses outline rendering
   dashPattern?: number[];    // line-dasharray from layout (e.g., [4,2])
   opacity?: number;          // layer opacity (0-1)
   strokeWidth?: number;      // line-width raw value — map to SVG strokeWidth
@@ -35,6 +36,10 @@ export function extractStyleHints(
     hints.opacity = opacity;
   }
 
+  if (paint['_stroke-disabled']) {
+    hints.strokeDisabled = true;
+  }
+
   if (gt.includes('LINE')) {
     const lw = paint['line-width'];
     if (typeof lw === 'number') hints.strokeWidth = lw;
@@ -44,13 +49,17 @@ export function extractStyleHints(
       hints.dashPattern = dash as number[];
     }
   } else if (gt.includes('POLYGON')) {
-    const oc = paint['_outline-color'];
-    if (typeof oc === 'string') hints.strokeColor = oc;
+    if (!paint['_stroke-disabled']) {
+      const oc = paint['_outline-color'];
+      if (typeof oc === 'string') hints.strokeColor = oc;
+    }
   }
 
   if (gt.includes('POINT')) {
-    const sc = paint['circle-stroke-color'];
-    if (typeof sc === 'string') hints.strokeColor = sc;
+    if (!paint['_stroke-disabled']) {
+      const sc = paint['circle-stroke-color'];
+      if (typeof sc === 'string') hints.strokeColor = sc;
+    }
     const cr = paint['circle-radius'];
     if (typeof cr === 'number') hints.radius = cr;
   }
@@ -162,8 +171,15 @@ export function ColorizedGeometryIcon({
       );
     }
 
-    // Polygon — always show outline (use _outline-color if set, otherwise darken fill)
+    // Polygon — show outline unless stroke is disabled
     if (!isPoint) {
+      if (styleHints?.strokeDisabled) {
+        return (
+          <span style={opacityStyle} className="inline-flex">
+            <Icon className={sizeClass} fill={color} strokeWidth={0} />
+          </span>
+        );
+      }
       const outlineColor = styleHints?.strokeColor ?? darkenColor(color);
       return (
         <span style={opacityStyle} className="inline-flex">
@@ -197,8 +213,10 @@ export function ColorizedGeometryIcon({
             </linearGradient>
           </defs>
         </svg>
-        {!isLine && !isPoint ? (
+        {!isLine && !isPoint && !styleHints?.strokeDisabled ? (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints?.strokeColor ?? '#666666'} strokeWidth={2.5} />
+        ) : !isLine && !isPoint && styleHints?.strokeDisabled ? (
+          <Icon className={sizeClass} fill={`url(#${gradientId})`} strokeWidth={0} />
         ) : styleHints?.strokeColor ? (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints.strokeColor} strokeWidth={1.5} />
         ) : (
