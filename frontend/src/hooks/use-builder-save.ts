@@ -8,45 +8,66 @@ import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
 import type { MapLayerResponse } from '@/types/api';
 
-/** Capture a 400x250 JPEG thumbnail from the map canvas and upload it. */
-function captureThumbnail(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
-  map.triggerRepaint();
-  map.once('idle', () => {
-    try {
-      const srcCanvas = map.getCanvas();
-      const thumbW = 400;
-      const thumbH = 250;
-      const targetRatio = thumbW / thumbH;
-      const srcW = srcCanvas.width;
-      const srcH = srcCanvas.height;
-      const srcRatio = srcW / srcH;
+/** Crop and resize the map canvas to a 400x250 JPEG, then upload it. */
+function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
+  try {
+    const srcCanvas = map.getCanvas();
+    const thumbW = 400;
+    const thumbH = 250;
+    const targetRatio = thumbW / thumbH;
+    const srcW = srcCanvas.width;
+    const srcH = srcCanvas.height;
+    const srcRatio = srcW / srcH;
 
-      let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
-      if (srcRatio > targetRatio) {
-        cropW = Math.round(srcH * targetRatio);
-        cropX = Math.round((srcW - cropW) / 2);
-      } else {
-        cropH = Math.round(srcW / targetRatio);
-        cropY = Math.round((srcH - cropH) / 2);
-      }
-
-      const offscreen = document.createElement('canvas');
-      offscreen.width = thumbW;
-      offscreen.height = thumbH;
-      const ctx = offscreen.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
-        const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
-        uploadThumbnail(mapId, dataUri).then(() => {
-          queryClient.invalidateQueries({ queryKey: ['maps'] });
-        }).catch(() => {
-          // Silent failure for thumbnails
-        });
-      }
-    } catch {
-      // Silent failure for thumbnails
+    let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+    if (srcRatio > targetRatio) {
+      cropW = Math.round(srcH * targetRatio);
+      cropX = Math.round((srcW - cropW) / 2);
+    } else {
+      cropH = Math.round(srcW / targetRatio);
+      cropY = Math.round((srcH - cropH) / 2);
     }
-  });
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = thumbW;
+    offscreen.height = thumbH;
+    const ctx = offscreen.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
+      const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
+      uploadThumbnail(mapId, dataUri).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['maps'] });
+      }).catch(() => {
+        // Silent failure for thumbnails
+      });
+    }
+  } catch {
+    // Silent failure for thumbnails
+  }
+}
+
+/** Capture a 400x250 JPEG thumbnail from the map canvas and upload it.
+ *  If the map is already idle/loaded, captures immediately (preserveDrawingBuffer
+ *  guarantees canvas contents persist). Otherwise waits for the idle event with a
+ *  3-second safety timeout to prevent silent drops. */
+function captureThumbnail(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
+  if (map.loaded()) {
+    doCapture(map, mapId, queryClient);
+  } else {
+    let captured = false;
+    const capture = () => {
+      if (captured) return;
+      captured = true;
+      doCapture(map, mapId, queryClient);
+    };
+    map.once('idle', capture);
+    setTimeout(() => {
+      if (!captured) {
+        map.off('idle', capture);
+        capture();
+      }
+    }, 3000);
+  }
 }
 
 interface SaveState {
@@ -170,12 +191,7 @@ export function useBuilderSave(state: SaveState) {
   function maybeAutoCaptureThumbnail(map: MaplibreMap) {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
     thumbCaptured.current = true;
-    const id = state.mapId;
-    if (map.loaded()) {
-      captureThumbnail(map, id, queryClient);
-    } else {
-      map.once('idle', () => captureThumbnail(map, id, queryClient));
-    }
+    captureThumbnail(map, state.mapId, queryClient);
   }
 
   // Warn before tab close / refresh with unsaved changes

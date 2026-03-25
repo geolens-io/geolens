@@ -55,6 +55,8 @@ function createMockMap() {
     getPitch: vi.fn(() => 0),
     triggerRepaint: vi.fn(),
     once: vi.fn(),
+    off: vi.fn(),
+    loaded: vi.fn(() => true),
     getCanvas: vi.fn(() => ({
       width: 800,
       height: 600,
