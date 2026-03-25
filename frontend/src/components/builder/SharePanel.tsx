@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users } from 'lucide-react';
+import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -88,6 +88,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
   const shareTokenQuery = useMapShareToken(mapId);
   const shareToken = shareTokenQuery.data?.token ?? null;
   const shareExpires = shareTokenQuery.data?.expires_at ?? null;
+  const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
   const embedTokensQuery = useMapEmbedTokens(shareToken ? mapId : undefined);
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
@@ -327,8 +328,14 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     </div>
 
                     {/* Status summary */}
+                    {isExpired && (
+                      <div className="flex items-center gap-1.5 text-xs text-destructive">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        <span>{t('share.expired')}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span>
+                      <span className={isExpired ? 'text-destructive' : undefined}>
                         {t('share.summaryExpires')}: {shareExpires ? new Date(shareExpires).toLocaleDateString() : t('share.summaryNever')}
                       </span>
                       {configDomains && (

@@ -153,7 +153,8 @@
     "summaryUnrestricted": "Unrestricted",
     "expirationUpdated": "Expiration updated",
     "domainsUpdated": "Domain restrictions updated",
-    "updateFailed": "Failed to save changes"
+    "updateFailed": "Failed to save changes",
+    "expired": "This share link has expired"
   },
   "chat": {
     "emptyState": "Describe changes to your map using natural language.",

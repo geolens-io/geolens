@@ -153,7 +153,8 @@
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
     "domainsUpdated": "Domain-Einschränkungen aktualisiert",
-    "updateFailed": "Änderungen konnten nicht gespeichert werden"
+    "updateFailed": "Änderungen konnten nicht gespeichert werden",
+    "expired": "Dieser Link ist abgelaufen"
   },
   "chat": {
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
