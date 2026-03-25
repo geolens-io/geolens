@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, getCompoundOpacity } from '@/components/builder/map-sync';
+import { getLayerType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { resolveBasemapId } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapResponse, LabelConfig, StyleConfig } from '@/types/api';
@@ -338,9 +338,6 @@ export function useBuilderLayers(
     }
   }
 
-  // Custom paint props stored in JSON but not valid MapLibre fill paint properties
-  const CUSTOM_PROPS = new Set(['_outline-width', '_outline-color']);
-
   function handleStyleConfigChange(
     layerId: string,
     config: StyleConfig | null,
@@ -361,7 +358,7 @@ export function useBuilderLayers(
     if (!map.getLayer(mapLayerId)) return;
 
     for (const [prop, value] of Object.entries(paint)) {
-      if (value !== undefined && !CUSTOM_PROPS.has(prop)) {
+      if (value !== undefined && !CUSTOM_PAINT_PROPS.has(prop)) {
         try {
           map.setPaintProperty(
             mapLayerId,
@@ -406,7 +403,7 @@ export function useBuilderLayers(
 
     // Generic paint property sync
     for (const [prop, value] of Object.entries(newPaint)) {
-      if (CUSTOM_PROPS.has(prop)) continue;
+      if (CUSTOM_PAINT_PROPS.has(prop)) continue;
       if (value !== undefined && map.getLayer(mapLayerId)) {
         try {
           map.setPaintProperty(mapLayerId, prop, value);

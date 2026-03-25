@@ -6,7 +6,7 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
  *  These are read separately and applied to the outline line layer for polygons. */
-const CUSTOM_PAINT_PROPS = new Set([
+export const CUSTOM_PAINT_PROPS = new Set([
   '_outline-width', '_outline-color',
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
@@ -97,6 +97,37 @@ export function getCompoundOpacity(
   return propOpacity * masterOpacity;
 }
 
+/** Strip custom paint properties that are not valid MapLibre paint props. */
+export function stripCustomProps(paint: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(paint).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k)));
+}
+
+/** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
+function replayExpressions(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
+  for (const [prop, val] of Object.entries(rawPaint)) {
+    if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
+      try { map.setPaintProperty(layerId, prop, val); }
+      catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
+    }
+  }
+}
+
+/** Apply expression replay, compound opacity, and filter after addLayer. */
+function finalizeLayer(
+  map: MaplibreMap,
+  layerId: string,
+  rawPaint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+  layer: MapLayerResponse,
+  hasExpressions: boolean,
+) {
+  if (hasExpressions) replayExpressions(map, layerId, rawPaint);
+  map.setPaintProperty(layerId, `${geomType}-opacity`, getCompoundOpacity(rawPaint, geomType, layer.opacity ?? 1));
+  if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+    map.setFilter(layerId, layer.filter);
+  }
+}
+
 /** Imperatively add all data layers to the map. Safe to call repeatedly. */
 export function syncLayersToMap(
   map: MaplibreMap,
@@ -176,11 +207,7 @@ export function syncLayersToMap(
 
       if (type === 'circle') {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-        // Strip custom properties that are not valid MapLibre circle paint props.
-        const circlePaint: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(basePaint)) {
-          if (!CUSTOM_PAINT_PROPS.has(k)) circlePaint[k] = v;
-        }
+        const circlePaint = stripCustomProps(basePaint);
         map.addLayer({
           id: layerId,
           type: 'circle',
@@ -194,27 +221,13 @@ export function syncLayersToMap(
           },
           layout: (layer.layout as Record<string, unknown>) ?? {},
         });
-        if (hasExpressions) {
-          for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
-              try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
-            }
-          }
-        }
-        map.setPaintProperty(layerId, 'circle-opacity', getCompoundOpacity(rawPaint, 'circle', layer.opacity ?? 1));
-        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-          map.setFilter(layerId, layer.filter);
-        }
+        finalizeLayer(map, layerId, rawPaint, 'circle', layer, hasExpressions);
       } else if (type === 'line') {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
         // line-dasharray is stored in layout JSON but is a MapLibre paint property
         const storedLayout = (layer.layout as Record<string, unknown>) ?? {};
         const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
-        // Strip custom properties that are not valid MapLibre line paint props.
-        const linePaint: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(basePaint)) {
-          if (!CUSTOM_PAINT_PROPS.has(k)) linePaint[k] = v;
-        }
+        const linePaint = stripCustomProps(basePaint);
         if (Object.keys(linePaint).length === 0) {
           linePaint['line-color'] = MAP_COLORS.default.fill;
           linePaint['line-width'] = 2;
@@ -234,24 +247,10 @@ export function syncLayersToMap(
             ...restLayout,
           },
         });
-        if (hasExpressions) {
-          for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
-              try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
-            }
-          }
-        }
-        map.setPaintProperty(layerId, 'line-opacity', getCompoundOpacity(rawPaint, 'line', layer.opacity ?? 1));
-        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-          map.setFilter(layerId, layer.filter);
-        }
+        finalizeLayer(map, layerId, rawPaint, 'line', layer, hasExpressions);
       } else {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-        // Strip custom properties that are not valid MapLibre fill paint props.
-        const fillPaint: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(basePaint)) {
-          if (!CUSTOM_PAINT_PROPS.has(k)) fillPaint[k] = v;
-        }
+        const fillPaint = stripCustomProps(basePaint);
         const strokeDisabled = !!(layer.paint as Record<string, unknown>)?.['_stroke-disabled'];
         const effectiveFillPaint = Object.keys(fillPaint).length ? { ...fillPaint } : {
           'fill-color': MAP_COLORS.default.fill,
@@ -269,17 +268,7 @@ export function syncLayersToMap(
           paint: effectiveFillPaint,
           layout: (layer.layout as Record<string, unknown>) ?? {},
         });
-        if (hasExpressions) {
-          for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
-              try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
-            }
-          }
-        }
-        map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', layer.opacity ?? 1));
-        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-          map.setFilter(layerId, layer.filter);
-        }
+        finalizeLayer(map, layerId, rawPaint, 'fill', layer, hasExpressions);
         // Custom paint properties: '_outline-color' and '_outline-width' are stored
         // in the layer's paint JSON but are NOT standard MapLibre fill paint properties.
         // They are read here and applied to a separate 'line' layer that acts as the
