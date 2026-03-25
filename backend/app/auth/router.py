@@ -189,6 +189,7 @@ async def me(
         email=current_user.email,
         is_active=current_user.is_active,
         status=current_user.status,
+        last_login_at=current_user.last_login_at,
         created_at=current_user.created_at,
         roles=sorted(roles),
     )
