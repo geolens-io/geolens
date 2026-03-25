@@ -32,6 +32,10 @@ export async function listUsers(
   return apiFetch<UserListResponse>(`/admin/users${qs ? `?${qs}` : ''}`);
 }
 
+export async function listUserNames(): Promise<{ id: string; username: string }[]> {
+  return apiFetch<{ id: string; username: string }[]>('/admin/users/names');
+}
+
 export async function listAdminJobs(
   params: { status?: string; user_id?: string; search?: string; skip?: number; limit?: number } = {},
 ): Promise<AdminJobListResponse> {
