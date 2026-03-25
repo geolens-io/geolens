@@ -189,6 +189,7 @@ export function useAdminRevokeShareToken() {
     mutationFn: (tokenId: string) => adminRevokeShareToken(tokenId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'share-tokens'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'embed-tokens'] });
     },
   });
 }

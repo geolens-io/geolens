@@ -924,7 +924,16 @@ class TestShareToken:
             f"/maps/{map_id}/share", headers=admin_auth_header
         )
         assert share_resp.status_code == 200
-        share_token_id = share_resp.json()["id"]
+
+        # Fetch share token ID via admin listing (POST response doesn't include id)
+        admin_list = await client.get(
+            "/admin/share-tokens?limit=50", headers=admin_auth_header
+        )
+        share_token_id = next(
+            t["id"]
+            for t in admin_list.json()["tokens"]
+            if t["map_id"] == map_id
+        )
 
         # Create an embed token for the map
         embed_resp = await client.post(
