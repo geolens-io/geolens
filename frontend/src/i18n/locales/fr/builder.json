@@ -50,7 +50,9 @@
       "dashed": "Tirets",
       "dotted": "Pointillés",
       "dashDot": "Tiret-point"
-    }
+    },
+    "toggleFill": "Basculer la visibilité du remplissage",
+    "toggleStroke": "Basculer la visibilité du contour"
   },
   "filters": {
     "title": "Filtres",

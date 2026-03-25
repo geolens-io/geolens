@@ -50,7 +50,9 @@
       "dashed": "Guiones",
       "dotted": "Puntos",
       "dashDot": "Gui\u00f3n-punto"
-    }
+    },
+    "toggleFill": "Alternar visibilidad del relleno",
+    "toggleStroke": "Alternar visibilidad del trazo"
   },
   "filters": {
     "title": "Filtros",

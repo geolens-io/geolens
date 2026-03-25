@@ -50,7 +50,9 @@
       "dashed": "Gestrichelt",
       "dotted": "Gepunktet",
       "dashDot": "Strich-Punkt"
-    }
+    },
+    "toggleFill": "Füllsichtbarkeit umschalten",
+    "toggleStroke": "Kontursichtbarkeit umschalten"
   },
   "filters": {
     "title": "Filter",
