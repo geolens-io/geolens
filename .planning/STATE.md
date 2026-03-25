@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260325-bsk
-last_updated: "2026-03-25T12:54:06.947Z"
-last_activity: "2026-03-25 - Completed quick task 260324-t98: GTM evaluation with codebase audit and market analysis"
+stopped_at: Completed quick-260325-egu
+last_updated: "2026-03-25T14:31:26.742Z"
+last_activity: "2026-03-25 - Completed quick task 260325-bsk: Review non-spatial data page UI/UX and fix easy wins"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -129,6 +129,7 @@ Plan: Not started
 - [Phase quick-260324-qu5]: Non-spatial datasets get exactly 2 distributions (csv download + ogc_features); geometry_type param gates generate_distributions filtering
 - [Phase quick-260324-rxq]: Capture map ref before mutate() call — mapInstanceRef.current is transiently null in onSuccess due to unstable callback ref identity; also use map.loaded() check with 3s safety timeout instead of triggerRepaint+idle pattern
 - [Phase quick-260324-t98]: Community edition is substantially complete (18/21 features exist); enterprise edition has zero implemented features; Year 1 revenue realistically $0-25K; Team tier achievable with 4-6 weeks (SAML + branding toggle + audit export)
+- [Phase quick-260325-egu]: effectiveTotal fallback for small tables: approximateTotal > 0 ? approximateTotal : rowCount; isExact flag drives tilde-free display
 
 ### Pending Todos
 
@@ -194,6 +195,6 @@ Plan: Not started
 ## Session Continuity
 
 Last activity: 2026-03-25 - Completed quick task 260325-bsk: Review non-spatial data page UI/UX and fix easy wins
-Last session: 2026-03-25T12:54:06.943Z
-Stopped at: Completed quick-260325-bsk
+Last session: 2026-03-25T14:31:22.387Z
+Stopped at: Completed quick-260325-egu
 Resume file: None
