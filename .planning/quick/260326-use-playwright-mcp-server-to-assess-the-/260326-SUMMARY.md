@@ -22,7 +22,7 @@ decisions:
   - Ground the audit in the live local app first, then confirm the root cause in source
   - Keep this quick task docs-only to avoid colliding with unrelated in-flight code changes
 metrics:
-  duration: TBD
+  duration: 12min
   completed: 2026-03-25
 ---
 
@@ -62,7 +62,7 @@ None. The task remained a docs-only audit from start to finish.
 
 ## Task Commits
 
-1. **Quick task artifacts for search-page audit** - `TBD` (docs)
+1. **Quick task artifacts for search-page audit** - `4fd2d847` (docs)
 
 ## Self-Check
 
