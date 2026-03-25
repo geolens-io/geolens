@@ -301,6 +301,56 @@ describe('SearchResultCard', () => {
     });
   });
 
+  // Table record tests
+  describe('Table records', () => {
+    it('renders Table type badge', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 500,
+            crs: null,
+          })}
+        />,
+      );
+
+      expect(screen.getByText('Table')).toBeInTheDocument();
+    });
+
+    it('shows "X rows" not "X features" in specs', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 500,
+            crs: null,
+          })}
+        />,
+      );
+
+      const specs = screen.getByTestId('dataset-card-specs');
+      expect(specs).toHaveTextContent('500 rows');
+      expect(specs).not.toHaveTextContent('500 features');
+    });
+
+    it('still shows "X features" for vector records (regression check)', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'vector_dataset',
+            feature_count: 195,
+          })}
+        />,
+      );
+
+      const specs = screen.getByTestId('dataset-card-specs');
+      expect(specs).toHaveTextContent('195 features');
+      expect(specs).not.toHaveTextContent('195 rows');
+    });
+  });
+
   // Status badge tests
   describe('Status badges', () => {
     it('renders draft badge for non-published datasets', () => {
