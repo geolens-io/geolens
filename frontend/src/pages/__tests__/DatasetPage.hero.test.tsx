@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, act } from '@/test/test-utils';
 import { useParams } from 'react-router';
 import { useDataset, useUpdateDataset } from '@/hooks/use-dataset';
@@ -51,17 +52,17 @@ vi.mock('@/stores/drawing-store', () => ({
 
 vi.mock('@/components/dataset/DatasetMap', () => ({
   DatasetMap: (props: { onMapReady?: () => void; onTileError?: () => void }) => {
-    const { useEffect } = require('react');
-    useEffect(() => {
-      if (mockMapConfig.autoFireMapReady && props.onMapReady) {
-        props.onMapReady();
+    const { onMapReady, onTileError } = props;
+    React.useEffect(() => {
+      if (mockMapConfig.autoFireMapReady && onMapReady) {
+        onMapReady();
       }
-    }, [props.onMapReady]);
+    }, [onMapReady]);
     return (
       <div
         data-testid="dataset-map"
-        data-has-on-map-ready={String(!!props.onMapReady)}
-        data-has-on-tile-error={String(!!props.onTileError)}
+        data-has-on-map-ready={String(!!onMapReady)}
+        data-has-on-tile-error={String(!!onTileError)}
       />
     );
   },
