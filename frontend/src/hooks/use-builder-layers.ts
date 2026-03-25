@@ -9,6 +9,14 @@ import { resolveBasemapId } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 
+const EPHEMERAL_LAYERS = [
+  'ephemeral-result-fill',
+  'ephemeral-result-outline',
+  'ephemeral-result-line',
+  'ephemeral-result-circle',
+] as const;
+const EPHEMERAL_SOURCE = 'ephemeral-result';
+
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
   mapInstanceRef: React.RefObject<MaplibreMap | null>,
@@ -44,11 +52,12 @@ export function useBuilderLayers(
   }, [mapData]);
 
   // Sync layers from API when they change (after add/remove mutations)
+  const apiLayers = mapData?.layers;
   useEffect(() => {
-    if (mapData && initializedRef.current) {
-      setLocalLayers(mapData.layers);
+    if (apiLayers && initializedRef.current) {
+      setLocalLayers(apiLayers);
     }
-  }, [mapData?.layers]);
+  }, [apiLayers]);
 
   // Handle ?add_dataset URL param: auto-add a dataset as a layer on map load
   useEffect(() => {
@@ -83,14 +92,6 @@ export function useBuilderLayers(
   }, [mapInstanceRef]);
 
   // --- Ephemeral layer management ---
-
-  const EPHEMERAL_LAYERS = [
-    'ephemeral-result-fill',
-    'ephemeral-result-outline',
-    'ephemeral-result-line',
-    'ephemeral-result-circle',
-  ] as const;
-  const EPHEMERAL_SOURCE = 'ephemeral-result';
 
   const clearEphemeralLayer = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -173,7 +174,7 @@ export function useBuilderLayers(
     } else {
       map.once('style.load', addLayers);
     }
-  }, [ephemeralResult]);
+  }, [ephemeralResult, mapInstanceRef]);
 
   const handleQueryResult = useCallback((geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => {
     setEphemeralResult({ geojson, bbox });
