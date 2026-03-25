@@ -171,6 +171,7 @@ export function UserList() {
                 <TableHead>{t('users.table.email')}</TableHead>
                 <TableHead>{t('users.table.roles')}</TableHead>
                 <TableHead>{t('users.table.status')}</TableHead>
+                <TableHead>{t('users.table.lastLogin')}</TableHead>
                 <TableHead>{t('users.table.created')}</TableHead>
                 <TableHead>{t('users.table.actions')}</TableHead>
               </TableRow>
@@ -182,6 +183,7 @@ export function UserList() {
                   { width: 'w-32' },
                   { width: 'w-14', rounded: true },
                   { width: 'w-16', rounded: true },
+                  { width: 'w-20' },
                   { width: 'w-20' },
                   { width: 'w-8' },
                 ]} />
@@ -216,6 +218,9 @@ export function UserList() {
                           </Badge>
                         );
                       })()}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {user.last_login_at ? formatDate(user.last_login_at) : '—'}
                     </TableCell>
                     <TableCell>{formatDate(user.created_at)}</TableCell>
                     <TableCell>

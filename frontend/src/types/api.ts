@@ -14,6 +14,7 @@ export interface UserResponse {
   email: string | null;
   is_active: boolean;
   status: string;
+  last_login_at: string | null;
   created_at: string;
   roles: string[];
 }

@@ -38,7 +38,7 @@
       "email": "E-mail",
       "roles": "Rôles",
       "status": "Statut",
-      "active": "Actif",
+      "lastLogin": "Dernière connexion",
       "created": "Création",
       "actions": "Actions"
     },

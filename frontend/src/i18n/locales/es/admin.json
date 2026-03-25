@@ -38,7 +38,7 @@
       "email": "Correo electrónico",
       "roles": "Roles",
       "status": "Estado",
-      "active": "Activo",
+      "lastLogin": "Último acceso",
       "created": "Creado",
       "actions": "Acciones"
     },

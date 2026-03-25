@@ -31,6 +31,7 @@ class UserResponse(BaseModel):
     email: str | None
     is_active: bool
     status: str
+    last_login_at: datetime | None
     created_at: datetime
     roles: list[str]
 
