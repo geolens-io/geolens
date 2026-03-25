@@ -24,6 +24,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const AI_FIELDS = [
@@ -36,7 +37,7 @@ const AI_FIELDS = [
   { key: 'embedding_dims', defaultValue: '0', coerce: String },
 ] as const;
 
-export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
+export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { data: keyStatus } = useApiKeyStatus();
   const { data: aiStatus } = useAIStatus();
@@ -402,7 +403,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
 
       <Separator />
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

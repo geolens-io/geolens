@@ -13,6 +13,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const CAPABILITY_KEYS = [
@@ -33,7 +34,7 @@ type RolePermissions = Record<string, Record<string, boolean>>;
 /** Admin column: these capabilities are always checked and disabled */
 const ADMIN_LOCKED = new Set(['manage_users', 'manage_settings']);
 
-export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
+export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const [matrix, setMatrix] = useState<RolePermissions>({});
 
@@ -60,6 +61,10 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
   }, []);
 
   const isDirty = JSON.stringify(matrix) !== JSON.stringify(setting?.value ?? {});
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   function handleSave() {
     onSave({ role_permissions: matrix });

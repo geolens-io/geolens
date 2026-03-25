@@ -339,6 +339,12 @@
       "discard": "Descartar cambios",
       "resetDefaults": "Restablecer valores predeterminados"
     },
+    "unsaved": {
+      "title": "Cambios sin guardar",
+      "description": "Tiene configuraciones sin guardar que se perderán si sale.",
+      "stay": "Quedarse",
+      "leave": "Salir"
+    },
     "sourceBadge": {
       "reset": "Restablecer",
       "resetToDefault": "Restablecer al valor predeterminado",

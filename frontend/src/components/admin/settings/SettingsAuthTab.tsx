@@ -51,6 +51,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function useProviderTypeLabels(): Record<string, string> {
@@ -594,7 +595,7 @@ const AUTH_FIELDS = [
   { key: 'login_rate_limit', defaultValue: 5 },
 ] as const;
 
-export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
+export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS);
 
@@ -673,7 +674,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving }
 
         <p className="text-sm text-muted-foreground italic">{t('settings.security.tokenLifetimeNote')}</p>
 
-        <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
+        <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
       </div>
 
       {/* Separator */}

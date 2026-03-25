@@ -339,6 +339,12 @@
       "discard": "Annuler les modifications",
       "resetDefaults": "Rétablir les valeurs par défaut"
     },
+    "unsaved": {
+      "title": "Modifications non enregistrées",
+      "description": "Vous avez des paramètres non enregistrés qui seront perdus si vous quittez.",
+      "stay": "Rester",
+      "leave": "Quitter"
+    },
     "sourceBadge": {
       "reset": "Réinitialiser",
       "resetToDefault": "Rétablir la valeur par défaut",

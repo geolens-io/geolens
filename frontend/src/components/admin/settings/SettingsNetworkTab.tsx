@@ -13,6 +13,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const FIELDS = [
@@ -20,7 +21,7 @@ const FIELDS = [
   { key: 'global_rate_limit', defaultValue: 60 },
 ] as const;
 
-export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
+export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS);
 
@@ -61,7 +62,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
         />
       </div>
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

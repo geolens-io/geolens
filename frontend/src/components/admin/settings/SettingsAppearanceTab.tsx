@@ -31,6 +31,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function isValidTileUrl(url: string): boolean {
@@ -43,7 +44,7 @@ const APPEARANCE_FIELDS = [
   { key: 'map_defaults', defaultValue: { center_lat: 20, center_lng: 0, zoom: 2 } as MapDefaultsValue, compare: 'json' as const },
 ] as const;
 
-export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
+export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, APPEARANCE_FIELDS);
   const [newName, setNewName] = useState('');
@@ -223,7 +224,7 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
         </div>
       </div>
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

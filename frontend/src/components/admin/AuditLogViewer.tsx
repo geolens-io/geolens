@@ -161,9 +161,18 @@ export function AuditLogViewer() {
                     <Fragment key={log.id}>
                       <TableRow
                         className="cursor-pointer"
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={expandedId === log.id}
                         onClick={() =>
                           setExpandedId(expandedId === log.id ? null : log.id)
                         }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setExpandedId(expandedId === log.id ? null : log.id);
+                          }
+                        }}
                       >
                         <TableCell className="whitespace-nowrap">
                           {formatDateTimeSmart(log.created_at)}

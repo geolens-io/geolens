@@ -339,6 +339,12 @@
       "discard": "Änderungen verwerfen",
       "resetDefaults": "Auf Standardwerte zurücksetzen"
     },
+    "unsaved": {
+      "title": "Nicht gespeicherte Änderungen",
+      "description": "Sie haben nicht gespeicherte Einstellungen, die verloren gehen, wenn Sie die Seite verlassen.",
+      "stay": "Bleiben",
+      "leave": "Verlassen"
+    },
     "sourceBadge": {
       "reset": "Zurücksetzen",
       "resetToDefault": "Auf Standardwert zurücksetzen",

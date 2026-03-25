@@ -1,7 +1,10 @@
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Navigate } from 'react-router';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { EnvOnlyBanner } from '@/components/admin/settings/EnvOnlyBanner';
 import { SettingsGeneralTab } from '@/components/admin/settings/SettingsGeneralTab';
 import { SettingsAuthTab } from '@/components/admin/settings/SettingsAuthTab';
@@ -11,6 +14,7 @@ import { SettingsStorageTab } from '@/components/admin/settings/SettingsStorageT
 import { SettingsAppearanceTab } from '@/components/admin/settings/SettingsAppearanceTab';
 import { SettingsPermissionsTab } from '@/components/admin/settings/SettingsPermissionsTab';
 import { useAllSettings, useConfigMode, useUpdateSettings, useResetSettings } from '@/hooks/use-settings';
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import type { SettingItem } from '@/api/settings';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
@@ -33,6 +37,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }>> = {
   general: SettingsGeneralTab,
   auth: SettingsAuthTab,
@@ -51,6 +56,10 @@ export function AdminSettingsPage() {
   const { data: configMode } = useConfigMode();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSettings();
+  const [isDirty, setIsDirty] = useState(false);
+  const blocker = useUnsavedGuard(isDirty);
+
+  const handleDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
 
   const activeTab = (tab && TAB_KEYS.includes(tab as TabKey) ? tab : null) as TabKey | null;
 
@@ -125,8 +134,27 @@ export function AdminSettingsPage() {
           onSave={handleSave}
           onReset={handleReset}
           isSaving={updateMutation.isPending}
+          onDirtyChange={handleDirtyChange}
         />
       </div>
+
+      {/* Unsaved changes navigation guard */}
+      <Dialog open={blocker.state === 'blocked'} onOpenChange={() => blocker.reset?.()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('settings.unsaved.title')}</DialogTitle>
+            <DialogDescription>{t('settings.unsaved.description')}</DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => blocker.reset?.()}>
+              {t('settings.unsaved.stay')}
+            </Button>
+            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+              {t('settings.unsaved.leave')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
