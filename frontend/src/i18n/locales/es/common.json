@@ -124,7 +124,8 @@
     "datasetMembershipNotFound": "Membresía del conjunto de datos no encontrada",
     "sharedMapExpired": "Este enlace de mapa compartido ha caducado o ha sido revocado",
     "forbidden": "403",
-    "forbiddenAdmin": "Prohibido — Se requiere acceso de administrador"
+    "forbiddenAdmin": "Prohibido — Se requiere acceso de administrador",
+    "forbiddenEditor": "Prohibido — Se requiere acceso de editor o administrador"
   },
   "settings": {
     "tabs": {

@@ -145,7 +145,8 @@
     "datasetMembershipNotFound": "Dataset membership not found",
     "sharedMapExpired": "This shared map link has expired or been revoked",
     "forbidden": "403",
-    "forbiddenAdmin": "Forbidden — Admin access required"
+    "forbiddenAdmin": "Forbidden — Admin access required",
+    "forbiddenEditor": "Forbidden — Editor or Admin access required"
   },
   "settings": {
     "tabs": {
