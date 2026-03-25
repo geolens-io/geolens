@@ -26,6 +26,9 @@ class User(Base):
     auth_provider: Mapped[str] = mapped_column(
         String(20), server_default="local", nullable=False
     )
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

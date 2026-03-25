@@ -38,7 +38,7 @@
       "email": "Email",
       "roles": "Roles",
       "status": "Status",
-      "active": "Active",
+      "lastLogin": "Last Login",
       "created": "Created",
       "actions": "Actions"
     },

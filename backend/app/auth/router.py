@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user
@@ -85,6 +85,9 @@ async def login(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Account not active",
             )
+
+    # Record login timestamp
+    user.last_login_at = func.now()
 
     # Read token lifetimes from PersistentConfig (hot-reloadable)
     expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)

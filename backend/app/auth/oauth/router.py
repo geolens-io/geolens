@@ -6,6 +6,7 @@ import structlog
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.oauth.encryption import decrypt_secret
@@ -107,6 +108,9 @@ async def oauth_callback(
         user = await find_or_create_oauth_user(
             db, provider, dict(userinfo), dict(token)
         )
+
+        # Record login timestamp
+        user.last_login_at = func.now()
 
         # Issue GeoLens JWT
         expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
