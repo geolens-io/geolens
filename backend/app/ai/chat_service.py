@@ -308,7 +308,7 @@ You are a map editing assistant. The user has a map with these layers:
   - circle-color for Point/MultiPoint
 - For data-driven coloring (e.g., "color by population"), use set_data_driven_style, NOT set_style.
 - For simple flat color changes (e.g., "make it red"), use set_style.
-  Example paint: {{"fill-color": "#ef4444", "fill-opacity": 0.7, "fill-outline-color": "#dc2626"}}
+  Example paint: {{"fill-color": "#ef4444", "fill-opacity": 0.7, "_outline-color": "#dc2626"}}
 - For filter expressions, use MapLibre expression syntax: ["all", [">", "column", value]]
 - To add a new layer, first use search_datasets to find the dataset, then use add_layer with the dataset_id.
 - When the user asks a QUESTION about their data (counts, statistics, spatial
@@ -658,7 +658,7 @@ async def _build_categorical_style(
     # Ensure fill is visible when applying data-driven color to polygons
     if color_prop == "fill-color":
         paint["fill-opacity"] = 0.7
-        paint["fill-outline-color"] = "#374151"  # neutral dark gray outline
+        paint["_outline-color"] = "#374151"  # neutral dark gray outline
 
     return {
         "type": "set_data_driven_style",
@@ -731,7 +731,7 @@ async def _build_graduated_style(
     # Ensure fill is visible when applying data-driven color to polygons
     if color_prop == "fill-color":
         paint["fill-opacity"] = 0.7
-        paint["fill-outline-color"] = "#374151"  # neutral dark gray outline
+        paint["_outline-color"] = "#374151"  # neutral dark gray outline
 
     return {
         "type": "set_data_driven_style",

@@ -67,7 +67,7 @@ def generate_default_style(geometry_type: str | None) -> dict:
             "paint": {
                 "fill-color": "#3b82f6",
                 "fill-opacity": 0.3,
-                "fill-outline-color": "#1d4ed8",
+                "_outline-color": "#1d4ed8",
             },
             "layout": {},
         }

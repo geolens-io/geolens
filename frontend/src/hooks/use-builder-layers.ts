@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType } from '@/components/builder/map-sync';
+import { getLayerType, getCompoundOpacity } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { resolveBasemapId } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapResponse, LabelConfig, StyleConfig } from '@/types/api';
@@ -339,7 +339,7 @@ export function useBuilderLayers(
   }
 
   // Custom paint props stored in JSON but not valid MapLibre fill paint properties
-  const CUSTOM_PROPS = new Set(['outline-width', 'fill-outline-color']);
+  const CUSTOM_PROPS = new Set(['_outline-width', '_outline-color']);
 
   function handleStyleConfigChange(
     layerId: string,
@@ -377,11 +377,11 @@ export function useBuilderLayers(
     // Also sync custom props to the outline layer
     const outlineId = `layer-${layerId}-outline`;
     if (map.getLayer(outlineId)) {
-      if (paint['fill-outline-color'] !== undefined) {
-        try { map.setPaintProperty(outlineId, 'line-color', paint['fill-outline-color']); } catch {}
+      if (paint['_outline-color'] !== undefined) {
+        try { map.setPaintProperty(outlineId, 'line-color', paint['_outline-color']); } catch {}
       }
-      if (paint['outline-width'] !== undefined) {
-        try { map.setPaintProperty(outlineId, 'line-width', paint['outline-width']); } catch {}
+      if (paint['_outline-width'] !== undefined) {
+        try { map.setPaintProperty(outlineId, 'line-width', paint['_outline-width']); } catch {}
       }
     }
   }
@@ -395,70 +395,40 @@ export function useBuilderLayers(
     });
     setHasUnsavedChanges(true);
 
-    // Live map update
     const map = mapInstanceRef.current;
     if (!map || !map.isStyleLoaded()) return;
-
-    const layer = resolvedLayer ?? localLayers.find((l) => l.id === layerId);
+    const layer = resolvedLayer;
     if (!layer) return;
 
     const mapLayerId = `layer-${layerId}`;
     const outlineId = `layer-${layerId}-outline`;
     const geomType = getLayerType(layer.dataset_geometry_type);
 
-    if (geomType === 'fill') {
-      if (newPaint['fill-color'] && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'fill-color', newPaint['fill-color']);
+    // Generic paint property sync
+    for (const [prop, value] of Object.entries(newPaint)) {
+      if (CUSTOM_PROPS.has(prop)) continue;
+      if (value !== undefined && map.getLayer(mapLayerId)) {
+        try {
+          map.setPaintProperty(mapLayerId, prop, value);
+        } catch (e) {
+          if (import.meta.env.DEV) console.debug(`[builder] Failed to set ${prop}:`, e);
+        }
       }
-      if (newPaint['fill-opacity'] !== undefined && map.getLayer(mapLayerId)) {
-        const masterOpacity = layer.opacity ?? 1;
-        map.setPaintProperty(
-          mapLayerId,
-          'fill-opacity',
-          (newPaint['fill-opacity'] as number) * masterOpacity,
-        );
+    }
+
+    // Compound opacity override (product of per-type and master opacity)
+    if (map.getLayer(mapLayerId)) {
+      const opacityProp = `${geomType}-opacity`;
+      map.setPaintProperty(mapLayerId, opacityProp, getCompoundOpacity(newPaint, geomType, layer.opacity ?? 1));
+    }
+
+    // Custom outline props -> outline line layer
+    if (map.getLayer(outlineId)) {
+      if (newPaint['_outline-color'] !== undefined) {
+        map.setPaintProperty(outlineId, 'line-color', newPaint['_outline-color']);
       }
-      if (newPaint['fill-outline-color'] && map.getLayer(outlineId)) {
-        map.setPaintProperty(outlineId, 'line-color', newPaint['fill-outline-color']);
-      }
-      if (newPaint['outline-width'] !== undefined && map.getLayer(outlineId)) {
-        map.setPaintProperty(outlineId, 'line-width', newPaint['outline-width']);
-      }
-    } else if (geomType === 'line') {
-      if (newPaint['line-color'] && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'line-color', newPaint['line-color']);
-      }
-      if (newPaint['line-opacity'] !== undefined && map.getLayer(mapLayerId)) {
-        const masterOpacity = layer.opacity ?? 1;
-        map.setPaintProperty(
-          mapLayerId,
-          'line-opacity',
-          (newPaint['line-opacity'] as number) * masterOpacity,
-        );
-      }
-      if (newPaint['line-width'] !== undefined && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'line-width', newPaint['line-width']);
-      }
-    } else if (geomType === 'circle') {
-      if (newPaint['circle-color'] && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'circle-color', newPaint['circle-color']);
-      }
-      if (newPaint['circle-opacity'] !== undefined && map.getLayer(mapLayerId)) {
-        const masterOpacity = layer.opacity ?? 1;
-        map.setPaintProperty(
-          mapLayerId,
-          'circle-opacity',
-          (newPaint['circle-opacity'] as number) * masterOpacity,
-        );
-      }
-      if (newPaint['circle-radius'] !== undefined && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'circle-radius', newPaint['circle-radius']);
-      }
-      if (newPaint['circle-stroke-color'] && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'circle-stroke-color', newPaint['circle-stroke-color']);
-      }
-      if (newPaint['circle-stroke-width'] !== undefined && map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'circle-stroke-width', newPaint['circle-stroke-width']);
+      if (newPaint['_outline-width'] !== undefined) {
+        map.setPaintProperty(outlineId, 'line-width', newPaint['_outline-width']);
       }
     }
   }
@@ -472,11 +442,9 @@ export function useBuilderLayers(
     });
     setHasUnsavedChanges(true);
 
-    // Live map update
     const map = mapInstanceRef.current;
     if (!map || !map.isStyleLoaded()) return;
-
-    const layer = resolvedLayer ?? localLayers.find((l) => l.id === layerId);
+    const layer = resolvedLayer;
     if (!layer) return;
 
     const mapLayerId = `layer-${layerId}`;
@@ -487,23 +455,16 @@ export function useBuilderLayers(
       if (map.getLayer(mapLayerId)) {
         map.setPaintProperty(mapLayerId, 'raster-opacity', newOpacity);
       }
-    } else if (geomType === 'fill') {
+    } else {
       if (map.getLayer(mapLayerId)) {
-        const fillOpacity = (layer.paint?.['fill-opacity'] as number) ?? 0.3;
-        map.setPaintProperty(mapLayerId, 'fill-opacity', fillOpacity * newOpacity);
+        map.setPaintProperty(
+          mapLayerId,
+          `${geomType}-opacity`,
+          getCompoundOpacity(layer.paint ?? {}, geomType, newOpacity),
+        );
       }
-      if (map.getLayer(outlineId)) {
+      if (geomType === 'fill' && map.getLayer(outlineId)) {
         map.setPaintProperty(outlineId, 'line-opacity', newOpacity);
-      }
-    } else if (geomType === 'line') {
-      if (map.getLayer(mapLayerId)) {
-        const lineOpacity = (layer.paint?.['line-opacity'] as number) ?? 1;
-        map.setPaintProperty(mapLayerId, 'line-opacity', lineOpacity * newOpacity);
-      }
-    } else if (geomType === 'circle') {
-      if (map.getLayer(mapLayerId)) {
-        const circleOpacity = (layer.paint?.['circle-opacity'] as number) ?? 1;
-        map.setPaintProperty(mapLayerId, 'circle-opacity', circleOpacity * newOpacity);
       }
     }
   }

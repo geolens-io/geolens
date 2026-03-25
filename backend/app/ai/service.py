@@ -57,12 +57,12 @@ Use distinct colors for each layer. Suggested palette:
 - #3b82f6 (blue), #ef4444 (red), #22c55e (green), #f59e0b (amber),
   #8b5cf6 (purple), #ec4899 (pink), #06b6d4 (cyan), #f97316 (orange)
 
-For polygons: use fill-opacity 0.2-0.4 with a darker fill-outline-color.
+For polygons: use fill-opacity 0.2-0.4 with a darker _outline-color.
 For lines: use line-width 1.5-3.
 For points: use circle-radius 4-6 with a stroke.
 
 IMPORTANT: Use the correct paint properties for each geometry type:
-- Polygon/MultiPolygon: fill-color, fill-opacity, fill-outline-color
+- Polygon/MultiPolygon: fill-color, fill-opacity, _outline-color
 - LineString/MultiLineString: line-color, line-width, line-opacity
 - Point/MultiPoint: circle-color, circle-radius, circle-stroke-color, circle-stroke-width
 Do NOT mix properties across geometry types (e.g. no fill-color on a point layer).
@@ -122,7 +122,7 @@ After gathering datasets, output your map specification as JSON inside \
       "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
-      "paint": {{"fill-color": "#3b82f6", "fill-opacity": 0.3, "fill-outline-color": "#1d4ed8"}},
+      "paint": {{"fill-color": "#3b82f6", "fill-opacity": 0.3, "_outline-color": "#1d4ed8"}},
       "layout": {{}}
     }}
   ],
