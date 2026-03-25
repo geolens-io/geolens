@@ -32,15 +32,22 @@ export function MapLegend({ layers }: MapLegendProps) {
 
               {layer.styleConfig?.mode === 'categorical' && layer.styleConfig.categories && (
                 <ul className="space-y-0.5">
-                  {layer.styleConfig.categories.map((cat, i) => (
-                    <li key={i} className="flex items-center gap-1.5">
-                      <div
-                        className="w-3 h-3 rounded-sm shrink-0"
-                        style={{ backgroundColor: cat.color, ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}) }}
-                      />
-                      <span className="text-muted-foreground truncate">{cat.value}</span>
-                    </li>
-                  ))}
+                  {layer.styleConfig.categories.map((cat, i) => {
+                    const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
+                    return (
+                      <li key={i} className="flex items-center gap-1.5">
+                        <div
+                          className="w-3 h-3 rounded-sm shrink-0 border"
+                          style={{
+                            backgroundColor: cat.color,
+                            borderColor: outlineColor ?? 'rgba(0,0,0,0.2)',
+                            ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}),
+                          }}
+                        />
+                        <span className="text-muted-foreground truncate">{cat.value}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
 
@@ -50,6 +57,7 @@ export function MapLegend({ layers }: MapLegendProps) {
                   <ul className="space-y-0.5">
                     {layer.styleConfig.colors.map((color, i) => {
                       const breaks = layer.styleConfig!.breaks!;
+                      const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
                       let label: string;
                       if (i === 0) {
                         label = `< ${breaks[0]}`;
@@ -61,8 +69,12 @@ export function MapLegend({ layers }: MapLegendProps) {
                       return (
                         <li key={i} className="flex items-center gap-1.5">
                           <div
-                            className="w-3 h-3 rounded-sm shrink-0"
-                            style={{ backgroundColor: color, ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}) }}
+                            className="w-3 h-3 rounded-sm shrink-0 border"
+                            style={{
+                              backgroundColor: color,
+                              borderColor: outlineColor ?? 'rgba(0,0,0,0.2)',
+                              ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}),
+                            }}
                           />
                           <span className="text-muted-foreground truncate">{label}</span>
                         </li>
