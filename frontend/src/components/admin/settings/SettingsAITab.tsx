@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Info, Loader2, XCircle, AlertTriangle, Zap } from 'lucide-react';
+import { SettingsFormActions } from './SettingsFormActions';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -430,15 +431,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
 
       <Separator />
 
-      <div className="flex items-center gap-3 pt-2">
-        <Button onClick={() => onSave(dirty)} disabled={!hasDirty || envOnly || isSaving}>
-          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          {t('common:save')}
-        </Button>
-        <Button variant="outline" onClick={syncFromSettings} disabled={!hasDirty || isSaving}>
-          {t('settings.actions.discard')}
-        </Button>
-      </div>
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={syncFromSettings} />
     </div>
   );
 }
