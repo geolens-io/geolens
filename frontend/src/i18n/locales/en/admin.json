@@ -45,7 +45,7 @@
     "status": {
       "pending": "Pending",
       "active": "Active",
-      "inactive": "Inactive"
+      "deactivated": "Deactivated"
     },
     "actions": {
       "approve": "Approve",
