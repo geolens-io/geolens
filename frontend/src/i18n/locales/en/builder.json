@@ -50,7 +50,9 @@
       "dashed": "Dashed",
       "dotted": "Dotted",
       "dashDot": "Dash-dot"
-    }
+    },
+    "toggleFill": "Toggle fill visibility",
+    "toggleStroke": "Toggle stroke visibility"
   },
   "filters": {
     "title": "Filters",

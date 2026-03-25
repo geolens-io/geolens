@@ -6,7 +6,11 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
  *  These are read separately and applied to the outline line layer for polygons. */
-const CUSTOM_PAINT_PROPS = new Set(['_outline-width', '_outline-color']);
+const CUSTOM_PAINT_PROPS = new Set([
+  '_outline-width', '_outline-color',
+  '_fill-disabled', '_stroke-disabled',
+  '_fill-opacity-saved', '_outline-width-saved',
+]);
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
@@ -234,9 +238,10 @@ export function syncLayersToMap(
       } else {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
         // Strip custom properties that are not valid MapLibre fill paint props.
-        // '_outline-width' and '_outline-color' are stored in paint JSON but
-        // applied to a separate line layer below.
-        const { '_outline-width': _ow, '_outline-color': _foc, ...fillPaint } = basePaint;
+        const fillPaint: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(basePaint)) {
+          if (!CUSTOM_PAINT_PROPS.has(k)) fillPaint[k] = v;
+        }
         map.addLayer({
           id: layerId,
           type: 'fill',
@@ -250,7 +255,7 @@ export function syncLayersToMap(
         });
         if (hasExpressions) {
           for (const [prop, val] of Object.entries(rawPaint)) {
-            if (Array.isArray(val) && prop !== '_outline-width' && prop !== '_outline-color') {
+            if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
               try { map.setPaintProperty(layerId, prop, val); } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
             }
           }
