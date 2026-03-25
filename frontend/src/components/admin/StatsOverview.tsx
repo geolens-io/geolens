@@ -32,6 +32,8 @@ import type { LucideIcon } from 'lucide-react';
 function StatusDot({ status }: { status: string }) {
   return (
     <span
+      role="img"
+      aria-label={status === 'ok' ? 'Healthy' : 'Degraded'}
       className={`inline-block h-2.5 w-2.5 rounded-full ${
         status === 'ok' ? 'bg-emerald-500' : 'bg-destructive'
       }`}

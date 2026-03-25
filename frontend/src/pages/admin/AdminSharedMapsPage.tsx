@@ -265,7 +265,6 @@ export function AdminSharedMapsPage() {
         title={t('sharedMaps.title')}
         breadcrumbs={[{ label: t('common:adminNav.admin'), to: '/admin' }]}
       />
-      <div className="p-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3 mb-4">
@@ -449,7 +448,6 @@ export function AdminSharedMapsPage() {
             />
           </CardContent>
         </Card>
-      </div>
     </>
   );
 }

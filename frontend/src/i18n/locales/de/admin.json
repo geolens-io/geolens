@@ -52,6 +52,7 @@
       "reject": "Ablehnen",
       "deactivate": "Deaktivieren"
     },
+    "actionsFor": "Aktionen für {{name}}",
     "approveDialog": {
       "title": "{{username}} genehmigen",
       "description": "Wählen Sie eine Rolle für diesen Benutzer, bevor Sie die Registrierung genehmigen.",
