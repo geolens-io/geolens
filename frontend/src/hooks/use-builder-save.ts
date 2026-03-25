@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useBlocker } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -214,12 +214,14 @@ export function useBuilderSave(state: SaveState) {
 
   // Auto-capture thumbnail on first map load if none exists.
   // Called from handleMapRef when the map instance becomes available.
+  // Memoized to stabilize the callback ref identity in MapBuilderPage,
+  // preventing transient null ref cycles during re-renders.
   const thumbCaptured = useRef(false);
-  function maybeAutoCaptureThumbnail(map: MaplibreMap) {
+  const maybeAutoCaptureThumbnail = useCallback((map: MaplibreMap) => {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
     thumbCaptured.current = true;
     captureThumbnail(map, state.mapId, queryClient);
-  }
+  }, [state.hasThumbnail, state.mapId, queryClient]);
 
   // Warn before tab close / refresh with unsaved changes
   useEffect(() => {
