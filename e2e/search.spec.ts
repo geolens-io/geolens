@@ -19,6 +19,28 @@ test.describe('Search Flow', () => {
     ).toBeVisible();
   });
 
+  test('tablet browse keeps the desktop filter tray and spatial sheet semantics', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.goto('/?q=Zoning');
+
+    const stickyShell = page.getByTestId('search-sticky-shell');
+    await expect(stickyShell).toBeVisible();
+    await expect(
+      stickyShell.getByRole('button', { name: 'Keywords' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Filters' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Location' }).click();
+    const spatialDialog = page.getByRole('dialog', { name: 'Search area' });
+    await expect(spatialDialog).toBeVisible();
+    await expect(
+      spatialDialog.getByText('Draw a rectangle or polygon to limit search results to a specific area.'),
+    ).toBeVisible();
+
+    await spatialDialog.getByRole('button', { name: 'Close' }).click();
+    await expect(spatialDialog).toHaveCount(0);
+  });
+
   test('prefix search supports keyboard typeahead navigation', async ({ page }) => {
     // Verify search page loaded
     await page.goto('/');

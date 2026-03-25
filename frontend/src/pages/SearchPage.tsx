@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, type ReactNode } from 'react';
 import { Loader2, SearchX, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -17,6 +17,50 @@ import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { cn } from '@/lib/utils';
+
+interface SearchControlsProps {
+  compact?: boolean;
+  showFilters: boolean;
+  totalResults: number | undefined;
+  searchClassName?: string;
+  children?: ReactNode;
+}
+
+function SearchControls({
+  compact = false,
+  showFilters,
+  totalResults,
+  searchClassName,
+  children,
+}: SearchControlsProps) {
+  return (
+    <>
+      <SearchBar
+        mode={compact ? 'compact' : 'hero'}
+        className={searchClassName}
+      />
+      {children ? (
+        <div className={compact ? 'mt-3' : 'mt-4 md:mt-5'}>
+          {children}
+        </div>
+      ) : null}
+      {showFilters && (
+        <div
+          className={cn(
+            compact
+              ? 'mt-2.5 border-t border-border/40 pt-2.5'
+              : 'mx-auto mt-5 max-w-5xl border-t border-border/50 pt-4 md:mt-6 md:pt-5',
+          )}
+        >
+          <div className={cn(!compact && 'md:px-1')}>
+            <FilterPanel totalResults={totalResults} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export function SearchPage() {
   const { t } = useTranslation('search');
@@ -64,12 +108,11 @@ export function SearchPage() {
         >
           <div className="mx-auto max-w-6xl px-4 py-2.5 sm:px-6">
             <div className="rounded-[22px] border border-border/50 bg-background/92 px-3 py-2.5 shadow-sm">
-              <SearchBar mode="compact" />
-              {showStickyFilters && (
-                <div className="mt-2.5 border-t border-border/40 pt-2.5">
-                  <FilterPanel totalResults={data?.numberMatched} />
-                </div>
-              )}
+              <SearchControls
+                compact
+                showFilters={showStickyFilters}
+                totalResults={data?.numberMatched}
+              />
             </div>
           </div>
         </div>
@@ -84,13 +127,13 @@ export function SearchPage() {
                   {t('subtitle')}
                 </p>
               </div>
-              <SearchBar className="max-w-4xl" />
-              {token && <SavedSearches className="justify-center" />}
-            </div>
-            <div className="mx-auto mt-5 max-w-5xl border-t border-border/50 pt-4 md:mt-6 md:pt-5">
-              <div className="md:px-1">
-                <FilterPanel totalResults={data?.numberMatched} />
-              </div>
+              <SearchControls
+                showFilters
+                totalResults={data?.numberMatched}
+                searchClassName="max-w-4xl"
+              >
+                {token ? <SavedSearches className="justify-center" /> : null}
+              </SearchControls>
             </div>
           </section>
         )}
