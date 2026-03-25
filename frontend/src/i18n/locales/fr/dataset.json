@@ -147,7 +147,9 @@
     "editSaved": "Cellule mise à jour",
     "editFailed": "Échec de la mise à jour de la cellule",
     "filter": "Filtrer...",
-    "noResults": "Aucune ligne correspondante trouvée."
+    "noResults": "Aucune ligne correspondante trouvée.",
+    "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
+    "rowsPerPage": "Lignes par page"
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",

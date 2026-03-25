@@ -147,7 +147,9 @@
     "editSaved": "Zelle aktualisiert",
     "editFailed": "Zelle konnte nicht aktualisiert werden",
     "filter": "Filtern...",
-    "noResults": "Keine passenden Zeilen gefunden."
+    "noResults": "Keine passenden Zeilen gefunden.",
+    "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
+    "rowsPerPage": "Zeilen pro Seite"
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",

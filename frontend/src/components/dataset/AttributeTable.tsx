@@ -10,9 +10,10 @@ import { toast } from 'sonner';
 import { useDatasetRows } from '@/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
 import { useDebouncedValue } from '@/hooks/use-debounce';
-import { DEFAULT_ROWS_PAGE_SIZE } from '@/lib/constants';
+import { DEFAULT_ROWS_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { formatNumber } from '@/lib/format';
 import { Loader2 } from 'lucide-react';
@@ -83,7 +84,7 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
-  const pageSize = DEFAULT_ROWS_PAGE_SIZE;
+  const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const updateFeature = useUpdateFeature();
 
   // Debounce filters to avoid hammering the API on every keystroke
@@ -195,8 +196,11 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
   });
 
   const approximateTotal = data?.approximate_total ?? 0;
-  const rangeStart = approximateTotal > 0 ? (cursorHistory.length - 1) * pageSize + 1 : 0;
-  const rangeEnd = rangeStart + (data?.rows?.length ?? 0) - 1;
+  const rowCount = data?.rows?.length ?? 0;
+  const effectiveTotal = approximateTotal > 0 ? approximateTotal : rowCount;
+  const isExact = approximateTotal === 0 && rowCount > 0;
+  const rangeStart = rowCount > 0 ? (cursorHistory.length - 1) * pageSize + 1 : 0;
+  const rangeEnd = rangeStart > 0 ? rangeStart + rowCount - 1 : 0;
 
   if (isLoading) {
     return (
@@ -206,7 +210,7 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
     );
   }
 
-  if (approximateTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
+  if (effectiveTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
     return (
       <div className="text-center py-12 text-muted-foreground">
         {t('attributes.noData')}
@@ -273,12 +277,38 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
 
       {/* Pagination */}
       <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">
-          {t('attributes.showing', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(approximateTotal) })}
-          {isFetching && (
-            <Loader2 className="inline h-3 w-3 animate-spin ml-2" />
-          )}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-muted-foreground">
+            {isExact
+              ? t('attributes.showingExact', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })
+              : t('attributes.showing', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })}
+            {isFetching && (
+              <Loader2 className="inline h-3 w-3 animate-spin ml-2" />
+            )}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground text-xs">{t('attributes.rowsPerPage')}</span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(val) => {
+                setPageSize(Number(val));
+                setCursor(0);
+                setCursorHistory([0]);
+              }}
+            >
+              <SelectTrigger className="h-7 w-[70px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt} value={String(opt)}>
+                    {opt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

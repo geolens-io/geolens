@@ -147,7 +147,9 @@
     "filter": "Filter...",
     "editSaved": "Cell updated",
     "editFailed": "Failed to update cell",
-    "noResults": "No matching rows found."
+    "noResults": "No matching rows found.",
+    "showingExact": "Showing {{start}}-{{end}} of {{total}} rows",
+    "rowsPerPage": "Rows per page"
   },
   "changeHistory": {
     "title": "Change History ({{count}})",
