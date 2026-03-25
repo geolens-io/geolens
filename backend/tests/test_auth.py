@@ -120,6 +120,22 @@ class TestLogin:
         assert "access_token" in data
         assert data["token_type"] == "bearer"
 
+    async def test_login_sets_last_login_at(self, client: AsyncClient):
+        """Successful login populates last_login_at on the user profile."""
+        # Login
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
+        )
+        assert resp.status_code == 200
+        token = resp.json()["access_token"]
+
+        # Check /auth/me for last_login_at
+        headers = {"Authorization": f"Bearer {token}"}
+        me_resp = await client.get("/auth/me", headers=headers)
+        assert me_resp.status_code == 200
+        assert me_resp.json()["last_login_at"] is not None
+
     async def test_login_wrong_password(self, client: AsyncClient):
         """Wrong password returns 401."""
         resp = await client.post(
@@ -178,6 +194,7 @@ class TestTokenMe:
         assert data["username"] == ADMIN_USER
         assert "admin" in data["roles"]
         assert data["is_active"] is True
+        assert "last_login_at" in data
 
     async def test_me_without_token(self, client: AsyncClient):
         """GET /auth/me without Authorization header returns 401."""
