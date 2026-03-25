@@ -82,6 +82,11 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
 
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
+  const allTypeCount =
+    (counts.vector_dataset ?? 0) +
+    (counts.raster_dataset ?? 0) +
+    (counts.vrt_dataset ?? 0) +
+    (counts.table ?? 0);
 
   const { data: summaries } = useCatalogSummary();
 
@@ -111,6 +116,26 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
   const hasSearchState = hasToolbarChanges || q !== '';
   const activeFilterCount = [geometryType, bbox, dateFrom || dateTo, recordType, collectionId, sourceOrganization, srid, datetime, selectedKeywords.length > 0 ? 'kw' : ''].filter(Boolean).length;
   const activeGeomLabel = geometryType ? getGeometryTypeLabel(t, geometryType) : null;
+  const showsTableToggle = counts.table !== undefined;
+  const showGeometryFilter = recordType !== 'raster_dataset' && recordType !== 'vrt_dataset' && recordType !== 'table';
+  const showSridFilter = srids.length > 0 && recordType !== 'table';
+  const showSecondaryFilterRow = Boolean(recordType) && (
+    recordType === 'vector_dataset' || organizations.length > 0 || showSridFilter
+  );
+  const getRecordTypeLabel = (value: string) => {
+    switch (value) {
+      case 'vector_dataset':
+        return t('filters.vector', { defaultValue: 'Vector' });
+      case 'raster_dataset':
+        return t('filters.raster', { defaultValue: 'Raster' });
+      case 'vrt_dataset':
+        return t('filters.vrt', { defaultValue: 'Virtual Raster' });
+      case 'table':
+        return t('card.table', { defaultValue: 'Table' });
+      default:
+        return value;
+    }
+  };
 
   const [bboxOpen, setBboxOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
@@ -276,7 +301,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
                 </span>
               )}
             </Button>
-            {token && <SaveSearchButton />}
+            {token && hasSearchState && <SaveSearchButton />}
           </div>
         </div>
 
@@ -284,11 +309,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
           <div className="flex flex-wrap items-center gap-2">
             {recordType && (
               <FilterChip
-                label={recordType === 'raster_dataset'
-                  ? t('filters.raster', { defaultValue: 'Raster' })
-                  : recordType === 'vrt_dataset'
-                    ? t('filters.vrt', { defaultValue: 'VRT' })
-                    : t('filters.vector', { defaultValue: 'Vector' })}
+                label={getRecordTypeLabel(recordType)}
                 onRemove={() => useSearchStore.getState().setFilter('record_type', '')}
               />
             )}
@@ -371,7 +392,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
           >
             <ToggleGroupItem value="all" className="text-xs px-2.5 h-7">
               {t('filters.allTypes', { defaultValue: 'All' })}
-              {Object.keys(counts).length > 0 && ` (${(counts.vector_dataset ?? 0) + (counts.raster_dataset ?? 0) + (counts.vrt_dataset ?? 0)})`}
+              {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
             </ToggleGroupItem>
             <ToggleGroupItem value="vector_dataset" className="text-xs px-2.5 h-7" disabled={counts.vector_dataset === 0}>
               {t('filters.vector', { defaultValue: 'Vector' })}
@@ -385,6 +406,12 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
               {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
               {counts.vrt_dataset !== undefined && ` (${counts.vrt_dataset})`}
             </ToggleGroupItem>
+            {showsTableToggle && (
+              <ToggleGroupItem value="table" className="text-xs px-2.5 h-7" disabled={counts.table === 0}>
+                {t('card.table', { defaultValue: 'Table' })}
+                {counts.table !== undefined && ` (${counts.table})`}
+              </ToggleGroupItem>
+            )}
           </ToggleGroup>
         </div>
 
@@ -517,7 +544,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
           </Button>
         )}
 
-        <div className="ml-auto flex items-center gap-3 rounded-full bg-muted/35 px-3 py-1.5 text-sm text-muted-foreground">
+        <div className="ml-auto flex items-center gap-3 rounded-full border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
           {totalResults !== undefined && (
             <span>
               {bbox || geometry
@@ -530,21 +557,13 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
       </div>
 
       {/* Desktop: Secondary filter row (type-specific) */}
-      {recordType && (
-        recordType === 'vector_dataset' || organizations.length > 0 || srids.length > 0
-      ) && (
+      {showSecondaryFilterRow && (
         <div
-          className="hidden flex-wrap items-center gap-3 rounded-[20px] border border-border/50 bg-muted/20 px-3 py-2 md:flex"
+          className="hidden flex-wrap items-center gap-2.5 rounded-[18px] border border-border/40 bg-muted/15 px-3 py-1.5 md:flex"
           data-testid="secondary-filter-row"
         >
           <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-            {recordType === 'vector_dataset'
-              ? t('filters.vector', { defaultValue: 'Vector' })
-              : recordType === 'raster_dataset'
-                ? t('filters.raster', { defaultValue: 'Raster' })
-                : recordType === 'vrt_dataset'
-                  ? t('filters.vrt', { defaultValue: 'Virtual Raster' })
-                  : recordType}{' '}
+            {recordType ? getRecordTypeLabel(recordType) : ''}{' '}
             {t('filters.filtersLabel', { defaultValue: 'filters' })}
           </span>
 
@@ -612,7 +631,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
             </div>
           )}
 
-          {srids.length > 0 && (
+          {showSridFilter && (
             <div className="flex items-center gap-2">
               {srid ? (
                 <FilterChip
@@ -683,7 +702,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
               >
                 <ToggleGroupItem value="all" className="flex-1 text-xs">
                   {t('filters.allTypes', { defaultValue: 'All' })}
-                  {Object.keys(counts).length > 0 && ` (${(counts.vector_dataset ?? 0) + (counts.raster_dataset ?? 0) + (counts.vrt_dataset ?? 0)})`}
+                  {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
                 </ToggleGroupItem>
                 <ToggleGroupItem value="vector_dataset" className="flex-1 text-xs" disabled={counts.vector_dataset === 0}>
                   {t('filters.vector', { defaultValue: 'Vector' })}
@@ -697,10 +716,16 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
                   {t('filters.vrt', { defaultValue: 'VRT' })}
                   {counts.vrt_dataset !== undefined && ` (${counts.vrt_dataset})`}
                 </ToggleGroupItem>
+                {showsTableToggle && (
+                  <ToggleGroupItem value="table" className="flex-1 text-xs" disabled={counts.table === 0}>
+                    {t('card.table', { defaultValue: 'Table' })}
+                    {counts.table !== undefined && ` (${counts.table})`}
+                  </ToggleGroupItem>
+                )}
               </ToggleGroup>
             </div>
 
-            {recordType !== 'raster_dataset' && recordType !== 'vrt_dataset' && (
+            {showGeometryFilter && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
                 {t('filters.geometry')}
@@ -787,7 +812,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
               </div>
             )}
 
-            {srids.length > 0 && (
+            {showSridFilter && (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">
                   {t('filters.crs')}
@@ -959,19 +984,21 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
       </Sheet>
 
       <Suspense fallback={null}>
-        <LazySpatialFilterPanel
-          open={spatialPanelOpen}
-          onClose={() => setSpatialPanelOpen(false)}
-          onApply={(bboxValue, predicate, geometry) => {
-            const store = useSearchStore.getState();
-            store.setFilter('bbox', bboxValue);
-            store.setFilter('spatial_predicate', predicate);
-            store.setFilter('geometry', geometry ? JSON.stringify(geometry) : '');
-            setSpatialPanelOpen(false);
-          }}
-          initialBbox={bbox}
-          initialPredicate={useSearchStore.getState().spatial_predicate}
-        />
+        {spatialPanelOpen ? (
+          <LazySpatialFilterPanel
+            open={spatialPanelOpen}
+            onClose={() => setSpatialPanelOpen(false)}
+            onApply={(bboxValue, predicate, geometry) => {
+              const store = useSearchStore.getState();
+              store.setFilter('bbox', bboxValue);
+              store.setFilter('spatial_predicate', predicate);
+              store.setFilter('geometry', geometry ? JSON.stringify(geometry) : '');
+              setSpatialPanelOpen(false);
+            }}
+            initialBbox={bbox}
+            initialPredicate={useSearchStore.getState().spatial_predicate}
+          />
+        ) : null}
       </Suspense>
     </>
   );

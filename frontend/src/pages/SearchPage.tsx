@@ -34,6 +34,7 @@ export function SearchPage() {
 
   // Hero collapses when any filter/query is active (user is in browse mode)
   const isLanding = !q && !recordType && keywords.length === 0 && !geometryType && !bbox && !spatialPanelOpen;
+  const hasVisibleResults = (data?.features.length ?? 0) > 0;
   const [scrolledPastHero, setScrolledPastHero] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -51,17 +52,21 @@ export function SearchPage() {
   }, []);
 
   const showStickyBar = !isLanding || scrolledPastHero;
+  const showStickyFilters = !isLanding || (scrolledPastHero && hasVisibleResults);
 
   return (
     <>
       <div ref={sentinelRef} className="h-0" />
       {showStickyBar && (
-        <div className="sticky top-0 z-30 border-b border-border/60 bg-background/92 backdrop-blur-xl">
-          <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
-            <div className="rounded-[24px] border border-border/60 bg-background px-3 py-3 shadow-sm">
+        <div
+          className="sticky top-0 z-30 border-b border-border/40 bg-background/88 backdrop-blur-lg"
+          data-testid="search-sticky-shell"
+        >
+          <div className="mx-auto max-w-6xl px-4 py-2.5 sm:px-6">
+            <div className="rounded-[22px] border border-border/50 bg-background/92 px-3 py-2.5 shadow-sm">
               <SearchBar mode="compact" />
-              {!isLanding && (
-                <div className="mt-3 border-t border-border/50 pt-3">
+              {showStickyFilters && (
+                <div className="mt-2.5 border-t border-border/40 pt-2.5">
                   <FilterPanel totalResults={data?.numberMatched} />
                 </div>
               )}

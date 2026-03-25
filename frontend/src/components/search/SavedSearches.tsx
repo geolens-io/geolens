@@ -49,7 +49,7 @@ export function SaveSearchButton() {
         <Button
           variant="outline"
           size="sm"
-          className="shrink-0 rounded-full border-border/60 bg-background/85 shadow-sm hover:bg-accent/60"
+          className="shrink-0 rounded-full border-border/50 bg-background/70 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
         >
           <Bookmark className="size-4" />
           <span className="hidden sm:inline">{t('savedSearches.saveButton')}</span>
@@ -130,7 +130,7 @@ export function SavedSearches({ className }: { className?: string }) {
       {searches.map((search) => (
         <div
           key={search.id}
-          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background/80 py-1.5 pl-3 pr-1.5 text-xs font-medium text-secondary-foreground"
+          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/50 bg-background/70 py-1.5 pl-3 pr-1.5 text-xs font-medium text-muted-foreground"
         >
           <button
             type="button"
@@ -145,7 +145,7 @@ export function SavedSearches({ className }: { className?: string }) {
               defaultValue: 'Remove saved search',
             })}
             onClick={(e) => handleDelete(e, search.id)}
-            className="rounded-full bg-background/70 p-1 opacity-70 transition-colors hover:bg-destructive/20 hover:opacity-100"
+            className="rounded-full bg-background/75 p-1 opacity-60 transition-colors hover:bg-destructive/15 hover:text-destructive hover:opacity-100"
           >
             <X className="size-3" />
           </button>

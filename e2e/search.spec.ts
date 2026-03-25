@@ -1,6 +1,24 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Search Flow', () => {
+  test('landing scroll keeps filter access and does not mount the spatial dialog until opened', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText('sample-nonspatial')).toBeVisible();
+
+    await expect(
+      page.getByRole('dialog', { name: 'Search area' }),
+    ).toHaveCount(0);
+
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.waitForTimeout(250);
+
+    const stickyShell = page.getByTestId('search-sticky-shell');
+    await expect(stickyShell).toBeVisible();
+    await expect(
+      stickyShell.getByRole('button', { name: 'Keywords' }),
+    ).toBeVisible();
+  });
+
   test('prefix search supports keyboard typeahead navigation', async ({ page }) => {
     // Verify search page loaded
     await page.goto('/');

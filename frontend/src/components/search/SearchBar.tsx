@@ -55,7 +55,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
     >
       <Search
         className={cn(
-          'absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/80',
+          'absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/70',
           isCompact ? 'size-[18px]' : 'size-5',
         )}
       />
@@ -86,7 +86,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
         }}
         placeholder={t('placeholder')}
         className={cn(
-          'w-full border-border/60 bg-background text-ellipsis shadow-sm placeholder:text-muted-foreground/80 focus-visible:ring-primary/15',
+          'w-full border-border/50 bg-background/95 text-ellipsis shadow-sm placeholder:text-muted-foreground/75 focus-visible:border-primary/30 focus-visible:ring-primary/10',
           isCompact
             ? 'h-11 rounded-[20px] pl-11 pr-11 text-base'
             : 'h-14 rounded-[24px] pl-12 pr-12 text-base',
@@ -101,8 +101,8 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
           }}
           aria-label={t('clearSearch', { defaultValue: 'Clear search' })}
           className={cn(
-            'absolute right-4 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground transition-colors hover:text-foreground',
-            isCompact ? 'p-0' : 'p-0.5 hover:bg-accent/60',
+            'absolute right-4 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground/75 transition-colors hover:text-foreground',
+            isCompact ? 'p-0' : 'p-0.5 hover:bg-accent/50',
           )}
         >
           <X className="size-4" />

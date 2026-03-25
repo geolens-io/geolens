@@ -21,23 +21,24 @@ export function Pagination({ total, offset, limit, onPageChange }: PaginationPro
   const hasNext = offset + limit < total;
 
   return (
-    <div className="flex items-center justify-between gap-4 py-4">
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <span className="text-sm text-muted-foreground">
         {t('pagination.showing', { start, end, total })}
       </span>
 
-      <div className="flex items-center gap-2">
+      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
         <Button
           variant="outline"
           size="sm"
           disabled={!hasPrev}
           onClick={() => onPageChange(Math.max(0, offset - limit))}
+          className="whitespace-nowrap"
         >
           <ChevronLeft className="size-4" />
           {t('pagination.previous')}
         </Button>
 
-        <span className="text-sm text-muted-foreground px-2">
+        <span className="px-2 text-sm tabular-nums text-muted-foreground whitespace-nowrap">
           {t('pagination.pageOf', { currentPage, totalPages })}
         </span>
 
@@ -46,6 +47,7 @@ export function Pagination({ total, offset, limit, onPageChange }: PaginationPro
           size="sm"
           disabled={!hasNext}
           onClick={() => onPageChange(offset + limit)}
+          className="whitespace-nowrap"
         >
           {t('pagination.next')}
           <ChevronRight className="size-4" />
