@@ -13,6 +13,7 @@ interface TabProps {
   onSave: (changes: Record<string, unknown>) => void;
   onReset: (key: string) => void;
   isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const FIELDS = [
@@ -21,7 +22,7 @@ const FIELDS = [
   { key: 'tile_cache_ttl', defaultValue: 300 },
 ] as const;
 
-export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
+export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, FIELDS);
 
@@ -79,7 +80,7 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSavin
         />
       </div>
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

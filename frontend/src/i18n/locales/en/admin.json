@@ -378,6 +378,12 @@
       "discard": "Discard Changes",
       "resetDefaults": "Reset to Defaults"
     },
+    "unsaved": {
+      "title": "Unsaved changes",
+      "description": "You have unsaved settings that will be lost if you leave.",
+      "stay": "Stay",
+      "leave": "Leave"
+    },
     "sourceBadge": {
       "reset": "Reset",
       "resetToDefault": "Reset to built-in default",

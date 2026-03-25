@@ -149,9 +149,18 @@ export function JobList() {
                     <Fragment key={job.id}>
                       <TableRow
                         className="cursor-pointer"
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={expandedId === job.id}
                         onClick={() =>
                           setExpandedId(expandedId === job.id ? null : job.id)
                         }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setExpandedId(expandedId === job.id ? null : job.id);
+                          }
+                        }}
                       >
                         <TableCell className="whitespace-nowrap">
                           {formatDate(job.created_at)}
