@@ -9,6 +9,7 @@ import {
   useReuploadCommit,
 } from '@/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/hooks/use-ingest';
+import { buildAcceptMap } from '@/lib/file-utils';
 import { SchemaDiffView } from './SchemaDiffView';
 import {
   Dialog,
@@ -59,12 +60,6 @@ type ReuploadStep =
   | 'complete'
   | 'error';
 
-const ACCEPT = {
-  'application/zip': ['.zip'],
-  'application/geopackage+sqlite3': ['.gpkg'],
-  'application/geo+json': ['.geojson', '.json'],
-  'text/csv': ['.csv'],
-};
 
 const AUTH_ERROR_HINTS = [
   '401',
@@ -363,9 +358,13 @@ export function ReuploadDialog({
     [onOpenChange, resetState],
   );
 
+  const reuploadAccept = uploadConfig?.allowed_extensions
+    ? buildAcceptMap(uploadConfig.allowed_extensions.split(',').map(e => e.trim()).filter(Boolean))
+    : undefined;
+
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
-      accept: ACCEPT,
+      accept: reuploadAccept,
       maxFiles: 1,
       multiple: false,
       disabled: step !== 'file-select',

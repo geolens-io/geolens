@@ -1,31 +1,32 @@
+import { useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 
 interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
   disabled?: boolean;
+  allowedExtensions?: string[];
 }
 
-const ACCEPT = {
-  'application/zip': ['.zip'],
-  'application/geopackage+sqlite3': ['.gpkg'],
-  'application/geo+json': ['.geojson', '.json'],
-  'text/csv': ['.csv'],
-  'image/tiff': ['.tif', '.tiff'],
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-  'application/vnd.ms-excel': ['.xls'],
-};
-
-const FORMAT_BADGES = ['.zip', '.gpkg', '.geojson', '.csv', '.xlsx', '.tif'];
-
-export function FileDropzone({ onFilesAccepted, disabled }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions }: FileDropzoneProps) {
   const { t } = useTranslation('import');
+
+  const { accept, badges } = useMemo(() => {
+    if (!allowedExtensions || allowedExtensions.length === 0) {
+      return { accept: undefined, badges: [] };
+    }
+    return {
+      accept: buildAcceptMap(allowedExtensions),
+      badges: deriveFormatBadges(allowedExtensions),
+    };
+  }, [allowedExtensions]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
-      accept: ACCEPT,
+      accept,
       maxFiles: 10,
       multiple: true,
       disabled,
@@ -66,16 +67,18 @@ export function FileDropzone({ onFilesAccepted, disabled }: FileDropzoneProps) {
         </p>
       )}
 
-      <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-        {FORMAT_BADGES.map((ext) => (
-          <span
-            key={ext}
-            className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
-          >
-            {ext}
-          </span>
-        ))}
-      </div>
+      {badges.length > 0 && (
+        <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+          {badges.map((ext) => (
+            <span
+              key={ext}
+              className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
+            >
+              {ext}
+            </span>
+          ))}
+        </div>
+      )}
 
       <p className="mt-2 text-xs text-muted-foreground">
         {t('dropzone.sizeLimit')}

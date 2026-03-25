@@ -146,6 +146,7 @@ class UploadConfigResponse(BaseModel):
     presigned_uploads: bool
     presigned_threshold_bytes: int
     max_file_size_bytes: int
+    allowed_extensions: str
 
 
 # ---------------------------------------------------------------------------
