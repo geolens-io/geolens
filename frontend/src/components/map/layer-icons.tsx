@@ -35,7 +35,7 @@ export function extractStyleHints(
     if (Array.isArray(dash) && dash.length > 0) {
       hints.dashPattern = dash as number[];
     }
-  } else if (gt.includes('POLYGON') || gt.includes('MULTI')) {
+  } else if (gt.includes('POLYGON')) {
     const oc = paint['_outline-color'];
     if (typeof oc === 'string') hints.strokeColor = oc;
   }
