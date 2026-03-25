@@ -18,16 +18,23 @@ export function useQuicklook(datasetId: string | null): UseQuicklookResult {
   const blobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!datasetId) return;
+    if (!datasetId) {
+      setSrc(null);
+      setIsLoading(false);
+      setIsError(false);
+      return;
+    }
     let revoked = false;
+    const controller = new AbortController();
     setIsLoading(true);
     setIsError(false);
+    setSrc(null);
 
     const token = useAuthStore.getState().token;
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    fetch(`/api/datasets/${datasetId}/quicklook?size=256`, { headers })
+    fetch(`/api/datasets/${datasetId}/quicklook?size=256`, { headers, signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.blob();
@@ -48,6 +55,7 @@ export function useQuicklook(datasetId: string | null): UseQuicklookResult {
 
     return () => {
       revoked = true;
+      controller.abort();
       setIsLoading(false);
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);

@@ -80,11 +80,12 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const { properties } = feature;
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
+  const isTable = recordType === 'table';
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
-  // Quicklook: only fetch for non-collection types
-  const quicklookId = isCollection ? null : (feature.id as string);
+  // Quicklook: only fetch for record types that support visual previews.
+  const quicklookId = !isCollection && !isTable ? (feature.id as string) : null;
   const { src: quicklookSrc, isLoading: qlLoading, isError: qlError } = useQuicklook(quicklookId);
 
   // Provenance (for non-collection types)
@@ -128,10 +129,10 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
 
   return (
     <Link to={linkPath} className="group block" data-testid="search-result-card">
-      <Card className="cursor-pointer overflow-hidden border-border/60 bg-card/90 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-lg">
+      <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
         <div className="flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_14rem]">
           <div className="min-w-0 p-4 sm:p-5">
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 {/* Status badges (non-collection only) */}
                 {!isCollection && recordStatus && recordStatus !== 'published' && (() => {
@@ -184,7 +185,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
 
                 {!isCollection && sourceOrganization && (
                   <p
-                    className="max-w-3xl text-sm leading-6 text-muted-foreground line-clamp-2"
+                    className="max-w-3xl text-[13px] leading-5 text-muted-foreground/90 line-clamp-2"
                     data-testid="dataset-card-source"
                     title={sourceOrganization}
                   >
@@ -204,7 +205,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                   {cardSpecs.map((item) => (
                     <span
                       key={item}
-                      className="inline-flex items-center rounded-full border border-border/60 bg-muted/45 px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                      className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
                     >
                       {item}
                     </span>
@@ -215,12 +216,12 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
               {!isCollection && displayKeywords.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {displayKeywords.slice(0, 2).map((tag) => (
-                    <Badge key={tag} variant="outline" className="border-border/60 bg-background/70 text-xs font-normal text-muted-foreground">
+                    <Badge key={tag} variant="outline" className="border-border/50 bg-background/60 text-xs font-normal text-muted-foreground/85">
                       {tag}
                     </Badge>
                   ))}
                   {displayKeywords.length > 2 && (
-                    <span className="self-center text-xs text-muted-foreground">
+                    <span className="self-center text-xs text-muted-foreground/80">
                       {t('card.moretags', { count: displayKeywords.length - 2 })}
                     </span>
                   )}
@@ -234,7 +235,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                   </div>
                 ) : null
               ) : (
-                <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-muted-foreground/85">
                   {hasMissingProvenance ? (
                     <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
                       {properties.created
@@ -261,11 +262,16 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
             </div>
           </div>
 
-          <div className="hidden border-t border-border/50 bg-muted/20 p-4 md:flex md:min-h-full md:border-l md:border-t-0">
-            <div className="flex w-full items-center justify-center overflow-hidden rounded-[20px] border border-border/50 bg-background/60">
+          <div className="hidden border-t border-border/40 bg-muted/15 p-4 md:flex md:min-h-full md:border-l md:border-t-0">
+            <div className="flex w-full items-center justify-center overflow-hidden rounded-[20px] border border-border/40 bg-background/55">
               {isCollection ? (
                 <div className="flex h-[140px] w-full items-center justify-center bg-muted/25">
                   <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+              ) : isTable ? (
+                <div className="flex h-[140px] w-full flex-col items-center justify-center gap-1 bg-muted/20 text-muted-foreground">
+                  <ImageOff className="h-5 w-5 opacity-45" />
+                  <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
                 </div>
               ) : quicklookSrc ? (
                 <img

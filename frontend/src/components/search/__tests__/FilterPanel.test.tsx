@@ -4,7 +4,7 @@ import { useSearchStore } from '@/stores/search-store';
 
 // Mock useFacets to return known counts
 const mockFacets = {
-  record_type: { vector_dataset: 10, raster_dataset: 5, vrt_dataset: 0, collection: 3 },
+  record_type: { vector_dataset: 10, raster_dataset: 5, vrt_dataset: 0, table: 1, collection: 3 },
 };
 
 vi.mock('@/hooks/use-search', () => ({
@@ -30,10 +30,11 @@ describe('FilterPanel', () => {
   it('renders badge text with counts from useFacets', () => {
     render(<FilterPanel totalResults={18} />);
 
-    // Desktop toggle items should show counts (All = vector + raster + vrt = 10+5+0 = 15)
-    expect(screen.getByText(/All.*\(15\)/)).toBeInTheDocument();
+    // Desktop toggle items should show counts (All includes table records too).
+    expect(screen.getByText(/All.*\(16\)/)).toBeInTheDocument();
     expect(screen.getByText(/Vector.*\(10\)/)).toBeInTheDocument();
     expect(screen.getByText(/Raster.*\(5\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Table.*\(1\)/)).toBeInTheDocument();
   });
 
   it('disables badges with count of 0', () => {
@@ -65,6 +66,13 @@ describe('FilterPanel', () => {
   it('does not render secondary filter row for raster type when no org/crs available', () => {
     useSearchStore.getState().setFilter('record_type', 'raster_dataset');
     render(<FilterPanel totalResults={5} />);
+
+    expect(screen.queryByTestId('secondary-filter-row')).not.toBeInTheDocument();
+  });
+
+  it('does not render secondary filter row for table type when no table-specific secondary filters are available', () => {
+    useSearchStore.getState().setFilter('record_type', 'table');
+    render(<FilterPanel totalResults={1} />);
 
     expect(screen.queryByTestId('secondary-filter-row')).not.toBeInTheDocument();
   });
