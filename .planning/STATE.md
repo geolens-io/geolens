@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260327
-last_updated: "2026-03-25T15:48:56Z"
+stopped_at: Completed quick-260325-hrk
+last_updated: "2026-03-25T17:00:20.048Z"
 last_activity: "2026-03-25 - Completed quick task 260327: Implement search audit findings"
 progress:
   total_phases: 61
@@ -133,6 +133,7 @@ Plan: Not started
 - [Phase quick-260325-f2k]: ConnectDropdown always rendered; table logic handled internally; 'Copy Feature URL' renamed to 'Copy API URL' for all non-raster types
 - [Phase quick-260325-ff5]: Underscore prefix (_outline-width, _outline-color) clearly separates custom props from MapLibre spec properties
 - [Phase quick-260325-ff5]: Generic for-of loop in handlePaintChange is extensible without code changes per new property
+- [Phase quick-260325-hrk]: Fixed polygon detection: gt.includes('MULTI') incorrectly matched MULTIPOINT/MULTILINESTRING -- changed to gt.includes('POLYGON')
 
 ### Pending Todos
 
@@ -199,10 +200,11 @@ Plan: Not started
 | 260325-ff5 | Layer styling: _outline-* rename, getCompoundOpacity helper, generic paint loop, dash presets | 2026-03-25 | 35fb5db5 | | [260325-ff5-review-map-creator-layer-styling-mvp-com](./quick/260325-ff5-review-map-creator-layer-styling-mvp-com/) |
 | 260326 | Assess current search page UI/UX with Playwright MCP; findings and cleanup recommendations | 2026-03-25 | 4fd2d847 | Verified | [260326-use-playwright-mcp-server-to-assess-the-](./quick/260326-use-playwright-mcp-server-to-assess-the-/) |
 | 260327 | Implement search-page audit findings from quick 260326 | 2026-03-25 | 28154160 | Verified | [260327-implement-the-search-page-audit-findings](./quick/260327-implement-the-search-page-audit-findings/) |
+| 260325-hrk | Enhance legend and layer icons to reflect configured styles | 2026-03-25 | 56be66ea | | [260325-hrk-enhance-legend-and-layer-icons-to-reflec](./quick/260325-hrk-enhance-legend-and-layer-icons-to-reflec/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260327: Implement search audit findings
-Last session: 2026-03-25T15:48:56Z
-Stopped at: Completed quick-260327
+Last activity: 2026-03-25 - Completed quick task 260325-hrk: Enhance legend and layer icons
+Last session: 2026-03-25T17:00:08.712Z
+Stopped at: Completed quick-260325-hrk
 Resume file: None
