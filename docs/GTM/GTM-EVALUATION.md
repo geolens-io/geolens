@@ -301,7 +301,99 @@ A single developer maintaining a production open-source project, responding to c
 
 ### Risk 6: License Choice
 
-The GTM docs do not specify a license. AGPL (like CKAN) provides strong copyleft protection that pushes enterprise users toward paid licenses. MIT/Apache provides maximum adoption but no license-driven monetization pressure. This is a foundational decision that affects the entire GTM strategy and should be made before public launch.
+The GTM docs do not specify a license. This is a foundational decision that affects the entire GTM strategy and should be made before public launch. **Consensus recommendation: Apache 2.0** -- maximizes adoption at the zero-distribution stage. Can tighten to AGPL later if commercial exploitation becomes a problem. See Section 12 for full analysis.
+
+---
+
+## 12. Consensus Conclusions (Post-Review)
+
+This evaluation was reviewed by the original GTM advisor. The following conclusions represent consensus across the initial assessment, QA audit, and advisor rebuttal.
+
+### Unanimous Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Ship publicly now** | The community edition is complete (20/21 features). Every hour spent building instead of distributing is negative ROI. GeoLens is in a distribution phase, not a build phase. |
+| **Build only 3 enterprise features pre-revenue** | SAML SSO, branding removal toggle, audit log export. Nothing else until demand signals exist. |
+| **Do not build governance, federation, or multi-org** | These are 6+ months of engineering. Building them without customers is the classic solo-founder over-engineering trap. |
+| **Revenue Year 1: $0-25K realistic** | The original $50-200K projection assumed pipeline and awareness that don't exist. Anything higher requires either existing network leverage or viral adoption. |
+| **Repo split: right idea, wrong time** | The extension seam architecture is correct long-term but premature. Build it alongside the first enterprise feature, not as a standalone project. |
+| **Enterprise features must be demand-driven** | Let customers pull features out of you. Do not pre-build a speculative enterprise roadmap. |
+| **Design partners needed in parallel with launch** | 2-3 targeted organizations providing feedback are more valuable than 50 passive free users for validating what to build next. |
+
+### Licensing Decision
+
+**Recommendation: Apache 2.0 + trademark protection + enterprise add-ons**
+
+| Option | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| Apache 2.0 | Lowest friction, fastest adoption, aligns with zero-distribution stage | No license-driven monetization pressure, forks possible | **Recommended for launch** |
+| AGPL | Creates monetization pressure, prevents free enterprise usage, understood in gov legal | Reduces adoption, scares some orgs early, complicates contributors | Better after traction exists |
+| BSL/SSPL | Prevents cloud hosting competition, strong commercial protection | Controversial, alienates OSS community, complex legal standing | Not recommended |
+
+Start permissive. You can tighten later if commercial exploitation becomes a problem (Grafana, MongoDB, and others have done this successfully). AGPL is the right tool when you're being exploited -- you are not there yet because no one is using the product.
+
+### Pricing Strategy
+
+**Publish $8-15K Team tier but close first deals at $5-10K with early-adopter discounting.**
+
+This resolves the tension between the advisor's "anchor high" guidance and the evaluation's "reduce procurement friction" recommendation:
+
+- Published list price signals product maturity ($8-15K)
+- Early-adopter / design-partner discounting enables first deal velocity ($5-10K)
+- Raise to list price once 3-5 paying customers and testimonials exist
+- Business and Enterprise tiers: "contact us" only until features exist
+
+Do not publish a pricing page until the Team tier features (SAML, branding toggle, audit export) are built. Premature pricing pages for vaporware erode trust.
+
+### White-Label Clarification
+
+White-labeling is two distinct features with different timing:
+
+| Feature | Effort | Timing | Tier | Value |
+|---------|--------|--------|------|-------|
+| **Branding toggle** ("Powered by GeoLens" footer removal) | 1 week | Month 1-2 post-launch | Team ($5-10K) | High leverage, low effort. Can anchor early deals. |
+| **Full white-label** (custom logo, colors, domain, OEM rights) | 3-4 weeks | Only when requested | Enterprise ($75K+) | Build on demand only. The toggle may be sufficient for years. |
+
+The branding toggle is one of the cleanest early monetization levers. Full OEM rebrand is a year-two feature that should not be built speculatively.
+
+### Product Differentiation: Necessary but Not Sufficient
+
+GeoLens is genuinely differentiated -- no competitor combines data catalog + map builder + OGC standards + AI in a single Docker deployment. This is a real product moat.
+
+However, differentiation does not convert to revenue without trust. The competitive advantage is real but latent until:
+
+- A public demo exists where buyers can evaluate it
+- Community adoption creates social proof
+- Testimonials from early adopters validate the claims
+
+The competitors (CKAN, GeoServer) win on ecosystem maturity and installed base, not product quality. GeoLens competes for net-new adopters who haven't committed to an incumbent, not for switching existing deployments.
+
+### Minimum Viable Launch Checklist
+
+Everything needed for public launch. Nothing else belongs in the critical path.
+
+- [ ] Public GitHub repo (clean README, Apache 2.0 license file)
+- [ ] Landing page (GitHub Pages is sufficient -- does not need to be fancy)
+- [ ] Live demo instance (read-only, sample data, ~$20/mo VPS)
+- [ ] Installation quickstart (clone, .env, docker compose up, < 10 min to working deployment)
+- [ ] v1.0 tag with release notes
+- [ ] GitHub Discussions enabled
+
+**Not required for launch** (build in weeks 2-4 post-launch):
+- Pricing page (wait until Team tier features exist)
+- Comparison page (nice-to-have, not blocking)
+- SAML / branding toggle / audit export (ship in month 2)
+
+### Post-Launch Sequence
+
+| Phase | Timeline | Focus | Build |
+|-------|----------|-------|-------|
+| **Launch** | Week 1 | Distribution | Public repo, landing page, demo, quickstart, v1.0 |
+| **Traction** | Months 1-3 | Adoption + outreach | SAML, branding toggle, audit export. Engage 2-3 design partners. Target 10-50 users. |
+| **First revenue** | Months 3-6 | Validate pricing | Close first Team tier deals ($5-10K). Professional services engagements. |
+| **Scale** | Months 6-12 | Demand-driven enterprise | Build only what design partners request. Raise pricing after 3-5 customers. |
+| **Expand** | Year 2+ | Product-led growth | Business tier features, full white-label, compliance. Only if demand exists. |
 
 ---
 
