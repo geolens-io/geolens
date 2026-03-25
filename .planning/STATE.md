@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260325-egu
-last_updated: "2026-03-25T14:31:26.742Z"
-last_activity: "2026-03-25 - Completed quick task 260325-bsk: Review non-spatial data page UI/UX and fix easy wins"
+stopped_at: Completed quick-260325-f2k
+last_updated: "2026-03-25T14:59:35.184Z"
+last_activity: "2026-03-25 - Completed quick task 260325-egu: Fix non-spatial data table: pagination bug, resizable hero, page size selector"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -130,6 +130,7 @@ Plan: Not started
 - [Phase quick-260324-rxq]: Capture map ref before mutate() call — mapInstanceRef.current is transiently null in onSuccess due to unstable callback ref identity; also use map.loaded() check with 3s safety timeout instead of triggerRepaint+idle pattern
 - [Phase quick-260324-t98]: Community edition is substantially complete (18/21 features exist); enterprise edition has zero implemented features; Year 1 revenue realistically $0-25K; Team tier achievable with 4-6 weeks (SAML + branding toggle + audit export)
 - [Phase quick-260325-egu]: effectiveTotal fallback for small tables: approximateTotal > 0 ? approximateTotal : rowCount; isExact flag drives tilde-free display
+- [Phase quick-260325-f2k]: ConnectDropdown always rendered; table logic handled internally; 'Copy Feature URL' renamed to 'Copy API URL' for all non-raster types
 
 ### Pending Todos
 
@@ -191,10 +192,11 @@ Plan: Not started
 | 260324-rxq | map save not updating thumbnail | 2026-03-25 | 0cf41654 | Verified | [260324-rxq-map-save-not-updating-thumbnail](./quick/260324-rxq-map-save-not-updating-thumbnail/) |
 | 260324-t98 | GTM evaluation: codebase audit, competitor comparison, pricing benchmarks, recommendations | 2026-03-25 | 8715f8c0 | Verified | [260324-t98-evaluate-gtm-advisement-for-public-relea](./quick/260324-t98-evaluate-gtm-advisement-for-public-relea/) |
 | 260325-bsk | Review non-spatial data page UI/UX and fix easy wins | 2026-03-25 | 0d22c859 | Needs Review | [260325-bsk-review-the-non-spatial-data-page-ui-ux-a](./quick/260325-bsk-review-the-non-spatial-data-page-ui-ux-a/) |
+| 260325-egu | Fix non-spatial data table: pagination bug, resizable hero, page size selector | 2026-03-25 | 4d15c02e | Verified | [260325-egu-fix-non-spatial-data-table-pagination-bu](./quick/260325-egu-fix-non-spatial-data-table-pagination-bu/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260325-bsk: Review non-spatial data page UI/UX and fix easy wins
-Last session: 2026-03-25T14:31:22.387Z
-Stopped at: Completed quick-260325-egu
+Last activity: 2026-03-25 - Completed quick task 260325-egu: Fix non-spatial data table: pagination bug, resizable hero, page size selector
+Last session: 2026-03-25T14:59:28.515Z
+Stopped at: Completed quick-260325-f2k
 Resume file: None
