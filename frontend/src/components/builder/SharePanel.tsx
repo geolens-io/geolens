@@ -330,7 +330,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     {/* Status summary */}
                     {isExpired && (
                       <div className="flex items-center gap-1.5 text-xs text-destructive">
-                        <AlertTriangle className="h-3.5 w-3.5" />
+                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
                         <span>{t('share.expired')}</span>
                       </div>
                     )}
