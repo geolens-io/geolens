@@ -127,7 +127,8 @@ Plan: Not started
 - [Phase quick-260324-mo7]: All visible layers appear in legend by default; show_in_legend toggle in More Actions menu; ColorizedGeometryIcon extracted to shared layer-icons.tsx
 - [Phase quick-260324-o6s]: Use pointer events with setPointerCapture for sidebar drag resize; bbox validation with try/catch for zoom-to-layer safety
 - [Phase quick-260324-qu5]: Non-spatial datasets get exactly 2 distributions (csv download + ogc_features); geometry_type param gates generate_distributions filtering
-- [Phase quick-260324-rxq]: Use map.loaded() check instead of triggerRepaint+idle pattern for reliable thumbnail capture; 3s safety timeout prevents silent drops
+- [Phase quick-260324-rxq]: Capture map ref before mutate() call — mapInstanceRef.current is transiently null in onSuccess due to unstable callback ref identity; also use map.loaded() check with 3s safety timeout instead of triggerRepaint+idle pattern
+- [Phase quick-260324-t98]: Community edition is substantially complete (18/21 features exist); enterprise edition has zero implemented features; Year 1 revenue realistically $0-25K; Team tier achievable with 4-6 weeks (SAML + branding toggle + audit export)
 
 ### Pending Todos
 
@@ -187,10 +188,11 @@ Plan: Not started
 | 260324-qln | Write comprehensive FEATURES.md one-pager (778 words, 13 capability areas) | 2026-03-24 | e1edc777 | Verified | [260324-qln-write-a-comprehensive-but-succinct-one-p](./quick/260324-qln-write-a-comprehensive-but-succinct-one-p/) |
 | 260324-qu5 | Test non-spatial data support end-to-end | 2026-03-24 | bf5d46c4 | Verified | [260324-qu5-test-non-spatial-data-support-end-to-end](./quick/260324-qu5-test-non-spatial-data-support-end-to-end/) |
 | 260324-rxq | map save not updating thumbnail | 2026-03-25 | 0cf41654 | Verified | [260324-rxq-map-save-not-updating-thumbnail](./quick/260324-rxq-map-save-not-updating-thumbnail/) |
+| 260324-t98 | GTM evaluation: codebase audit, competitor comparison, pricing benchmarks, recommendations | 2026-03-25 | 8715f8c0 | Verified | [260324-t98-evaluate-gtm-advisement-for-public-relea](./quick/260324-t98-evaluate-gtm-advisement-for-public-relea/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260324-rxq: map save not updating thumbnail
-Last session: 2026-03-25T00:12:49.480Z
-Stopped at: Completed quick-260324-rxq
+Last activity: 2026-03-25 - Completed quick task 260324-t98: GTM evaluation with codebase audit and market analysis
+Last session: 2026-03-25T01:17:00.000Z
+Stopped at: Completed quick-260324-t98
 Resume file: None
