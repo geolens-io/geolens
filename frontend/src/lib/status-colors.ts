@@ -21,6 +21,7 @@ export const jobStatusColors: Record<string, string> = {
 export const userStatusColors: Record<string, string> = {
   pending: semanticBadgeColors.warning,
   active: semanticBadgeColors.success,
+  deactivated: 'border-border bg-muted text-muted-foreground',
 } as const;
 
 export const visibilityColors: Record<string, string> = {

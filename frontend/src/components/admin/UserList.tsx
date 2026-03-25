@@ -8,7 +8,7 @@ import {
 } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
-import { userStatusColors, activeDotColor } from '@/lib/status-colors';
+import { userStatusColors } from '@/lib/status-colors';
 import type { UserResponse } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -171,7 +171,6 @@ export function UserList() {
                 <TableHead>{t('users.table.email')}</TableHead>
                 <TableHead>{t('users.table.roles')}</TableHead>
                 <TableHead>{t('users.table.status')}</TableHead>
-                <TableHead>{t('users.table.active')}</TableHead>
                 <TableHead>{t('users.table.created')}</TableHead>
                 <TableHead>{t('users.table.actions')}</TableHead>
               </TableRow>
@@ -183,7 +182,6 @@ export function UserList() {
                   { width: 'w-32' },
                   { width: 'w-14', rounded: true },
                   { width: 'w-16', rounded: true },
-                  { width: 'w-2.5', rounded: true },
                   { width: 'w-20' },
                   { width: 'w-8' },
                 ]} />
@@ -205,17 +203,19 @@ export function UserList() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={userStatusColors[user.status] ?? 'bg-muted text-muted-foreground border-border'}>
-                        {user.status === 'pending' ? t('users.status.pending') : t('users.status.active')}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-block h-2.5 w-2.5 rounded-full ${
-                          activeDotColor[String(user.is_active) as keyof typeof activeDotColor]
-                        }`}
-                        title={user.is_active ? t('users.status.active') : t('users.status.inactive')}
-                      />
+                      {(() => {
+                        const colorKey = user.status === 'pending'
+                          ? 'pending'
+                          : !user.is_active ? 'deactivated' : 'active';
+                        const label = user.status === 'pending'
+                          ? t('users.status.pending')
+                          : !user.is_active ? t('users.status.deactivated') : t('users.status.active');
+                        return (
+                          <Badge variant="outline" className={userStatusColors[colorKey]}>
+                            {label}
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>{formatDate(user.created_at)}</TableCell>
                     <TableCell>
