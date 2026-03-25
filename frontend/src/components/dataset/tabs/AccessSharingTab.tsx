@@ -98,7 +98,7 @@ export function AccessSharingTab({ dataset, datasetId }: AccessSharingTabProps) 
             <CardTitle className="text-base">{t('page.export')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <ExportButton datasetId={datasetId} datasetName={dataset.title} />
+            <ExportButton datasetId={datasetId} datasetName={dataset.title} recordType={dataset.record_type} />
           </CardContent>
         </Card>
       )}
