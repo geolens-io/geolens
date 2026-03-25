@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
 import { getLayerType } from '@/components/builder/map-sync';
@@ -61,8 +62,53 @@ export function LayerStyleEditor({
   const paint = layer.paint;
   const isDataDriven = !!layer.style_config?.column;
 
+  const fillEnabled = !paint['_fill-disabled'];
+  const strokeEnabled = !paint['_stroke-disabled'];
+
   function handlePaintProp(key: string, value: unknown) {
     onPaintChange(layer.id, { ...paint, [key]: value });
+  }
+
+  function handleToggleFill() {
+    const next = { ...paint };
+    if (fillEnabled) {
+      next['_fill-opacity-saved'] = getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity']);
+      next['fill-opacity'] = 0;
+      next['_fill-disabled'] = true;
+    } else {
+      const saved = getPaintValue(paint, '_fill-opacity-saved', FILL_DEFAULTS['fill-opacity']);
+      next['fill-opacity'] = saved;
+      delete next['_fill-disabled'];
+      delete next['_fill-opacity-saved'];
+    }
+    onPaintChange(layer.id, next);
+  }
+
+  function handleToggleStroke() {
+    const next = { ...paint };
+    if (geomType === 'circle') {
+      if (strokeEnabled) {
+        next['_outline-width-saved'] = getPaintValue(paint, 'circle-stroke-width', CIRCLE_DEFAULTS['circle-stroke-width']);
+        next['circle-stroke-width'] = 0;
+        next['_stroke-disabled'] = true;
+      } else {
+        next['circle-stroke-width'] = getPaintValue(paint, '_outline-width-saved', CIRCLE_DEFAULTS['circle-stroke-width']);
+        delete next['_stroke-disabled'];
+        delete next['_outline-width-saved'];
+      }
+    } else {
+      // polygon
+      if (strokeEnabled) {
+        next['_outline-width-saved'] = getPaintValue(paint, '_outline-width', FILL_DEFAULTS['_outline-width']);
+        next['_outline-width'] = 0;
+        next['_stroke-disabled'] = true;
+      } else {
+        next['_outline-width'] = getPaintValue(paint, '_outline-width-saved', FILL_DEFAULTS['_outline-width']);
+        delete next['_stroke-disabled'];
+        delete next['_outline-width-saved'];
+      }
+    }
+    onPaintChange(layer.id, next);
   }
 
   return (
@@ -78,42 +124,66 @@ export function LayerStyleEditor({
         {/* Polygon (fill) controls */}
         {geomType === 'fill' && (
           <>
-            <div className="text-xs font-medium">{t('style.fill')}</div>
-            {isDataDriven ? (
-              <div className="text-xs text-muted-foreground italic">
-                {t('style.styledBy', { column: layer.style_config!.column })}
-              </div>
-            ) : (
-              <StyleColorPicker
-                label={t('style.color')}
-                color={getPaintValue(paint, 'fill-color', FILL_DEFAULTS['fill-color'])}
-                onChange={(hex) => handlePaintProp('fill-color', hex)}
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium">{t('style.fill')}</div>
+              <Switch
+                checked={fillEnabled}
+                onCheckedChange={handleToggleFill}
+                aria-label={t('style.toggleFill')}
+                className="scale-75"
               />
+            </div>
+            {fillEnabled && (
+              <>
+                {isDataDriven ? (
+                  <div className="text-xs text-muted-foreground italic">
+                    {t('style.styledBy', { column: layer.style_config!.column })}
+                  </div>
+                ) : (
+                  <StyleColorPicker
+                    label={t('style.color')}
+                    color={getPaintValue(paint, 'fill-color', FILL_DEFAULTS['fill-color'])}
+                    onChange={(hex) => handlePaintProp('fill-color', hex)}
+                  />
+                )}
+                <SliderRow
+                  label={t('style.opacity')}
+                  value={getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity'])}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  format="percent"
+                  onChange={(val) => handlePaintProp('fill-opacity', val)}
+                />
+              </>
             )}
-            <SliderRow
-              label={t('style.opacity')}
-              value={getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity'])}
-              min={0}
-              max={1}
-              step={0.01}
-              format="percent"
-              onChange={(val) => handlePaintProp('fill-opacity', val)}
-            />
-            <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
-            <StyleColorPicker
-              label={t('style.color')}
-              color={getPaintValue(paint, '_outline-color', FILL_DEFAULTS['_outline-color'])}
-              onChange={(hex) => handlePaintProp('_outline-color', hex)}
-            />
-            <SliderRow
-              label={t('style.width')}
-              value={getPaintValue(paint, '_outline-width', FILL_DEFAULTS['_outline-width'])}
-              min={0}
-              max={10}
-              step={0.5}
-              format="px"
-              onChange={(val) => handlePaintProp('_outline-width', val)}
-            />
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
+              <Switch
+                checked={strokeEnabled}
+                onCheckedChange={handleToggleStroke}
+                aria-label={t('style.toggleStroke')}
+                className="scale-75 mt-2"
+              />
+            </div>
+            {strokeEnabled && (
+              <>
+                <StyleColorPicker
+                  label={t('style.color')}
+                  color={getPaintValue(paint, '_outline-color', FILL_DEFAULTS['_outline-color'])}
+                  onChange={(hex) => handlePaintProp('_outline-color', hex)}
+                />
+                <SliderRow
+                  label={t('style.width')}
+                  value={getPaintValue(paint, '_outline-width', FILL_DEFAULTS['_outline-width'])}
+                  min={0}
+                  max={10}
+                  step={0.5}
+                  format="px"
+                  onChange={(val) => handlePaintProp('_outline-width', val)}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -214,21 +284,33 @@ export function LayerStyleEditor({
               format="px"
               onChange={(val) => handlePaintProp('circle-radius', val)}
             />
-            <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
-            <StyleColorPicker
-              label={t('style.color')}
-              color={getPaintValue(paint, 'circle-stroke-color', CIRCLE_DEFAULTS['circle-stroke-color'])}
-              onChange={(hex) => handlePaintProp('circle-stroke-color', hex)}
-            />
-            <SliderRow
-              label={t('style.width')}
-              value={getPaintValue(paint, 'circle-stroke-width', CIRCLE_DEFAULTS['circle-stroke-width'])}
-              min={0}
-              max={10}
-              step={0.5}
-              format="px"
-              onChange={(val) => handlePaintProp('circle-stroke-width', val)}
-            />
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
+              <Switch
+                checked={strokeEnabled}
+                onCheckedChange={handleToggleStroke}
+                aria-label={t('style.toggleStroke')}
+                className="scale-75 mt-2"
+              />
+            </div>
+            {strokeEnabled && (
+              <>
+                <StyleColorPicker
+                  label={t('style.color')}
+                  color={getPaintValue(paint, 'circle-stroke-color', CIRCLE_DEFAULTS['circle-stroke-color'])}
+                  onChange={(hex) => handlePaintProp('circle-stroke-color', hex)}
+                />
+                <SliderRow
+                  label={t('style.width')}
+                  value={getPaintValue(paint, 'circle-stroke-width', CIRCLE_DEFAULTS['circle-stroke-width'])}
+                  min={0}
+                  max={10}
+                  step={0.5}
+                  format="px"
+                  onChange={(val) => handlePaintProp('circle-stroke-width', val)}
+                />
+              </>
+            )}
           </>
         )}
 
