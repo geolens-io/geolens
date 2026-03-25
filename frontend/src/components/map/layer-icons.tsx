@@ -213,9 +213,9 @@ export function ColorizedGeometryIcon({
             </linearGradient>
           </defs>
         </svg>
-        {!isLine && !isPoint && !styleHints?.strokeDisabled ? (
+        {!isPoint && !styleHints?.strokeDisabled ? (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints?.strokeColor ?? '#666666'} strokeWidth={2.5} />
-        ) : !isLine && !isPoint && styleHints?.strokeDisabled ? (
+        ) : !isPoint && styleHints?.strokeDisabled ? (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} strokeWidth={0} />
         ) : styleHints?.strokeColor ? (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints.strokeColor} strokeWidth={1.5} />

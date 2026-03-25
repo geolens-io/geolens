@@ -1,5 +1,6 @@
 import type { StyleConfig } from '@/types/api';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from './layer-icons';
+import { cn } from '@/lib/utils';
 
 interface MapLegendLayer {
   name: string;
@@ -34,13 +35,14 @@ export function MapLegend({ layers }: MapLegendProps) {
                 <ul className="space-y-0.5">
                   {layer.styleConfig.categories.map((cat, i) => {
                     const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
+                    const strokeDisabled = !!layer.paint?.['_stroke-disabled'];
                     return (
                       <li key={i} className="flex items-center gap-1.5">
                         <div
-                          className="w-3 h-3 rounded-sm shrink-0 border"
+                          className={cn("w-3 h-3 rounded-sm shrink-0", !strokeDisabled && "border")}
                           style={{
                             backgroundColor: cat.color,
-                            borderColor: outlineColor ?? 'rgba(0,0,0,0.2)',
+                            ...(!strokeDisabled ? { borderColor: outlineColor ?? 'rgba(0,0,0,0.2)' } : {}),
                             ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}),
                           }}
                         />
@@ -58,6 +60,7 @@ export function MapLegend({ layers }: MapLegendProps) {
                     {layer.styleConfig.colors.map((color, i) => {
                       const breaks = layer.styleConfig!.breaks!;
                       const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
+                      const strokeDisabled = !!layer.paint?.['_stroke-disabled'];
                       let label: string;
                       if (i === 0) {
                         label = `< ${breaks[0]}`;
@@ -69,10 +72,10 @@ export function MapLegend({ layers }: MapLegendProps) {
                       return (
                         <li key={i} className="flex items-center gap-1.5">
                           <div
-                            className="w-3 h-3 rounded-sm shrink-0 border"
+                            className={cn("w-3 h-3 rounded-sm shrink-0", !strokeDisabled && "border")}
                             style={{
                               backgroundColor: color,
-                              borderColor: outlineColor ?? 'rgba(0,0,0,0.2)',
+                              ...(!strokeDisabled ? { borderColor: outlineColor ?? 'rgba(0,0,0,0.2)' } : {}),
                               ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}),
                             }}
                           />
