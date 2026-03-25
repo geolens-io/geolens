@@ -143,7 +143,9 @@
     "previewError": "An unexpected error occurred while previewing the layer.",
     "remotePreviewError": "Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
     "datasetMembershipNotFound": "Dataset membership not found",
-    "sharedMapExpired": "This shared map link has expired or been revoked"
+    "sharedMapExpired": "This shared map link has expired or been revoked",
+    "forbidden": "403",
+    "forbiddenAdmin": "Forbidden — Admin access required"
   },
   "settings": {
     "tabs": {

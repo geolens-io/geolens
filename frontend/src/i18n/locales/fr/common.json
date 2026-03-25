@@ -122,7 +122,9 @@
     "previewError": "Une erreur inattendue s'est produite lors de l'aperçu de la couche.",
     "remotePreviewError": "Impossible d'afficher l'aperçu de la couche distante. Le service est peut-être indisponible ou le format de la couche n'est pas pris en charge.",
     "datasetMembershipNotFound": "Appartenance au jeu de données introuvable",
-    "sharedMapExpired": "Ce lien de carte partagée a expiré ou a été révoqué"
+    "sharedMapExpired": "Ce lien de carte partagée a expiré ou a été révoqué",
+    "forbidden": "403",
+    "forbiddenAdmin": "Interdit — Accès administrateur requis"
   },
   "settings": {
     "tabs": {

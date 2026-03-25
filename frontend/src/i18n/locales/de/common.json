@@ -122,7 +122,9 @@
     "previewError": "Beim Anzeigen der Vorschau des Layers ist ein unerwarteter Fehler aufgetreten.",
     "remotePreviewError": "Layer-Vorschau fehlgeschlagen. Der Dienst ist möglicherweise nicht verfügbar oder das Layer-Format wird nicht unterstützt.",
     "datasetMembershipNotFound": "Datensatz-Zugehörigkeit nicht gefunden",
-    "sharedMapExpired": "Dieser geteilte Kartenlink ist abgelaufen oder wurde widerrufen"
+    "sharedMapExpired": "Dieser geteilte Kartenlink ist abgelaufen oder wurde widerrufen",
+    "forbidden": "403",
+    "forbiddenAdmin": "Verboten — Administratorzugang erforderlich"
   },
   "settings": {
     "tabs": {

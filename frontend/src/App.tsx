@@ -60,7 +60,7 @@ export const appRoutes = (
           <Route path="maps" element={<MapsPage />} />
           <Route path="maps/:id" element={<MapBuilderPage />} errorElement={<RouteErrorBoundary />} />
         </Route>
-        <Route element={<AdminRoute />}>
+        <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
           <Route element={<AdminLayout />}>
             <Route path="admin" element={<Navigate to="/admin/overview" replace />} />
             <Route path="admin/overview" element={<AdminOverviewPage />} />
