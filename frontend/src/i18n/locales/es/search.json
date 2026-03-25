@@ -82,6 +82,7 @@
     "raster": "Ráster",
     "vrt": "Ráster virtual",
     "collection": "Colección",
+    "table": "Tabla",
     "moretags": "+{{count}} más",
     "updatedFallback": "Actualizado hace {{time}}",
     "noUpdateMetadata": "Sin metadatos de actualización",

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Combine, FolderOpen, Grid3X3, Layers } from 'lucide-react';
+import { Combine, FolderOpen, Grid3X3, Layers, Table2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 const TYPE_CONFIG = {
@@ -22,6 +22,11 @@ const TYPE_CONFIG = {
     icon: FolderOpen,
     labelKey: 'card.collection',
     className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  },
+  table: {
+    icon: Table2,
+    labelKey: 'card.table',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   },
 } as const;
 
