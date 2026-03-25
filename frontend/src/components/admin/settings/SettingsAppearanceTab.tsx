@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import { SettingsFormActions } from './SettingsFormActions';
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
+import { useSettingsForm } from './useSettingsForm';
 import type { SettingItem } from '@/api/settings';
 
 interface BasemapEntry {
@@ -37,35 +38,30 @@ function isValidTileUrl(url: string): boolean {
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
 }
 
+const APPEARANCE_FIELDS = [
+  { key: 'basemaps', defaultValue: [] as BasemapEntry[], compare: 'json' as const },
+  { key: 'map_defaults', defaultValue: { center_lat: 20, center_lng: 0, zoom: 2 } as MapDefaultsValue, compare: 'json' as const },
+] as const;
+
 export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
   const { t } = useTranslation('admin');
-
-  const [basemaps, setBasemaps] = useState<BasemapEntry[]>([]);
-  const [mapDefaults, setMapDefaults] = useState<MapDefaultsValue>({ center_lat: 20, center_lng: 0, zoom: 2 });
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, APPEARANCE_FIELDS);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [urlError, setUrlError] = useState('');
 
-  const syncFromSettings = useCallback(() => {
-    const bm = findSetting(settings, 'basemaps');
-    const md = findSetting(settings, 'map_defaults');
-    if (bm && Array.isArray(bm.value)) setBasemaps(bm.value as BasemapEntry[]);
-    if (md && typeof md.value === 'object' && md.value !== null) setMapDefaults(md.value as MapDefaultsValue);
-  }, [settings]);
-
-  useEffect(() => {
-    syncFromSettings();
-  }, [syncFromSettings]);
+  const basemaps = values.basemaps as BasemapEntry[];
+  const mapDefaults = values.map_defaults as MapDefaultsValue;
 
   const presets = basemaps.filter((b) => b.is_preset);
   const customs = basemaps.filter((b) => !b.is_preset);
 
   function handleToggle(id: string, checked: boolean) {
-    setBasemaps((prev) => prev.map((b) => (b.id === id ? { ...b, enabled: checked } : b)));
+    setters.basemaps(basemaps.map((b) => (b.id === id ? { ...b, enabled: checked } : b)));
   }
 
   function handleDelete(id: string) {
-    setBasemaps((prev) => prev.filter((b) => b.id !== id));
+    setters.basemaps(basemaps.filter((b) => b.id !== id));
   }
 
   function handleAdd() {
@@ -82,33 +78,10 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
       enabled: true,
       is_preset: false,
     };
-    setBasemaps((prev) => [...prev, entry]);
+    setters.basemaps([...basemaps, entry]);
     setNewName('');
     setNewUrl('');
   }
-
-  function getDirtyFields(): Record<string, unknown> {
-    const changes: Record<string, unknown> = {};
-    const bm = findSetting(settings, 'basemaps');
-    const md = findSetting(settings, 'map_defaults');
-    if (bm && JSON.stringify(basemaps) !== JSON.stringify(bm.value)) {
-      changes.basemaps = basemaps;
-    }
-    if (md) {
-      const orig = md.value as MapDefaultsValue;
-      if (
-        mapDefaults.center_lat !== orig.center_lat ||
-        mapDefaults.center_lng !== orig.center_lng ||
-        mapDefaults.zoom !== orig.zoom
-      ) {
-        changes.map_defaults = mapDefaults;
-      }
-    }
-    return changes;
-  }
-
-  const dirty = getDirtyFields();
-  const hasDirty = Object.keys(dirty).length > 0;
 
   return (
     <div className="space-y-8">
@@ -214,7 +187,7 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
               id="map-lat"
               type="number"
               value={mapDefaults.center_lat}
-              onChange={(e) => setMapDefaults((prev) => ({ ...prev, center_lat: Number(e.target.value) }))}
+              onChange={(e) => setters.map_defaults({ ...mapDefaults, center_lat: Number(e.target.value) })}
               min={-90}
               max={90}
               step={0.001}
@@ -227,7 +200,7 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
               id="map-lng"
               type="number"
               value={mapDefaults.center_lng}
-              onChange={(e) => setMapDefaults((prev) => ({ ...prev, center_lng: Number(e.target.value) }))}
+              onChange={(e) => setters.map_defaults({ ...mapDefaults, center_lng: Number(e.target.value) })}
               min={-180}
               max={180}
               step={0.001}
@@ -240,7 +213,7 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
               id="map-zoom"
               type="number"
               value={mapDefaults.zoom}
-              onChange={(e) => setMapDefaults((prev) => ({ ...prev, zoom: Number(e.target.value) }))}
+              onChange={(e) => setters.map_defaults({ ...mapDefaults, zoom: Number(e.target.value) })}
               min={0}
               max={22}
               step={0.1}
@@ -250,7 +223,7 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
         </div>
       </div>
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={syncFromSettings} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
     </div>
   );
 }

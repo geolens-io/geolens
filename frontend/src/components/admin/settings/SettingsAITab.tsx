@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Info, Loader2, XCircle, AlertTriangle, Zap } from 'lucide-react';
 import { SettingsFormActions } from './SettingsFormActions';
@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
+import { useSettingsForm } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
 import { useAIStatus, useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
 import { detectEmbeddingDims } from '@/api/settings';
@@ -25,6 +26,16 @@ interface TabProps {
   isSaving: boolean;
 }
 
+const AI_FIELDS = [
+  { key: 'ai_enabled', defaultValue: true },
+  { key: 'llm_provider', defaultValue: 'anthropic' },
+  { key: 'llm_model', defaultValue: '' },
+  { key: 'openai_base_url', defaultValue: '' },
+  { key: 'embedding_model', defaultValue: '' },
+  { key: 'embedding_base_url', defaultValue: '' },
+  { key: 'embedding_dims', defaultValue: '0', coerce: String },
+] as const;
+
 export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: TabProps) {
   const { t } = useTranslation('admin');
   const { data: keyStatus } = useApiKeyStatus();
@@ -33,57 +44,17 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
   const backfill = useBackfillEmbeddings();
   const semanticToggle = useUpdateSemanticSearch();
 
-  const [aiEnabled, setAiEnabled] = useState(true);
-  const [llmProvider, setLlmProvider] = useState('anthropic');
-  const [llmModel, setLlmModel] = useState('');
-  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('');
-  const [embeddingModel, setEmbeddingModel] = useState('');
-  const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState('');
-  const [embeddingDims, setEmbeddingDims] = useState('');
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS);
   const [isDetecting, setIsDetecting] = useState(false);
 
-  const syncFromSettings = useCallback(() => {
-    const enabled = findSetting(settings, 'ai_enabled');
-    const provider = findSetting(settings, 'llm_provider');
-    const model = findSetting(settings, 'llm_model');
-    const baseUrl = findSetting(settings, 'openai_base_url');
-    const embModel = findSetting(settings, 'embedding_model');
-    const embUrl = findSetting(settings, 'embedding_base_url');
-    const embDims = findSetting(settings, 'embedding_dims');
-    if (enabled) setAiEnabled(enabled.value as boolean);
-    if (provider) setLlmProvider(provider.value as string);
-    if (model) setLlmModel(model.value as string);
-    if (baseUrl) setOpenaiBaseUrl(baseUrl.value as string);
-    if (embModel) setEmbeddingModel(embModel.value as string);
-    if (embUrl) setEmbeddingBaseUrl(embUrl.value as string);
-    if (embDims) setEmbeddingDims(String(embDims.value));
-  }, [settings]);
-
-  useEffect(() => {
-    syncFromSettings();
-  }, [syncFromSettings]);
-
-  function getDirtyFields(): Record<string, unknown> {
-    const changes: Record<string, unknown> = {};
-    const enabled = findSetting(settings, 'ai_enabled');
-    const provider = findSetting(settings, 'llm_provider');
-    const model = findSetting(settings, 'llm_model');
-    const baseUrl = findSetting(settings, 'openai_base_url');
-    const embModel = findSetting(settings, 'embedding_model');
-    const embUrl = findSetting(settings, 'embedding_base_url');
-    const embDims = findSetting(settings, 'embedding_dims');
-    if (enabled && aiEnabled !== enabled.value) changes.ai_enabled = aiEnabled;
-    if (provider && llmProvider !== provider.value) changes.llm_provider = llmProvider;
-    if (model && llmModel !== model.value) changes.llm_model = llmModel;
-    if (baseUrl && openaiBaseUrl !== baseUrl.value) changes.openai_base_url = openaiBaseUrl;
-    if (embModel && embeddingModel !== embModel.value) changes.embedding_model = embeddingModel;
-    if (embUrl && embeddingBaseUrl !== embUrl.value) changes.embedding_base_url = embeddingBaseUrl;
-    if (embDims && String(embeddingDims) !== String(embDims.value)) changes.embedding_dims = Number(embeddingDims);
-    return changes;
-  }
-
-  const dirty = getDirtyFields();
-  const hasDirty = Object.keys(dirty).length > 0;
+  // Alias for readability in JSX
+  const aiEnabled = values.ai_enabled as boolean;
+  const llmProvider = values.llm_provider as string;
+  const llmModel = values.llm_model as string;
+  const openaiBaseUrl = values.openai_base_url as string;
+  const embeddingModel = values.embedding_model as string;
+  const embeddingBaseUrl = values.embedding_base_url as string;
+  const embeddingDims = values.embedding_dims as string;
 
   const handleSemanticToggle = (checked: boolean) => {
     semanticToggle.mutate(checked);
@@ -109,7 +80,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
     setIsDetecting(true);
     try {
       const result = await detectEmbeddingDims();
-      setEmbeddingDims(String(result.dimensions));
+      setters.embedding_dims(String(result.dimensions));
       toast.success(t('ai.dimsDetected', { dims: result.dimensions }));
     } catch {
       toast.error(t('ai.dimsDetectFailed'));
@@ -149,7 +120,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
           <Switch
             id="ai-toggle"
             checked={aiEnabled}
-            onCheckedChange={setAiEnabled}
+            onCheckedChange={setters.ai_enabled}
             disabled={envOnly}
           />
         </div>
@@ -160,7 +131,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
           <Label htmlFor="llm-provider">{findSetting(settings, 'llm_provider')?.label ?? t('ai.labels.llmProvider')}</Label>
           <SettingSourceBadge source={findSetting(settings, 'llm_provider')?.source ?? 'default'} settingKey="llm_provider" onReset={onReset} />
         </div>
-        <Select value={llmProvider} onValueChange={setLlmProvider} disabled={envOnly}>
+        <Select value={llmProvider} onValueChange={setters.llm_provider} disabled={envOnly}>
           <SelectTrigger id="llm-provider" className="w-56">
             <SelectValue />
           </SelectTrigger>
@@ -181,7 +152,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
           id="llm-model"
           type="text"
           value={llmModel}
-          onChange={(e) => setLlmModel(e.target.value)}
+          onChange={(e) => setters.llm_model(e.target.value)}
           disabled={envOnly}
           className="max-w-sm"
           placeholder={llmProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o'}
@@ -199,7 +170,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
             id="openai-base-url"
             type="text"
             value={openaiBaseUrl}
-            onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+            onChange={(e) => setters.openai_base_url(e.target.value)}
             disabled={envOnly}
             placeholder="https://api.openai.com/v1"
             className="max-w-md"
@@ -241,7 +212,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
               id="embedding-model"
               type="text"
               value={embeddingModel}
-              onChange={(e) => setEmbeddingModel(e.target.value)}
+              onChange={(e) => setters.embedding_model(e.target.value)}
               disabled={envOnly}
               className="max-w-sm"
               placeholder="text-embedding-3-small"
@@ -259,7 +230,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
               id="embedding-base-url"
               type="text"
               value={embeddingBaseUrl}
-              onChange={(e) => setEmbeddingBaseUrl(e.target.value)}
+              onChange={(e) => setters.embedding_base_url(e.target.value)}
               disabled={envOnly}
               placeholder="https://api.openai.com/v1"
               className="max-w-md"
@@ -277,7 +248,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
                 id="embedding-dims"
                 type="number"
                 value={embeddingDims}
-                onChange={(e) => setEmbeddingDims(e.target.value)}
+                onChange={(e) => setters.embedding_dims(e.target.value)}
                 disabled={envOnly}
                 className="w-32 font-mono tabular-nums"
                 min={1}
@@ -431,7 +402,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving }: 
 
       <Separator />
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={syncFromSettings} />
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
     </div>
   );
 }
