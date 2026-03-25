@@ -9,7 +9,7 @@
 
 The three GTM advisory documents provide a sound open-core framework that aligns with how comparable geospatial OSS projects monetize. The feature split (free core vs. enterprise governance/white-label/SSO), per-deployment pricing model, and emphasis on keeping OGC standards free all match proven industry patterns. The strategic advice is directionally correct.
 
-However, there is a significant execution gap. Of 20 community edition feature claims, 17 are fully implemented, 2 are partially implemented, and 1 is missing. This is a strong position -- the community edition is substantially complete and could ship today. By contrast, of 13 enterprise feature categories, 0 are fully implemented, 1 has partial overlap with existing functionality, and 12 are entirely missing. The enterprise edition exists only on paper.
+However, there is a significant execution gap. Of 21 community edition feature claims, 20 are fully implemented and 1 has minor gaps (column rename missing from schema editing). This is a strong position -- the community edition is substantially complete and could ship today. By contrast, of 13 enterprise feature categories, 0 are fully implemented, 2 have partial overlap with existing functionality (OIDC auth, dataset-level grants), and 11 are entirely missing. The enterprise edition exists mostly on paper, though key foundations (RBAC grants, OAuth) are already in place.
 
 The Year 1 revenue projection of $50K-$200K is aggressive for a zero-awareness product with no sales pipeline, website, or design partners. A more realistic Year 1 projection is $0-$25K, primarily from professional services, with the first license revenue likely arriving in months 9-12 if community adoption gains traction in the first 6 months. The pricing tiers themselves are defensible but sit 1.5-3x above the nearest comparables (Terria, CKAN managed hosting), which means the product must clearly demonstrate differentiated value at each tier before those prices will close.
 
@@ -23,7 +23,7 @@ The Year 1 revenue projection of $50K-$200K is aggressive for a zero-awareness p
 | 2 | Faceted filtering | Core data platform | **Exists** | `backend/app/search/router.py` -- source_organization, geometry_type, format filters |
 | 3 | Dataset preview (vector, raster, tabular) | Core data platform | **Exists** | `frontend/src/pages/DatasetPage.tsx`, DatasetMap component, non-spatial table view |
 | 4 | Collections (basic grouping) | Core data platform | **Exists** | `backend/app/collections/` -- full CRUD, router, service, models |
-| 5 | Versioning (basic) | Core data platform | **Partial** | `backend/app/collections/models.py` has `DatasetVersion` model; re-upload with schema diff exists (`SchemaDiff` in datasets), but no explicit version history UI or rollback |
+| 5 | Versioning (basic) | Core data platform | **Exists** | `DatasetVersion` model, `/{dataset_id}/versions` API endpoint, `frontend/src/components/dataset/VersionHistory.tsx` UI. Re-upload creates new versions with schema diff. No rollback to prior versions. |
 | 6 | File uploads (Shapefile, GeoJSON, GPKG, CSV, etc.) | Data ingestion | **Exists** | `backend/app/ingest/` -- ogr2ogr pipeline, validation, metadata extraction; XLSX support added |
 | 7 | WFS / ArcGIS import | Data ingestion | **Exists** | `backend/app/services/wfs.py`, `backend/app/services/arcgis.py` -- both with auth support |
 | 8 | Raster COG conversion | Data ingestion | **Exists** | `backend/app/raster/cog.py` -- COG compliance check and conversion |
@@ -35,13 +35,13 @@ The Year 1 revenue projection of $50K-$200K is aggressive for a zero-awareness p
 | 14 | Basic basemap config | Map + visualization | **Exists** | `backend/app/settings/` -- basemap configuration, `frontend/src/lib/basemap-utils.ts` |
 | 15 | Geometry editing | Editing | **Exists** | `frontend/src/hooks/use-terra-draw.ts`, `use-feature-editing.ts`; backend feature CRUD endpoints |
 | 16 | Attribute editing | Editing | **Exists** | `backend/app/features/router.py` -- `FeatureUpdate` with PATCH semantics |
-| 17 | Schema editing (basic) | Editing | **Missing** | No schema alteration endpoints found (add/remove/rename columns). Re-upload with schema diff exists but is not in-place schema editing. |
+| 17 | Schema editing (basic) | Editing | **Exists** | `backend/app/layers/router.py` has `add_column_endpoint` and `drop_column_endpoint` with full service implementations. No rename column support. |
 | 18 | OGC API Features / Records, STAC, DCAT | Standards | **Exists** | `backend/app/ogc/` (Features + Records), `backend/app/stac/`, `backend/app/dcat/` |
 | 19 | Share links + embed | Sharing | **Exists** | `backend/app/embed_tokens/`, `backend/app/maps/` share functionality, `PublicViewerPage` |
 | 20 | Users + roles, API keys, audit logs | Admin | **Exists** | `backend/app/auth/` (roles: viewer/editor/admin, RBAC), `backend/app/admin/` (API key management), `backend/app/audit/` |
 | 21 | Basic AI (map generation, styling edits) | AI | **Exists** | `backend/app/ai/` -- chat service, map tools, metadata generation, SQL generation, streaming |
 
-**Summary:** 18 of 21 features Exist, 1 Partial, 2 Missing (schema editing, version history UI). The community edition is substantially complete.
+**Summary:** 20 of 21 features Exist, 0 Partial, 1 Missing (column rename in schema editing). The community edition is substantially complete and shippable as-is.
 
 ---
 
@@ -54,7 +54,7 @@ The Year 1 revenue projection of $50K-$200K is aggressive for a zero-awareness p
 | 3 | SCIM provisioning | Enterprise security | **Missing** | No SCIM endpoints or user provisioning automation. |
 | 4 | Multi-org / tenant isolation | Enterprise security | **Missing** | Single-tenant architecture. No organization model, no tenant isolation. |
 | 5 | Approval workflows (draft > review > publish) | Governance | **Missing** | No workflow engine, no draft/review states on datasets. |
-| 6 | Granular permissions (dataset/field-level) | Governance | **Missing** | Role-based access (viewer/editor/admin) exists but is global, not per-dataset or per-field. Dataset visibility (public/internal/private) exists but is not granular RBAC. |
+| 6 | Granular permissions (dataset/field-level) | Governance | **Partial** | `DatasetGrant` model exists (`backend/app/datasets/models.py`) with role-to-dataset mapping. `apply_visibility_filter` in `auth/visibility.py` enforces per-dataset access. Missing: field-level permissions, admin UI for grant management. |
 | 7 | Full audit export + compliance reports | Audit & compliance | **Missing** | Audit logging exists (`backend/app/audit/`) with viewing and search, but no export functionality, no compliance report generation. |
 | 8 | Data lineage tracking | Audit & compliance | **Missing** | AI-generated lineage summaries exist (`backend/app/ai/metadata_service.py`) as free-text metadata, but no structured lineage graph or provenance tracking system. |
 | 9 | Cross-instance federation | Federation | **Missing** | No federation protocol, no multi-instance discovery or sync. |
@@ -63,7 +63,7 @@ The Year 1 revenue projection of $50K-$200K is aggressive for a zero-awareness p
 | 12 | Air-gapped deployment | Deployment & ops | **Missing** | Docker Compose deployment works, but no pre-built air-gapped packages, no offline container registry, no dependency bundling. |
 | 13 | GovCloud configs | Deployment & ops | **Missing** | No GovCloud-specific Terraform, Helm values, or compliance configurations. Helm charts and Packer AMI configs exist but are not GovCloud-certified. |
 
-**Summary:** 0 of 13 enterprise features are fully implemented. 1 (SSO/OIDC) has partial overlap with existing auth. 12 are entirely missing. The enterprise edition would need to be built from scratch.
+**Summary:** 0 of 13 enterprise features are fully implemented. 2 have partial overlap (SSO/OIDC, dataset-level RBAC via DatasetGrant). 11 are entirely missing. The enterprise edition would need substantial building, though the RBAC foundation reduces the governance effort.
 
 ---
 
@@ -163,12 +163,12 @@ The $50K-$200K projection is a Year 2-3 target, not Year 1. Reaching it in Year 
 | Feature | Status | Effort | Notes |
 |---------|--------|--------|-------|
 | Everything in Team | See above | See above | |
-| Dataset-level RBAC | Missing | High (4-6 weeks) | Permission model per dataset/collection, not just global roles |
+| Dataset-level RBAC | Partial | Medium (2-3 weeks) | `DatasetGrant` model and `apply_visibility_filter` exist. Needs: admin UI for managing grants, collection-level grants, field-level permissions |
 | Approval workflows | Missing | High (4-6 weeks) | Draft/review/publish state machine on datasets |
 | SCIM provisioning | Missing | Medium (2-3 weeks) | User/group sync from IdP |
 | Compliance audit reports | Missing | Medium (2-3 weeks) | Structured reports: who accessed what, when |
 
-**Verdict:** The Business tier requires 12-18 weeks of focused engineering. This is a significant investment that should not begin until there is at least one design partner willing to pay for it.
+**Verdict:** The Business tier requires 10-15 weeks of focused engineering (reduced from original estimate since DatasetGrant foundation exists). This is a significant investment that should not begin until there is at least one design partner willing to pay for it.
 
 ### Enterprise Tier ($75K+) -- Full Enterprise
 
@@ -247,7 +247,7 @@ The repo-split advice is architecturally correct but premature. The current mono
 
 | # | Recommendation | Effort | Impact | Rationale |
 |---|---------------|--------|--------|-----------|
-| 11 | Build dataset-level RBAC | High | High | Unlocks Business tier. Required for any organization with >5 users and data sensitivity. |
+| 11 | Build dataset-level RBAC admin UI | Medium | High | `DatasetGrant` model already exists. Needs admin UI for managing grants. Unlocks Business tier. |
 | 12 | Build approval workflows | High | High | Draft/review/publish is table stakes for government data governance. |
 | 13 | Build SCIM provisioning | Medium | Medium | Required for organizations with >50 users. Pairs with SAML for enterprise identity story. |
 | 14 | Create compliance audit reports | Medium | Medium | Structured "who accessed what" reports. Required for regulated industries. |
