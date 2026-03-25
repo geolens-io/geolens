@@ -124,7 +124,8 @@
     "datasetMembershipNotFound": "Datensatz-Zugehörigkeit nicht gefunden",
     "sharedMapExpired": "Dieser geteilte Kartenlink ist abgelaufen oder wurde widerrufen",
     "forbidden": "403",
-    "forbiddenAdmin": "Verboten — Administratorzugang erforderlich"
+    "forbiddenAdmin": "Verboten — Administratorzugang erforderlich",
+    "forbiddenEditor": "Verboten — Editor- oder Administratorzugang erforderlich"
   },
   "settings": {
     "tabs": {

@@ -124,7 +124,8 @@
     "datasetMembershipNotFound": "Appartenance au jeu de données introuvable",
     "sharedMapExpired": "Ce lien de carte partagée a expiré ou a été révoqué",
     "forbidden": "403",
-    "forbiddenAdmin": "Interdit — Accès administrateur requis"
+    "forbiddenAdmin": "Interdit — Accès administrateur requis",
+    "forbiddenEditor": "Interdit — Accès éditeur ou administrateur requis"
   },
   "settings": {
     "tabs": {

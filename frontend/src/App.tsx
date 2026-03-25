@@ -55,7 +55,7 @@ export const appRoutes = (
         <Route path="collections" element={<CollectionsPage />} />
         <Route path="collections/:id" element={<CollectionDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
-        <Route element={<EditorRoute />}>
+        <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} />
           <Route path="maps" element={<MapsPage />} />
           <Route path="maps/:id" element={<MapBuilderPage />} errorElement={<RouteErrorBoundary />} />
