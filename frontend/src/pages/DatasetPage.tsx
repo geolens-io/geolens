@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -112,6 +112,7 @@ export function DatasetPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const selectedFeatureGid = useDrawingStore((s) => s.selectedFeature?.gid ?? null);
   const [readOnlyFeatureGid, setReadOnlyFeatureGid] = useState<number | null>(null);
+  const [isHeroExpanded, setIsHeroExpanded] = useState(true);
   const effectiveGid = selectedFeatureGid ?? readOnlyFeatureGid;
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
@@ -612,7 +613,21 @@ export function DatasetPage() {
       {/* Hero Data Grid for table datasets (no map) */}
       {isTable && (
         <div className="rounded-lg border shadow-sm overflow-hidden">
-          <div className="h-[60vh]">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
+            <span className="text-xs text-muted-foreground font-medium">
+              {t('page.dataPreview', { defaultValue: 'Data Preview' })}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setIsHeroExpanded(prev => !prev)}
+              aria-label={isHeroExpanded ? 'Collapse data grid' : 'Expand data grid'}
+            >
+              {isHeroExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+          <div className={isHeroExpanded ? 'h-[60vh]' : 'h-64'}>
             <DataTab datasetId={id!} canEdit={isEditor} />
           </div>
         </div>
