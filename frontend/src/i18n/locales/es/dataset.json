@@ -147,7 +147,9 @@
     "editSaved": "Celda actualizada",
     "editFailed": "Error al actualizar celda",
     "filter": "Filtrar...",
-    "noResults": "No se encontraron filas coincidentes."
+    "noResults": "No se encontraron filas coincidentes.",
+    "showingExact": "Mostrando {{start}}-{{end}} de {{total}} filas",
+    "rowsPerPage": "Filas por pagina"
   },
   "changeHistory": {
     "title": "Historial de cambios ({{count}})",
