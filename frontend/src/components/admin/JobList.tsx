@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAdminJobs, useRetryAdminJob, useUserList } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
@@ -10,6 +10,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { DataTablePagination } from './DataTablePagination';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
+import { FilterSelect } from './FilterSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 
 const PAGE_SIZE = 25;
@@ -80,45 +81,21 @@ export function JobList() {
       <CardContent className="space-y-4">
         {/* Filters */}
         <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
-              {t('jobs.filters.status')}
-            </label>
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(0);
-              }}
-              className="h-8 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
-              {t('jobs.filters.user')}
-            </label>
-            <select
-              value={userId}
-              onChange={(e) => {
-                setUserId(e.target.value);
-                setPage(0);
-              }}
-              className="h-8 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-            >
-              <option value="">{t('jobs.filters.allUsers')}</option>
-              {usersData?.users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.username}
-                </option>
-              ))}
-            </select>
-          </div>
+          <FilterSelect
+            label={t('jobs.filters.status')}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(0); }}
+            options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+          />
+          <FilterSelect
+            label={t('jobs.filters.user')}
+            value={userId}
+            onChange={(v) => { setUserId(v); setPage(0); }}
+            options={[
+              { value: '', label: t('jobs.filters.allUsers') },
+              ...(usersData?.users.map((user) => ({ value: user.id, label: user.username })) ?? []),
+            ]}
+          />
           <Button variant="ghost" size="sm" onClick={clearFilters}>
             {t('jobs.filters.clear')}
           </Button>
@@ -170,7 +147,7 @@ export function JobList() {
                 </TableHeader>
                 <TableBody>
                   {(data?.jobs ?? []).map((job) => (
-                    <React.Fragment key={job.id}>
+                    <Fragment key={job.id}>
                       <TableRow
                         className="cursor-pointer"
                         onClick={() =>
@@ -239,7 +216,7 @@ export function JobList() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </React.Fragment>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>

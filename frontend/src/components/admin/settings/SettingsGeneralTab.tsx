@@ -1,11 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingSourceBadge } from './SettingSourceBadge';
+import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import type { SettingItem } from '@/api/settings';
@@ -114,15 +113,7 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSavin
         />
       </div>
 
-      <div className="flex items-center gap-3 pt-2">
-        <Button onClick={() => onSave(dirty)} disabled={!hasDirty || envOnly || isSaving}>
-          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          {t('common:save')}
-        </Button>
-        <Button variant="outline" onClick={discard} disabled={!hasDirty || isSaving}>
-          {t('settings.actions.discard')}
-        </Button>
-      </div>
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} />
     </div>
   );
 }

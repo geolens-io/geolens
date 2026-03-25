@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuditLogs } from '@/hooks/use-admin';
 import { formatDateTimeSmart } from '@/lib/format';
@@ -10,6 +10,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { DataTablePagination } from './DataTablePagination';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
+import { FilterSelect } from './FilterSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 
 const PAGE_SIZE = 25;
@@ -70,25 +71,12 @@ export function AuditLogViewer() {
       <CardContent className="space-y-4">
         {/* Filters */}
         <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
-              {t('audit.filters.action')}
-            </label>
-            <select
-              value={action}
-              onChange={(e) => {
-                setAction(e.target.value);
-                setPage(0);
-              }}
-              className="h-8 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-            >
-              {ACTION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <FilterSelect
+            label={t('audit.filters.action')}
+            value={action}
+            onChange={(v) => { setAction(v); setPage(0); }}
+            options={ACTION_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+          />
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
               {t('audit.filters.from')}
@@ -158,7 +146,6 @@ export function AuditLogViewer() {
                 {t('audit.noLogs')}
               </p>
             ) : (
-              <>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -172,7 +159,7 @@ export function AuditLogViewer() {
                 </TableHeader>
                 <TableBody>
                   {(data?.logs ?? []).map((log) => (
-                    <React.Fragment key={log.id}>
+                    <Fragment key={log.id}>
                       <TableRow
                         className="cursor-pointer"
                         onClick={() =>
@@ -214,11 +201,10 @@ export function AuditLogViewer() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </React.Fragment>
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>
-              </>
             )}
 
             <DataTablePagination

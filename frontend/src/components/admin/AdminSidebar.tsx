@@ -1,5 +1,4 @@
-import { useLocation, Link } from 'react-router';
-import { NavLink } from 'react-router';
+import { useLocation, Link, NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Sidebar,
@@ -31,18 +30,26 @@ import {
   Lock,
   ArrowLeft,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { usePendingCount, useFailedJobCount } from '@/hooks/use-admin';
 
 const overviewItems = [
   { labelKey: 'adminNav.overview', to: '/admin/overview', icon: LayoutDashboard },
 ] as const;
 
-const operationsItems = [
-  { labelKey: 'adminNav.users', to: '/admin/users', icon: Users },
-  { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase },
+type OperationItem = {
+  labelKey: string;
+  to: string;
+  icon: LucideIcon;
+  badgeKey?: 'pending' | 'failed';
+};
+
+const operationsItems: readonly OperationItem[] = [
+  { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'pending' },
+  { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase, badgeKey: 'failed' },
   { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText },
   { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2 },
-] as const;
+];
 
 const settingsItems = [
   { labelKey: 'admin:settings.tabs.general', to: '/admin/settings/general', icon: Settings },
@@ -52,6 +59,7 @@ const settingsItems = [
   { labelKey: 'admin:settings.tabs.storage', to: '/admin/settings/storage', icon: HardDrive },
   { labelKey: 'admin:settings.tabs.appearance', to: '/admin/settings/appearance', icon: Palette },
   { labelKey: 'admin:settings.tabs.permissions', to: '/admin/settings/permissions', icon: Lock },
+  { labelKey: 'adminNav.configOps', to: '/admin/config-ops', icon: Wrench },
 ] as const;
 
 export function AdminSidebar() {
@@ -59,6 +67,11 @@ export function AdminSidebar() {
   const { t } = useTranslation();
   const { data: pendingCount } = usePendingCount();
   const { data: failedJobCount } = useFailedJobCount();
+
+  const badgeCounts: Record<string, number | undefined> = {
+    pending: pendingCount,
+    failed: failedJobCount,
+  };
 
   return (
     <Sidebar collapsible="icon" variant="sidebar" side="left">
@@ -93,26 +106,26 @@ export function AdminSidebar() {
           <SidebarGroupLabel>{t('adminNav.operations')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {operationsItems.map(({ labelKey, to, icon: Icon }) => (
-                <SidebarMenuItem key={to}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith(to)}
-                    tooltip={t(labelKey)}
-                  >
-                    <NavLink to={to}>
-                      <Icon />
-                      <span>{t(labelKey)}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                  {labelKey === 'adminNav.users' && pendingCount !== undefined && pendingCount > 0 && (
-                    <SidebarMenuBadge>{pendingCount}</SidebarMenuBadge>
-                  )}
-                  {labelKey === 'adminNav.jobs' && failedJobCount !== undefined && failedJobCount > 0 && (
-                    <SidebarMenuBadge>{failedJobCount}</SidebarMenuBadge>
-                  )}
-                </SidebarMenuItem>
-              ))}
+              {operationsItems.map(({ labelKey, to, icon: Icon, badgeKey }) => {
+                const count = badgeKey ? badgeCounts[badgeKey] : undefined;
+                return (
+                  <SidebarMenuItem key={to}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(to)}
+                      tooltip={t(labelKey)}
+                    >
+                      <NavLink to={to}>
+                        <Icon />
+                        <span>{t(labelKey)}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                    {count !== undefined && count > 0 && (
+                      <SidebarMenuBadge>{count}</SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -126,7 +139,7 @@ export function AdminSidebar() {
                 <SidebarMenuItem key={to}>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname === to}
+                    isActive={pathname === to || pathname.startsWith(to)}
                     tooltip={t(labelKey)}
                   >
                     <NavLink to={to}>
@@ -136,18 +149,6 @@ export function AdminSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith('/admin/config-ops')}
-                  tooltip={t('adminNav.configOps')}
-                >
-                  <NavLink to="/admin/config-ops">
-                    <Wrench />
-                    <span>{t('adminNav.configOps')}</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

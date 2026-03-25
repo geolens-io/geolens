@@ -53,6 +53,7 @@ import { UserDeleteDialog } from './UserDeleteDialog';
 import { DataTablePagination } from './DataTablePagination';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
+import { FilterSelect } from './FilterSelect';
 import { RoleSelect } from './RoleSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 
@@ -151,20 +152,12 @@ export function UserList() {
                 onChange={(v) => { setSearchQuery(v); setPage(0); }}
                 placeholder={t('users.table.username') + ' / ' + t('users.table.email')}
               />
-              <select
+              <FilterSelect
+                label=""
                 value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setPage(0);
-                }}
-                className="h-8 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-              >
-                {STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {t(opt.labelKey)}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => { setStatusFilter(v); setPage(0); }}
+                options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
+              />
               <Button size="sm" onClick={() => setShowCreateDialog(true)}>
                 <UserPlus className="mr-2 h-4 w-4" /> {t('users.addUser')}
               </Button>
