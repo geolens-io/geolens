@@ -252,15 +252,21 @@ export function syncLayersToMap(
         for (const [k, v] of Object.entries(basePaint)) {
           if (!CUSTOM_PAINT_PROPS.has(k)) fillPaint[k] = v;
         }
+        const strokeDisabled = !!(layer.paint as Record<string, unknown>)?.['_stroke-disabled'];
+        const effectiveFillPaint = Object.keys(fillPaint).length ? { ...fillPaint } : {
+          'fill-color': MAP_COLORS.default.fill,
+          'fill-opacity': MAP_COLORS.default.fillOpacity,
+        };
+        // Suppress native 1px fill outline when stroke is disabled
+        if (strokeDisabled) {
+          effectiveFillPaint['fill-outline-color'] = 'transparent';
+        }
         map.addLayer({
           id: layerId,
           type: 'fill',
           source: sourceId,
           'source-layer': sourceLayer,
-          paint: Object.keys(fillPaint).length ? fillPaint : {
-            'fill-color': MAP_COLORS.default.fill,
-            'fill-opacity': MAP_COLORS.default.fillOpacity,
-          },
+          paint: effectiveFillPaint,
           layout: (layer.layout as Record<string, unknown>) ?? {},
         });
         if (hasExpressions) {
@@ -328,6 +334,13 @@ export function syncLayersToMap(
       }
       // Sync outline layer paint for fill layers
       const outId = getOutlineLayerId(layer.id);
+      const strokeDisabledSync = !!rawPaint['_stroke-disabled'];
+      // Suppress/restore native 1px fill outline based on stroke toggle
+      if (map.getLayer(mapLayerId)) {
+        try {
+          map.setPaintProperty(mapLayerId, 'fill-outline-color', strokeDisabledSync ? 'transparent' : undefined);
+        } catch { /* fill-outline-color may not be supported on all styles */ }
+      }
       if (map.getLayer(outId)) {
         const outlineColor = rawPaint['_outline-color'];
         const outlineWidth = rawPaint['_outline-width'];
