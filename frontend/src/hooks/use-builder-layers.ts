@@ -137,8 +137,7 @@ export function useBuilderLayers(
         type: 'line',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'Polygon'],
-        paint: { 'line-color': '#f97316', 'line-width': 2 },
-        layout: { 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#f97316', 'line-width': 2, 'line-dasharray': [3, 2] },
       });
 
       // Line layer
@@ -147,8 +146,7 @@ export function useBuilderLayers(
         type: 'line',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'LineString'],
-        paint: { 'line-color': '#f97316', 'line-width': 2.5 },
-        layout: { 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#f97316', 'line-width': 2.5, 'line-dasharray': [3, 2] },
       });
 
       // Point layer
@@ -567,16 +565,25 @@ export function useBuilderLayers(
 
     for (const [prop, value] of Object.entries(newLayout)) {
       try {
-        map.setLayoutProperty(mapLayerId, prop, value ?? undefined);
+        // line-dasharray is stored in layout JSON but is a MapLibre paint property
+        if (prop === 'line-dasharray') {
+          map.setPaintProperty(mapLayerId, prop, value ?? undefined);
+        } else {
+          map.setLayoutProperty(mapLayerId, prop, value ?? undefined);
+        }
       } catch (e) {
         if (import.meta.env.DEV) console.debug(`[builder] Failed to set layout ${prop}:`, e);
       }
     }
-    // Clear removed layout props (e.g., removing line-dasharray sets solid)
+    // Clear removed props (e.g., removing line-dasharray sets solid)
     for (const prop of Object.keys(prevLayout)) {
       if (!(prop in newLayout)) {
         try {
-          map.setLayoutProperty(mapLayerId, prop, undefined);
+          if (prop === 'line-dasharray') {
+            map.setPaintProperty(mapLayerId, prop, undefined);
+          } else {
+            map.setLayoutProperty(mapLayerId, prop, undefined);
+          }
         } catch (e) {
           if (import.meta.env.DEV) console.debug(`[builder] Failed to clear layout ${prop}:`, e);
         }
