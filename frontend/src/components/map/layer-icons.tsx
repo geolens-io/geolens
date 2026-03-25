@@ -2,6 +2,14 @@ import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
 import { getColorProperty } from '@/lib/color-ramps';
 import type { MapLayerResponse } from '@/types/api';
 
+/** Darken a hex color by reducing each channel by ~30% for outline contrast */
+function darkenColor(hex: string): string {
+  const m = hex.match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  if (!m) return '#333333';
+  const darken = (ch: string) => Math.max(0, Math.round(parseInt(ch, 16) * 0.6)).toString(16).padStart(2, '0');
+  return `#${darken(m[1])}${darken(m[2])}${darken(m[3])}`;
+}
+
 export interface StyleHints {
   strokeColor?: string;      // polygon _outline-color or circle-stroke-color
   dashPattern?: number[];    // line-dasharray from layout (e.g., [4,2])
@@ -149,16 +157,17 @@ export function ColorizedGeometryIcon({
     if (isPoint && styleHints?.strokeColor) {
       return (
         <span style={opacityStyle} className="inline-flex">
-          <Icon className={sizeClass} fill={color} stroke={styleHints.strokeColor} strokeWidth={1.5} />
+          <Icon className={sizeClass} fill={color} stroke={styleHints.strokeColor} strokeWidth={2} />
         </span>
       );
     }
 
-    // Polygon with outline color
-    if (!isPoint && styleHints?.strokeColor) {
+    // Polygon — always show outline (use _outline-color if set, otherwise darken fill)
+    if (!isPoint) {
+      const outlineColor = styleHints?.strokeColor ?? darkenColor(color);
       return (
         <span style={opacityStyle} className="inline-flex">
-          <Icon className={sizeClass} fill={color} stroke={styleHints.strokeColor} strokeWidth={1.5} />
+          <Icon className={sizeClass} fill={color} stroke={outlineColor} strokeWidth={2.5} />
         </span>
       );
     }
@@ -188,7 +197,9 @@ export function ColorizedGeometryIcon({
             </linearGradient>
           </defs>
         </svg>
-        {styleHints?.strokeColor ? (
+        {!isLine && !isPoint ? (
+          <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints?.strokeColor ?? '#666666'} strokeWidth={2.5} />
+        ) : styleHints?.strokeColor ? (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints.strokeColor} strokeWidth={1.5} />
         ) : (
           <Icon className={sizeClass} fill={`url(#${gradientId})`} strokeWidth={0} />
