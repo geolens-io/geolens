@@ -38,6 +38,7 @@ describe('LayerStyleEditor - dash presets', () => {
       <LayerStyleEditor
         layer={makeLayer()}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -54,6 +55,7 @@ describe('LayerStyleEditor - dash presets', () => {
       <LayerStyleEditor
         layer={makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#ff0000' } })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -71,6 +73,7 @@ describe('LayerStyleEditor - dash presets', () => {
       <LayerStyleEditor
         layer={makeLayer()}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={onLayoutChange}
       />,
@@ -88,6 +91,7 @@ describe('LayerStyleEditor - dash presets', () => {
       <LayerStyleEditor
         layer={makeLayer({ layout: { 'line-dasharray': [4, 2] } })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={onLayoutChange}
       />,
@@ -103,6 +107,7 @@ describe('LayerStyleEditor - dash presets', () => {
       <LayerStyleEditor
         layer={makeLayer({ layout: { 'line-dasharray': [1, 2] } })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -122,6 +127,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
       <LayerStyleEditor
         layer={makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3 } })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -136,6 +142,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
       <LayerStyleEditor
         layer={makeLayer({ dataset_geometry_type: 'Point', paint: { 'circle-color': '#ff0000' } })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -150,6 +157,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
       <LayerStyleEditor
         layer={makeLayer()}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -170,6 +178,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.5, '_outline-color': '#000', '_outline-width': 1 },
         })}
         onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -194,6 +203,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0, '_fill-disabled': true, '_fill-opacity-saved': 0.5, '_outline-color': '#000', '_outline-width': 1 },
         })}
         onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -217,6 +227,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3, '_outline-color': '#000', '_outline-width': 2 },
         })}
         onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -241,6 +252,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'circle-color': '#ff0000', 'circle-stroke-color': '#000', 'circle-stroke-width': 3 },
         })}
         onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -265,6 +277,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'circle-color': '#ff0000', 'circle-stroke-color': '#000', 'circle-stroke-width': 0, '_stroke-disabled': true, '_outline-width-saved': 3 },
         })}
         onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -285,6 +298,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0, '_fill-disabled': true, '_outline-color': '#000', '_outline-width': 1 },
         })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
@@ -306,6 +320,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3, '_outline-color': '#000', '_outline-width': 0, '_stroke-disabled': true },
         })}
         onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
       />,
