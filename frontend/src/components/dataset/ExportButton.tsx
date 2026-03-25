@@ -7,6 +7,7 @@ import { Download, Loader2 } from 'lucide-react';
 interface ExportButtonProps {
   datasetId: string;
   datasetName: string;
+  recordType?: string;
 }
 
 const EXPORT_FORMATS = [
@@ -16,11 +17,12 @@ const EXPORT_FORMATS = [
   { value: 'csv', labelKey: 'export.csv', ext: 'csv' },
 ] as const;
 
-export function ExportButton({ datasetId, datasetName }: ExportButtonProps) {
+export function ExportButton({ datasetId, datasetName, recordType }: ExportButtonProps) {
   const { t } = useTranslation('dataset');
   const [format, setFormat] = useState<string>('gpkg');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formats = recordType === 'table' ? EXPORT_FORMATS.filter(f => f.value !== 'shp') : EXPORT_FORMATS;
   const selectId = `export-format-${datasetId}`;
 
   const handleExport = async () => {
@@ -50,7 +52,7 @@ export function ExportButton({ datasetId, datasetName }: ExportButtonProps) {
           className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
           disabled={loading}
         >
-          {EXPORT_FORMATS.map((f) => (
+          {formats.map((f) => (
             <option key={f.value} value={f.value}>
               {t(f.labelKey)}
             </option>

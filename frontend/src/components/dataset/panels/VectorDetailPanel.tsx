@@ -47,12 +47,14 @@ export function VectorDetailPanel(props: DetailPanelProps) {
     onNavigateToValidationField,
   } = props;
 
+  const isTable = dataset.record_type === 'table';
+
   return (
     <Tabs value={activeTab} onValueChange={onTabChange}>
       <TabsList className="overflow-x-auto w-full sticky top-0 z-10 bg-background border-b">
         <TabsTrigger value="overview">{t('tabs.overview')}</TabsTrigger>
         <TabsTrigger value="metadata">{t('tabs.metadata')}</TabsTrigger>
-        <TabsTrigger value="data">{t('tabs.data')}</TabsTrigger>
+        {!isTable && <TabsTrigger value="data">{t('tabs.data')}</TabsTrigger>}
         <TabsTrigger value="structure">{t('tabs.structure')}</TabsTrigger>
         <TabsTrigger value="access">{t('tabs.access', { defaultValue: 'Access' })}</TabsTrigger>
       </TabsList>
@@ -88,9 +90,11 @@ export function VectorDetailPanel(props: DetailPanelProps) {
           onNavigateToValidationField={onNavigateToValidationField}
         />
       </TabsContent>
-      <TabsContent value="data" className="space-y-6">
-        <DataTab datasetId={datasetId} canEdit={canEdit} />
-      </TabsContent>
+      {!isTable && (
+        <TabsContent value="data" className="space-y-6">
+          <DataTab datasetId={datasetId} canEdit={canEdit} />
+        </TabsContent>
+      )}
       <TabsContent value="structure" className="space-y-6">
         <StructureTab
           datasetId={datasetId}

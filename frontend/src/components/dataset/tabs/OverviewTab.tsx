@@ -183,18 +183,14 @@ export function OverviewTab({
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {!isRaster && !isVrt && (
+            {!isRaster && !isVrt && dataset.geometry_type && (
               <MetadataField icon={Layers} label={t('metadata.geometryType')}>
-                {dataset.geometry_type ? (
-                  <Badge variant="outline">{getGeometryTypeLabel(t, dataset.geometry_type)}</Badge>
-                ) : (
-                  t('common:notAvailable')
-                )}
+                <Badge variant="outline">{getGeometryTypeLabel(t, dataset.geometry_type)}</Badge>
               </MetadataField>
             )}
 
             {!isRaster && !isVrt && (
-              <MetadataField icon={Database} label={t('metadata.featureCount')}>
+              <MetadataField icon={Database} label={dataset.record_type === 'table' ? t('metadata.rowCount', { defaultValue: 'Row Count' }) : t('metadata.featureCount')}>
                 {formatNumber(dataset.feature_count)}
               </MetadataField>
             )}
