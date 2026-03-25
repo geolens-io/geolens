@@ -57,6 +57,7 @@
     "dropHere": "Dateien hier ablegen",
     "unsupportedType": "Dieser Dateityp wird nicht unterstützt",
     "sizeLimit": "Maximal 500 MB pro Datei",
+    "sizeLimitDynamic": "Maximal {{size}} MB pro Datei",
     "batchLimit": "Bis zu 10 Dateien pro Stapel"
   },
   "serviceUrl": {

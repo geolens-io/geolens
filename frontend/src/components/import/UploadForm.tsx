@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/ingest';
 import { useUploadConfig } from '@/hooks/use-ingest';
@@ -39,6 +39,12 @@ export function UploadForm() {
   const [phase, setPhase] = useState<BatchPhase>('idle');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const { data: uploadConfig } = useUploadConfig();
+
+  const allowedExtensions = useMemo(
+    () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
+    [uploadConfig?.allowed_extensions],
+  );
+  const maxSizeMb = uploadConfig ? Math.round(uploadConfig.max_file_size_bytes / (1024 * 1024)) : undefined;
 
   const updateEntry = useCallback((id: string, patch: Partial<FileEntry>) => {
     setEntries((prev) =>
@@ -233,10 +239,9 @@ export function UploadForm() {
   }
 
   // idle
-  const allowedExtensions = uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean);
   return (
     <div className="space-y-4">
-      <FileDropzone onFilesAccepted={handleFilesAccepted} allowedExtensions={allowedExtensions} />
+      <FileDropzone onFilesAccepted={handleFilesAccepted} allowedExtensions={allowedExtensions} maxSizeMb={maxSizeMb} />
     </div>
   );
 }

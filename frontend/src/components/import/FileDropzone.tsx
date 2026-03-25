@@ -9,9 +9,10 @@ interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
   disabled?: boolean;
   allowedExtensions?: string[];
+  maxSizeMb?: number;
 }
 
-export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, maxSizeMb }: FileDropzoneProps) {
   const { t } = useTranslation('import');
 
   const { accept, badges } = useMemo(() => {
@@ -81,7 +82,9 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions }: F
       )}
 
       <p className="mt-2 text-xs text-muted-foreground">
-        {t('dropzone.sizeLimit')}
+        {maxSizeMb != null
+          ? t('dropzone.sizeLimitDynamic', { size: maxSizeMb, defaultValue: `Max ${maxSizeMb} MB per file` })
+          : t('dropzone.sizeLimit')}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
         {t('dropzone.batchLimit')}

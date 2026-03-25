@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import {
   useReuploadCommit,
 } from '@/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/hooks/use-ingest';
-import { buildAcceptMap } from '@/lib/file-utils';
+import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { SchemaDiffView } from './SchemaDiffView';
 import {
   Dialog,
@@ -358,9 +358,18 @@ export function ReuploadDialog({
     [onOpenChange, resetState],
   );
 
-  const reuploadAccept = uploadConfig?.allowed_extensions
-    ? buildAcceptMap(uploadConfig.allowed_extensions.split(',').map(e => e.trim()).filter(Boolean))
-    : undefined;
+  const reuploadExtensions = useMemo(
+    () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
+    [uploadConfig?.allowed_extensions],
+  );
+  const reuploadAccept = useMemo(
+    () => reuploadExtensions ? buildAcceptMap(reuploadExtensions) : undefined,
+    [reuploadExtensions],
+  );
+  const reuploadBadges = useMemo(
+    () => reuploadExtensions ? deriveFormatBadges(reuploadExtensions) : [],
+    [reuploadExtensions],
+  );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
@@ -489,9 +498,18 @@ export function ReuploadDialog({
               <p className="text-sm font-medium">
                 {t('reupload.dropzone')}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('reupload.acceptedFormats')}
-              </p>
+              {reuploadBadges.length > 0 && (
+                <div className="mt-2 flex flex-wrap justify-center gap-1">
+                  {reuploadBadges.map((ext) => (
+                    <span
+                      key={ext}
+                      className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                    >
+                      {ext}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

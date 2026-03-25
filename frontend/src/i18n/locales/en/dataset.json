@@ -222,7 +222,6 @@
       }
     },
     "dropzone": "Drag and drop a file here, or click to browse",
-    "acceptedFormats": ".zip, .gpkg, .geojson, .json, .csv",
     "uploadingMessage": "Uploading and analyzing file...",
     "file": "File:",
     "warningSchemaChanges": "Warning: This re-upload includes schema changes that may affect existing queries.",

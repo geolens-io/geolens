@@ -57,6 +57,7 @@
     "dropHere": "Déposez les fichiers ici",
     "unsupportedType": "Ce type de fichier n'est pas pris en charge",
     "sizeLimit": "500 Mo maximum par fichier",
+    "sizeLimitDynamic": "{{size}} Mo maximum par fichier",
     "batchLimit": "Jusqu'à 10 fichiers par lot"
   },
   "serviceUrl": {

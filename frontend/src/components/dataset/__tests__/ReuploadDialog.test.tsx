@@ -241,7 +241,12 @@ describe('ReuploadDialog', () => {
       mutateAsync: commitMutateAsync,
     } as unknown as ReturnType<typeof useReuploadCommit>);
     mockUseUploadConfig.mockReturnValue({
-      data: { presigned_uploads: false },
+      data: {
+        presigned_uploads: false,
+        presigned_threshold_bytes: 10485760,
+        max_file_size_bytes: 524288000,
+        allowed_extensions: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls',
+      },
     } as unknown as ReturnType<typeof useUploadConfig>);
     mockUseJobStatus.mockReturnValue({
       data: null,

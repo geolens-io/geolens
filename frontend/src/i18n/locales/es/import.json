@@ -57,6 +57,7 @@
     "dropHere": "Suelte los archivos aqu\u00ed",
     "unsupportedType": "Este tipo de archivo no es compatible",
     "sizeLimit": "M\u00e1ximo 500 MB por archivo",
+    "sizeLimitDynamic": "M\u00e1ximo {{size}} MB por archivo",
     "batchLimit": "Hasta 10 archivos por lote"
   },
   "serviceUrl": {
