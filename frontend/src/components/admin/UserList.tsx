@@ -7,6 +7,7 @@ import {
   useDeactivateUser,
 } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
+import { paginationRange } from '@/lib/pagination';
 import { userStatusColors, activeDotColor } from '@/lib/status-colors';
 import type { UserResponse } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
@@ -134,9 +135,7 @@ export function UserList() {
     return <ErrorState message={t('users.errorLoading', { message: error.message })} />;
   }
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
-  const rangeStart = data && data.total > 0 ? skip + 1 : 0;
-  const rangeEnd = data ? Math.min(skip + PAGE_SIZE, data.total) : 0;
+  const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
 
   return (
     <>

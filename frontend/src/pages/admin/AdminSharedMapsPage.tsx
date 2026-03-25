@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -31,13 +31,14 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { DataTablePagination } from '@/components/admin/DataTablePagination';
+import { DataTableSearch } from '@/components/admin/DataTableSearch';
 import { DataTableSkeleton } from '@/components/admin/DataTableSkeleton';
 import { Link } from 'react-router';
-import { Input } from '@/components/ui/input';
-import { Link2Off, ChevronDown, ChevronRight, Key, ShieldOff, Search } from 'lucide-react';
+import { Link2Off, ChevronDown, ChevronRight, Key, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AdminShareTokenResponse, AdminEmbedTokenResponse } from '@/types/api';
 import { formatDate } from '@/lib/format';
+import { paginationRange } from '@/lib/pagination';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
 const PAGE_SIZE = 50;
@@ -224,25 +225,13 @@ export function AdminSharedMapsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const skip = page * PAGE_SIZE;
-  const { data, isLoading, isError } = useShareTokens(skip, PAGE_SIZE, debouncedSearch || undefined, statusFilter || undefined);
+  const { data, isLoading, isError } = useShareTokens(skip, PAGE_SIZE, search || undefined, statusFilter || undefined);
   const revoke = useAdminRevokeShareToken();
-
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(0);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
 
   const total = data?.total ?? 0;
   const tokens = data?.tokens ?? [];
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const rangeStart = total > 0 ? skip + 1 : 0;
-  const rangeEnd = Math.min(skip + PAGE_SIZE, total);
+  const { totalPages, rangeStart, rangeEnd } = paginationRange(total, page, PAGE_SIZE);
 
   function shareStatusBadge(s: 'active' | 'revoked' | 'expired') {
     if (s === 'active') return <Badge variant="default" className="bg-green-600 text-white">{t('shareTokens.active')}</Badge>;
@@ -268,15 +257,12 @@ export function AdminSharedMapsPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={t('sharedMaps.searchPlaceholder')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <DataTableSearch
+              value={search}
+              onChange={(v) => { setSearch(v); setPage(0); }}
+              placeholder={t('sharedMaps.searchPlaceholder')}
+              debounceMs={300}
+            />
             <div className="flex gap-1">
               {(['', 'active', 'expired', 'revoked'] as const).map((value) => (
                 <Button

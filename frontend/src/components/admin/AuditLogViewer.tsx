@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuditLogs } from '@/hooks/use-admin';
 import { formatDateTimeSmart } from '@/lib/format';
+import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -44,9 +45,7 @@ export function AuditLogViewer() {
     limit: PAGE_SIZE,
   });
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
-  const rangeStart = data && data.total > 0 ? skip + 1 : 0;
-  const rangeEnd = data ? Math.min(skip + PAGE_SIZE, data.total) : 0;
+  const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
 
   function clearFilters() {
     setAction('');

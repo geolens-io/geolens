@@ -5,7 +5,17 @@ import type { SettingItem } from '@/api/settings';
 type FieldDef = {
   key: string;
   defaultValue: unknown;
+  /** Coerce server and local values before comparison and on initial sync.
+   *  e.g. `String` to compare a numeric server value with a string input. */
+  coerce?: (v: unknown) => unknown;
+  /** Comparison strategy: 'strict' (===, default) or 'json' (deep equality). */
+  compare?: 'strict' | 'json';
 };
+
+function isEqual(a: unknown, b: unknown, mode: 'strict' | 'json' = 'strict'): boolean {
+  if (mode === 'json') return JSON.stringify(a) === JSON.stringify(b);
+  return a === b;
+}
 
 /**
  * Manages settings form state: syncs from server settings, tracks dirty fields,
@@ -14,6 +24,8 @@ type FieldDef = {
  * Usage:
  *   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, [
  *     { key: 'cors_allowed_origins', defaultValue: '' },
+ *     { key: 'embedding_dims', defaultValue: 0, coerce: String },
+ *     { key: 'basemaps', defaultValue: [], compare: 'json' },
  *   ]);
  *   // values.cors_allowed_origins, setters.cors_allowed_origins(newVal), etc.
  */
@@ -27,7 +39,8 @@ export function useSettingsForm<K extends string>(
     const vals: Record<string, unknown> = {};
     for (const f of fields) {
       const setting = findSetting(settings, f.key);
-      vals[f.key] = setting ? setting.value : f.defaultValue;
+      const raw = setting ? setting.value : f.defaultValue;
+      vals[f.key] = f.coerce ? f.coerce(raw) : raw;
     }
     return vals as Values;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -57,8 +70,11 @@ export function useSettingsForm<K extends string>(
     const changes: Record<string, unknown> = {};
     for (const f of fields) {
       const setting = findSetting(settings, f.key);
-      if (setting && values[f.key as K] !== setting.value) {
-        changes[f.key] = values[f.key as K];
+      if (!setting) continue;
+      const serverVal = f.coerce ? f.coerce(setting.value) : setting.value;
+      const localVal = values[f.key as K];
+      if (!isEqual(localVal, serverVal, f.compare ?? 'strict')) {
+        changes[f.key] = localVal;
       }
     }
     return changes;
