@@ -1,5 +1,5 @@
 import type { StyleConfig } from '@/types/api';
-import { ColorizedGeometryIcon, getLayerColors } from './layer-icons';
+import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from './layer-icons';
 
 interface MapLegendLayer {
   name: string;
@@ -9,6 +9,8 @@ interface MapLegendLayer {
   geometryType?: string | null;
   paint?: Record<string, unknown>;
   layerType?: string;
+  layout?: Record<string, unknown>;
+  opacity?: number;
 }
 
 interface MapLegendProps {
@@ -34,7 +36,7 @@ export function MapLegend({ layers }: MapLegendProps) {
                     <li key={i} className="flex items-center gap-1.5">
                       <div
                         className="w-3 h-3 rounded-sm shrink-0"
-                        style={{ backgroundColor: cat.color }}
+                        style={{ backgroundColor: cat.color, ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}) }}
                       />
                       <span className="text-muted-foreground truncate">{cat.value}</span>
                     </li>
@@ -60,7 +62,7 @@ export function MapLegend({ layers }: MapLegendProps) {
                         <li key={i} className="flex items-center gap-1.5">
                           <div
                             className="w-3 h-3 rounded-sm shrink-0"
-                            style={{ backgroundColor: color }}
+                            style={{ backgroundColor: color, ...(layer.opacity !== undefined && layer.opacity < 1 ? { opacity: layer.opacity } : {}) }}
                           />
                           <span className="text-muted-foreground truncate">{label}</span>
                         </li>
@@ -80,6 +82,12 @@ export function MapLegend({ layers }: MapLegendProps) {
                 })}
                 layerId={`legend-${idx}`}
                 layerType={layer.layerType}
+                styleHints={extractStyleHints(
+                  layer.paint ?? {},
+                  layer.layout ?? {},
+                  layer.geometryType ?? null,
+                  layer.opacity,
+                )}
               />
               <span className="font-medium text-foreground truncate">{layer.name}</span>
             </div>
