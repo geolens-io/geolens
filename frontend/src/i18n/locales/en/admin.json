@@ -52,6 +52,7 @@
       "reject": "Reject",
       "deactivate": "Deactivate"
     },
+    "actionsFor": "Actions for {{name}}",
     "approveDialog": {
       "title": "Approve {{username}}",
       "description": "Select a role for this user before approving their registration.",

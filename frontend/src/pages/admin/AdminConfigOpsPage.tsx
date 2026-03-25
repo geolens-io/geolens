@@ -123,6 +123,7 @@ function ImportSection() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     pickingRef.current = false;
+    importMutation.reset();
     const file = e.target.files?.[0];
     if (!file) return;
 
