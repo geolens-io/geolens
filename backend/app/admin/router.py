@@ -18,6 +18,7 @@ from app.admin.schemas import (
     AdminJobResponse,
     AdminUserCreate,
     ApiKeyCreateResponse,
+    UserNameItem,
     ApproveRequest,
     BackfillResponse,
     CatalogStatsResponse,
@@ -106,16 +107,17 @@ async def list_users(
 
 @router.get(
     "/users/names",
+    response_model=list[UserNameItem],
     dependencies=[Depends(require_permission("manage_users"))],
 )
 async def list_user_names(
     db: AsyncSession = Depends(get_db),
-) -> list[dict]:
+) -> list[UserNameItem]:
     """Return lightweight id+username list for all users (for filter dropdowns)."""
     result = await db.execute(
         select(User.id, User.username).order_by(User.username)
     )
-    return [{"id": str(row.id), "username": row.username} for row in result.all()]
+    return [UserNameItem(id=row.id, username=row.username) for row in result.all()]
 
 
 @router.get(
