@@ -57,6 +57,7 @@
     "dropHere": "Drop files here",
     "unsupportedType": "This file type is not supported",
     "sizeLimit": "Max 500 MB per file",
+    "sizeLimitDynamic": "Max {{size}} MB per file",
     "batchLimit": "Up to 10 files per batch"
   },
   "serviceUrl": {

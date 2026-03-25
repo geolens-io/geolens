@@ -260,7 +260,6 @@
       }
     },
     "dropzone": "Glissez-déposez un fichier ici, ou cliquez pour parcourir",
-    "acceptedFormats": ".zip, .gpkg, .geojson, .json, .csv",
     "uploadingMessage": "Téléchargement et analyse du fichier...",
     "file": "Fichier :",
     "warningSchemaChanges": "Attention : ce rechargement inclut des modifications de schéma qui peuvent affecter les requêtes existantes.",

@@ -260,7 +260,6 @@
       }
     },
     "dropzone": "Arrastre y suelte un archivo aquí, o haga clic para explorar",
-    "acceptedFormats": ".zip, .gpkg, .geojson, .json, .csv",
     "uploadingMessage": "Subiendo y analizando archivo...",
     "file": "Archivo:",
     "warningSchemaChanges": "Advertencia: Esta nueva subida incluye cambios de esquema que pueden afectar consultas existentes.",
