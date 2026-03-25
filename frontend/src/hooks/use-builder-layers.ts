@@ -375,10 +375,10 @@ export function useBuilderLayers(
     const outlineId = `layer-${layerId}-outline`;
     if (map.getLayer(outlineId)) {
       if (paint['_outline-color'] !== undefined) {
-        try { map.setPaintProperty(outlineId, 'line-color', paint['_outline-color']); } catch {}
+        try { map.setPaintProperty(outlineId, 'line-color', paint['_outline-color']); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-color sync:', e); }
       }
       if (paint['_outline-width'] !== undefined) {
-        try { map.setPaintProperty(outlineId, 'line-width', paint['_outline-width']); } catch {}
+        try { map.setPaintProperty(outlineId, 'line-width', paint['_outline-width']); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-width sync:', e); }
       }
     }
   }
