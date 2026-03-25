@@ -198,19 +198,26 @@ export function syncLayersToMap(
         }
       } else if (type === 'line') {
         const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+        // line-dasharray is stored in layout JSON but is a MapLibre paint property
+        const storedLayout = (layer.layout as Record<string, unknown>) ?? {};
+        const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
+        const linePaint = Object.keys(basePaint).length ? basePaint : {
+          'line-color': MAP_COLORS.default.fill,
+          'line-width': 2,
+        };
+        if (dasharray) {
+          (linePaint as Record<string, unknown>)['line-dasharray'] = dasharray;
+        }
         map.addLayer({
           id: layerId,
           type: 'line',
           source: sourceId,
           'source-layer': sourceLayer,
-          paint: Object.keys(basePaint).length ? basePaint : {
-            'line-color': MAP_COLORS.default.fill,
-            'line-width': 2,
-          },
+          paint: linePaint,
           layout: {
             'line-cap': 'round',
             'line-join': 'round',
-            ...((layer.layout as Record<string, unknown>) ?? {}),
+            ...restLayout,
           },
         });
         if (hasExpressions) {
