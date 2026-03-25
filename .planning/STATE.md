@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260325-f2k
-last_updated: "2026-03-25T14:59:35.184Z"
-last_activity: "2026-03-25 - Completed quick task 260325-egu: Fix non-spatial data table: pagination bug, resizable hero, page size selector"
+stopped_at: Completed quick-260325-ff5
+last_updated: "2026-03-25T15:24:04.940Z"
+last_activity: "2026-03-25 - Completed quick task 260325-f2k: Non-spatial follow-ups + unit tests"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -131,6 +131,8 @@ Plan: Not started
 - [Phase quick-260324-t98]: Community edition is substantially complete (18/21 features exist); enterprise edition has zero implemented features; Year 1 revenue realistically $0-25K; Team tier achievable with 4-6 weeks (SAML + branding toggle + audit export)
 - [Phase quick-260325-egu]: effectiveTotal fallback for small tables: approximateTotal > 0 ? approximateTotal : rowCount; isExact flag drives tilde-free display
 - [Phase quick-260325-f2k]: ConnectDropdown always rendered; table logic handled internally; 'Copy Feature URL' renamed to 'Copy API URL' for all non-raster types
+- [Phase quick-260325-ff5]: Underscore prefix (_outline-width, _outline-color) clearly separates custom props from MapLibre spec properties
+- [Phase quick-260325-ff5]: Generic for-of loop in handlePaintChange is extensible without code changes per new property
 
 ### Pending Todos
 
@@ -193,10 +195,12 @@ Plan: Not started
 | 260324-t98 | GTM evaluation: codebase audit, competitor comparison, pricing benchmarks, recommendations | 2026-03-25 | 8715f8c0 | Verified | [260324-t98-evaluate-gtm-advisement-for-public-relea](./quick/260324-t98-evaluate-gtm-advisement-for-public-relea/) |
 | 260325-bsk | Review non-spatial data page UI/UX and fix easy wins | 2026-03-25 | 0d22c859 | Needs Review | [260325-bsk-review-the-non-spatial-data-page-ui-ux-a](./quick/260325-bsk-review-the-non-spatial-data-page-ui-ux-a/) |
 | 260325-egu | Fix non-spatial data table: pagination bug, resizable hero, page size selector | 2026-03-25 | 4d15c02e | Verified | [260325-egu-fix-non-spatial-data-table-pagination-bu](./quick/260325-egu-fix-non-spatial-data-table-pagination-bu/) |
+| 260325-f2k | Non-spatial follow-ups: structure tab, search cards, skeleton, connect dropdown + tests | 2026-03-25 | 25bd1f7d | | [260325-f2k-non-spatial-follow-ups-structure-tab-sea](./quick/260325-f2k-non-spatial-follow-ups-structure-tab-sea/) |
+| 260325-ff5 | Layer styling: _outline-* rename, getCompoundOpacity helper, generic paint loop, dash presets | 2026-03-25 | 35fb5db5 | | [260325-ff5-review-map-creator-layer-styling-mvp-com](./quick/260325-ff5-review-map-creator-layer-styling-mvp-com/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260325-egu: Fix non-spatial data table: pagination bug, resizable hero, page size selector
-Last session: 2026-03-25T14:59:28.515Z
-Stopped at: Completed quick-260325-f2k
+Last activity: 2026-03-25 - Completed quick task 260325-ff5: Layer styling MVP cleanup + dash presets
+Last session: 2026-03-25T15:23:55.879Z
+Stopped at: Completed quick-260325-ff5
 Resume file: None
