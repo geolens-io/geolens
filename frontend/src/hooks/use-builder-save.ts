@@ -41,8 +41,8 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
         // Silent failure for thumbnails
       });
     }
-  } catch {
-    // Silent failure for thumbnails
+  } catch (err) {
+    console.warn('[thumbnail] capture failed:', err);
   }
 }
 
@@ -55,16 +55,18 @@ function captureThumbnail(map: MaplibreMap, mapId: string, queryClient: ReturnTy
     doCapture(map, mapId, queryClient);
   } else {
     let captured = false;
-    const capture = () => {
+    const onIdle = () => {
       if (captured) return;
       captured = true;
+      clearTimeout(timer);
       doCapture(map, mapId, queryClient);
     };
-    map.once('idle', capture);
-    setTimeout(() => {
+    map.once('idle', onIdle);
+    const timer = setTimeout(() => {
       if (!captured) {
-        map.off('idle', capture);
-        capture();
+        captured = true;
+        map.off('idle', onIdle);
+        doCapture(map, mapId, queryClient);
       }
     }, 3000);
   }
@@ -147,25 +149,49 @@ export function useBuilderSave(state: SaveState) {
   function handleExportPNG() {
     const map = state.mapInstanceRef.current;
     if (!map) return;
-    map.triggerRepaint();
-    map.once('idle', () => {
-      const canvas = map.getCanvas();
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          toast.error(t('toasts.exportFailed'));
-          return;
+
+    const doExport = () => {
+      try {
+        const canvas = map.getCanvas();
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            toast.error(t('toasts.exportFailed'));
+            return;
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${state.localName || 'map'}-export.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          toast.success(t('toasts.exportSuccess'));
+        }, 'image/png');
+      } catch {
+        toast.error(t('toasts.exportFailed'));
+      }
+    };
+
+    if (map.loaded()) {
+      doExport();
+    } else {
+      let exported = false;
+      const onIdle = () => {
+        if (exported) return;
+        exported = true;
+        clearTimeout(timer);
+        doExport();
+      };
+      map.once('idle', onIdle);
+      const timer = setTimeout(() => {
+        if (!exported) {
+          exported = true;
+          map.off('idle', onIdle);
+          doExport();
         }
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${state.localName || 'map'}-export.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        toast.success(t('toasts.exportSuccess'));
-      }, 'image/png');
-    });
+      }, 3000);
+    }
   }
 
   async function handleFork() {

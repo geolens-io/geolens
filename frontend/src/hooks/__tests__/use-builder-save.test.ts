@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { act } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderSave } from '@/hooks/use-builder-save';
@@ -20,8 +20,9 @@ vi.mock('@/hooks/use-maps', () => ({
   }),
 }));
 
+const mockUploadThumbnail = vi.fn(() => Promise.resolve());
 vi.mock('@/api/maps', () => ({
-  uploadThumbnail: vi.fn(),
+  uploadThumbnail: (...args: unknown[]) => mockUploadThumbnail(...args),
 }));
 
 vi.mock('sonner', () => ({
@@ -47,7 +48,17 @@ vi.mock('react-router', async () => {
 
 /* ── Helpers ───────────────────────────────────────── */
 
-function createMockMap() {
+function createMockCanvas() {
+  return {
+    width: 800,
+    height: 600,
+    toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' }))),
+    toDataURL: vi.fn(() => 'data:image/jpeg;base64,abc'),
+    getContext: vi.fn(() => ({ drawImage: vi.fn() })),
+  };
+}
+
+function createMockMap(overrides: { loaded?: boolean } = {}) {
   return {
     getCenter: vi.fn(() => ({ lng: -73.9, lat: 40.7 })),
     getZoom: vi.fn(() => 10),
@@ -56,12 +67,8 @@ function createMockMap() {
     triggerRepaint: vi.fn(),
     once: vi.fn(),
     off: vi.fn(),
-    loaded: vi.fn(() => true),
-    getCanvas: vi.fn(() => ({
-      width: 800,
-      height: 600,
-      toBlob: vi.fn(),
-    })),
+    loaded: vi.fn(() => overrides.loaded ?? true),
+    getCanvas: vi.fn(() => createMockCanvas()),
   };
 }
 
@@ -159,8 +166,8 @@ describe('useBuilderSave', () => {
     expect(toast.warning).toHaveBeenCalled();
   });
 
-  it('handleExportPNG triggers map repaint and registers idle callback', () => {
-    const mockMap = createMockMap();
+  it('handleExportPNG captures immediately when map is loaded', () => {
+    const mockMap = createMockMap({ loaded: true });
     const state = makeSaveState({ mapInstanceRef: { current: mockMap } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { result } = renderHook(() => useBuilderSave(state as any));
@@ -169,8 +176,8 @@ describe('useBuilderSave', () => {
       result.current.handleExportPNG();
     });
 
-    expect(mockMap.triggerRepaint).toHaveBeenCalled();
-    expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+    expect(mockMap.getCanvas).toHaveBeenCalled();
+    expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
   });
 
   it('Ctrl+S keydown calls handleSave', () => {
@@ -236,5 +243,110 @@ describe('useBuilderSave', () => {
 
     // Default mock returns isPending: false
     expect(result.current.isSaving).toBe(false);
+  });
+
+  describe('captureThumbnail (via handleSave onSuccess)', () => {
+    const origCreateElement = document.createElement.bind(document);
+    let createElementSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag === 'canvas') {
+          return createMockCanvas() as unknown as HTMLCanvasElement;
+        }
+        return origCreateElement(tag, options);
+      });
+    });
+
+    afterEach(() => {
+      createElementSpy.mockRestore();
+    });
+
+    function triggerSaveSuccess(mockMap: ReturnType<typeof createMockMap>) {
+      const state = makeSaveState({ mapInstanceRef: { current: mockMap } });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { result } = renderHook(() => useBuilderSave(state as any));
+      act(() => { result.current.handleSave(); });
+      // Call the onSuccess callback
+      const [, opts] = mockMutate.mock.calls[0];
+      act(() => { opts.onSuccess(); });
+      return result;
+    }
+
+    it('captures immediately when map is already loaded', () => {
+      const mockMap = createMockMap({ loaded: true });
+      triggerSaveSuccess(mockMap);
+
+      expect(mockMap.getCanvas).toHaveBeenCalled();
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+      expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
+    });
+
+    it('defers capture via idle event when map is not loaded', () => {
+      const mockMap = createMockMap({ loaded: false });
+      triggerSaveSuccess(mockMap);
+
+      expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+      // Not captured yet
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      // Simulate idle event
+      const idleCallback = mockMap.once.mock.calls.find(
+        (c: unknown[]) => c[0] === 'idle',
+      )![1] as () => void;
+      act(() => { idleCallback(); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+    });
+
+    it('timeout captures and removes idle listener when idle never fires', () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      triggerSaveSuccess(mockMap);
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      // Advance past 3s timeout
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockMap.off).toHaveBeenCalledWith('idle', expect.any(Function));
+      expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('idle event clears timeout to prevent double-capture', () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: false });
+      triggerSaveSuccess(mockMap);
+
+      // Simulate idle event fires quickly
+      const idleCallback = mockMap.once.mock.calls.find(
+        (c: unknown[]) => c[0] === 'idle',
+      )![1] as () => void;
+      act(() => { idleCallback(); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      // Advance past timeout — should NOT double-capture
+      act(() => { vi.advanceTimersByTime(3000); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('handleExportPNG (idle handling)', () => {
+    it('defers export via idle event when map is not loaded', () => {
+      const mockMap = createMockMap({ loaded: false });
+      const state = makeSaveState({ mapInstanceRef: { current: mockMap } });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { result } = renderHook(() => useBuilderSave(state as any));
+
+      act(() => { result.current.handleExportPNG(); });
+
+      expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+    });
   });
 });
