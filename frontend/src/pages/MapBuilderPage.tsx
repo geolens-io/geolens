@@ -185,6 +185,8 @@ export function MapBuilderPage() {
     geometryType: l.dataset_geometry_type,
     paint: l.paint,
     layerType: l.layer_type,
+    layout: l.layout as Record<string, unknown>,
+    opacity: l.opacity ?? 1,
   }));
 
   return (

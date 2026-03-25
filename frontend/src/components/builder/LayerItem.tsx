@@ -37,7 +37,7 @@ import { LabelEditor } from './LabelEditor';
 import { RasterLayerControls } from './RasterLayerControls';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
-import { ColorizedGeometryIcon, getLayerColors } from '@/components/map/layer-icons';
+import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 
@@ -115,6 +115,12 @@ export function LayerItem({
 
   const columns = layer.dataset_column_info ?? [];
   const layerColors = getLayerColors(layer);
+  const styleHints = extractStyleHints(
+    layer.paint ?? {},
+    (layer.layout as Record<string, unknown>) ?? {},
+    layer.dataset_geometry_type,
+    layer.opacity,
+  );
   const hasActiveFilter = layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0;
   const caps = getLayerCapabilities(layer);
   const isRaster = caps.kind !== 'vector';
@@ -148,7 +154,7 @@ export function LayerItem({
         </Button>
 
         <div className="shrink-0">
-          <ColorizedGeometryIcon geometryType={layer.dataset_geometry_type} colors={layerColors} layerId={layer.id} layerType={caps.kind} />
+          <ColorizedGeometryIcon geometryType={layer.dataset_geometry_type} colors={layerColors} layerId={layer.id} layerType={caps.kind} styleHints={styleHints} />
         </div>
 
         {editing ? (
