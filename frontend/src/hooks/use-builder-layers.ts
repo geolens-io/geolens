@@ -550,6 +550,38 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }
 
+  function handleLayoutChange(layerId: string, newLayout: Record<string, unknown>) {
+    const prevLayout = (localLayers.find((l) => l.id === layerId)?.layout ?? {}) as Record<string, unknown>;
+    setLocalLayers((prev) =>
+      prev.map((l) => (l.id === layerId ? { ...l, layout: newLayout } : l)),
+    );
+    setHasUnsavedChanges(true);
+
+    // Live map update
+    const map = mapInstanceRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    const mapLayerId = `layer-${layerId}`;
+    if (!map.getLayer(mapLayerId)) return;
+
+    for (const [prop, value] of Object.entries(newLayout)) {
+      try {
+        map.setLayoutProperty(mapLayerId, prop, value ?? undefined);
+      } catch (e) {
+        if (import.meta.env.DEV) console.debug(`[builder] Failed to set layout ${prop}:`, e);
+      }
+    }
+    // Clear removed layout props (e.g., removing line-dasharray sets solid)
+    for (const prop of Object.keys(prevLayout)) {
+      if (!(prop in newLayout)) {
+        try {
+          map.setLayoutProperty(mapLayerId, prop, undefined);
+        } catch (e) {
+          if (import.meta.env.DEV) console.debug(`[builder] Failed to clear layout ${prop}:`, e);
+        }
+      }
+    }
+  }
+
   function markDirty() {
     setHasUnsavedChanges(true);
   }
@@ -576,6 +608,7 @@ export function useBuilderLayers(
     handleStyleConfigChange,
     handlePaintChange,
     handleOpacityChange,
+    handleLayoutChange,
     handleZoomToLayer,
     handleRemove,
     handleAddDataset,

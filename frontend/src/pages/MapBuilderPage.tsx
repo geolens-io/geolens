@@ -354,6 +354,7 @@ export function MapBuilderPage() {
             onFilterChange={layers.handleFilterChange}
             onLabelChange={layers.handleLabelChange}
             onStyleConfigChange={layers.handleStyleConfigChange}
+            onLayoutChange={layers.handleLayoutChange}
             onToggleVisibility={layers.handleToggleVisibility}
             onMoveUp={layers.handleMoveUp}
             onMoveDown={layers.handleMoveDown}

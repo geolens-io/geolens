@@ -4,6 +4,7 @@ import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
 import { getLayerType } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { cn } from '@/lib/utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 interface LayerStyleEditorProps {
@@ -11,7 +12,15 @@ interface LayerStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
+  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
 }
+
+const LINE_DASH_PRESETS = [
+  { key: 'solid', value: undefined },
+  { key: 'dashed', value: [4, 2] },
+  { key: 'dotted', value: [1, 2] },
+  { key: 'dashDot', value: [4, 2, 1, 2] },
+] as const;
 
 // Defaults per geometry type
 const FILL_DEFAULTS = {
@@ -45,6 +54,7 @@ export function LayerStyleEditor({
   onPaintChange,
   onOpacityChange,
   onStyleConfigChange,
+  onLayoutChange,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
@@ -140,6 +150,34 @@ export function LayerStyleEditor({
               format="px"
               onChange={(val) => handlePaintProp('line-width', val)}
             />
+            <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
+            <div className="flex gap-1">
+              {LINE_DASH_PRESETS.map((preset) => {
+                const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
+                const currentDash = LINE_DASH_PRESETS.find(
+                  (p) => JSON.stringify(p.value) === JSON.stringify(currentDashValue),
+                )?.key ?? 'solid';
+                return (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    className={cn(
+                      'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                      currentDash === preset.key
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
+                    )}
+                    onClick={() => {
+                      const newLayout = { ...(layer.layout ?? {}), 'line-dasharray': preset.value } as Record<string, unknown>;
+                      if (!preset.value) delete newLayout['line-dasharray'];
+                      onLayoutChange(layer.id, newLayout);
+                    }}
+                  >
+                    {t(`style.dash.${preset.key}`)}
+                  </button>
+                );
+              })}
+            </div>
           </>
         )}
 
