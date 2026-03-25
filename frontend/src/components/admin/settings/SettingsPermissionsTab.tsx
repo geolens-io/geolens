@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -61,7 +61,10 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
     }));
   }, []);
 
-  const isDirty = JSON.stringify(matrix) !== JSON.stringify(setting?.value ?? {});
+  const isDirty = useMemo(
+    () => JSON.stringify(matrix) !== JSON.stringify(setting?.value ?? {}),
+    [matrix, setting?.value],
+  );
 
   useEffect(() => {
     onDirtyChange?.(isDirty);

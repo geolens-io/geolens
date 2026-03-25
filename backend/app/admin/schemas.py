@@ -48,6 +48,11 @@ class UserUpdate(BaseModel):
         return v
 
 
+class UserNameItem(BaseModel):
+    id: uuid.UUID
+    username: str
+
+
 class UserListResponse(BaseModel):
     users: list[UserResponse]
     total: int
