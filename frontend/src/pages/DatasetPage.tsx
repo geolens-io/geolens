@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -48,7 +49,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { visibilityColors } from '@/lib/status-colors';
-import type { DatasetUpdateRequest } from '@/types/api';
+import type { DatasetUpdateRequest, DatasetResponse } from '@/types/api';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
 
@@ -93,6 +94,7 @@ function normalizeDatasetValue(value: string | null | undefined): string | null 
 export function DatasetPage() {
   const { t } = useTranslation('dataset');
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
   const [pollInterval, setPollInterval] = useState<number | false>(false);
   const { data: dataset, isLoading, error } = useDataset(id ?? '', {
     refetchInterval: pollInterval,
@@ -385,7 +387,8 @@ export function DatasetPage() {
   }, [activeTab, pendingNavigationAnchor]);
 
   if (isLoading) {
-    return <DatasetDetailSkeleton />;
+    const cached = queryClient.getQueryData<DatasetResponse>(['dataset', id]);
+    return <DatasetDetailSkeleton isTable={cached?.record_type === 'table'} />;
   }
 
   if (error || !dataset) {

@@ -137,7 +137,8 @@ export function useBuilderLayers(
         type: 'line',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'Polygon'],
-        paint: { 'line-color': '#f97316', 'line-width': 2, 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#f97316', 'line-width': 2 },
+        layout: { 'line-dasharray': [3, 2] },
       });
 
       // Line layer
@@ -146,7 +147,8 @@ export function useBuilderLayers(
         type: 'line',
         source: EPHEMERAL_SOURCE,
         filter: ['==', '$type', 'LineString'],
-        paint: { 'line-color': '#f97316', 'line-width': 2.5, 'line-dasharray': [3, 2] },
+        paint: { 'line-color': '#f97316', 'line-width': 2.5 },
+        layout: { 'line-dasharray': [3, 2] },
       });
 
       // Point layer
