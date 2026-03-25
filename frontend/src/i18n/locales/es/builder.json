@@ -153,7 +153,8 @@
     "summaryUnrestricted": "Sin restricciones",
     "expirationUpdated": "Caducidad actualizada",
     "domainsUpdated": "Restricciones de dominio actualizadas",
-    "updateFailed": "No se pudieron guardar los cambios"
+    "updateFailed": "No se pudieron guardar los cambios",
+    "expired": "Este enlace ha caducado"
   },
   "chat": {
     "emptyState": "Describa cambios en su mapa usando lenguaje natural.",
