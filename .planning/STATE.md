@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed quick-260325-l6p
-last_updated: "2026-03-25T19:22:29.816Z"
-last_activity: "2026-03-25 - Completed quick task 260325-jpw: Fill/stroke visibility toggles"
+stopped_at: Completed quick-260325-lq4
+last_updated: "2026-03-25T19:53:31.168Z"
+last_activity: "2026-03-25 - Completed quick task 260325-l6p: Cleanup DRY map-sync, unify toggles, fix drift"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -136,6 +136,7 @@ Plan: Not started
 - [Phase quick-260325-hrk]: Fixed polygon detection: gt.includes('MULTI') incorrectly matched MULTIPOINT/MULTILINESTRING -- changed to gt.includes('POLYGON')
 - [Phase quick-260325-jpw]: Use CUSTOM_PAINT_PROPS set for generic filtering instead of hardcoded destructuring in syncLayersToMap fill branch
 - [Phase quick-260325-l6p]: Export CUSTOM_PAINT_PROPS as single source of truth from map-sync.ts
+- [Phase quick-260325-lq4]: StatusDot uses plain English aria-label (Healthy/Degraded) since it is infrastructure status, not user-facing i18n content
 
 ### Pending Todos
 
@@ -204,10 +205,11 @@ Plan: Not started
 | 260327 | Implement search-page audit findings from quick 260326 | 2026-03-25 | 28154160 | Verified | [260327-implement-the-search-page-audit-findings](./quick/260327-implement-the-search-page-audit-findings/) |
 | 260325-hrk | Enhance legend and layer icons to reflect configured styles | 2026-03-25 | 4eaa0085 | Verified | [260325-hrk-enhance-legend-and-layer-icons-to-reflec](./quick/260325-hrk-enhance-legend-and-layer-icons-to-reflec/) |
 | 260325-jpw | Fill/stroke visibility toggles in LayerStyleEditor | 2026-03-25 | 443a42e8 | Verified | [260325-jpw-fill-stroke-visibility-toggles-in-layers](./quick/260325-jpw-fill-stroke-visibility-toggles-in-layers/) |
+| 260325-l6p | Cleanup: DRY map-sync helpers, unify toggles, fix CUSTOM_PROPS drift | 2026-03-25 | d4aaaef0 | | [260325-l6p-cleanup-dry-map-sync-unify-toggles-fix-d](./quick/260325-l6p-cleanup-dry-map-sync-unify-toggles-fix-d/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260325-jpw: Fill/stroke visibility toggles
-Last session: 2026-03-25T19:22:28.287Z
-Stopped at: Completed quick-260325-l6p
+Last activity: 2026-03-25 - Completed quick task 260325-l6p: Cleanup DRY map-sync, unify toggles, fix drift
+Last session: 2026-03-25T19:53:26.470Z
+Stopped at: Completed quick-260325-lq4
 Resume file: None
