@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
 import type { SettingItem } from '@/api/settings';
 
@@ -84,44 +85,44 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-3 pr-4 font-medium text-muted-foreground">{t('settings.permissions.capabilityHeader')}</th>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('settings.permissions.capabilityHeader')}</TableHead>
                 {ROLES.map((role) => (
-                  <th key={role} className="px-4 py-3 text-center font-medium text-muted-foreground">
+                  <TableHead key={role} className="text-center">
                     {t(`roles.${role}`)}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {CAPABILITY_KEYS.map((key) => {
                 const label = t(`settings.permissions.capabilities.${key}`);
                 return (
-                  <tr key={key} className="border-b last:border-0">
-                    <td className="py-3 pr-4">
+                  <TableRow key={key}>
+                    <TableCell>
                       <Label className="font-normal">{label}</Label>
-                    </td>
+                    </TableCell>
                     {ROLES.map((role) => {
                       const locked = isLocked(role, key);
                       const checked = locked ? true : (matrix[role]?.[key] ?? false);
                       return (
-                        <td key={role} className="px-4 py-3 text-center">
+                        <TableCell key={role} className="text-center">
                           <Checkbox
                             checked={checked}
                             onCheckedChange={(v) => handleToggle(role, key, v === true)}
                             disabled={locked || envOnly}
                             aria-label={t('settings.permissions.capabilityForRole', { capability: label, role: t(`roles.${role}`) })}
                           />
-                        </td>
+                        </TableCell>
                       );
                     })}
-                  </tr>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         <div className="flex items-center gap-3 pt-4">

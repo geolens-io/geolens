@@ -33,6 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
@@ -298,55 +299,53 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
             {t('settings.oauth.emptyState')}
           </p>
         ) : (
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="px-4 py-2 text-left font-medium">{t('settings.oauth.provider')}</th>
-                  <th className="px-4 py-2 text-left font-medium">{t('settings.oauth.type')}</th>
-                  <th className="px-4 py-2 text-left font-medium">{t('settings.oauth.status')}</th>
-                  <th className="px-4 py-2 text-right font-medium">{t('settings.oauth.actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {providers.map((provider) => (
-                  <tr key={provider.id} className="border-b last:border-b-0">
-                    <td className="px-4 py-2 font-medium">{provider.display_name}</td>
-                    <td className="px-4 py-2">
-                      <Badge variant="outline">
-                        {PROVIDER_TYPE_LABELS[provider.provider_type] ?? provider.provider_type}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-2">
-                      <Badge variant={provider.enabled ? 'default' : 'secondary'}>
-                        {provider.enabled ? t('settings.oauth.enabled') : t('settings.oauth.disabled')}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditDialog(provider)}
-                          disabled={envOnly}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteTarget(provider)}
-                          disabled={envOnly}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('settings.oauth.provider')}</TableHead>
+                <TableHead>{t('settings.oauth.type')}</TableHead>
+                <TableHead>{t('settings.oauth.status')}</TableHead>
+                <TableHead className="text-right">{t('settings.oauth.actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {providers.map((provider) => (
+                <TableRow key={provider.id}>
+                  <TableCell className="font-medium">{provider.display_name}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">
+                      {PROVIDER_TYPE_LABELS[provider.provider_type] ?? provider.provider_type}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={provider.enabled ? 'default' : 'secondary'}>
+                      {provider.enabled ? t('settings.oauth.enabled') : t('settings.oauth.disabled')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(provider)}
+                        disabled={envOnly}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteTarget(provider)}
+                        disabled={envOnly}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
 

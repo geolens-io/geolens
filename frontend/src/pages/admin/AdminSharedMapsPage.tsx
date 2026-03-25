@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -320,104 +320,104 @@ export function AdminSharedMapsPage() {
                   const s = getShareStatus(token);
                   const isExpanded = expandedId === token.id;
                   return (
-                    <TableRow key={token.id}>
-                      <TableCell colSpan={8} className="p-0">
-                        <div className="flex items-center px-4 py-3">
-                          {/* Expand toggle */}
-                          <div className="w-10 shrink-0">
-                            {token.embed_token_count > 0 ? (
-                              <button
-                                type="button"
-                                className="text-muted-foreground hover:text-foreground"
-                                onClick={() => setExpandedId(isExpanded ? null : token.id)}
-                                aria-label={t('sharedMaps.embedTokensFor', { map: token.map_name })}
-                              >
-                                {isExpanded ? (
-                                  <ChevronDown className="h-4 w-4" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4" />
-                                )}
-                              </button>
-                            ) : (
-                              <span className="inline-block w-4" />
-                            )}
-                          </div>
-                          {/* Map name */}
-                          <div className="flex-1 min-w-0 font-medium">
-                            <Link to={`/maps/${token.map_id}`} className="hover:underline text-foreground">
-                              {token.map_name}
-                            </Link>
-                          </div>
-                          {/* Link status */}
-                          <div className="w-24 shrink-0">{shareStatusBadge(s)}</div>
-                          {/* Embed tokens count */}
-                          <div className="w-28 shrink-0">
-                            {token.embed_token_count > 0 ? (
-                              <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
-                                <Key className="h-3 w-3" />
-                                {t('sharedMaps.activeCount', { count: token.embed_token_count })}
-                              </span>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
-                            )}
-                          </div>
-                          {/* Expires */}
-                          <div className="w-28 shrink-0 text-sm text-muted-foreground">
-                            {token.expires_at ? formatDate(token.expires_at) : t('shareTokens.never')}
-                          </div>
-                          {/* Created */}
-                          <div className="w-28 shrink-0 text-sm text-muted-foreground">
-                            {formatDate(token.created_at)}
-                          </div>
-                          {/* Creator */}
-                          <div className="w-28 shrink-0 text-sm text-muted-foreground truncate" title={token.created_by ?? undefined}>
-                            {token.created_by ?? '—'}
-                          </div>
-                          {/* Actions */}
-                          <div className="w-24 shrink-0 text-right">
-                            {s === 'active' && (
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={revoke.isPending}
-                                    className="text-destructive hover:text-destructive"
-                                  >
-                                    <Link2Off className="h-3.5 w-3.5 mr-1" />
-                                    {t('shareTokens.revoke')}
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>{t('shareTokens.revokeDialogTitle')}</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      {t('shareTokens.revokeDialogDescription', { map: token.map_name })}
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>{t('shareTokens.revokeDialogCancel')}</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => handleRevoke(token.id)}>
-                                      {t('shareTokens.revokeDialogConfirm')}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Expanded embed tokens */}
-                        {isExpanded && (
-                          <div className="border-t bg-muted/30 px-6 py-4">
-                            <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              {t('sharedMaps.embedTokensFor', { map: token.map_name })}
-                            </h4>
-                            <EmbedTokensSubTable mapId={token.map_id} />
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <Fragment key={token.id}>
+                      <TableRow>
+                        <TableCell className="w-10">
+                          {token.embed_token_count > 0 ? (
+                            <button
+                              type="button"
+                              className="text-muted-foreground hover:text-foreground"
+                              tabIndex={0}
+                              aria-expanded={isExpanded}
+                              onClick={() => setExpandedId(isExpanded ? null : token.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  setExpandedId(isExpanded ? null : token.id);
+                                }
+                              }}
+                              aria-label={t('sharedMaps.embedTokensFor', { map: token.map_name })}
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="inline-block w-4" />
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <Link to={`/maps/${token.map_id}`} className="hover:underline text-foreground">
+                            {token.map_name}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{shareStatusBadge(s)}</TableCell>
+                        <TableCell>
+                          {token.embed_token_count > 0 ? (
+                            <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                              <Key className="h-3 w-3" />
+                              {t('sharedMaps.activeCount', { count: token.embed_token_count })}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {token.expires_at ? formatDate(token.expires_at) : t('shareTokens.never')}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(token.created_at)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground truncate max-w-[120px]" title={token.created_by ?? undefined}>
+                          {token.created_by ?? '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {s === 'active' && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={revoke.isPending}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <Link2Off className="h-3.5 w-3.5 mr-1" />
+                                  {t('shareTokens.revoke')}
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>{t('shareTokens.revokeDialogTitle')}</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    {t('shareTokens.revokeDialogDescription', { map: token.map_name })}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>{t('shareTokens.revokeDialogCancel')}</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleRevoke(token.id)}>
+                                    {t('shareTokens.revokeDialogConfirm')}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="p-0">
+                            <div className="border-t bg-muted/30 px-6 py-4">
+                              <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('sharedMaps.embedTokensFor', { map: token.map_name })}
+                              </h4>
+                              <EmbedTokensSubTable mapId={token.map_id} />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
                   );
                 })
               )}
