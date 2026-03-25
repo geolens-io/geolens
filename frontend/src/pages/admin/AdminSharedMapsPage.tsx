@@ -220,7 +220,7 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
 
 export function AdminSharedMapsPage() {
   const { t } = useTranslation('admin');
-  useDocumentTitle('Admin Published Maps');
+  useDocumentTitle(t('sharedMaps.title'));
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
