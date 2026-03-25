@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAdminJobs, useRetryAdminJob, useUserList } from '@/hooks/use-admin';
+import { useAdminJobs, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { jobStatusColors } from '@/lib/status-colors';
@@ -53,7 +53,7 @@ export function JobList() {
     limit: PAGE_SIZE,
   });
 
-  const { data: usersData } = useUserList(0, 200);
+  const { data: userNames } = useUserNames();
   const retryAdminJob = useRetryAdminJob();
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
@@ -92,7 +92,7 @@ export function JobList() {
             onChange={(v) => { setUserId(v); setPage(0); }}
             options={[
               { value: '', label: t('jobs.filters.allUsers') },
-              ...(usersData?.users.map((user) => ({ value: user.id, label: user.username })) ?? []),
+              ...(userNames?.map((u) => ({ value: u.id, label: u.username })) ?? []),
             ]}
           />
           <Button variant="ghost" size="sm" onClick={clearFilters}>

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import {
   getCatalogStats,
   listUsers,
+  listUserNames,
   listAdminJobs,
   listAuditLogs,
   createUser,
@@ -38,6 +39,14 @@ export function useUserList(skip: number, limit: number, status?: string, search
     queryKey: ['admin', 'users', skip, limit, status, search],
     queryFn: () => listUsers({ skip, limit, status, search }),
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useUserNames() {
+  return useQuery({
+    queryKey: ['admin', 'users', 'names'],
+    queryFn: listUserNames,
+    staleTime: 60_000,
   });
 }
 

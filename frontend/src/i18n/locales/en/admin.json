@@ -31,7 +31,8 @@
     "filters": {
       "allUsers": "All Users",
       "pending": "Pending",
-      "active": "Active"
+      "active": "Active",
+      "deactivated": "Deactivated"
     },
     "table": {
       "username": "Username",

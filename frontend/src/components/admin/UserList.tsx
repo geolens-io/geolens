@@ -64,6 +64,7 @@ const STATUS_OPTIONS = [
   { value: '', labelKey: 'users.filters.allUsers' },
   { value: 'pending', labelKey: 'users.filters.pending' },
   { value: 'active', labelKey: 'users.filters.active' },
+  { value: 'deactivated', labelKey: 'users.filters.deactivated' },
 ];
 
 export function UserList() {
