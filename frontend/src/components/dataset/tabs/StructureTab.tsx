@@ -17,9 +17,10 @@ interface StructureTabProps {
   columnInfo?: { name: string; type: string }[] | null;
   capability: DatasetEditCapability;
   tableName?: string;
+  recordType?: string;
 }
 
-export function StructureTab({ datasetId, canEdit, columnInfo, capability, tableName }: StructureTabProps) {
+export function StructureTab({ datasetId, canEdit, columnInfo, capability, tableName, recordType }: StructureTabProps) {
   const { t } = useTranslation('dataset');
   const [schemaOpen, setSchemaOpen] = useState(false);
 
@@ -57,15 +58,17 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability, table
         </CardContent>
       </Card>
 
-      {/* Data Preview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('page.attributeData')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AttributeTable datasetId={datasetId} />
-        </CardContent>
-      </Card>
+      {/* Data Preview (hidden for table datasets — hero grid already shows it) */}
+      {recordType !== 'table' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t('page.attributeData')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AttributeTable datasetId={datasetId} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Schema Editor Dialog */}
       {canEdit && columnInfo && capability.editable && (

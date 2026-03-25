@@ -605,7 +605,7 @@ export function DatasetPage() {
                 </a>
               </Button>
             )}
-            {!isTable && <ConnectDropdown dataset={dataset} />}
+            <ConnectDropdown dataset={dataset} />
           </div>
         }
       />
