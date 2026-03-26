@@ -214,10 +214,11 @@ Plan: Not started
 | 260326-8ea | Fix map console errors: outline-width paint prop, addLayer cascade, ViewerMap stripCustomProps, DB migration | 2026-03-26 | 181753d6 | Verified | [260326-8ea-use-playwright-mcp-to-inspect-and-resolv](./quick/260326-8ea-use-playwright-mcp-to-inspect-and-resolv/) |
 | 260326-a07 | Bundle default basemaps for public release with licensing review | 2026-03-26 | 6fd35752 | Verified | [260326-a07-bundle-default-basemaps-for-public-relea](./quick/260326-a07-bundle-default-basemaps-for-public-relea/) |
 | 260326-ce7 | API-key-gated basemap support for Mapbox and MapTiler | 2026-03-26 | pending | Verified | [260326-ce7-api-key-gated-basemap-support-for-mapbox](./quick/260326-ce7-api-key-gated-basemap-support-for-mapbox/) |
+| 260326-e7u | Review the feature flags - are they necessary? | 2026-03-26 | 564b079f | Verified | [260326-e7u-review-the-feature-flags-are-they-necess](./quick/260326-e7u-review-the-feature-flags-are-they-necess/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-26 - Completed quick task 260326-ce7: API-key-gated basemap support for Mapbox and MapTiler
+Last activity: 2026-03-26 - Completed quick task 260326-e7u: Review the feature flags - are they necessary?
 Last session: 2026-03-25T19:53:26.470Z
 Stopped at: Completed quick-260325-lq4
 Resume file: None

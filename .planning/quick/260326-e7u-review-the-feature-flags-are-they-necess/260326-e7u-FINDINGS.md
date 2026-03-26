@@ -3,24 +3,20 @@
 **Date:** 2026-03-26
 **Scope:** All boolean PersistentConfig feature flags in GeoLens backend
 **Methodology:** Source-code grep + manual verification of every usage site
-**Verdict:** All 4 flags are actively used. None should be removed.
-
-> **Note:** The research phase identified 5 flags, but `ai_send_sample_values` does not exist
-> as a PersistentConfig entry. It was a research error. There are exactly 4 boolean feature flags.
+**Verdict:** All 5 flags are actively used. None should be removed.
 
 ---
 
 ## Executive Summary
 
-GeoLens defines 4 boolean feature flags as PersistentConfig entries. Each is:
+GeoLens defines 5 boolean feature flags as PersistentConfig entries. Each is:
 - Declared in `backend/app/persistent_config.py`
 - Read in at least one backend code path that gates behavior
-- Exposed in the admin settings UI with a toggle
-- Consumed by the frontend for conditional rendering
+- 4 of 5 are exposed in the admin settings UI with a toggle (`ai_send_sample_values` lacks a UI toggle)
 
 None are dead code. None duplicate another mechanism. All serve distinct deployment scenarios.
 
-**Recommendation: KEEP all 4 flags. No removals warranted.**
+**Recommendation: KEEP all 5 flags. No removals warranted.**
 
 ---
 
@@ -94,20 +90,20 @@ None are dead code. None duplicate another mechanism. All serve distinct deploym
 
 ---
 
-## Research Correction: `ai_send_sample_values`
+### 5. `ai_send_sample_values`
 
-The research phase reported a 5th flag called `ai_send_sample_values` with claims about:
-- A `_should_send_sample_values()` method in `ai/service.py:156-158`
-- An admin UI gap in `SettingsAITab.tsx`
-- Privacy use case for omitting data samples from LLM prompts
+| Aspect | Detail |
+|--------|--------|
+| **Declaration** | `persistent_config.py:383-388` -- `PersistentConfig[bool]`, tab=`ai`, default=`True` |
+| **Backend usage** | `ai/service.py:153-158` -- `_should_send_sample_values()` reads the flag; called at `ai/service.py:490` (map generation context), `ai/service.py:577` (map edit context), and `ai/chat_service.py:534` (chat context). When disabled, sample data values are omitted from LLM prompts. |
+| **Frontend usage** | None -- backend-only control. Not consumed by any frontend component. |
+| **Admin UI toggle** | **Missing** -- not exposed in `SettingsAITab.tsx`. Can only be changed via the unified settings API directly. |
+| **Deployment scenario** | Privacy/compliance: organizations that don't want actual data values sent to third-party LLM providers. Particularly relevant for PII-sensitive datasets. |
+| **Duplicates?** | No -- distinct from `ai_enabled`. AI can be on but sample values suppressed. |
+| **Test coverage** | No dedicated tests for the toggle behavior |
+| **Repo-split alignment** | AI policy seam -- enterprise could add fine-grained data masking on top of this basic toggle |
 
-**This flag does not exist.** Verification:
-- Not declared in `persistent_config.py` (only 4 boolean feature flags exist)
-- `grep -rn "ai_send_sample_values" backend/ frontend/` returns zero results
-- `grep -rn "_should_send_sample_values" backend/` returns zero results
-- `sample_values` IS a JSONB column on the Dataset model (`datasets/models.py:209`), but it is a data field, not a feature flag
-
-The concept (controlling whether sample data is sent to LLMs) is reasonable as a future feature, but it does not currently exist in the codebase.
+**Recommendation: KEEP.** Legitimate privacy control with active backend enforcement. However, it has two gaps (see below).
 
 ---
 
@@ -119,37 +115,35 @@ The concept (controlling whether sample data is sent to LLMs) is reasonable as a
 | `ai_enabled` | Yes | Yes | Yes | No | **KEEP** |
 | `semantic_search_enabled` | Yes | Yes | Yes | No | **KEEP** |
 | `require_metadata_for_publish` | Yes | Yes | Yes | No | **KEEP** |
+| `ai_send_sample_values` | Yes | **No** | Yes | No | **KEEP** |
 
 ---
 
 ## Repo-Split Alignment
 
-The project has discussed enterprise extension seams for auth, audit, settings/branding, and AI policy. The flags map as follows:
+Per `docs/GTM/repo-split.md`, the project plans enterprise extension seams for auth, audit, settings/branding, and AI policy. The flags map as follows:
 
 - `registration_enabled` -- auth seam (core toggle, enterprise could overlay with SAML/SCIM)
 - `ai_enabled` -- AI policy seam (core toggle, enterprise adds model routing / allow-deny)
 - `semantic_search_enabled` -- stays in core (search is adoption engine)
 - `require_metadata_for_publish` -- governance seam (core toggle, enterprise adds compliance validation)
+- `ai_send_sample_values` -- AI policy seam (core toggle, enterprise adds fine-grained data masking)
 
 All flags are reasonable extension points. None should be removed before any repo split; they are exactly the kind of deployment/runtime flags that belong at extension seams.
-
-> **Note:** `docs/GTM/repo-split.md` was referenced in the research but does not exist in the current codebase. The alignment analysis above is based on the general enterprise extension seam concepts documented elsewhere.
 
 ---
 
 ## Identified Gaps
 
-None of the 4 flags have gaps. All have:
-- Backend enforcement
-- Frontend consumption
-- Admin UI toggle
-- Test coverage
+4 of 5 flags are fully wired (backend enforcement, frontend consumption, admin UI toggle, test coverage). `ai_send_sample_values` has two gaps:
 
-The only gap identified in the research (`ai_send_sample_values` missing UI toggle and tests) is moot because the flag does not exist.
+1. **Missing admin UI toggle** -- The flag exists in the backend and is enforced in 3 code paths, but there is no toggle in `SettingsAITab.tsx` for admins to control it through the UI. It can only be changed via direct API call.
+2. **Missing test coverage** -- No dedicated tests verify that disabling the flag actually suppresses sample values in LLM prompts.
 
 ---
 
 ## Optional Follow-Up Ideas
 
-1. **Consider adding an `ai_send_sample_values` flag** -- The concept of controlling whether sample data values are sent to third-party LLMs is a legitimate privacy/compliance feature. Currently, sample values are always sent when available (see `ai/service.py:247-265`, `ai/chat_service.py:265-267`, `ai/sql_generator.py:71-73`). Adding a PersistentConfig toggle for this would be a genuine improvement for privacy-sensitive deployments.
-2. No existing flags need removal or consolidation.
+1. **Add admin UI toggle for `ai_send_sample_values`** in `SettingsAITab.tsx` -- straightforward checkbox addition consistent with the existing `ai_enabled` and `semantic_search_enabled` toggles.
+2. **Add test coverage for `ai_send_sample_values`** -- verify that when disabled, `_should_send_sample_values()` returns `False` and sample values are omitted from LLM context.
+3. No existing flags need removal or consolidation.
