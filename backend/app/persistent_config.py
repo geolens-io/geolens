@@ -494,6 +494,14 @@ ROLE_PERMISSIONS = PersistentConfig[dict](
     label="Role Permissions",
 )
 
+# -- Branding tab --
+BRANDING_SHOW_BADGE = PersistentConfig[bool](
+    key="branding.show_badge",
+    env_default=True,
+    tab="branding",
+    label="Show Powered by GeoLens Badge",
+)
+
 
 # ---------------------------------------------------------------------------
 # Sync rate limit accessor (for slowapi)

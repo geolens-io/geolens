@@ -16,8 +16,10 @@ from app.auth.oauth.schemas import (
 )
 from app.auth.oauth import service as oauth_service
 from app.dependencies import get_db
+from app.extensions.guards import require_enterprise
 from app.persistent_config import (
     BASEMAPS,
+    BRANDING_SHOW_BADGE,
     EMBEDDING_DIMS,
     MAP_DEFAULTS,
     _is_env_only,
@@ -356,6 +358,32 @@ async def edition_info():
     """Return current edition and available features. Public, no auth required."""
     info = get_edition()
     return {"edition": info.edition, "features": list(info.features)}
+
+
+@router.get("/branding/")
+async def get_branding(
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return branding configuration (public, no auth required)."""
+    show_badge = await BRANDING_SHOW_BADGE.get(db)
+    return {"show_badge": show_badge}
+
+
+@router.put("/branding/")
+async def update_branding(
+    request: Request,
+    body: dict,
+    _enterprise: None = Depends(require_enterprise),
+    user: User = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update branding settings (enterprise admin only)."""
+    show_badge = body.get("show_badge")
+    if show_badge is None or not isinstance(show_badge, bool):
+        raise HTTPException(status_code=422, detail="show_badge must be a boolean")
+    ip = request.client.host if request.client else None
+    await BRANDING_SHOW_BADGE.set(db, show_badge, user_id=user.id, ip_address=ip)
+    return {"show_badge": show_badge}
 
 
 @router.get("/basemaps/")
