@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { useTranslation } from 'react-i18next';
 import { Map } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDatasetMaps } from '@/hooks/use-maps';
@@ -9,6 +10,7 @@ interface UsedInMapsProps {
 }
 
 export function UsedInMaps({ datasetId }: UsedInMapsProps) {
+  const { t } = useTranslation('dataset');
   const { data, isLoading, isError } = useDatasetMaps(datasetId);
 
   if (isLoading || isError || !data || data.maps.length === 0) {
@@ -20,7 +22,7 @@ export function UsedInMaps({ datasetId }: UsedInMapsProps) {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Map className="h-5 w-5" />
-          Used in Maps
+          {t('usedInMaps.title')}
         </CardTitle>
       </CardHeader>
       <CardContent>

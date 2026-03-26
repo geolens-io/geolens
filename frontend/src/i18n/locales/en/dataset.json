@@ -21,9 +21,12 @@
     "history": "History",
     "api": "API",
     "structure": "Structure",
-    "sourceCoverage": "Source & Coverage",
-    "accessSharing": "Access & Sharing",
-    "sources": "Sources"
+    "sources": "Sources",
+    "access": "Access",
+    "members": "Members"
+  },
+  "collection": {
+    "membersPlaceholder": "Collection member listing coming soon."
   },
   "inline": {
     "noDescription": "Add a description..."
@@ -51,6 +54,27 @@
       "read_only_field": "This field is managed as read-only metadata."
     },
     "roleHelp": "Role help"
+  },
+  "connect": {
+    "copyCogUrl": "Copy COG URL",
+    "copyXyzTileUrl": "Copy XYZ Tile URL",
+    "copyS3Uri": "Copy S3 URI",
+    "copyApiUrl": "Copy API URL",
+    "copyTileUrl": "Copy Tile URL",
+    "copied": "Copied: {{preview}}"
+  },
+  "addToMap": {
+    "button": "Add to Map",
+    "loading": "Loading maps...",
+    "noMaps": "No maps available",
+    "newMap": "+ New map",
+    "creating": "Creating...",
+    "newMapName": "{{title}} Map",
+    "newMapFallback": "New Map",
+    "createFailed": "Failed to create map"
+  },
+  "usedInMaps": {
+    "title": "Used in Maps"
   },
   "actions": {
     "edit": "Edit",

@@ -21,9 +21,12 @@
     "history": "Historial",
     "api": "API",
     "structure": "Estructura",
-    "sourceCoverage": "Fuente y Cobertura",
-    "accessSharing": "Acceso y Compartir",
-    "sources": "Fuentes"
+    "sources": "Fuentes",
+    "access": "Acceso",
+    "members": "Miembros"
+  },
+  "collection": {
+    "membersPlaceholder": "Listado de miembros de la colección próximamente."
   },
   "inline": {
     "noDescription": "Agregar una descripción..."
@@ -51,6 +54,27 @@
       "read_only_field": "Este campo se gestiona como metadato de solo lectura."
     },
     "roleHelp": "Ayuda sobre roles"
+  },
+  "connect": {
+    "copyCogUrl": "Copiar URL de COG",
+    "copyXyzTileUrl": "Copiar URL de mosaico XYZ",
+    "copyS3Uri": "Copiar URI de S3",
+    "copyApiUrl": "Copiar URL de API",
+    "copyTileUrl": "Copiar URL de mosaico",
+    "copied": "Copiado: {{preview}}"
+  },
+  "addToMap": {
+    "button": "Agregar al mapa",
+    "loading": "Cargando mapas...",
+    "noMaps": "No hay mapas disponibles",
+    "newMap": "+ Nuevo mapa",
+    "creating": "Creando...",
+    "newMapName": "Mapa de {{title}}",
+    "newMapFallback": "Nuevo mapa",
+    "createFailed": "No se pudo crear el mapa"
+  },
+  "usedInMaps": {
+    "title": "Usado en mapas"
   },
   "actions": {
     "edit": "Editar",

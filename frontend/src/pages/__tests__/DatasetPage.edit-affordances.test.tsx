@@ -71,9 +71,6 @@ vi.mock('@/components/dataset/tabs/StructureTab', () => ({
   StructureTab: () => <div data-testid="structure-tab-stub" />,
 }));
 
-vi.mock('@/components/dataset/tabs/AccessSharingTab', () => ({
-  AccessSharingTab: () => <div data-testid="access-sharing-tab-stub" />,
-}));
 
 vi.mock('@/components/dataset/tabs/MetadataTab', () => ({
   MetadataTab: () => <div data-testid="metadata-tab-stub" />,

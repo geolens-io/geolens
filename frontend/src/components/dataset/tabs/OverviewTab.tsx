@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatDate, formatNumber } from '@/lib/format';
+import { formatDate, formatNumber, formatBytes } from '@/lib/format';
 import { resolveProvenanceIdentity, formatProvenanceTime } from '@/lib/provenance-attribution';
 import {
   Layers,
@@ -41,12 +41,6 @@ import { UsedInMaps } from '@/components/dataset/UsedInMaps';
 import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
 import { getGeometryTypeLabel, getRecordStatusLabel, getSourceFormatLabel } from '@/i18n/labels';
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  if (bytes >= 1_024) return `${(bytes / 1_024).toFixed(1)} KB`;
-  return `${bytes} B`;
-}
 
 interface OverviewTabProps {
   dataset: DatasetResponse;

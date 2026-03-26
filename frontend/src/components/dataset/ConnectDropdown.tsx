@@ -15,10 +15,10 @@ interface ConnectDropdownProps {
   dataset: DatasetResponse;
 }
 
-async function copyToClipboard(value: string) {
+async function copyToClipboard(value: string, t: (key: string, opts?: Record<string, unknown>) => string) {
   await navigator.clipboard.writeText(value);
   const preview = value.length > 60 ? `${value.slice(0, 60)}...` : value;
-  toast.success(`Copied: ${preview}`);
+  toast.success(t('connect.copied', { preview }));
 }
 
 export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
@@ -46,51 +46,53 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
                 dataset.raster!.connect!.download_url!.startsWith('http')
                   ? dataset.raster!.connect!.download_url!
                   : `${window.location.origin}${dataset.raster!.connect!.download_url!}`,
+                t,
               )
             }
           >
             <Copy className="mr-2 size-3.5" />
-            Copy COG URL
+            {t('connect.copyCogUrl')}
           </DropdownMenuItem>
         )}
         {(isRaster || isVrt) && dataset.raster?.connect?.tile_url && (
           <DropdownMenuItem
             onClick={() =>
-              copyToClipboard(dataset.raster!.connect!.tile_url)
+              copyToClipboard(dataset.raster!.connect!.tile_url, t)
             }
           >
             <Copy className="mr-2 size-3.5" />
-            Copy XYZ Tile URL
+            {t('connect.copyXyzTileUrl')}
           </DropdownMenuItem>
         )}
         {(isRaster || isVrt) && isAdmin && dataset.raster?.connect?.s3_uri && (
           <DropdownMenuItem
-            onClick={() => copyToClipboard(dataset.raster!.connect!.s3_uri!)}
+            onClick={() => copyToClipboard(dataset.raster!.connect!.s3_uri!, t)}
           >
             <Copy className="mr-2 size-3.5" />
-            Copy S3 URI
+            {t('connect.copyS3Uri')}
           </DropdownMenuItem>
         )}
         {!isRaster && !isVrt && (
           <>
             <DropdownMenuItem
               onClick={() =>
-                copyToClipboard(`${window.location.origin}/api/datasets/${dataset.id}`)
+                copyToClipboard(`${window.location.origin}/api/datasets/${dataset.id}`, t)
               }
             >
               <Copy className="mr-2 size-3.5" />
-              Copy API URL
+              {t('connect.copyApiUrl')}
             </DropdownMenuItem>
             {!isTable && (
               <DropdownMenuItem
                 onClick={() =>
                   copyToClipboard(
                     `${window.location.origin}/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`,
+                    t,
                   )
                 }
               >
                 <Copy className="mr-2 size-3.5" />
-                Copy Tile URL
+                {t('connect.copyTileUrl')}
               </DropdownMenuItem>
             )}
           </>

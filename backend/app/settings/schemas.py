@@ -17,13 +17,18 @@ class BasemapEntry(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_tile_url(cls, v: str) -> str:
-        """Allow style JSON URLs (.json) or tile URLs with {z}/{x}/{y} placeholders."""
-        if v.rstrip("/").endswith(".json"):
+        """Allow style JSON URLs (.json, or /styles/ path) or tile URLs with {z}/{x}/{y} placeholders."""
+        stripped = v.rstrip("/")
+        if stripped.endswith(".json"):
             return v
         if "{z}" in v and "{x}" in v and "{y}" in v:
             return v
+        # Accept style endpoints that serve JSON without .json extension
+        # (e.g. https://tiles.openfreemap.org/styles/bright)
+        if "/styles/" in v:
+            return v
         raise ValueError(
-            "Tile URL must end with .json (style) or contain {z}, {x}, {y} placeholders"
+            "Tile URL must end with .json (style), contain /styles/ path, or contain {z}, {x}, {y} placeholders"
         )
 
 

@@ -21,10 +21,10 @@ import { AiAssistButton, AiDraftPreview } from '@/components/dataset/AiAssistBut
 import { QualityScoreCard } from '@/components/dataset/QualityScoreCard';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
+import { SpatialExtentCard } from '@/components/dataset/SpatialExtentCard';
+import { TemporalExtentCard } from '@/components/dataset/TemporalExtentCard';
 import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
-import { formatDate } from '@/lib/format';
 import { UPDATE_FREQUENCY_OPTIONS, SENSITIVITY_OPTIONS, THEME_CATEGORIES } from '@/lib/iso-constants';
-import { MapPin } from 'lucide-react';
 
 interface SourceQualityTabProps {
   dataset: DatasetResponse;
@@ -69,18 +69,6 @@ function translateThemeCategory(
   return t(`iso.themeCategories.${value}`, { defaultValue: value });
 }
 
-function formatBbox(bbox: number[] | null, fallback: string): string {
-  if (!bbox || bbox.length < 4) return fallback;
-  return `(${bbox[0].toFixed(4)}, ${bbox[1].toFixed(4)}) to (${bbox[2].toFixed(4)}, ${bbox[3].toFixed(4)})`;
-}
-
-function formatSrid(srid: number | null, originalSrid: number | null, unknownLabel: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  const current = srid ? `EPSG:${srid}` : unknownLabel;
-  if (originalSrid && originalSrid !== srid) {
-    return `${current} (${t('metadata.original', { srid: originalSrid })})`;
-  }
-  return current;
-}
 
 export function SourceQualityTab({
   dataset,
@@ -183,94 +171,20 @@ export function SourceQualityTab({
     [datasetId, selectedCategories, t, updateDataset],
   );
 
-  const handleSaveVintageStart = useCallback(
-    async (value: string) => {
-      await updateDataset.mutateAsync({
-        datasetId,
-        data: { data_vintage_start: value || undefined },
-      });
-    },
-    [datasetId, updateDataset],
-  );
-
-  const handleSaveVintageEnd = useCallback(
-    async (value: string) => {
-      await updateDataset.mutateAsync({
-        datasetId,
-        data: { data_vintage_end: value || undefined },
-      });
-    },
-    [datasetId, updateDataset],
-  );
-
   return (
     <>
-      {/* Spatial Extent */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <MapPin className="h-4 w-4" />
-            {t('metadata.spatialExtent')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <span className="text-sm font-medium text-muted-foreground">{t('sections.boundingBox')}</span>
-            <p className="text-sm font-mono">
-              {formatBbox(dataset.extent_bbox, t('page.noSpatialExtent'))}
-            </p>
-          </div>
+      <SpatialExtentCard
+        extentBbox={dataset.extent_bbox}
+        srid={dataset.srid}
+        originalSrid={dataset.original_srid}
+      />
 
-          <div className="space-y-1">
-            <span className="text-sm font-medium text-muted-foreground">{t('metadata.crsSrid')}</span>
-            <p className="text-sm">
-              {formatSrid(dataset.srid, dataset.original_srid, t('metadata.unknown'), t)}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Temporal Extent */}
-      <Card data-field-anchor="temporal_extent">
-        <CardHeader>
-          <CardTitle className="text-base">{t('metadata.temporalExtent')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <SectionCapabilityHint capability={capabilities.data_vintage_start} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <span className="text-sm font-medium text-muted-foreground">
-                {t('metadataEdit.vintageStart')}
-              </span>
-              <EditableFieldShell capability={capabilities.data_vintage_start} testId="editable-field-shell-vintage-start">
-                <InlineEdit
-                  value={dataset.data_vintage_start ? formatDate(dataset.data_vintage_start) : ''}
-                  onSave={handleSaveVintageStart}
-                  as="p"
-                  canEdit={capabilities.data_vintage_start.editable}
-                  placeholder={t('metadata.noTemporalExtent')}
-                  className="text-sm"
-                />
-              </EditableFieldShell>
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-medium text-muted-foreground">
-                {t('metadataEdit.vintageEnd')}
-              </span>
-              <EditableFieldShell capability={capabilities.data_vintage_end} testId="editable-field-shell-vintage-end">
-                <InlineEdit
-                  value={dataset.data_vintage_end ? formatDate(dataset.data_vintage_end) : ''}
-                  onSave={handleSaveVintageEnd}
-                  as="p"
-                  canEdit={capabilities.data_vintage_end.editable}
-                  placeholder={t('metadata.noTemporalExtent')}
-                  className="text-sm"
-                />
-              </EditableFieldShell>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <TemporalExtentCard
+        datasetId={datasetId}
+        dataVintageStart={dataset.data_vintage_start}
+        dataVintageEnd={dataset.data_vintage_end}
+        capabilities={capabilities}
+      />
 
       {/* Source Information */}
       <Card>

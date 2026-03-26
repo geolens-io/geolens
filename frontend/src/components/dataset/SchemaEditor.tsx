@@ -201,9 +201,9 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {ALLOWED_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                {ALLOWED_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
                   </SelectItem>
                 ))}
               </SelectContent>

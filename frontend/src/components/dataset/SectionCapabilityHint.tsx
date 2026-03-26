@@ -20,7 +20,7 @@ export function SectionCapabilityHint({ capability, className }: SectionCapabili
 
   return (
     <RoleCapabilityHint
-      reason="read_only_field"
+      reason={capability.reason ?? 'read_only_field'}
       helper={helper}
       className={className}
     />

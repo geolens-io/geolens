@@ -9,9 +9,9 @@ import { useTerraDraw } from '@/hooks/use-terra-draw';
 import { useFeatureEditing, showAllFeaturesInTiles } from '@/hooks/use-feature-editing';
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileToken } from '@/hooks/use-tile-token';
-import { getEnvConfig } from '@/lib/env';
+import { useMapLayers, getSourceLayerName } from '@/hooks/use-map-layers';
+import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { useAuthStore } from '@/stores/auth-store';
 import { MAP_COLORS } from '@/lib/map-colors';
 import {
@@ -37,9 +37,6 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
 
-/** Empty GeoJSON FeatureCollection */
-const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
-
 interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;
@@ -56,10 +53,6 @@ interface DatasetMapProps {
   onTileError?: () => void;
   /** Callback for read-only (non-editing) feature clicks, receives the gid */
   onFeatureClick?: (gid: number) => void;
-}
-
-function getSourceLayerName(tableName: string): string {
-  return `data.${tableName}`;
 }
 
 export function DatasetMap({
@@ -95,8 +88,16 @@ export function DatasetMap({
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
-  const vectorLayersAdded = useRef(false);
-  const rasterLayersAdded = useRef(false);
+
+  const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
+    tableName,
+    geometryType,
+    rasterTileUrl,
+    tileVersion,
+    tileToken: tileToken ?? null,
+    tileConfigCdnBaseUrl: tileConfig?.cdn_base_url,
+    mapRef,
+  });
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pendingGeometry, setPendingGeometry] = useState<Geometry | null>(null);
@@ -334,20 +335,11 @@ export function DatasetMap({
   const handleZoomToExtent = useCallback(() => {
     const map = mapRef.current;
     if (!map || !hasBbox) return;
-    const [bMinx, bMiny, bMaxx, bMaxy] = bbox!;
-    const extentIsLarge = (bMaxx - bMinx > 90 || bMaxy - bMiny > 60);
-    if (extentIsLarge) {
-      const lonSpan = bMaxx - bMinx;
-      const latSpan = bMaxy - bMiny;
-      const zoomForLon = Math.log2(360 / Math.max(lonSpan, 1));
-      const zoomForLat = Math.log2(170 / Math.max(latSpan, 1));
-      const zoom = Math.max(1, Math.round(Math.min(zoomForLon, zoomForLat)));
-      map.flyTo({
-        center: [(bMinx + bMaxx) / 2, Math.max(-60, Math.min(60, (bMiny + bMaxy) / 2))],
-        zoom,
-      });
+    if (isLargeExtent(bbox!)) {
+      const { center, zoom } = computeLargeExtentView(bbox!);
+      map.flyTo({ center, zoom });
     } else {
-      map.fitBounds([bMinx, bMiny, bMaxx, bMaxy], { padding: 60 });
+      map.fitBounds(bbox!, { padding: 60 });
     }
   }, [hasBbox, bbox]);
 
@@ -423,199 +415,6 @@ export function DatasetMap({
         : null,
     [hasBbox, minx, miny, maxx, maxy],
   );
-
-  // Add vector tile source + layers imperatively after map loads
-  const addVectorLayers = useCallback(
-    (map: MaplibreMap) => {
-      if (!tableName || vectorLayersAdded.current) return;
-      if (!geometryType) return;
-      if (map.getSource('vector-tile-source')) return;
-
-      try {
-        const sourceLayer = getSourceLayerName(tableName);
-        const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
-
-        map.addSource('vector-tile-source', {
-          type: 'vector',
-          tiles: [buildSignedTileUrl(tableName, tileToken ?? null, tileBaseUrl, tileVersion)],
-          minzoom: 1,
-          maxzoom: 22,
-        });
-
-        const isPoint = geometryType.toUpperCase().includes('POINT');
-        const isLine = geometryType.toUpperCase().includes('LINE');
-
-        if (isPoint) {
-          map.addLayer({
-            id: 'vector-points',
-            type: 'circle',
-            source: 'vector-tile-source',
-            'source-layer': sourceLayer,
-            paint: {
-              'circle-radius': 4,
-              'circle-color': MAP_COLORS.default.fill,
-              'circle-stroke-color': MAP_COLORS.default.stroke,
-              'circle-stroke-width': 1,
-            },
-          });
-        } else if (isLine) {
-          map.addLayer({
-            id: 'vector-lines',
-            type: 'line',
-            source: 'vector-tile-source',
-            'source-layer': sourceLayer,
-            paint: {
-              'line-color': MAP_COLORS.default.fill,
-              'line-width': 2,
-            },
-          });
-        } else {
-          map.addLayer({
-            id: 'vector-fill',
-            type: 'fill',
-            source: 'vector-tile-source',
-            'source-layer': sourceLayer,
-            paint: {
-              'fill-color': MAP_COLORS.default.fill,
-              'fill-opacity': MAP_COLORS.default.fillOpacity,
-            },
-          });
-          map.addLayer({
-            id: 'vector-outline',
-            type: 'line',
-            source: 'vector-tile-source',
-            'source-layer': sourceLayer,
-            paint: {
-              'line-color': MAP_COLORS.default.stroke,
-              'line-width': 1,
-            },
-          });
-        }
-
-        vectorLayersAdded.current = true;
-      } catch (e) {
-        console.warn('addVectorLayers: failed to add sources/layers', e);
-      }
-    },
-    [tableName, geometryType, tileConfig?.cdn_base_url, tileToken],
-  );
-
-  // Add raster XYZ tile source + layer imperatively after map loads
-  const addRasterLayers = useCallback(
-    (map: MaplibreMap) => {
-      if (!rasterTileUrl || rasterLayersAdded.current) return;
-      if (map.getSource('raster-tile-source')) return;
-      try {
-        map.addSource('raster-tile-source', {
-          type: 'raster',
-          tiles: [`${window.location.origin}${rasterTileUrl}`],
-          tileSize: 256,
-          minzoom: 0,
-          maxzoom: 22,
-        });
-        map.addLayer({
-          id: 'raster-layer',
-          type: 'raster',
-          source: 'raster-tile-source',
-          paint: { 'raster-opacity': 1 },
-        });
-        rasterLayersAdded.current = true;
-      } catch (e) {
-        console.warn('addRasterLayers: failed', e);
-      }
-    },
-    [rasterTileUrl],
-  );
-
-  /** Add drawn-overlay GeoJSON source for instant feature visibility */
-  const addOverlaySource = useCallback((map: MaplibreMap) => {
-    if (map.getSource('drawn-overlay')) return;
-
-    try {
-      map.addSource('drawn-overlay', {
-        type: 'geojson',
-        data: EMPTY_FC,
-      });
-
-      // Point overlay
-      map.addLayer({
-        id: 'drawn-overlay-points',
-        type: 'circle',
-        source: 'drawn-overlay',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: {
-          'circle-radius': 6,
-          'circle-color': MAP_COLORS.drawing.fill,
-          'circle-stroke-color': MAP_COLORS.drawing.stroke,
-          'circle-stroke-width': 2,
-        },
-      });
-
-      // Line overlay
-      map.addLayer({
-        id: 'drawn-overlay-lines',
-        type: 'line',
-        source: 'drawn-overlay',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        paint: {
-          'line-color': MAP_COLORS.drawing.fill,
-          'line-width': 3,
-        },
-      });
-
-      // Polygon fill overlay
-      map.addLayer({
-        id: 'drawn-overlay-fill',
-        type: 'fill',
-        source: 'drawn-overlay',
-        filter: ['==', ['geometry-type'], 'Polygon'],
-        paint: {
-          'fill-color': MAP_COLORS.drawing.fill,
-          'fill-opacity': MAP_COLORS.drawing.fillOpacity,
-        },
-      });
-
-      // Polygon outline overlay
-      map.addLayer({
-        id: 'drawn-overlay-outline',
-        type: 'line',
-        source: 'drawn-overlay',
-        filter: ['==', ['geometry-type'], 'Polygon'],
-        paint: {
-          'line-color': MAP_COLORS.drawing.stroke,
-          'line-width': 2,
-        },
-      });
-    } catch (e) {
-      console.warn('addOverlaySource: failed to add sources/layers', e);
-    }
-  }, []);
-
-  // Clean up vector layers on unmount or prop change
-  useEffect(() => {
-    return () => {
-      vectorLayersAdded.current = false;
-    };
-  }, [tableName]);
-
-  // Clean up raster layers on unmount or tile URL change
-  useEffect(() => {
-    return () => {
-      rasterLayersAdded.current = false;
-    };
-  }, [rasterTileUrl]);
-
-  // Update tile URLs in-place when token refreshes
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !tileToken || !tableName) return;
-    const source = map.getSource('vector-tile-source');
-    if (source && 'setTiles' in source) {
-      const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
-      const newUrl = buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion);
-      (source as maplibregl.VectorTileSource).setTiles([newUrl]);
-    }
-  }, [tileToken, tableName, tileConfig?.cdn_base_url, tileVersion]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -758,11 +557,6 @@ export function DatasetMap({
     ? [minx, miny, maxx, maxy]
     : undefined;
 
-  // For large extents, use center+zoom instead of fitBounds because low-zoom
-  // tiles (z0/z1) often fail with ST_AsMVT for complex geometries.
-  // For smaller extents, fitBounds zooms in close enough that tiles work fine.
-  const isLargeExtent = hasBbox && (maxx - minx > 90 || maxy - miny > 60);
-
   let initialViewState;
   if (!bounds) {
     initialViewState = {
@@ -770,18 +564,9 @@ export function DatasetMap({
       latitude: mapDefaults?.center_lat ?? 20,
       zoom: mapDefaults?.zoom ?? 2,
     };
-  } else if (isLargeExtent) {
-    // Compute zoom from extent span — clamp to minimum 1 to avoid z0 tile errors
-    const lonSpan = maxx - minx;
-    const latSpan = maxy - miny;
-    const zoomForLon = Math.log2(360 / Math.max(lonSpan, 1));
-    const zoomForLat = Math.log2(170 / Math.max(latSpan, 1));
-    const zoom = Math.max(1, Math.round(Math.min(zoomForLon, zoomForLat)));
-    initialViewState = {
-      longitude: (minx + maxx) / 2,
-      latitude: Math.max(-60, Math.min(60, (miny + maxy) / 2)),
-      zoom,
-    };
+  } else if (hasBbox && isLargeExtent(bbox!)) {
+    const { center, zoom } = computeLargeExtentView(bbox!);
+    initialViewState = { longitude: center[0], latitude: center[1], zoom };
   } else {
     initialViewState = { bounds, fitBoundsOptions: { padding: 60 } };
   }
