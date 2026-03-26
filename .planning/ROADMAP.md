@@ -95,8 +95,8 @@ Plans:
   4. Export button is visible in the admin audit log view with format selection
 **Plans**: 2 plans
 Plans:
-- [ ] 208-01-PLAN.md — Backend streaming CSV/JSON export endpoints with enterprise gating and tests
-- [ ] 208-02-PLAN.md — Frontend split button UI, blob download, i18n
+- [x] 208-01-PLAN.md — Backend streaming CSV/JSON export endpoints with enterprise gating and tests
+- [x] 208-02-PLAN.md — Frontend split button UI, blob download, i18n
 **UI hint**: yes
 
 ### Phase 209: SAML SSO
