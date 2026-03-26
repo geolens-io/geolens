@@ -405,6 +405,9 @@
       "attributionLabel": "Attribution",
       "attributionPlaceholder": "\u00a9 Anbietername",
       "attributionHelp": "Optional. HTML für Links erlaubt.",
+      "apiKeyLabel": "API-Schlüssel",
+      "apiKeyPlaceholder": "Optional — erforderlich wenn URL {api_key} enthält",
+      "apiKeyHelp": "Verwenden Sie {api_key} in der Kachel-URL als Platzhalter. Der Schlüssel wird serverseitig interpoliert.",
       "saved": "Basiskarten gespeichert",
       "saveFailed": "Basiskarten konnten nicht gespeichert werden"
     },

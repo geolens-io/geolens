@@ -26,6 +26,16 @@ describe('toMaplibreStyle', () => {
     expect(toMaplibreStyle(url)).toBe(url);
   });
 
+  it('returns MapTiler style.json URL with query params as-is', () => {
+    const url = 'https://api.maptiler.com/maps/streets-v2/style.json?key=abc123';
+    expect(toMaplibreStyle(url)).toBe(url);
+  });
+
+  it('returns Mapbox /styles/ URL with query params as-is', () => {
+    const url = 'https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=pk.test';
+    expect(toMaplibreStyle(url)).toBe(url);
+  });
+
   it('wraps XYZ URL in StyleSpecification', () => {
     const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const result = toMaplibreStyle(url) as StyleSpecification;

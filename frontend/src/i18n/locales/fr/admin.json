@@ -405,6 +405,9 @@
       "attributionLabel": "Attribution",
       "attributionPlaceholder": "\u00a9 Nom du fournisseur",
       "attributionHelp": "Facultatif. HTML autorisé pour les liens.",
+      "apiKeyLabel": "Clé API",
+      "apiKeyPlaceholder": "Facultatif — requis si l'URL contient {api_key}",
+      "apiKeyHelp": "Utilisez {api_key} dans l'URL des tuiles comme espace réservé. La clé est interpolée côté serveur.",
       "saved": "Fonds de carte enregistrés",
       "saveFailed": "Échec de l'enregistrement des fonds de carte"
     },

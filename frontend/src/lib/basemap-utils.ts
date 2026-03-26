@@ -21,7 +21,8 @@ const LEGACY_KEY_MAP: Record<string, string> = {
  *   MapLibre's AttributionControl displays it.
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
-  if (url.endsWith('.json') || url.includes('/styles/')) {
+  const urlPath = url.split('?')[0];
+  if (urlPath.endsWith('.json') || url.includes('/styles/')) {
     return url;
   }
   return {

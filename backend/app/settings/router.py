@@ -353,9 +353,26 @@ async def delete_oauth_provider(
 async def get_basemaps(
     db: AsyncSession = Depends(get_db),
 ) -> list[BasemapEntry]:
-    """Return the configured basemap list (public, no auth required)."""
+    """Return the configured basemap list (public, no auth required).
+
+    Basemaps with ``{api_key}`` in the URL are filtered out when no key is
+    configured.  When a key IS set the placeholder is resolved server-side
+    and the ``api_key`` value is stripped from the response so it is never
+    leaked to non-admin callers.
+    """
     stored = await BASEMAPS.get(db)
-    return [BasemapEntry(**entry) for entry in stored]
+    result: list[BasemapEntry] = []
+    for entry in stored:
+        url = entry.get("url", "")
+        key_value = entry.get("api_key")
+        if "{api_key}" in url:
+            if not key_value:
+                continue
+            entry = {**entry, "url": url.replace("{api_key}", key_value), "api_key": None}
+        else:
+            entry = {**entry, "api_key": None}
+        result.append(BasemapEntry(**entry))
+    return result
 
 
 @router.get("/map-defaults/")
