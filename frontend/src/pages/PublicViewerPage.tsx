@@ -8,6 +8,7 @@ import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useEdition } from '@/hooks/use-edition';
 
 function parseCenter(raw: string | null): { lng: number; lat: number } | null {
   if (!raw) return null;
@@ -30,6 +31,7 @@ function parseZoom(raw: string | null): number | null {
 export function PublicViewerPage() {
   const { t } = useTranslation('common');
   useDocumentTitle('Shared Map');
+  const { isEnterprise } = useEdition();
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
   const isEmbed = searchParams.get('embed') === 'true';
@@ -170,16 +172,18 @@ export function PublicViewerPage() {
       )}
 
       {/* Powered by GeoLens badge */}
-      <div className="absolute bottom-2 right-2 z-10 hidden min-[400px]:block">
-        <a
-          href="https://github.com/geolens-io/geolens"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5 transition-colors"
-        >
-          {t('viewer.poweredBy')}
-        </a>
-      </div>
+      {!isEnterprise && (
+        <div className="absolute bottom-2 right-2 z-10 hidden min-[400px]:block">
+          <a
+            href="https://github.com/geolens-io/geolens"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5 transition-colors"
+          >
+            {t('viewer.poweredBy')}
+          </a>
+        </div>
+      )}
     </div>
   );
 }
