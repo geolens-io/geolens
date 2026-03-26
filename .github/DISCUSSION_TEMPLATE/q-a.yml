@@ -1,0 +1,35 @@
+title: "[Q&A] "
+labels: []
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you need help with?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What I've tried
+      description: What steps have you already taken?
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: GeoLens version
+      description: e.g. v12.3, latest, or commit hash
+    validations:
+      required: false
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker Compose
+        - Kubernetes / Helm
+        - AWS AMI
+        - Other
+    validations:
+      required: false

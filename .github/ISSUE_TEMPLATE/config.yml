@@ -1,5 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Discussions
-    url: https://github.com/geolens-io/geolens/discussions
-    about: Ask questions, share ideas, or get help from the community
+  - name: Ask a Question
+    url: https://github.com/geolens-io/geolens/discussions/categories/q-a
+    about: Get help from the community — not for bug reports
+  - name: Share an Idea
+    url: https://github.com/geolens-io/geolens/discussions/categories/ideas
+    about: Suggest features or discuss enhancements before opening an issue
