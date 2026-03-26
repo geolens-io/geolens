@@ -111,7 +111,7 @@ Plans:
   5. SAML provider buttons appear on the login page alongside existing OIDC providers when a SAML IdP is configured and enabled
 **Plans**: 2 plans
 Plans:
-- [ ] 209-01-PLAN.md — Backend SAML infrastructure: migration, model/schema, pysaml2 modules, router, tests
+- [x] 209-01-PLAN.md — Backend SAML infrastructure: migration, model/schema, pysaml2 modules, router, tests
 - [ ] 209-02-PLAN.md — Frontend admin SAML form, login page buttons, i18n
 **UI hint**: yes
 
