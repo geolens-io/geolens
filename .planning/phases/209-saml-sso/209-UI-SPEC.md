@@ -48,7 +48,7 @@ Exceptions: none
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px (text-sm) | 400 | 1.5 |
-| Label | 14px (text-sm) | 500 | 1.4 |
+| Label | 14px (text-sm) | 400 | 1.4 |
 | Heading | 18px (text-lg) | 600 | 1.2 |
 | Muted helper | 12px (text-xs) | 400 | 1.5 |
 
