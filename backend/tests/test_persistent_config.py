@@ -387,6 +387,117 @@ async def test_public_basemaps_endpoint(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_basemaps_api_key_interpolation(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Basemaps with {api_key} have the placeholder resolved in public response."""
+    # Save basemaps with an api_key entry
+    basemaps_with_key = [
+        {
+            "id": "openfreemap-positron",
+            "label": "OpenFreeMap Positron",
+            "url": "https://tiles.openfreemap.org/styles/positron",
+            "enabled": True,
+            "is_preset": True,
+        },
+        {
+            "id": "maptiler-streets",
+            "label": "MapTiler Streets",
+            "url": "https://api.maptiler.com/maps/streets-v2/style.json?key={api_key}",
+            "enabled": True,
+            "is_preset": False,
+            "api_key": "test_key_123",
+        },
+    ]
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"basemaps": basemaps_with_key}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    # Public endpoint should resolve the placeholder
+    resp = await client.get("/settings/basemaps/")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    maptiler = next((b for b in data if b["id"] == "maptiler-streets"), None)
+    assert maptiler is not None
+    assert "test_key_123" in maptiler["url"]
+    assert "{api_key}" not in maptiler["url"]
+    assert maptiler["api_key"] is None  # Key stripped from response
+
+
+@pytest.mark.anyio
+async def test_basemaps_api_key_unresolved_filtered(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Basemaps with {api_key} but no key configured are filtered from public response."""
+    basemaps_no_key = [
+        {
+            "id": "openfreemap-positron",
+            "label": "OpenFreeMap Positron",
+            "url": "https://tiles.openfreemap.org/styles/positron",
+            "enabled": True,
+            "is_preset": True,
+        },
+        {
+            "id": "maptiler-no-key",
+            "label": "MapTiler No Key",
+            "url": "https://api.maptiler.com/maps/streets-v2/style.json?key={api_key}",
+            "enabled": True,
+            "is_preset": False,
+            # No api_key set
+        },
+    ]
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"basemaps": basemaps_no_key}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    # Public endpoint should NOT include the unresolved basemap
+    resp = await client.get("/settings/basemaps/")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    ids = [b["id"] for b in data]
+    assert "maptiler-no-key" not in ids
+    assert "openfreemap-positron" in ids
+
+
+@pytest.mark.anyio
+async def test_basemaps_api_key_never_leaked(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """api_key is always null in public basemaps response, even for non-placeholder basemaps."""
+    basemaps = [
+        {
+            "id": "custom-no-placeholder",
+            "label": "Custom Basemap",
+            "url": "https://tiles.example.com/{z}/{x}/{y}.png",
+            "enabled": True,
+            "is_preset": False,
+            "api_key": "should_not_appear",
+        },
+    ]
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"basemaps": basemaps}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/settings/basemaps/")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    for entry in data:
+        assert entry.get("api_key") is None, f"api_key leaked for {entry['id']}"
+
+
+@pytest.mark.anyio
 async def test_public_map_defaults_endpoint(client: AsyncClient):
     """GET /settings/map-defaults/ still works (public, no auth)."""
     resp = await client.get("/settings/map-defaults/")

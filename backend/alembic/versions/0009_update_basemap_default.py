@@ -18,6 +18,7 @@ def upgrade() -> None:
         "maps",
         "basemap_style",
         server_default="openfreemap-positron",
+        schema="catalog",
     )
 
 
@@ -26,4 +27,5 @@ def downgrade() -> None:
         "maps",
         "basemap_style",
         server_default="positron",
+        schema="catalog",
     )
