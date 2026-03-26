@@ -1,0 +1,24 @@
+title: "[Idea] "
+labels: []
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: Describe your feature idea or enhancement
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered other approaches?
+    validations:
+      required: false
