@@ -133,4 +133,20 @@ describe('useHeroState', () => {
     expect(result.current.retryCount).toBe(0);
     expect(result.current.mapKey).toBe(0);
   });
+
+  it('skips to loaded when navigating between two raster datasets without tile URLs', () => {
+    const { result, rerender } = renderHook(
+      ({ datasetId }) =>
+        useHeroState({ datasetId, recordType: 'raster_dataset', hasTileUrl: false }),
+      { initialProps: { datasetId: 'd1' } },
+    );
+
+    expect(result.current.heroState).toBe('loaded');
+
+    // Navigate to second raster dataset, also without tile URL
+    rerender({ datasetId: 'd2' });
+
+    // Should skip back to loaded (not stuck at loading)
+    expect(result.current.heroState).toBe('loaded');
+  });
 });

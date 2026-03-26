@@ -42,7 +42,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     if (recordType === 'raster_dataset' && !hasTileUrl) {
       setHeroState('loaded');
     }
-  }, [recordType, hasTileUrl]);
+  }, [datasetId, recordType, hasTileUrl]);
 
   return {
     isRasterOrVrt,
