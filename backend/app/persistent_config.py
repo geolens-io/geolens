@@ -429,17 +429,17 @@ TILE_CACHE_TTL = PersistentConfig[int](
 # to avoid circular imports, define them inline
 _DEFAULT_BASEMAPS = [
     {
-        "id": "carto-positron",
-        "label": "CARTO Positron",
-        "url": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        "id": "openfreemap-positron",
+        "label": "OpenFreeMap Positron",
+        "url": "https://tiles.openfreemap.org/styles/positron",
         "enabled": True,
         "is_preset": True,
         "attribution": "&copy; <a href='https://carto.com/'>CARTO</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
     {
-        "id": "carto-dark-matter",
-        "label": "CARTO Dark Matter",
-        "url": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+        "id": "openfreemap-dark",
+        "label": "OpenFreeMap Dark",
+        "url": "https://tiles.openfreemap.org/styles/dark",
         "enabled": True,
         "is_preset": True,
         "attribution": "&copy; <a href='https://carto.com/'>CARTO</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
