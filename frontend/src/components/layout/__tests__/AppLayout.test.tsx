@@ -3,12 +3,18 @@ import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppLayout } from '../AppLayout';
 import { useEdition } from '@/hooks/use-edition';
+import { useBranding } from '@/hooks/use-settings';
 
 vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
 }));
 
+vi.mock('@/hooks/use-settings', () => ({
+  useBranding: vi.fn(),
+}));
+
 const mockedUseEdition = vi.mocked(useEdition);
+const mockedUseBranding = vi.mocked(useBranding);
 
 function renderAppLayout(initialEntries: string[] = ['/']) {
   const queryClient = new QueryClient({
@@ -31,6 +37,9 @@ describe('AppLayout', () => {
       isEnterprise: false,
       isLoading: false,
     });
+    mockedUseBranding.mockReturnValue({
+      data: { show_badge: true },
+    } as ReturnType<typeof useBranding>);
   });
 
   it('renders footer with Powered by GeoLens in community mode', () => {
@@ -53,14 +62,39 @@ describe('AppLayout', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
-  it('hides footer badge in enterprise mode', () => {
+  it('hides footer badge in enterprise mode when show_badge is false', () => {
     mockedUseEdition.mockReturnValue({
       edition: 'enterprise',
       features: ['branding'],
       isEnterprise: true,
       isLoading: false,
     });
+    mockedUseBranding.mockReturnValue({
+      data: { show_badge: false },
+    } as ReturnType<typeof useBranding>);
     renderAppLayout();
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
+
+  it('shows footer badge in enterprise mode when show_badge is true', () => {
+    mockedUseEdition.mockReturnValue({
+      edition: 'enterprise',
+      features: ['branding'],
+      isEnterprise: true,
+      isLoading: false,
+    });
+    mockedUseBranding.mockReturnValue({
+      data: { show_badge: true },
+    } as ReturnType<typeof useBranding>);
+    renderAppLayout();
+    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+  });
+
+  it('always shows footer badge in community mode regardless of branding setting', () => {
+    mockedUseBranding.mockReturnValue({
+      data: { show_badge: false },
+    } as ReturnType<typeof useBranding>);
+    renderAppLayout();
+    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 });

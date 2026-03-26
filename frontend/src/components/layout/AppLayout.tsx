@@ -2,6 +2,7 @@ import { Outlet, useMatch } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Navbar } from './Navbar';
 import { useEdition } from '@/hooks/use-edition';
+import { useBranding } from '@/hooks/use-settings';
 
 const GEOLENS_GITHUB_URL = 'https://github.com/geolens-io/geolens';
 const GEOLENS_DISCUSSIONS_URL = 'https://github.com/geolens-io/geolens/discussions';
@@ -11,6 +12,8 @@ export function AppLayout() {
   const isMapBuilder = useMatch('/maps/:id');
   const isDatasetDetail = useMatch('/datasets/:id');
   const { isEnterprise } = useEdition();
+  const { data: branding } = useBranding();
+  const showFooterBadge = !isEnterprise || branding?.show_badge !== false;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -18,7 +21,7 @@ export function AppLayout() {
       <main className="flex-1 animate-fade-in">
         <Outlet />
       </main>
-      {!isMapBuilder && !isDatasetDetail && !isEnterprise && (
+      {!isMapBuilder && !isDatasetDetail && showFooterBadge && (
         <footer className="py-2 text-center text-xs text-muted-foreground">
           <a
             href={GEOLENS_GITHUB_URL}
