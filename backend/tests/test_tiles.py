@@ -242,6 +242,22 @@ class TestTileQueryStructure:
         assert "ST_AsMVTGeom" in query
         assert "ST_AsMVT" in query
         assert "data.test_table" in query
+        # Verify bounds CTE precomputes geom_4326
+        assert "bounds.geom_4326" in query
+        assert "ST_Transform(bounds.geom, 4326)" not in query
+
+    def test_tile_query_single_transform_in_where(self):
+        """WHERE clause uses precomputed bounds.geom_4326, not ST_Transform."""
+        from app.tiles.service import _build_tile_query
+
+        columns = [{"name": "name", "type": "text"}]
+        query = _build_tile_query("test_table", columns)
+        # bounds CTE should compute geom_4326
+        assert "AS geom_4326" in query
+        # WHERE should reference bounds.geom_4326 directly
+        assert "bounds.geom_4326" in query
+        # Should NOT have ST_Transform(bounds.geom, 4326) in WHERE
+        assert "ST_Transform(bounds.geom, 4326)" not in query
 
     def test_mvt_source_layer_name(self):
         """ST_AsMVT uses 'data.{table_name}' as source layer name."""
