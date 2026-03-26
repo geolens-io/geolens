@@ -375,11 +375,13 @@ export function useBuilderLayers(
     // Also sync custom props to the outline layer
     const outlineId = `layer-${layerId}-outline`;
     if (map.getLayer(outlineId)) {
-      if (paint['_outline-color'] !== undefined) {
-        try { map.setPaintProperty(outlineId, 'line-color', paint['_outline-color']); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-color sync:', e); }
+      const oc = paint['_outline-color'] ?? paint['outline-color'];
+      if (oc !== undefined) {
+        try { map.setPaintProperty(outlineId, 'line-color', oc); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-color sync:', e); }
       }
-      if (paint['_outline-width'] !== undefined) {
-        try { map.setPaintProperty(outlineId, 'line-width', paint['_outline-width']); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-width sync:', e); }
+      const ow = paint['_outline-width'] ?? paint['outline-width'];
+      if (ow !== undefined) {
+        try { map.setPaintProperty(outlineId, 'line-width', ow); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-width sync:', e); }
       }
     }
   }
@@ -422,11 +424,13 @@ export function useBuilderLayers(
 
     // Custom outline props -> outline line layer
     if (map.getLayer(outlineId)) {
-      if (newPaint['_outline-color'] !== undefined) {
-        map.setPaintProperty(outlineId, 'line-color', newPaint['_outline-color']);
+      const oc = newPaint['_outline-color'] ?? newPaint['outline-color'];
+      if (oc !== undefined) {
+        map.setPaintProperty(outlineId, 'line-color', oc);
       }
-      if (newPaint['_outline-width'] !== undefined) {
-        map.setPaintProperty(outlineId, 'line-width', newPaint['_outline-width']);
+      const ow = newPaint['_outline-width'] ?? newPaint['outline-width'];
+      if (ow !== undefined) {
+        map.setPaintProperty(outlineId, 'line-width', ow);
       }
     }
   }
