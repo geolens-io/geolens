@@ -186,7 +186,15 @@
       "resourceId": "Resource ID",
       "ipAddress": "IP Address"
     },
-    "detailsHint": "Details (click row to collapse)"
+    "detailsHint": "Details (click row to collapse)",
+    "export": {
+      "csv": "Export CSV",
+      "json": "Export as JSON",
+      "loading": "Exporting...",
+      "errorTitle": "Export failed",
+      "errorBody": "Something went wrong. Try again or narrow your date range.",
+      "formatOptions": "Export format options"
+    }
   },
   "infrastructure": {
     "title": "Infrastructure",

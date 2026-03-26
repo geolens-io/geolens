@@ -1,3 +1,5 @@
+import { API_BASE } from '@/lib/constants';
+import { useAuthStore } from '@/stores/auth-store';
 import { apiFetch } from './client';
 import type {
   AIStatusResponse,
@@ -190,4 +192,33 @@ export async function updateSemanticSearch(enabled: boolean): Promise<void> {
     method: 'PUT',
     body: JSON.stringify({ settings: { semantic_search_enabled: enabled } }),
   });
+}
+
+// Audit log export (returns blob for browser download)
+export async function exportAuditLogs(
+  format: 'csv' | 'json',
+  filters: {
+    action?: string;
+    date_from?: string;
+    date_to?: string;
+    search?: string;
+  } = {},
+): Promise<Blob> {
+  const query = new URLSearchParams();
+  if (filters.action) query.set('action', filters.action);
+  if (filters.date_from) query.set('date_from', filters.date_from);
+  if (filters.date_to) query.set('date_to', filters.date_to);
+  if (filters.search) query.set('search', filters.search);
+  const qs = query.toString();
+  const url = `${API_BASE}/admin/audit-logs/export/${format}${qs ? `?${qs}` : ''}`;
+
+  const token = useAuthStore.getState().token;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error(`Export failed: ${response.statusText}`);
+  }
+  return response.blob();
 }
