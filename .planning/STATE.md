@@ -1,31 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: unknown
-stopped_at: Completed quick-260325-lq4
-last_updated: "2026-03-25T19:53:31.168Z"
-last_activity: "2026-03-26 - Completed quick task 260325-sos: QA pass on dataset details page for KISS, DRY and best practices"
+milestone: v13.0
+milestone_name: Open-Core Pre-Release
+status: executing
+stopped_at: Roadmap creation complete
+last_updated: "2026-03-26T19:24:55.028Z"
+last_activity: 2026-03-26 -- Phase 207 execution started
 progress:
-  total_phases: 61
-  completed_phases: 60
-  total_plans: 118
-  completed_plans: 118
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 5
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-20)
+See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 205 — builder-test-i18n-fixes
+**Current focus:** Phase 207 — branding-toggle
 
 ## Current Position
 
-Phase: 205
-Plan: Not started
+Phase: 207 (branding-toggle) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 207
+Last activity: 2026-03-26 -- Phase 207 execution started
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -62,6 +67,11 @@ Plan: Not started
 
 ### Decisions
 
+- [v13.0 Roadmap]: 6 phases derived from 5 requirement categories -- extension seams first, then branding (validates pattern), audit export, SAML SSO, enterprise repo, docs last
+- [v13.0 Roadmap]: Branding toggle (Phase 207) before SAML (Phase 209) intentionally front-loads low-risk validation of the full extension stack
+- [v13.0 Roadmap]: SAML (Phase 209) before enterprise repo (Phase 210) ensures Protocol interfaces are stable before the enterprise package implements them
+- [v13.0 Roadmap]: pysaml2 7.5.4 selected over python3-saml (no Python 3.13 support); resolve API surface differences before Phase 209 planning
+- [v13.0 Roadmap]: Enterprise-gated endpoints return 404 not 403 -- no feature leakage revealing enterprise capabilities exist
 - [v12.3 Audit]: This milestone targets tablet and desktop builder workflows; phone-specific optimization is explicitly out of scope
 - [v12.3 Audit]: Basemap switching on the audited map preserved overlay layers without console or network failures
 - [v12.3 Audit]: Sidebar collapse currently relies on width-zero hiding and leaves hidden focusable controls in the keyboard path
@@ -220,7 +230,7 @@ Plan: Not started
 
 ## Session Continuity
 
-Last activity: 2026-03-26 - Completed quick task 260326-fzo: Support & Discussions strategy for public release
-Last session: 2026-03-25T19:53:26.470Z
-Stopped at: Completed quick-260325-lq4
+Last activity: 2026-03-26 - Roadmap created for v13.0 Open-Core Pre-Release (6 phases, 206-211)
+Last session: 2026-03-26
+Stopped at: Roadmap creation complete
 Resume file: None
