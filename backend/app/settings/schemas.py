@@ -13,13 +13,15 @@ class BasemapEntry(BaseModel):
     enabled: bool = True
     is_preset: bool = False
     attribution: str | None = None
+    api_key: str | None = None
 
     @field_validator("url")
     @classmethod
     def validate_tile_url(cls, v: str) -> str:
-        """Allow style JSON URLs (.json, or /styles/ path) or tile URLs with {z}/{x}/{y} placeholders."""
-        stripped = v.rstrip("/")
-        if stripped.endswith(".json"):
+        """Allow style JSON URLs (.json), /styles/ paths, or tile URLs with {z}/{x}/{y} placeholders."""
+        # Strip query string for path-based checks
+        base_path = v.split("?")[0].rstrip("/")
+        if base_path.endswith(".json"):
             return v
         if "{z}" in v and "{x}" in v and "{y}" in v:
             return v
@@ -28,7 +30,7 @@ class BasemapEntry(BaseModel):
         if "/styles/" in v:
             return v
         raise ValueError(
-            "Tile URL must end with .json (style), contain /styles/ path, or contain {z}, {x}, {y} placeholders"
+            "Tile URL must end with .json (style), contain /styles/, or contain {z}, {x}, {y} placeholders"
         )
 
 

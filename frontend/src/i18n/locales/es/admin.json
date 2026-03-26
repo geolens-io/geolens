@@ -405,6 +405,9 @@
       "attributionLabel": "Atribución",
       "attributionPlaceholder": "\u00a9 Nombre del proveedor",
       "attributionHelp": "Opcional. Se permite HTML para enlaces.",
+      "apiKeyLabel": "Clave API",
+      "apiKeyPlaceholder": "Opcional — requerida si la URL contiene {api_key}",
+      "apiKeyHelp": "Use {api_key} en la URL del mosaico como marcador de posición. La clave se interpola en el servidor.",
       "saved": "Mapas base guardados",
       "saveFailed": "Error al guardar los mapas base"
     },

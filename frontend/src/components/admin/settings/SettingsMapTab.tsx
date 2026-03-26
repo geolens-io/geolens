@@ -27,7 +27,9 @@ interface TabProps {
 }
 
 function isValidTileUrl(url: string): boolean {
-  if (url.endsWith('.json')) return true;
+  const basePath = url.split('?')[0].replace(/\/+$/, '');
+  if (basePath.endsWith('.json')) return true;
+  if (url.includes('/styles/')) return true;
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
 }
 
@@ -42,6 +44,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newAttribution, setNewAttribution] = useState('');
+  const [newApiKey, setNewApiKey] = useState('');
   const [urlError, setUrlError] = useState('');
 
   const basemaps = values.basemaps as BasemapEntry[];
@@ -72,11 +75,13 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
       enabled: true,
       is_preset: false,
       ...(newAttribution.trim() ? { attribution: newAttribution.trim() } : {}),
+      ...(newApiKey.trim() ? { api_key: newApiKey.trim() } : {}),
     };
     setters.basemaps([...basemaps, entry]);
     setNewName('');
     setNewUrl('');
     setNewAttribution('');
+    setNewApiKey('');
   }
 
   return (
@@ -113,6 +118,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">{basemap.label}</p>
                 <p className="text-xs text-muted-foreground truncate">{basemap.url}</p>
+                {basemap.api_key && <p className="text-xs text-muted-foreground">API key: ••••••••</p>}
               </div>
               <div className="flex items-center gap-2">
                 <Switch
@@ -169,6 +175,17 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
                   onChange={(e) => setNewAttribution(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">{t('settings.basemaps.attributionHelp', 'Optional. HTML allowed for links.')}</p>
+              </div>
+              <div className="space-y-1.5 max-w-md">
+                <Label htmlFor="basemap-api-key">{t('settings.basemaps.apiKeyLabel', 'API Key')}</Label>
+                <Input
+                  id="basemap-api-key"
+                  type="password"
+                  placeholder={t('settings.basemaps.apiKeyPlaceholder', 'Optional — required if URL contains {api_key}')}
+                  value={newApiKey}
+                  onChange={(e) => setNewApiKey(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('settings.basemaps.apiKeyHelp', 'Use {api_key} in the tile URL as a placeholder. The key is interpolated server-side.')}</p>
               </div>
               <Button variant="outline" size="sm" onClick={handleAdd}>
                 {t('settings.basemaps.add')}
