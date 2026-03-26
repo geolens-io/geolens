@@ -10,6 +10,8 @@ import {
   resetSettings,
   getConfigMode,
   getApiKeyStatus,
+  getBranding,
+  updateBranding,
 } from '@/api/settings';
 
 // --- Public hooks (used by non-admin pages) ---
@@ -67,6 +69,28 @@ export function useUpdateSettings() {
     mutationFn: (settings: Record<string, unknown>) => updateSettings(settings),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
+      toast.success(i18n.t('settingsToasts.saved'));
+    },
+    onError: () => {
+      toast.error(i18n.t('settingsToasts.saveFailed'));
+    },
+  });
+}
+
+export function useBranding() {
+  return useQuery({
+    queryKey: ['settings', 'branding'],
+    queryFn: getBranding,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateBranding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: updateBranding,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings', 'branding'] });
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: () => {

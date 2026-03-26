@@ -27,11 +27,13 @@ import {
   Globe,
   Map,
   HardDrive,
+  Paintbrush,
   Lock,
   ArrowLeft,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { usePendingCount, useFailedJobCount } from '@/hooks/use-admin';
+import { useEdition } from '@/hooks/use-edition';
 
 const overviewItems = [
   { labelKey: 'adminNav.overview', to: '/admin/overview', icon: LayoutDashboard },
@@ -52,14 +54,15 @@ const operationsItems: readonly OperationItem[] = [
 ];
 
 const settingsItems = [
-  { labelKey: 'admin:settings.tabs.general', to: '/admin/settings/general', icon: Settings },
-  { labelKey: 'admin:settings.tabs.auth', to: '/admin/settings/auth', icon: Shield },
-  { labelKey: 'admin:settings.tabs.ai', to: '/admin/settings/ai', icon: Brain },
-  { labelKey: 'admin:settings.tabs.network', to: '/admin/settings/network', icon: Globe },
-  { labelKey: 'admin:settings.tabs.storage', to: '/admin/settings/storage', icon: HardDrive },
-  { labelKey: 'admin:settings.tabs.map', to: '/admin/settings/map', icon: Map },
-  { labelKey: 'admin:settings.tabs.permissions', to: '/admin/settings/permissions', icon: Lock },
-  { labelKey: 'adminNav.configOps', to: '/admin/config-ops', icon: Wrench },
+  { labelKey: 'admin:settings.tabs.general', to: '/admin/settings/general', icon: Settings, enterpriseOnly: false },
+  { labelKey: 'admin:settings.tabs.auth', to: '/admin/settings/auth', icon: Shield, enterpriseOnly: false },
+  { labelKey: 'admin:settings.tabs.ai', to: '/admin/settings/ai', icon: Brain, enterpriseOnly: false },
+  { labelKey: 'admin:settings.tabs.network', to: '/admin/settings/network', icon: Globe, enterpriseOnly: false },
+  { labelKey: 'admin:settings.tabs.storage', to: '/admin/settings/storage', icon: HardDrive, enterpriseOnly: false },
+  { labelKey: 'admin:settings.tabs.map', to: '/admin/settings/map', icon: Map, enterpriseOnly: false },
+  { labelKey: 'admin:settings.tabs.appearance', to: '/admin/settings/appearance', icon: Paintbrush, enterpriseOnly: true },
+  { labelKey: 'admin:settings.tabs.permissions', to: '/admin/settings/permissions', icon: Lock, enterpriseOnly: false },
+  { labelKey: 'adminNav.configOps', to: '/admin/config-ops', icon: Wrench, enterpriseOnly: false },
 ] as const;
 
 export function AdminSidebar() {
@@ -67,6 +70,9 @@ export function AdminSidebar() {
   const { t } = useTranslation();
   const { data: pendingCount } = usePendingCount();
   const { data: failedJobCount } = useFailedJobCount();
+  const { isEnterprise } = useEdition();
+
+  const visibleSettingsItems = settingsItems.filter(item => !item.enterpriseOnly || isEnterprise);
 
   const badgeCounts: Record<string, number | undefined> = {
     pending: pendingCount,
@@ -135,7 +141,7 @@ export function AdminSidebar() {
           <SidebarGroupLabel>{t('adminNav.settings')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {settingsItems.map(({ labelKey, to, icon: Icon }) => (
+              {visibleSettingsItems.map(({ labelKey, to, icon: Icon }) => (
                 <SidebarMenuItem key={to}>
                   <SidebarMenuButton
                     asChild

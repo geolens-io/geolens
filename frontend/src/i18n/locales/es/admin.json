@@ -423,6 +423,13 @@
       "saved": "Valores predeterminados del mapa guardados",
       "saveFailed": "Error al guardar los valores predeterminados del mapa"
     },
+    "appearance": {
+      "branding": {
+        "title": "Marca",
+        "description": "Controla la visibilidad de la marca GeoLens en toda la aplicacion",
+        "showBadge": "Mostrar insignia \"Powered by GeoLens\""
+      }
+    },
     "network": {
       "globalRateLimit": "Limite de tasa global (por segundo)",
       "globalRateLimitDescription": "Solicitudes API maximas por segundo por direccion IP. Las solicitudes de teselas estan excluidas de este limite.",
@@ -465,6 +472,7 @@
       "network": "Red",
       "storage": "Almacenamiento",
       "map": "Mapa",
+      "appearance": "Apariencia",
       "permissions": "Permisos"
     },
     "uploads": {

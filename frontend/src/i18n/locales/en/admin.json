@@ -375,6 +375,7 @@
       "network": "Network",
       "storage": "Storage",
       "map": "Map",
+      "appearance": "Appearance",
       "permissions": "Permissions"
     },
     "actions": {
@@ -472,6 +473,13 @@
       "useCurrentView": "Use current view",
       "saved": "Map defaults saved",
       "saveFailed": "Failed to save map defaults"
+    },
+    "appearance": {
+      "branding": {
+        "title": "Branding",
+        "description": "Control the visibility of GeoLens branding across the application",
+        "showBadge": "Show \"Powered by GeoLens\" badge"
+      }
     },
     "network": {
       "globalRateLimit": "Global Rate Limit (per second)",

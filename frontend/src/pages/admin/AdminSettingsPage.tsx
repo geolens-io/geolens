@@ -13,13 +13,15 @@ import { SettingsNetworkTab } from '@/components/admin/settings/SettingsNetworkT
 import { SettingsStorageTab } from '@/components/admin/settings/SettingsStorageTab';
 import { SettingsMapTab } from '@/components/admin/settings/SettingsMapTab';
 import { SettingsPermissionsTab } from '@/components/admin/settings/SettingsPermissionsTab';
+import { SettingsAppearanceTab } from '@/components/admin/settings/SettingsAppearanceTab';
 import { useAllSettings, useConfigMode, useUpdateSettings, useResetSettings } from '@/hooks/use-settings';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useEdition } from '@/hooks/use-edition';
 import type { SettingItem } from '@/api/settings';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
-const TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions'] as const;
-type TabKey = typeof TAB_KEYS[number];
+const ALL_TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions', 'appearance'] as const;
+type TabKey = typeof ALL_TAB_KEYS[number];
 
 const TAB_LABELS: Record<TabKey, string> = {
   general: 'settings.tabs.general',
@@ -29,6 +31,7 @@ const TAB_LABELS: Record<TabKey, string> = {
   storage: 'settings.tabs.storage',
   map: 'settings.tabs.map',
   permissions: 'settings.tabs.permissions',
+  appearance: 'settings.tabs.appearance',
 };
 
 const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
@@ -46,6 +49,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   storage: SettingsStorageTab,
   map: SettingsMapTab,
   permissions: SettingsPermissionsTab,
+  appearance: SettingsAppearanceTab,
 };
 
 export function AdminSettingsPage() {
@@ -56,12 +60,14 @@ export function AdminSettingsPage() {
   const { data: configMode } = useConfigMode();
   const updateMutation = useUpdateSettings();
   const resetMutation = useResetSettings();
+  const { isEnterprise } = useEdition();
   const [isDirty, setIsDirty] = useState(false);
   const blocker = useUnsavedGuard(isDirty);
 
   const handleDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
 
-  const activeTab = (tab && TAB_KEYS.includes(tab as TabKey) ? tab : null) as TabKey | null;
+  const visibleTabs = isEnterprise ? ALL_TAB_KEYS : ALL_TAB_KEYS.filter(t => t !== 'appearance');
+  const activeTab = (tab && visibleTabs.includes(tab as TabKey) ? tab : null) as TabKey | null;
 
   if (!activeTab) {
     return <Navigate to="/admin/settings/general" replace />;

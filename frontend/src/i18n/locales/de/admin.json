@@ -423,6 +423,13 @@
       "saved": "Kartenvorgaben gespeichert",
       "saveFailed": "Kartenvorgaben konnten nicht gespeichert werden"
     },
+    "appearance": {
+      "branding": {
+        "title": "Markenzeichen",
+        "description": "Steuern Sie die Sichtbarkeit des GeoLens-Brandings in der Anwendung",
+        "showBadge": "\"Powered by GeoLens\"-Badge anzeigen"
+      }
+    },
     "network": {
       "globalRateLimit": "Globale Ratenbegrenzung (pro Sekunde)",
       "globalRateLimitDescription": "Maximale API-Anfragen pro Sekunde pro IP-Adresse. Kachelanfragen sind von diesem Limit ausgenommen.",
@@ -465,6 +472,7 @@
       "network": "Netzwerk",
       "storage": "Speicher",
       "map": "Karte",
+      "appearance": "Erscheinungsbild",
       "permissions": "Berechtigungen"
     },
     "uploads": {

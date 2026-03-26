@@ -102,6 +102,23 @@ export async function detectEmbeddingDims(): Promise<DetectEmbeddingDimsResponse
   });
 }
 
+// --- Branding endpoints ---
+
+export interface BrandingConfig {
+  show_badge: boolean;
+}
+
+export async function getBranding(): Promise<BrandingConfig> {
+  return apiFetch<BrandingConfig>('/settings/branding/');
+}
+
+export async function updateBranding(config: BrandingConfig): Promise<BrandingConfig> {
+  return apiFetch<BrandingConfig>('/settings/branding/', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
 // --- OAuth provider types and endpoints (admin-only) ---
 
 export interface OAuthProviderConfig {
