@@ -8,6 +8,7 @@ export interface BasemapEntry {
   url: string;
   enabled: boolean;
   is_preset: boolean;
+  attribution?: string;
 }
 
 export interface MapDefaults {

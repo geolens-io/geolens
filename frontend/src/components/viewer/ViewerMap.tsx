@@ -110,7 +110,7 @@ export function ViewerMap({
     ? getThemeBasemap(basemaps ?? [], resolvedTheme)
     : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-  const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
+  const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl, effectiveBasemap?.attribution);
 
   // Fetch tile tokens for all layers using API key auth
   useEffect(() => {
@@ -510,7 +510,7 @@ export function ViewerMap({
     if (!map || currentUrl === prevBasemapUrlRef.current) return;
     prevBasemapUrlRef.current = currentUrl;
 
-    const newStyle = toMaplibreStyle(currentUrl);
+    const newStyle = toMaplibreStyle(currentUrl, effectiveBasemap?.attribution);
     map.setStyle(newStyle, {
       transformStyle: (_prev: StyleSpecification | undefined, next: StyleSpecification) => {
         const customSources: Record<string, unknown> = {};
@@ -553,7 +553,6 @@ export function ViewerMap({
       initialViewState={defaultView}
       mapStyle={styleValue as string}
       style={{ width: '100%', height: '100%' }}
-      attributionControl={false}
       minZoom={1}
       onLoad={handleLoad}
     >

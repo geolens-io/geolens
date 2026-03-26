@@ -85,7 +85,7 @@ export function DatasetMap({
   const { data: tileToken } = useTileToken(datasetId);
   const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
   const basemapStyle = themeBasemap
-    ? toMaplibreStyle(themeBasemap.url)
+    ? toMaplibreStyle(themeBasemap.url, themeBasemap.attribution)
     : toMaplibreStyle(
         resolvedTheme === 'dark'
           ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
@@ -367,7 +367,7 @@ export function DatasetMap({
     if (!map) return;
     const newBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
     if (!newBasemap) return;
-    const newStyle = toMaplibreStyle(newBasemap.url);
+    const newStyle = toMaplibreStyle(newBasemap.url, newBasemap.attribution);
     const style = map.getStyle();
     if (!style) return;
     // Only switch if the current style differs
@@ -810,7 +810,6 @@ export function DatasetMap({
         cursor={cursor}
         interactive={showNavControl}
         scrollZoom={isFullscreen}
-        attributionControl={false}
         onLoad={handleLoad}
       >
         {showNavControl && <NavigationControl position="top-right" />}

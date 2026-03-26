@@ -17,6 +17,7 @@ interface BasemapEntry {
   url: string;
   enabled: boolean;
   is_preset: boolean;
+  attribution?: string;
 }
 
 interface MapDefaultsValue {
@@ -49,6 +50,7 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, APPEARANCE_FIELDS);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [newAttribution, setNewAttribution] = useState('');
   const [urlError, setUrlError] = useState('');
 
   const basemaps = values.basemaps as BasemapEntry[];
@@ -78,10 +80,12 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
       url: newUrl.trim(),
       enabled: true,
       is_preset: false,
+      ...(newAttribution.trim() ? { attribution: newAttribution.trim() } : {}),
     };
     setters.basemaps([...basemaps, entry]);
     setNewName('');
     setNewUrl('');
+    setNewAttribution('');
   }
 
   return (
@@ -164,6 +168,16 @@ export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSa
                   />
                   {urlError && <p className="text-xs text-destructive">{urlError}</p>}
                 </div>
+              </div>
+              <div className="space-y-1.5 max-w-md">
+                <Label htmlFor="basemap-attribution">{t('settings.basemaps.attributionLabel', 'Attribution')}</Label>
+                <Input
+                  id="basemap-attribution"
+                  placeholder={t('settings.basemaps.attributionPlaceholder', '\u00a9 Provider Name')}
+                  value={newAttribution}
+                  onChange={(e) => setNewAttribution(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('settings.basemaps.attributionHelp', 'Optional. HTML allowed for links.')}</p>
               </div>
               <Button variant="outline" size="sm" onClick={handleAdd}>
                 {t('settings.basemaps.add')}

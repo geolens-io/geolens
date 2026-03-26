@@ -50,8 +50,8 @@ export function BuilderMap({
   const basemapEntry = findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
   const styleValue = useMemo(
-    () => toMaplibreStyle(basemapEntry?.url ?? fallbackUrl),
-    [basemapEntry?.url],
+    () => toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
+    [basemapEntry?.url, basemapEntry?.attribution],
   );
 
   // Fetch tile tokens for all layers
@@ -336,7 +336,6 @@ export function BuilderMap({
       // Required for thumbnail capture via canvas.toBlob()
       canvasContextAttributes={{ preserveDrawingBuffer: true }}
       style={{ width: '100%', height: '100%' }}
-      attributionControl={false}
       minZoom={1}
       onLoad={handleLoad}
     >
