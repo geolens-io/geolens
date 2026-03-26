@@ -21,7 +21,7 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 - [x] **SAML-02**: Users can authenticate via SP-initiated SAML flow with configured IdP
 - [x] **SAML-03**: SAML assertions are validated for signatures, expiry, audience, and replay protection
 - [x] **SAML-04**: SAML-authenticated users are mapped to existing accounts or auto-provisioned via the existing `find_or_create_oauth_user()` flow
-- [ ] **SAML-05**: SAML provider appears alongside OIDC providers on the login page
+- [x] **SAML-05**: SAML provider appears alongside OIDC providers on the login page
 
 ### Compliance
 
@@ -95,7 +95,7 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 | SAML-02 | Phase 209 | Complete |
 | SAML-03 | Phase 209 | Complete |
 | SAML-04 | Phase 209 | Complete |
-| SAML-05 | Phase 209 | Pending |
+| SAML-05 | Phase 209 | Complete |
 | REPO-01 | Phase 210 | Pending |
 | REPO-02 | Phase 210 | Pending |
 | REPO-03 | Phase 210 | Pending |

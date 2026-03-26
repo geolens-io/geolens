@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v13.0
 milestone_name: Open-Core Pre-Release
-status: executing
-stopped_at: Completed 209-01-PLAN.md
-last_updated: "2026-03-26T23:42:25.406Z"
+status: verifying
+stopped_at: Completed 209-02-PLAN.md
+last_updated: "2026-03-26T23:49:18.488Z"
 last_activity: 2026-03-26
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 Phase: 209 (saml-sso) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-26
 
 Progress: [░░░░░░░░░░] 0%
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 208 P01 | 2 | 2 tasks | 2 files |
 | Phase 208 P02 | 2 | 2 tasks | 4 files |
 | Phase 209 P01 | 5min | 3 tasks | 14 files |
+| Phase 209 P02 | 4min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,7 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 208]: Used session.stream() async generator for memory-efficient cursor-based audit export
 - [Phase 208]: Used fetch() directly for blob export (apiFetch assumes JSON); split button pattern with joined rounded corners
 - [Phase 209]: pysaml2 7.5.4 for SAML SSO backend; metadata parsed on save, IdP cert encrypted, in-memory replay cache
+- [Phase 209]: SAML form uses conditional field visibility matching Microsoft tenant_id pattern; enterprise gated via useEdition isEnterprise
 
 ### Pending Todos
 
@@ -238,6 +240,6 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last activity: 2026-03-26 - Roadmap created for v13.0 Open-Core Pre-Release (6 phases, 206-211)
-Last session: 2026-03-26T23:42:25.403Z
-Stopped at: Completed 209-01-PLAN.md
+Last session: 2026-03-26T23:49:18.486Z
+Stopped at: Completed 209-02-PLAN.md
 Resume file: None

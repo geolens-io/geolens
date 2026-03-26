@@ -112,7 +112,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 209-01-PLAN.md — Backend SAML infrastructure: migration, model/schema, pysaml2 modules, router, tests
-- [ ] 209-02-PLAN.md — Frontend admin SAML form, login page buttons, i18n
+- [x] 209-02-PLAN.md — Frontend admin SAML form, login page buttons, i18n
 **UI hint**: yes
 
 ### Phase 210: Enterprise Overlay Repo
@@ -126,7 +126,7 @@ Plans:
   4. At least one enterprise feature (branding toggle or SAML) is implemented in the enterprise repo and functions when the package is installed
 **Plans**: 2 plans
 Plans:
-- [ ] 209-01-PLAN.md — Backend SAML infrastructure: migration, model/schema, pysaml2 modules, router, tests
+- [x] 209-01-PLAN.md — Backend SAML infrastructure: migration, model/schema, pysaml2 modules, router, tests
 - [ ] 209-02-PLAN.md — Frontend admin SAML form, login page buttons, i18n
 
 ### Phase 211: Licensing & Public Documentation
