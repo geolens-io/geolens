@@ -32,7 +32,7 @@ export function useBuilderLayers(
   const addDatasetProcessedRef = useRef(false);
 
   const [localLayers, setLocalLayers] = useState<MapLayerResponse[]>([]);
-  const [localBasemap, setLocalBasemap] = useState<string>('carto-positron');
+  const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | null>(null);
