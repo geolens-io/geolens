@@ -423,6 +423,13 @@
       "saved": "Paramètres de carte enregistrés",
       "saveFailed": "Échec de l'enregistrement des paramètres de carte"
     },
+    "appearance": {
+      "branding": {
+        "title": "Image de marque",
+        "description": "Controlez la visibilite de la marque GeoLens dans l'application",
+        "showBadge": "Afficher le badge \"Powered by GeoLens\""
+      }
+    },
     "network": {
       "globalRateLimit": "Limite de debit globale (par seconde)",
       "globalRateLimitDescription": "Nombre maximal de requetes API par seconde par adresse IP. Les requetes de tuiles sont exclues de cette limite.",
@@ -465,6 +472,7 @@
       "network": "Réseau",
       "storage": "Stockage",
       "map": "Carte",
+      "appearance": "Apparence",
       "permissions": "Permissions"
     },
     "uploads": {
