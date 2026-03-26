@@ -145,7 +145,8 @@
     }
   },
   "footer": {
-    "poweredBy": "Betrieben mit GeoLens"
+    "poweredBy": "Betrieben mit GeoLens",
+    "community": "Community"
   },
   "viewer": {
     "loading": "Karte wird geladen...",
