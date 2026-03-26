@@ -14,6 +14,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin \
     libexpat1 \
+    xmlsec1 libxmlsec1-openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

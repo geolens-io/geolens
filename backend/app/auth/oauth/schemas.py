@@ -12,9 +12,10 @@ class OAuthProviderCreate(BaseModel):
 
     slug: str
     display_name: str
-    provider_type: Literal["google", "microsoft", "oidc"]
-    client_id: str
-    client_secret: str
+    provider_type: Literal["google", "microsoft", "oidc", "saml"]
+    client_id: str | None = None
+    client_secret: str | None = None
+    metadata_xml: str | None = None
     discovery_url: str | None = None
     authorize_url: str | None = None
     token_url: str | None = None
@@ -31,9 +32,10 @@ class OAuthProviderUpdate(BaseModel):
 
     slug: str | None = None
     display_name: str | None = None
-    provider_type: Literal["google", "microsoft", "oidc"] | None = None
+    provider_type: Literal["google", "microsoft", "oidc", "saml"] | None = None
     client_id: str | None = None
     client_secret: str | None = None
+    metadata_xml: str | None = None
     discovery_url: str | None = None
     authorize_url: str | None = None
     token_url: str | None = None
@@ -63,6 +65,8 @@ class OAuthProviderResponse(BaseModel):
     default_role: str
     group_claim: str | None = None
     group_role_mapping: dict | None = None
+    idp_entity_id: str | None = None
+    sp_entity_id: str | None = None
     enabled: bool
     created_at: datetime
     updated_at: datetime
