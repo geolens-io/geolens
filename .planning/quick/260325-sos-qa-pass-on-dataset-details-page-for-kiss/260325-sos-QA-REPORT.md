@@ -1,39 +1,63 @@
 # QA Report: Dataset Details Page -- KISS, DRY, Best Practices
 
-**Date:** 2026-03-25
-**Scope:** DatasetPage.tsx + all dataset detail components, tabs, and tests
-**Files audited:** 39 (27 components/tabs, 3 utilities referenced, 9 test files)
+**Date:** 2026-03-25 (corrected after verification)
+**Scope:** DatasetPage.tsx + all dataset detail components, tabs, panels, and tests
+**Files audited:** 39+ (27 components/tabs, 4 panels, 3 utilities referenced, 9 test files)
 
 ## Executive Summary
 
-The dataset details page is well-structured after significant refactoring in v12.x. The original research findings (F1-F12) were calibrated against a prior codebase snapshot and require substantial correction. The detail panel boilerplate (F3) no longer exists, the "dead" components (F1) are all actively imported, and DatasetPage.tsx has been trimmed from ~825 lines to ~497 lines. The remaining issues center on: (1) DRY violations in type definitions and record-type branching, (2) a duplicated `formatBytes` utility, (3) hardcoded English strings bypassing i18n in several components, and (4) DatasetMap.tsx at 1146 lines being the largest component in the surface area.
+The dataset details page has significant technical debt across KISS, DRY, and best-practice dimensions. DatasetPage.tsx is 824 lines with 16 useState, 9 useEffect, and 10 useCallback hooks — a clear KISS violation. Four near-identical detail panels (`panels/` directory) share ~90% boilerplate. Three components are dead code with zero runtime imports. Multiple components have hardcoded English strings bypassing i18n. The issues fall into actionable categories: (1) dead code removal, (2) panel boilerplate consolidation, (3) i18n gaps, (4) DRY violations in types and utilities, (5) DatasetPage/DatasetMap complexity.
 
 ## Research Finding Disposition
 
 | Research ID | Status | Notes |
 |-------------|--------|-------|
-| F1 | **REJECTED** | DatasetHealthStrip, AccessSharingTab, PublishButton are all actively imported and used |
+| F1 | **CONFIRMED** | DatasetHealthStrip, AccessSharingTab, PublishButton have zero runtime imports — dead code |
 | F2 | **REFINED** | Type duplication exists but between `PendingDraftField` and `SourceQualityDraftField`, not the same name |
-| F3 | **REJECTED** | The 4 detail panels (VectorDetailPanel, etc.) do not exist in the codebase; no `panels/` directory |
-| F4 | **REFINED** | PublishButton is actively used; no duplication with DatasetPage since page delegates to PublishButton |
-| F5 | **CONFIRMED** | `formatBytes` duplicated in OverviewTab.tsx (line 42) vs `@/lib/format.ts` (line 21) |
-| F6 | **REFINED** | DatasetPage.tsx is 497 lines with ~8 useState, ~3 useEffect, ~7 useCallback -- well within acceptable limits |
-| F7 | **CONFIRMED** | DatasetMap.tsx is 1146 lines with heavy complexity; largest file in the surface area |
+| F3 | **CONFIRMED** | The 4 detail panels in `panels/` directory share ~90% boilerplate (PendingDraftField, DetailPanelProps) |
+| F4 | **REFINED** | PublishButton is dead code (no runtime imports); F4 moot |
+| F5 | **CONFIRMED** | `formatBytes` duplicated in OverviewTab.tsx (line 44) vs `@/lib/format.ts` (line 53) |
+| F6 | **CONFIRMED** | DatasetPage.tsx is 824 lines with 16 useState, 9 useEffect, 10 useCallback — exceeds complexity threshold |
+| F7 | **CONFIRMED** | DatasetMap.tsx is 975 lines with heavy complexity; largest file in the surface area |
 | F8 | **CONFIRMED** | `isRaster` boolean computed independently in DatasetPage.tsx, ConnectDropdown.tsx, OverviewTab.tsx |
-| F9 | **REJECTED** | The `statsLine` variable and inline `Sep` component do not exist in current DatasetPage.tsx |
-| F10 | **REFINED** | Only `DatasetPage.edit-affordances.test.tsx` still mocks AccessSharingTab (line 67); other test files are clean |
-| F11 | **REJECTED** | `parseDependentVrts` does not appear in DatasetDeleteDialog.tsx |
+| F9 | **CONFIRMED** | `Sep` component (line 463) and `statsLine` block (line 465) defined inline in DatasetPage.tsx |
+| F10 | **REFINED** | Both `DatasetPage.edit-affordances.test.tsx` and `DatasetPage.hero.test.tsx` mock AccessSharingTab |
+| F11 | **CONFIRMED** | `parseDependentVrts` called twice on same error object (lines 86, 90) in DatasetDeleteDialog.tsx |
 | F12 | **CONFIRMED** | AddToMapButton.tsx has 5 hardcoded English strings bypassing i18n |
 
 ## Findings by Priority
 
 ### Priority 1 -- High Impact
 
+#### F1: Dead Code Components [BEST-PRACTICE]
+- **Severity:** HIGH
+- **Confidence:** HIGH
+- **Files:** `frontend/src/components/dataset/DatasetHealthStrip.tsx`, `frontend/src/components/dataset/tabs/AccessSharingTab.tsx`, `frontend/src/components/dataset/PublishButton.tsx`
+- **Issue:** Three components have zero runtime imports. `DatasetHealthStrip` is only imported in its own test file. `AccessSharingTab` is only referenced in test mocks (vi.mock), never imported as an actual dependency. `PublishButton` has no imports anywhere outside its own file. All three are dead code adding maintenance burden.
+- **Fix:** Delete all three component files and their associated test files. Remove stale vi.mock references from `DatasetPage.edit-affordances.test.tsx` and `DatasetPage.hero.test.tsx`.
+- **Effort:** Low
+
+#### F3: Near-Identical Detail Panels [DRY]
+- **Severity:** HIGH
+- **Confidence:** HIGH
+- **Files:** `frontend/src/components/dataset/panels/VectorDetailPanel.tsx` (113 lines), `frontend/src/components/dataset/panels/RasterDetailPanel.tsx` (66 lines), `frontend/src/components/dataset/panels/VrtDetailPanel.tsx` (72 lines), `frontend/src/components/dataset/panels/CollectionDetailPanel.tsx` (72 lines)
+- **Issue:** All four panels share ~90% boilerplate: `PendingDraftField` type and `DetailPanelProps` are exported from VectorDetailPanel and imported by the other three. Each panel wires the same tab structure (OverviewTab, MetadataTab, AccessTab) with the same draftValues object and the same event handlers. The only meaningful difference is which tabs are shown per record type.
+- **Fix:** Create a single `DetailPanel` component that accepts record type as a prop and conditionally renders tabs. Remove the four individual panel files. This eliminates ~200 lines of duplication.
+- **Effort:** Medium
+
+#### F6: DatasetPage.tsx Excessive Complexity [KISS]
+- **Severity:** HIGH
+- **Confidence:** HIGH
+- **Files:** `frontend/src/pages/DatasetPage.tsx` (824 lines)
+- **Issue:** DatasetPage.tsx has 16 useState, 9 useEffect, and 10 useCallback hooks in 824 lines. The draft-editing state machine (tracking pending fields, save/cancel/submit across multiple tabs) and the hero section state (edit mode, image upload, description editing) are interleaved with routing, data fetching, and tab management. This exceeds reasonable complexity for a single component.
+- **Fix:** Extract draft-editing logic into a `useDraftEditing` hook. Extract hero state management into a `useHeroState` hook. This would reduce DatasetPage.tsx to ~400 lines of orchestration and rendering.
+- **Effort:** Medium
+
 #### F7: DatasetMap.tsx Complexity [KISS]
 - **Severity:** HIGH
 - **Confidence:** HIGH
 - **Files:** `frontend/src/components/dataset/DatasetMap.tsx`
-- **Issue:** At 1146 lines, DatasetMap.tsx is the largest component in the dataset details surface area. It manages: map initialization, vector tile layers, raster tile layers, drawing/editing mode (TerraDraw integration), feature selection (edit + read-only), fullscreen toggle, keyboard shortcuts, basemap theme switching, two confirmation dialogs, an overlay source, and tile refresh logic. It has 6 useState hooks, 12 useEffect hooks, and 17+ useCallback hooks.
+- **Issue:** At 975 lines, DatasetMap.tsx is the largest component in the dataset details surface area. It manages: map initialization, vector tile layers, raster tile layers, drawing/editing mode (TerraDraw integration), feature selection (edit + read-only), fullscreen toggle, keyboard shortcuts, basemap theme switching, two confirmation dialogs, an overlay source, and tile refresh logic. It has 7 useState hooks, 12 useEffect hooks, and 17+ useCallback hooks.
 - **Fix:** Extract the tile refresh helper `refreshTileSource()` (lines 1096-1145) to a utility module. The two `AttributeForm` instances (new feature at line 1028 vs edit feature at line 1039) could share an `onSubmit` wrapper since they differ only in which mutation they invoke. The `addVectorLayers` / `addRasterLayers` / `addOverlaySource` callbacks (lines 595-758) could be grouped into a `useMapLayers` hook.
 - **Effort:** Medium
 
@@ -41,15 +65,15 @@ The dataset details page is well-structured after significant refactoring in v12
 - **Severity:** HIGH
 - **Confidence:** HIGH
 - **Files:** `frontend/src/components/dataset/ConnectDropdown.tsx`
-- **Issue:** 6 hardcoded English strings bypass i18n: "Copy COG URL" (line 49), "Copy XYZ Tile URL" (line 61), "Copy S3 URI" (line 69), "Copy Feature URL" (line 80), "Copy Tile URL" (line 90), and "Copied: ..." toast message (line 21). The component already imports `useTranslation('dataset')` but doesn't use it for these strings.
-- **Fix:** Add i18n keys: `connect.copyCogUrl`, `connect.copyXyzTileUrl`, `connect.copyS3Uri`, `connect.copyFeatureUrl`, `connect.copyTileUrl`, `connect.copied`. Replace hardcoded strings with `t()` calls.
+- **Issue:** 6 hardcoded English strings bypass i18n: "Copy COG URL", "Copy XYZ Tile URL", "Copy S3 URI", "Copy API URL", "Copy Tile URL", and "Copied: ..." toast message. The component imports `useTranslation('dataset')` but doesn't use `t()` for any of these strings.
+- **Fix:** Add i18n keys: `connect.copyCogUrl`, `connect.copyXyzTileUrl`, `connect.copyS3Uri`, `connect.copyApiUrl`, `connect.copyTileUrl`, `connect.copied`. Replace hardcoded strings with `t()` calls.
 - **Effort:** Low
 
 #### F12: AddToMapButton.tsx Hardcoded English Strings [I18N]
 - **Severity:** HIGH
 - **Confidence:** HIGH
 - **Files:** `frontend/src/components/dataset/AddToMapButton.tsx`
-- **Issue:** 5 hardcoded English strings: "Add to Map" (line 35), "Loading maps..." (line 40), "No maps available" (line 42), "+ New map" (line 52), and no i18n namespace import at all -- the component does not use `useTranslation`.
+- **Issue:** 5 hardcoded English strings: "Add to Map", "Loading maps...", "No maps available", "+ New map", and no i18n namespace import at all -- the component does not use `useTranslation`.
 - **Fix:** Add `useTranslation('dataset')` and replace with i18n keys: `addToMap.button`, `addToMap.loading`, `addToMap.noMaps`, `addToMap.newMap`.
 - **Effort:** Low
 
@@ -99,12 +123,28 @@ The dataset details page is well-structured after significant refactoring in v12
   ```
 - **Effort:** Low
 
-#### F10-REVISED: Stale Test Mock [TEST-HYGIENE]
+#### F9: Inline Sep Component and statsLine Block [KISS]
 - **Severity:** MEDIUM
 - **Confidence:** HIGH
-- **Files:** `frontend/src/pages/__tests__/DatasetPage.edit-affordances.test.tsx` (lines 67-69)
-- **Issue:** The test file mocks `@/components/dataset/tabs/AccessSharingTab` with a stub component. AccessSharingTab exists and IS used (it's imported by OverviewTab), so the mock is technically correct but misleading -- the mock replaces the real component with a stub, meaning the test does not exercise AccessSharingTab rendering within OverviewTab. The mock succeeds silently. This is a test fidelity concern, not a dead code issue.
-- **Fix:** Either remove the mock if OverviewTab rendering of AccessSharingTab should be tested, or document why the mock is intentional (likely to isolate the edit-affordances test from AccessSharingTab network requests).
+- **Files:** `frontend/src/pages/DatasetPage.tsx` (lines 463-480)
+- **Issue:** `Sep` is defined as a component inside the render body (`const Sep = () => <span ...>`) at line 463, meaning it's recreated on every render. `statsLine` (line 465) is an inline JSX block that builds a metadata stats line. Both are defined inside the component body rather than extracted.
+- **Fix:** Move `Sep` outside the component as a module-level constant (it has no props or closure dependencies). Consider extracting `statsLine` to a `DatasetStatsLine` component if it grows.
+- **Effort:** Low
+
+#### F10-REVISED: Stale Test Mocks [TEST-HYGIENE]
+- **Severity:** MEDIUM
+- **Confidence:** HIGH
+- **Files:** `frontend/src/pages/__tests__/DatasetPage.edit-affordances.test.tsx` (line 74), `frontend/src/pages/__tests__/DatasetPage.hero.test.tsx` (line 92)
+- **Issue:** Both test files mock `@/components/dataset/tabs/AccessSharingTab` with a stub component. Since AccessSharingTab is dead code (F1), these mocks reference a component that has no runtime consumers. The mocks succeed silently and add confusion about whether AccessSharingTab is actually used.
+- **Fix:** Remove the vi.mock calls for AccessSharingTab from both test files when AccessSharingTab is deleted (F1).
+- **Effort:** Low
+
+#### F11: parseDependentVrts Double-Call [DRY/PERF]
+- **Severity:** MEDIUM
+- **Confidence:** HIGH
+- **Files:** `frontend/src/components/dataset/DatasetDeleteDialog.tsx` (lines 86, 90)
+- **Issue:** `parseDependentVrts` is called twice on the same error object — once at line 86 for a condition check and again at line 90 for data extraction. Each call parses the same JSON string via `JSON.parse`. This is a minor DRY violation and unnecessary double-parse.
+- **Fix:** Cache the result: `const dependentVrts = parseDependentVrts(error); if (dependentVrts) { /* use dependentVrts */ }`.
 - **Effort:** Low
 
 #### NEW-3: SourceQualityTab.tsx Size [KISS]
@@ -169,39 +209,47 @@ The dataset details page is well-structured after significant refactoring in v12
 
 | Metric | Value |
 |--------|-------|
-| Files audited | 39 |
-| Total findings | 13 |
-| HIGH severity | 4 |
-| MEDIUM severity | 5 |
-| LOW severity | 4 |
-| Dead code files | 0 |
-| DRY violations | 4 (F2-REVISED, F5, F8, NEW-5) |
-| KISS violations | 3 (F7, NEW-3, NEW-4) |
+| Files audited | 39+ |
+| Total findings | 18 |
+| HIGH severity | 7 (F1, F3, F6, F7, NEW-1, F12, NEW-2) |
+| MEDIUM severity | 6 (F2-REVISED, F5, F8, F9, F10-REVISED, F11) |
+| LOW severity | 5 (NEW-3, NEW-4, NEW-5, NEW-6, NEW-7, NEW-8, NEW-9) |
+| Dead code files | 3 (DatasetHealthStrip, AccessSharingTab, PublishButton) |
+| DRY violations | 5 (F2-REVISED, F3, F5, F8, F11, NEW-5) |
+| KISS violations | 4 (F6, F7, F9, NEW-3, NEW-4) |
 | I18N violations | 3 (NEW-1, F12, NEW-2) |
-| BEST-PRACTICE violations | 3 (NEW-7, NEW-8, NEW-9) |
+| BEST-PRACTICE violations | 4 (F1, NEW-7, NEW-8, NEW-9) |
 | TEST-HYGIENE issues | 1 (F10-REVISED) |
-| Estimated total cleanup effort | Low-Medium |
+| Estimated total cleanup effort | Medium |
 
 ## Recommended Refactoring Sequence
 
-1. **I18N sweep (NEW-1, F12, NEW-2)** -- Lowest effort, highest consistency impact. Add i18n keys to ConnectDropdown, AddToMapButton, UsedInMaps. These are standalone changes with no cross-file dependencies. Add locale entries to `en`, `de`, `fr`, `es` translation files.
+1. **Delete dead code (F1)** -- Remove DatasetHealthStrip, AccessSharingTab, PublishButton and their test files. Remove stale vi.mock references (F10). Zero risk, immediate reduction in maintenance burden.
 
-2. **Delete duplicate formatBytes (F5)** -- One-line import change in OverviewTab.tsx. Remove local function, import from `@/lib/format`. No risk.
+2. **I18N sweep (NEW-1, F12, NEW-2)** -- Low effort, high consistency impact. Add i18n keys to ConnectDropdown, AddToMapButton, UsedInMaps. Standalone changes with no cross-file dependencies. Add locale entries to `en`, `de`, `fr`, `es`.
 
-3. **Consolidate draft field types (F2-REVISED)** -- Create a shared `DraftableMetadataField` type. Update DatasetPage.tsx and SourceQualityTab.tsx imports. Low risk since these are type-only changes.
+3. **Delete duplicate formatBytes (F5)** -- One-line import change in OverviewTab.tsx. Remove local function, import from `@/lib/format`. No risk.
 
-4. **Record-type flags utility (F8)** -- Create `lib/record-type.ts` and update 3 consuming files. No behavior change.
+4. **Fix parseDependentVrts double-call (F11)** -- Cache result in a variable. One-line change.
 
-5. **Extract large-extent zoom helper (NEW-5)** -- Extract shared helper from DatasetMap.tsx. Pure function, easy to test.
+5. **Move Sep component outside render body (F9)** -- Move to module scope. No behavior change.
 
-6. **Fix SectionCapabilityHint reason passthrough (NEW-9)** -- One-line fix. Pass through the actual capability reason.
+6. **Consolidate draft field types (F2-REVISED)** -- Create shared `DraftableMetadataField` type. Type-only changes, low risk.
 
-7. **Fix SchemaEditor variable shadowing (NEW-7)** -- Rename iterator variable. Cosmetic.
+7. **Record-type flags utility (F8)** -- Create `lib/record-type.ts` and update 3 consuming files. No behavior change.
 
-8. **SourceQualityTab card extraction (NEW-3)** -- Extract SpatialExtentCard and TemporalExtentCard. Medium effort but improves testability.
+8. **Extract large-extent zoom helper (NEW-5)** -- Extract shared helper from DatasetMap.tsx. Pure function, easy to test.
 
-9. **DatasetMap.tsx refactoring (F7)** -- Extract `refreshTileSource` to utility, consider `useMapLayers` hook. Largest effort, save for a dedicated refactoring pass.
+9. **Fix SectionCapabilityHint reason passthrough (NEW-9)** -- One-line fix. Pass through actual capability reason.
 
-10. **Address stale test mock (F10-REVISED)** -- Evaluate whether the AccessSharingTab mock in edit-affordances test is intentional or stale.
+10. **Fix SchemaEditor variable shadowing (NEW-7)** -- Rename iterator variable. Cosmetic.
 
-Items 1-7 can each be done independently in under 30 minutes. Items 8-9 should be planned as a dedicated refactoring task. Item 10 requires test understanding before acting.
+11. **Consolidate detail panels (F3)** -- Create single `DetailPanel` component, remove 4 panel files. Medium effort, ~200 lines removed.
+
+12. **Extract DatasetPage hooks (F6)** -- Extract `useDraftEditing` and `useHeroState` hooks. Medium effort, reduces DatasetPage.tsx by ~50%.
+
+13. **SourceQualityTab card extraction (NEW-3)** -- Extract SpatialExtentCard and TemporalExtentCard. Medium effort.
+
+14. **DatasetMap.tsx refactoring (F7)** -- Extract `refreshTileSource` to utility, consider `useMapLayers` hook. Largest effort, save for a dedicated refactoring pass.
+
+Items 1-10 can each be done independently in under 30 minutes. Items 11-14 should be planned as dedicated refactoring tasks.

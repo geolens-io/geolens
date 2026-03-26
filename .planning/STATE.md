@@ -5,7 +5,7 @@ milestone_name: milestone
 status: unknown
 stopped_at: Completed quick-260325-lq4
 last_updated: "2026-03-25T19:53:31.168Z"
-last_activity: "2026-03-25 - Completed quick task 260325-l6p: Cleanup DRY map-sync, unify toggles, fix drift"
+last_activity: "2026-03-26 - Completed quick task 260325-sos: QA pass on dataset details page for KISS, DRY and best practices"
 progress:
   total_phases: 61
   completed_phases: 60
@@ -209,6 +209,7 @@ Plan: Not started
 | 260325-lq4 | Review /admin section for completeness, correctness and best practice UI/UX | 2026-03-25 | 02a32e58 | Verified | [260325-lq4-review-the-admin-section-for-completenes](./quick/260325-lq4-review-the-admin-section-for-completenes/) |
 | 260325-px8 | Review allowed extensions admin storage vs import page alignment | 2026-03-25 | ac7e5abd | Verified | [260325-px8-review-allowed-extensions-admin-storage-](./quick/260325-px8-review-allowed-extensions-admin-storage-/) |
 | 260325-qrg | Review map sharing/embed controls admin vs map creator alignment | 2026-03-25 | 647f6884 | Verified | [260325-qrg-review-map-sharing-embed-controls-admin-](./quick/260325-qrg-review-map-sharing-embed-controls-admin-/) |
+| 260325-sos | QA pass on dataset details page for KISS, DRY and best practices | 2026-03-26 | b231c1f7 | Gaps | [260325-sos-qa-pass-on-dataset-details-page-for-kiss](./quick/260325-sos-qa-pass-on-dataset-details-page-for-kiss/) |
 | 260325-rpv | Review admin appearance settings page — naming, basemap licensing, custom basemap flexibility, gaps, easy wins | 2026-03-25 | f0b8f0b3 | Verified | [260325-rpv-review-admin-appearance-settings-page-na](./quick/260325-rpv-review-admin-appearance-settings-page-na/) |
 
 ## Session Continuity
