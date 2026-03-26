@@ -8,6 +8,7 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
  *  These are read separately and applied to the outline line layer for polygons. */
 export const CUSTOM_PAINT_PROPS = new Set([
   '_outline-width', '_outline-color',
+  'outline-width', 'outline-color',
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
 ]);
@@ -206,90 +207,104 @@ export function syncLayersToMap(
       const hasExpressions = Object.values(rawPaint).some(Array.isArray);
 
       if (type === 'circle') {
-        const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-        const circlePaint = stripCustomProps(basePaint);
-        map.addLayer({
-          id: layerId,
-          type: 'circle',
-          source: sourceId,
-          'source-layer': sourceLayer,
-          paint: Object.keys(circlePaint).length ? circlePaint : {
-            'circle-radius': 5,
-            'circle-color': MAP_COLORS.default.fill,
-            'circle-stroke-color': MAP_COLORS.default.stroke,
-            'circle-stroke-width': 1,
-          },
-          layout: (layer.layout as Record<string, unknown>) ?? {},
-        });
-        finalizeLayer(map, layerId, rawPaint, 'circle', layer, hasExpressions);
+        try {
+          const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+          const circlePaint = stripCustomProps(basePaint);
+          map.addLayer({
+            id: layerId,
+            type: 'circle',
+            source: sourceId,
+            'source-layer': sourceLayer,
+            paint: Object.keys(circlePaint).length ? circlePaint : {
+              'circle-radius': 5,
+              'circle-color': MAP_COLORS.default.fill,
+              'circle-stroke-color': MAP_COLORS.default.stroke,
+              'circle-stroke-width': 1,
+            },
+            layout: (layer.layout as Record<string, unknown>) ?? {},
+          });
+          finalizeLayer(map, layerId, rawPaint, 'circle', layer, hasExpressions);
+        } catch (e) {
+          console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
+        }
       } else if (type === 'line') {
-        const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-        // line-dasharray is stored in layout JSON but is a MapLibre paint property
-        const storedLayout = (layer.layout as Record<string, unknown>) ?? {};
-        const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
-        const linePaint = stripCustomProps(basePaint);
-        if (Object.keys(linePaint).length === 0) {
-          linePaint['line-color'] = MAP_COLORS.default.fill;
-          linePaint['line-width'] = 2;
+        try {
+          const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+          // line-dasharray is stored in layout JSON but is a MapLibre paint property
+          const storedLayout = (layer.layout as Record<string, unknown>) ?? {};
+          const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
+          const linePaint = stripCustomProps(basePaint);
+          if (Object.keys(linePaint).length === 0) {
+            linePaint['line-color'] = MAP_COLORS.default.fill;
+            linePaint['line-width'] = 2;
+          }
+          if (dasharray) {
+            linePaint['line-dasharray'] = dasharray;
+          }
+          map.addLayer({
+            id: layerId,
+            type: 'line',
+            source: sourceId,
+            'source-layer': sourceLayer,
+            paint: linePaint,
+            layout: {
+              'line-cap': 'round',
+              'line-join': 'round',
+              ...restLayout,
+            },
+          });
+          finalizeLayer(map, layerId, rawPaint, 'line', layer, hasExpressions);
+        } catch (e) {
+          console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
         }
-        if (dasharray) {
-          linePaint['line-dasharray'] = dasharray;
-        }
-        map.addLayer({
-          id: layerId,
-          type: 'line',
-          source: sourceId,
-          'source-layer': sourceLayer,
-          paint: linePaint,
-          layout: {
-            'line-cap': 'round',
-            'line-join': 'round',
-            ...restLayout,
-          },
-        });
-        finalizeLayer(map, layerId, rawPaint, 'line', layer, hasExpressions);
       } else {
-        const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-        const fillPaint = stripCustomProps(basePaint);
-        const strokeDisabled = !!(layer.paint as Record<string, unknown>)?.['_stroke-disabled'];
-        const effectiveFillPaint = Object.keys(fillPaint).length ? { ...fillPaint } : {
-          'fill-color': MAP_COLORS.default.fill,
-          'fill-opacity': MAP_COLORS.default.fillOpacity,
-        };
-        // Suppress native 1px fill outline when stroke is disabled
-        if (strokeDisabled) {
-          effectiveFillPaint['fill-outline-color'] = 'transparent';
-        }
-        map.addLayer({
-          id: layerId,
-          type: 'fill',
-          source: sourceId,
-          'source-layer': sourceLayer,
-          paint: effectiveFillPaint,
-          layout: (layer.layout as Record<string, unknown>) ?? {},
-        });
-        finalizeLayer(map, layerId, rawPaint, 'fill', layer, hasExpressions);
-        // Custom paint properties: '_outline-color' and '_outline-width' are stored
-        // in the layer's paint JSON but are NOT standard MapLibre fill paint properties.
-        // They are read here and applied to a separate 'line' layer that acts as the
-        // polygon outline, because MapLibre's native fill-outline-color is fixed at 1px.
-        const outlineColor =
-          (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined;
-        const outlineWidth =
-          (layer.paint as Record<string, unknown>)?.['_outline-width'] as number | undefined;
-        map.addLayer({
-          id: outlineId,
-          type: 'line',
-          source: sourceId,
-          'source-layer': sourceLayer,
-          paint: {
-            'line-color': (typeof outlineColor === 'string' ? outlineColor : null) ?? MAP_COLORS.default.stroke,
-            'line-width': outlineWidth ?? 1,
-          },
-        });
-        map.setPaintProperty(outlineId, 'line-opacity', layer.opacity ?? 1);
-        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-          map.setFilter(outlineId, layer.filter);
+        try {
+          const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
+          const fillPaint = stripCustomProps(basePaint);
+          const strokeDisabled = !!(layer.paint as Record<string, unknown>)?.['_stroke-disabled'];
+          const effectiveFillPaint = Object.keys(fillPaint).length ? { ...fillPaint } : {
+            'fill-color': MAP_COLORS.default.fill,
+            'fill-opacity': MAP_COLORS.default.fillOpacity,
+          };
+          // Suppress native 1px fill outline when stroke is disabled
+          if (strokeDisabled) {
+            effectiveFillPaint['fill-outline-color'] = 'transparent';
+          }
+          map.addLayer({
+            id: layerId,
+            type: 'fill',
+            source: sourceId,
+            'source-layer': sourceLayer,
+            paint: effectiveFillPaint,
+            layout: (layer.layout as Record<string, unknown>) ?? {},
+          });
+          finalizeLayer(map, layerId, rawPaint, 'fill', layer, hasExpressions);
+          // Custom paint properties: '_outline-color' and '_outline-width' are stored
+          // in the layer's paint JSON but are NOT standard MapLibre fill paint properties.
+          // They are read here and applied to a separate 'line' layer that acts as the
+          // polygon outline, because MapLibre's native fill-outline-color is fixed at 1px.
+          const outlineColor =
+            (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined
+            ?? (layer.paint as Record<string, unknown>)?.['outline-color'] as string | undefined;
+          const outlineWidth =
+            (layer.paint as Record<string, unknown>)?.['_outline-width'] as number | undefined
+            ?? (layer.paint as Record<string, unknown>)?.['outline-width'] as number | undefined;
+          map.addLayer({
+            id: outlineId,
+            type: 'line',
+            source: sourceId,
+            'source-layer': sourceLayer,
+            paint: {
+              'line-color': (typeof outlineColor === 'string' ? outlineColor : null) ?? MAP_COLORS.default.stroke,
+              'line-width': outlineWidth ?? 1,
+            },
+          });
+          map.setPaintProperty(outlineId, 'line-opacity', layer.opacity ?? 1);
+          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+            map.setFilter(outlineId, layer.filter);
+          }
+        } catch (e) {
+          console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
         }
       }
 
