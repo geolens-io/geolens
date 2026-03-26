@@ -42,6 +42,7 @@ from app.maps.router import router as maps_router
 from app.features.router import features_router
 from app.runtime.staging import ensure_staging_ready
 from app.auth.oauth.router import router as oauth_router
+from app.auth.saml.router import router as saml_router
 from app.config_ops.router import router as config_ops_router
 from app.search.router import collections_router, search_router
 from app.embed_tokens.admin_router import router as embed_tokens_admin_router
@@ -379,6 +380,7 @@ app.include_router(services_router)
 app.include_router(layers_router)
 app.include_router(settings_router)
 app.include_router(oauth_router)
+app.include_router(saml_router)
 app.include_router(config_ops_router)
 app.include_router(embed_tokens_router)
 app.include_router(embed_tokens_admin_router)
