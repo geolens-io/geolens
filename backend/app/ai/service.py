@@ -115,7 +115,7 @@ After gathering datasets, output your map specification as JSON inside \
   "center_lng": -98.5,
   "center_lat": 39.8,
   "zoom": 4,
-  "basemap_style": "positron",
+  "basemap_style": "openfreemap-positron",
   "layers": [
     {{
       "dataset_id": "uuid-here",

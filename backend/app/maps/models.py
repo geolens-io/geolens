@@ -27,7 +27,7 @@ class Map(Base):
 
     # Basemap
     basemap_style: Mapped[str] = mapped_column(
-        Text, default="positron", server_default="positron"
+        Text, default="openfreemap-positron", server_default="openfreemap-positron"
     )
 
     # Visibility
