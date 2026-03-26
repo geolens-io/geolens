@@ -18,7 +18,7 @@ import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import type { SettingItem } from '@/api/settings';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
-const TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'appearance', 'permissions'] as const;
+const TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions'] as const;
 type TabKey = typeof TAB_KEYS[number];
 
 const TAB_LABELS: Record<TabKey, string> = {
@@ -27,7 +27,7 @@ const TAB_LABELS: Record<TabKey, string> = {
   ai: 'settings.tabs.ai',
   network: 'settings.tabs.network',
   storage: 'settings.tabs.storage',
-  appearance: 'settings.tabs.appearance',
+  map: 'settings.tabs.map',
   permissions: 'settings.tabs.permissions',
 };
 
@@ -44,7 +44,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   ai: SettingsAITab,
   network: SettingsNetworkTab,
   storage: SettingsStorageTab,
-  appearance: SettingsAppearanceTab,
+  map: SettingsAppearanceTab,
   permissions: SettingsPermissionsTab,
 };
 

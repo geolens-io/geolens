@@ -372,7 +372,7 @@
       "ai": "AI",
       "network": "Network",
       "storage": "Storage",
-      "appearance": "Appearance",
+      "map": "Map",
       "permissions": "Permissions"
     },
     "actions": {
@@ -442,11 +442,11 @@
       "presetsTitle": "Basemap Presets",
       "presetsDescription": "Enable or disable built-in basemap options.",
       "customTitle": "Custom Basemaps",
-      "customDescription": "Add custom XYZ/TMS tile sources.",
+      "customDescription": "Add custom XYZ/TMS tile URLs or MapLibre GL style JSON URLs.",
       "nameLabel": "Name",
       "tileUrlLabel": "Tile URL",
       "namePlaceholder": "My Custom Basemap",
-      "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png",
+      "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png or .json style URL",
       "urlError": "URL must contain {z}/{x}/{y} placeholders or end with .json",
       "removeBasemap": "Remove basemap",
       "add": "Add",

@@ -78,8 +78,9 @@ export const appRoutes = (
             {/* Redirects from old routes */}
             <Route path="admin/settings/infrastructure" element={<Navigate to="/admin/overview" replace />} />
             <Route path="admin/general" element={<Navigate to="/admin/settings/general" replace />} />
-            <Route path="admin/basemaps" element={<Navigate to="/admin/settings/appearance" replace />} />
-            <Route path="admin/map-defaults" element={<Navigate to="/admin/settings/appearance" replace />} />
+            <Route path="admin/basemaps" element={<Navigate to="/admin/settings/map" replace />} />
+            <Route path="admin/map-defaults" element={<Navigate to="/admin/settings/map" replace />} />
+            <Route path="admin/settings/appearance" element={<Navigate to="/admin/settings/map" replace />} />
             <Route path="admin/security" element={<Navigate to="/admin/settings/auth" replace />} />
             <Route path="admin/uploads" element={<Navigate to="/admin/settings/storage" replace />} />
             <Route path="admin/ai" element={<Navigate to="/admin/settings/ai" replace />} />
