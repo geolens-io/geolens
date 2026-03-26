@@ -94,7 +94,7 @@ export function SpatialFilterPanel({
 
   const basemapStyle = useMemo(() => {
     const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
-    if (themeBasemap) return toMaplibreStyle(themeBasemap.url);
+    if (themeBasemap) return toMaplibreStyle(themeBasemap.url, themeBasemap.attribution);
     return toMaplibreStyle(
       resolvedTheme === 'dark'
         ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
@@ -328,7 +328,6 @@ export function SpatialFilterPanel({
                   const { lng, lat } = e.target.getCenter();
                   savedViewport = { longitude: lng, latitude: lat, zoom: e.target.getZoom() };
                 }}
-                attributionControl={false}
               />
             </div>
 
