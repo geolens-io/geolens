@@ -536,7 +536,18 @@
       "providerTypes": {
         "google": "Google",
         "microsoft": "Microsoft",
-        "oidc": "OIDC genérico"
+        "oidc": "OIDC genérico",
+        "saml": "SAML"
+      },
+      "saml": {
+        "metadataXml": "IdP Metadata XML",
+        "metadataXmlPlaceholder": "Paste your Identity Provider's SAML metadata XML here",
+        "metadataXmlDescription": "Paste the metadata XML from your Identity Provider. The entity ID, SSO URL, and signing certificate will be extracted automatically.",
+        "spEntityId": "SP Entity ID",
+        "acsUrl": "Assertion Consumer Service URL",
+        "spFieldDescription": "Provide this value to your Identity Provider",
+        "invalidMetadata": "Invalid metadata XML. Ensure you paste the complete XML document from your Identity Provider.",
+        "copiedToClipboard": "Copied to clipboard"
       },
       "roles": {
         "viewer": "Lector",

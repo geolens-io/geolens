@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { ShieldCheck } from 'lucide-react';
 import { getOAuthProviders } from '@/api/auth';
 import { Button } from '@/components/ui/button';
 import { API_BASE } from '@/lib/constants';
@@ -37,6 +38,10 @@ function ProviderIcon({ providerType }: { providerType: string }) {
         <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
       </svg>
     );
+  }
+
+  if (providerType === 'saml') {
+    return <ShieldCheck className="size-4" aria-hidden="true" />;
   }
 
   // Generic OIDC icon
@@ -92,7 +97,10 @@ export function OAuthButtons() {
             variant="outline"
             className="w-full"
             onClick={() => {
-              window.location.href = `${API_BASE}/auth/oauth/${provider.slug}/login`;
+              const loginUrl = provider.provider_type === 'saml'
+                ? `${API_BASE}/auth/saml/${provider.slug}/login`
+                : `${API_BASE}/auth/oauth/${provider.slug}/login`;
+              window.location.href = loginUrl;
             }}
           >
             <ProviderIcon providerType={provider.provider_type} />
