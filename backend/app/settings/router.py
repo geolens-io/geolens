@@ -23,6 +23,7 @@ from app.persistent_config import (
     _is_env_only,
     _registry,
 )
+from app.edition import get_edition
 from app.public_urls import get_public_api_url, get_public_app_url
 from app.settings.models import AppSetting
 from app.config import settings as app_settings
@@ -348,6 +349,13 @@ async def delete_oauth_provider(
 # ---------------------------------------------------------------------------
 # Public endpoints (no auth required)
 # ---------------------------------------------------------------------------
+
+
+@router.get("/edition/")
+async def edition_info():
+    """Return current edition and available features. Public, no auth required."""
+    info = get_edition()
+    return {"edition": info.edition, "features": list(info.features)}
 
 
 @router.get("/basemaps/")

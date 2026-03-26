@@ -101,3 +101,48 @@ class TestEnterpriseGuard:
             require_enterprise()
 
         assert exc_info.value.status_code == 404
+
+    def test_enterprise_gate_no_detail_body(self):
+        """Enterprise gate 404 response must not leak edition/upgrade info."""
+        from app.edition import init_edition
+        from app.extensions.guards import require_enterprise
+
+        with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
+            init_edition([])
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_enterprise()
+
+        exc = exc_info.value
+        detail_str = str(exc.detail) if exc.detail else ""
+        for word in ("enterprise", "upgrade", "feature"):
+            assert word.lower() not in detail_str.lower(), (
+                f"Guard 404 detail must not contain '{word}'"
+            )
+
+
+class TestEditionEndpoint:
+    """Integration tests for GET /api/settings/edition/ endpoint."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        return TestClient(app)
+
+    def test_edition_endpoint_returns_community(self, client):
+        """GET /api/settings/edition/ returns 200 with edition and features."""
+        resp = client.get("/api/settings/edition/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "edition" in data
+        assert "features" in data
+        assert data["edition"] == "community"
+        assert isinstance(data["features"], list)
+
+    def test_edition_endpoint_no_auth_required(self, client):
+        """GET /api/settings/edition/ without Authorization header returns 200."""
+        resp = client.get("/api/settings/edition/")
+        assert resp.status_code == 200
+        assert "Authorization" not in resp.request.headers
