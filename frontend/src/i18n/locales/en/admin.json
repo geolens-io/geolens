@@ -221,6 +221,7 @@
     "status": "Status",
     "enabled": "Enabled",
     "disabled": "Disabled",
+    "sendSampleValuesDescription": "Include sample data values in LLM prompts for better AI results. Disable for privacy-sensitive datasets.",
     "semanticSearch": "Semantic Search",
     "semanticSearchDescription": "Enable vector-based similarity search alongside keyword search",
     "embeddingCoverage": "Embedding Coverage",
@@ -256,6 +257,7 @@
     "regenerateAll": "Regenerate All",
     "labels": {
       "aiEnabled": "AI Chat Enabled",
+      "sendSampleValues": "Send Sample Values to LLM",
       "llmProvider": "LLM Provider",
       "model": "Model",
       "openaiBaseUrl": "OpenAI-Compatible Base URL",

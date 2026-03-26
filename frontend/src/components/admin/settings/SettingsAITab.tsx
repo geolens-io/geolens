@@ -29,6 +29,7 @@ interface TabProps {
 
 const AI_FIELDS = [
   { key: 'ai_enabled', defaultValue: true },
+  { key: 'ai_send_sample_values', defaultValue: true },
   { key: 'llm_provider', defaultValue: 'anthropic' },
   { key: 'llm_model', defaultValue: '' },
   { key: 'openai_base_url', defaultValue: '' },
@@ -50,6 +51,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
 
   // Alias for readability in JSX
   const aiEnabled = values.ai_enabled as boolean;
+  const sendSampleValues = values.ai_send_sample_values as boolean;
   const llmProvider = values.llm_provider as string;
   const llmModel = values.llm_model as string;
   const openaiBaseUrl = values.openai_base_url as string;
@@ -122,6 +124,22 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             id="ai-toggle"
             checked={aiEnabled}
             onCheckedChange={setters.ai_enabled}
+            disabled={envOnly}
+          />
+        </div>
+
+        <div className="flex items-center justify-between max-w-md">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="sample-values-toggle">{findSetting(settings, 'ai_send_sample_values')?.label ?? t('ai.labels.sendSampleValues')}</Label>
+              <SettingSourceBadge source={findSetting(settings, 'ai_send_sample_values')?.source ?? 'default'} settingKey="ai_send_sample_values" onReset={onReset} />
+            </div>
+            <p className="text-sm text-muted-foreground">{t('ai.sendSampleValuesDescription')}</p>
+          </div>
+          <Switch
+            id="sample-values-toggle"
+            checked={sendSampleValues}
+            onCheckedChange={setters.ai_send_sample_values}
             disabled={envOnly}
           />
         </div>
