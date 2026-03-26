@@ -402,6 +402,9 @@
       "urlError": "L'URL doit contenir les variables {z}/{x}/{y} ou se terminer par .json",
       "removeBasemap": "Supprimer le fond de carte",
       "add": "Ajouter",
+      "attributionLabel": "Attribution",
+      "attributionPlaceholder": "\u00a9 Nom du fournisseur",
+      "attributionHelp": "Facultatif. HTML autorisé pour les liens.",
       "saved": "Fonds de carte enregistrés",
       "saveFailed": "Échec de l'enregistrement des fonds de carte"
     },

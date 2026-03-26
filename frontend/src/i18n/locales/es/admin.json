@@ -402,6 +402,9 @@
       "urlError": "La URL debe contener los marcadores {z}/{x}/{y} o terminar con .json",
       "removeBasemap": "Eliminar mapa base",
       "add": "Agregar",
+      "attributionLabel": "Atribución",
+      "attributionPlaceholder": "\u00a9 Nombre del proveedor",
+      "attributionHelp": "Opcional. Se permite HTML para enlaces.",
       "saved": "Mapas base guardados",
       "saveFailed": "Error al guardar los mapas base"
     },

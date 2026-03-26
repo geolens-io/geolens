@@ -402,6 +402,9 @@
       "urlError": "URL muss {z}/{x}/{y}-Platzhalter enthalten oder mit .json enden",
       "removeBasemap": "Basiskarte entfernen",
       "add": "Hinzufügen",
+      "attributionLabel": "Attribution",
+      "attributionPlaceholder": "\u00a9 Anbietername",
+      "attributionHelp": "Optional. HTML für Links erlaubt.",
       "saved": "Basiskarten gespeichert",
       "saveFailed": "Basiskarten konnten nicht gespeichert werden"
     },
