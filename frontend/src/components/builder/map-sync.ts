@@ -346,8 +346,8 @@ export function syncLayersToMap(
         } catch { /* fill-outline-color may not be supported on all styles */ }
       }
       if (map.getLayer(outId)) {
-        const outlineColor = rawPaint['_outline-color'];
-        const outlineWidth = rawPaint['_outline-width'];
+        const outlineColor = rawPaint['_outline-color'] ?? rawPaint['outline-color'];
+        const outlineWidth = rawPaint['_outline-width'] ?? rawPaint['outline-width'];
         if (typeof outlineColor === 'string') {
           try {
             const cur = map.getPaintProperty(outId, 'line-color');

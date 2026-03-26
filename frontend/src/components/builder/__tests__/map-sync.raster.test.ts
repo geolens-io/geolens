@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { syncLayersToMap } from '@/components/builder/map-sync';
+import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
 import type { MapLayerResponse } from '@/types/api';
 import type { TileToken, RasterTileToken, VectorTileToken } from '@/api/tiles';
 
@@ -81,6 +81,70 @@ function makeVectorToken(overrides: Partial<VectorTileToken> = {}): VectorTileTo
     ...overrides,
   };
 }
+
+describe('CUSTOM_PAINT_PROPS', () => {
+  it('contains both prefixed and non-prefixed outline props', () => {
+    expect(CUSTOM_PAINT_PROPS.has('_outline-width')).toBe(true);
+    expect(CUSTOM_PAINT_PROPS.has('_outline-color')).toBe(true);
+    expect(CUSTOM_PAINT_PROPS.has('outline-width')).toBe(true);
+    expect(CUSTOM_PAINT_PROPS.has('outline-color')).toBe(true);
+  });
+});
+
+describe('stripCustomProps', () => {
+  it('strips prefixed custom props', () => {
+    const paint = {
+      'fill-color': '#ff0000',
+      '_outline-width': 2,
+      '_outline-color': '#000',
+      '_fill-disabled': true,
+    };
+    const result = stripCustomProps(paint);
+    expect(result).toEqual({ 'fill-color': '#ff0000' });
+  });
+
+  it('strips non-prefixed outline props (legacy data)', () => {
+    const paint = {
+      'fill-color': '#ff0000',
+      'fill-opacity': 0.5,
+      'outline-width': 2,
+      'outline-color': '#000',
+    };
+    const result = stripCustomProps(paint);
+    expect(result).toEqual({ 'fill-color': '#ff0000', 'fill-opacity': 0.5 });
+  });
+
+  it('strips both prefixed and non-prefixed when both present', () => {
+    const paint = {
+      'line-color': '#00f',
+      '_outline-width': 3,
+      'outline-width': 2,
+      '_outline-color': '#111',
+      'outline-color': '#222',
+    };
+    const result = stripCustomProps(paint);
+    expect(result).toEqual({ 'line-color': '#00f' });
+  });
+
+  it('returns empty object when all props are custom', () => {
+    const paint = {
+      '_outline-width': 1,
+      'outline-color': '#000',
+      '_fill-disabled': false,
+    };
+    expect(stripCustomProps(paint)).toEqual({});
+  });
+
+  it('passes through standard MapLibre paint props untouched', () => {
+    const paint = {
+      'circle-radius': 5,
+      'circle-color': '#f00',
+      'circle-stroke-width': 1,
+    };
+    const result = stripCustomProps(paint);
+    expect(result).toEqual(paint);
+  });
+});
 
 describe('syncLayersToMap', () => {
   let map: ReturnType<typeof createMockMap>;
@@ -289,5 +353,58 @@ describe('syncLayersToMap', () => {
 
     // Label layer filter should be synced
     expect(map.setFilter).toHaveBeenCalledWith('layer-lf1-label', ['==', 'type', 'park']);
+  });
+
+  it('addLayer failure does not throw or prevent subsequent layers', () => {
+    (map.addLayer as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('unknown property "outline-width"');
+    });
+    const layer = makeLayer({
+      id: 'fail1',
+      dataset_geometry_type: 'Polygon',
+      paint: { 'outline-width': 2 },
+    });
+    const layer2 = makeLayer({
+      id: 'ok1',
+      dataset_geometry_type: 'Point',
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Should not throw
+    expect(() => {
+      syncLayersToMap(map, [layer, layer2], tokenMap, undefined, managedSourcesRef);
+    }).not.toThrow();
+
+    // Both layers attempted
+    expect(map.addSource).toHaveBeenCalledTimes(2);
+    warnSpy.mockRestore();
+  });
+
+  it('polygon layer with non-prefixed outline-width strips it from fill paint', () => {
+    const layer = makeLayer({
+      id: 'legacy1',
+      dataset_geometry_type: 'Polygon',
+      paint: {
+        'fill-color': '#ff0000',
+        'outline-width': 3,
+        'outline-color': '#000000',
+      },
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+
+    const addLayerCalls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    // Fill layer paint should NOT contain outline-width or outline-color
+    const fillPaint = addLayerCalls[0][0].paint;
+    expect(fillPaint).not.toHaveProperty('outline-width');
+    expect(fillPaint).not.toHaveProperty('outline-color');
+    expect(fillPaint).toHaveProperty('fill-color', '#ff0000');
+
+    // Outline layer should pick up the non-prefixed values as line-color/line-width
+    const outlinePaint = addLayerCalls[1][0].paint;
+    expect(outlinePaint['line-color']).toBe('#000000');
+    expect(outlinePaint['line-width']).toBe(3);
   });
 });
