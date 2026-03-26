@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Plus } from 'lucide-react';
+import { Pencil, Trash2, Plus, Copy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useEdition } from '@/hooks/use-edition';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
@@ -61,6 +62,7 @@ function useProviderTypeLabels(): Record<string, string> {
     google: t('settings.oauth.providerTypes.google'),
     microsoft: t('settings.oauth.providerTypes.microsoft'),
     oidc: t('settings.oauth.providerTypes.oidc'),
+    saml: t('settings.oauth.providerTypes.saml'),
   };
 }
 
@@ -79,7 +81,7 @@ function slugify(name: string): string {
 }
 
 interface ProviderFormData {
-  provider_type: 'google' | 'microsoft' | 'oidc';
+  provider_type: 'google' | 'microsoft' | 'oidc' | 'saml';
   display_name: string;
   slug: string;
   client_id: string;
@@ -91,6 +93,7 @@ interface ProviderFormData {
   group_role_mapping: string; // JSON string for editing
   enabled: boolean;
   microsoft_tenant_id: string; // UI-only field
+  metadata_xml: string;
 }
 
 const EMPTY_FORM: ProviderFormData = {
@@ -106,6 +109,7 @@ const EMPTY_FORM: ProviderFormData = {
   group_role_mapping: '',
   enabled: true,
   microsoft_tenant_id: '',
+  metadata_xml: '',
 };
 
 // --- OAuth Provider Management Section ---
@@ -113,6 +117,7 @@ const EMPTY_FORM: ProviderFormData = {
 function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const { t } = useTranslation('admin');
   const PROVIDER_TYPE_LABELS = useProviderTypeLabels();
+  const { isEnterprise } = useEdition();
   const queryClient = useQueryClient();
 
   const { data: providers = [], isLoading } = useQuery({
@@ -188,21 +193,37 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         : '',
       enabled: provider.enabled,
       microsoft_tenant_id: tenantId,
+      metadata_xml: '', // write-only; not returned from backend
     });
     setDialogOpen(true);
   }
 
   function handleProviderTypeChange(type: string) {
     const providerType = type as ProviderFormData['provider_type'];
-    const displayName = PROVIDER_TYPE_LABELS[providerType] ?? providerType;
-    const discoveryUrl = getDefaultDiscoveryUrl(providerType, form.microsoft_tenant_id) ?? '';
-    setForm((prev) => ({
-      ...prev,
-      provider_type: providerType,
-      display_name: displayName,
-      slug: slugify(displayName),
-      discovery_url: discoveryUrl,
-    }));
+    if (providerType === 'saml') {
+      setForm((prev) => ({
+        ...prev,
+        provider_type: providerType,
+        display_name: 'SAML SSO',
+        slug: 'saml-sso',
+        client_id: '',
+        client_secret: '',
+        discovery_url: '',
+        scopes: '',
+        metadata_xml: '',
+      }));
+    } else {
+      const displayName = PROVIDER_TYPE_LABELS[providerType] ?? providerType;
+      const discoveryUrl = getDefaultDiscoveryUrl(providerType, form.microsoft_tenant_id) ?? '';
+      setForm((prev) => ({
+        ...prev,
+        provider_type: providerType,
+        display_name: displayName,
+        slug: slugify(displayName),
+        discovery_url: discoveryUrl,
+        metadata_xml: '',
+      }));
+    }
   }
 
   function handleTenantIdChange(tenantId: string) {
@@ -227,12 +248,13 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       }
     }
 
+    const isSaml = form.provider_type === 'saml';
+
     if (editingProvider) {
       const data: OAuthProviderUpdateData = {
         slug: form.slug,
         display_name: form.display_name,
         provider_type: form.provider_type,
-        client_id: form.client_id,
         discovery_url: form.discovery_url || null,
         scopes: form.scopes,
         default_role: form.default_role,
@@ -240,16 +262,22 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         group_role_mapping: groupMapping,
         enabled: form.enabled,
       };
+      if (!isSaml) {
+        data.client_id = form.client_id;
+      }
       // Only include client_secret if user entered a new one
       if (form.client_secret) {
         data.client_secret = form.client_secret;
+      }
+      if (isSaml && form.metadata_xml) {
+        data.metadata_xml = form.metadata_xml;
       }
       updateMutation.mutate(
         { id: editingProvider.id, data },
         { onSuccess: () => setDialogOpen(false) },
       );
     } else {
-      if (!form.client_secret) {
+      if (!isSaml && !form.client_secret) {
         toast.error(t('settings.oauth.secretRequired'));
         return;
       }
@@ -257,15 +285,19 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         slug: form.slug,
         display_name: form.display_name,
         provider_type: form.provider_type,
-        client_id: form.client_id,
-        client_secret: form.client_secret,
-        discovery_url: form.discovery_url || null,
-        scopes: form.scopes,
         default_role: form.default_role,
         group_claim: form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
       };
+      if (isSaml) {
+        data.metadata_xml = form.metadata_xml;
+      } else {
+        data.client_id = form.client_id;
+        data.client_secret = form.client_secret;
+        data.discovery_url = form.discovery_url || null;
+        data.scopes = form.scopes;
+      }
       createMutation.mutate(data, { onSuccess: () => setDialogOpen(false) });
     }
   }
@@ -378,6 +410,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   <SelectItem value="google">{t('settings.oauth.providerTypes.google')}</SelectItem>
                   <SelectItem value="microsoft">{t('settings.oauth.providerTypes.microsoft')}</SelectItem>
                   <SelectItem value="oidc">{t('settings.oauth.providerTypes.oidc')}</SelectItem>
+                  {isEnterprise && (
+                    <SelectItem value="saml">{t('settings.oauth.providerTypes.saml')}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -428,55 +463,104 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="client-id">{t('settings.oauth.clientId')}</Label>
-              <Input
-                id="client-id"
-                value={form.client_id}
-                onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
-                disabled={envOnly}
-              />
-            </div>
+            {form.provider_type !== 'saml' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="client-id">{t('settings.oauth.clientId')}</Label>
+                  <Input
+                    id="client-id"
+                    value={form.client_id}
+                    onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
+                    disabled={envOnly}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="client-secret">
-                {t('settings.oauth.clientSecret')}
-                {editingProvider && (
-                  <span className="ml-1 text-xs text-muted-foreground font-normal">
-                    ({t('settings.oauth.clientSecretKeep')})
-                  </span>
+                <div className="space-y-2">
+                  <Label htmlFor="client-secret">
+                    {t('settings.oauth.clientSecret')}
+                    {editingProvider && (
+                      <span className="ml-1 text-xs text-muted-foreground font-normal">
+                        ({t('settings.oauth.clientSecretKeep')})
+                      </span>
+                    )}
+                  </Label>
+                  <Input
+                    id="client-secret"
+                    type="password"
+                    value={form.client_secret}
+                    onChange={(e) => setForm((prev) => ({ ...prev, client_secret: e.target.value }))}
+                    placeholder={editingProvider ? '********' : ''}
+                    disabled={envOnly}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="discovery-url">{t('settings.oauth.discoveryUrl')}</Label>
+                  <Input
+                    id="discovery-url"
+                    value={form.discovery_url}
+                    onChange={(e) => setForm((prev) => ({ ...prev, discovery_url: e.target.value }))}
+                    placeholder="https://.../.well-known/openid-configuration"
+                    disabled={envOnly}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="scopes">{t('settings.oauth.scopes')}</Label>
+                  <Input
+                    id="scopes"
+                    value={form.scopes}
+                    onChange={(e) => setForm((prev) => ({ ...prev, scopes: e.target.value }))}
+                    disabled={envOnly}
+                  />
+                </div>
+              </>
+            )}
+
+            {form.provider_type === 'saml' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="metadata-xml">{t('settings.oauth.saml.metadataXml')}</Label>
+                  <textarea
+                    id="metadata-xml"
+                    className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                    value={form.metadata_xml}
+                    onChange={(e) => setForm((prev) => ({ ...prev, metadata_xml: e.target.value }))}
+                    placeholder={t('settings.oauth.saml.metadataXmlPlaceholder')}
+                    disabled={envOnly}
+                    aria-label={t('settings.oauth.saml.metadataXml')}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.oauth.saml.metadataXmlDescription')}
+                  </p>
+                </div>
+
+                {editingProvider?.provider_type === 'saml' && editingProvider.sp_entity_id && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="sp-entity-id">{t('settings.oauth.saml.spEntityId')}</Label>
+                      <div className="flex gap-2">
+                        <Input id="sp-entity-id" value={editingProvider.sp_entity_id} readOnly disabled aria-readonly="true" className="flex-1" />
+                        <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(editingProvider.sp_entity_id!); toast.success(t('settings.oauth.saml.copiedToClipboard')); }} aria-label="Copy SP Entity ID">
+                          <Copy className="size-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t('settings.oauth.saml.spFieldDescription')}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="acs-url">{t('settings.oauth.saml.acsUrl')}</Label>
+                      <div className="flex gap-2">
+                        <Input id="acs-url" value={`${window.location.origin}/api/auth/saml/${editingProvider.slug}/acs`} readOnly disabled aria-readonly="true" className="flex-1" />
+                        <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/auth/saml/${editingProvider.slug}/acs`); toast.success(t('settings.oauth.saml.copiedToClipboard')); }} aria-label="Copy ACS URL">
+                          <Copy className="size-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t('settings.oauth.saml.spFieldDescription')}</p>
+                    </div>
+                  </>
                 )}
-              </Label>
-              <Input
-                id="client-secret"
-                type="password"
-                value={form.client_secret}
-                onChange={(e) => setForm((prev) => ({ ...prev, client_secret: e.target.value }))}
-                placeholder={editingProvider ? '********' : ''}
-                disabled={envOnly}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="discovery-url">{t('settings.oauth.discoveryUrl')}</Label>
-              <Input
-                id="discovery-url"
-                value={form.discovery_url}
-                onChange={(e) => setForm((prev) => ({ ...prev, discovery_url: e.target.value }))}
-                placeholder="https://.../.well-known/openid-configuration"
-                disabled={envOnly}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="scopes">{t('settings.oauth.scopes')}</Label>
-              <Input
-                id="scopes"
-                value={form.scopes}
-                onChange={(e) => setForm((prev) => ({ ...prev, scopes: e.target.value }))}
-                disabled={envOnly}
-              />
-            </div>
+              </>
+            )}
 
             <div className="space-y-2">
               <Label>{t('settings.oauth.defaultRole')}</Label>
@@ -544,7 +628,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={envOnly || isMutating || !form.client_id || !form.slug}
+              disabled={envOnly || isMutating || !form.slug || (form.provider_type === 'saml' ? (!editingProvider && !form.metadata_xml) : !form.client_id)}
             >
               {editingProvider ? t('settings.oauth.saveChanges') : t('settings.oauth.createProvider')}
             </Button>
