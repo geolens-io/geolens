@@ -50,7 +50,7 @@ Exceptions: none — this phase adds a single control to an existing layout
 | Body | 14px (text-sm) | 400 | 1.5 |
 | Label | 12px (text-xs) | 500 | 1.5 |
 | Heading | 14px (text-sm) | 500 | 1.4 |
-| Display | 20px (text-xl) | 600 | 1.2 |
+| Display | 20px (text-xl) | 500 | 1.2 |
 
 Source: Existing AuditLogViewer uses text-sm for CardTitle (font-medium), text-xs for labels. No new type scale needed.
 

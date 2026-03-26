@@ -95,8 +95,8 @@ Plans:
   4. Export button is visible in the admin audit log view with format selection
 **Plans**: 2 plans
 Plans:
-- [x] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
-- [ ] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
+- [ ] 208-01-PLAN.md — Backend streaming CSV/JSON export endpoints with enterprise gating and tests
+- [ ] 208-02-PLAN.md — Frontend split button UI, blob download, i18n
 **UI hint**: yes
 
 ### Phase 209: SAML SSO
@@ -109,10 +109,7 @@ Plans:
   3. SAML assertions with invalid signatures, expired timestamps, wrong audience, or replayed assertion IDs are rejected with appropriate error messages
   4. A user authenticating via SAML for the first time is auto-provisioned or linked to an existing account via the same flow used for OIDC
   5. SAML provider buttons appear on the login page alongside existing OIDC providers when a SAML IdP is configured and enabled
-**Plans**: 2 plans
-Plans:
-- [ ] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
-- [ ] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
+**Plans**: [to be planned]
 **UI hint**: yes
 
 ### Phase 210: Enterprise Overlay Repo
@@ -124,10 +121,7 @@ Plans:
   2. Running `docker compose -f docker-compose.yml -f docker-compose.enterprise.yml up` starts the application with enterprise features active
   3. Enterprise Alembic migrations run on a separate branch label and do not appear in core-only deployments
   4. At least one enterprise feature (branding toggle or SAML) is implemented in the enterprise repo and functions when the package is installed
-**Plans**: 2 plans
-Plans:
-- [ ] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
-- [ ] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
+**Plans**: [to be planned]
 
 ### Phase 211: Licensing & Public Documentation
 **Goal**: The repository is ready for public consumption with proper licensing, clear documentation, and a working quickstart
@@ -138,10 +132,7 @@ Plans:
   2. README.md describes the product for a first-time visitor: features, screenshots, and a 3-command quickstart (clone, docker compose up, open browser)
   3. A new user can go from `git clone` to a working deployment in under 10 minutes following the quickstart documentation
   4. CONTRIBUTING.md exists with development setup instructions, PR guidelines, and code style notes
-**Plans**: 2 plans
-Plans:
-- [ ] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
-- [ ] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
+**Plans**: [to be planned]
 
 ---
 
