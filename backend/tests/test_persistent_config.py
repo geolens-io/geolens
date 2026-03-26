@@ -425,7 +425,7 @@ async def test_basemaps_api_key_interpolation(
     assert maptiler is not None
     assert "test_key_123" in maptiler["url"]
     assert "{api_key}" not in maptiler["url"]
-    assert maptiler["api_key"] is None  # Key stripped from response
+    assert "api_key" not in maptiler  # Key excluded from public response
 
 
 @pytest.mark.anyio
@@ -471,7 +471,7 @@ async def test_basemaps_api_key_unresolved_filtered(
 async def test_basemaps_api_key_never_leaked(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """api_key is always null in public basemaps response, even for non-placeholder basemaps."""
+    """api_key is never present in public basemaps response."""
     basemaps = [
         {
             "id": "custom-no-placeholder",
@@ -494,7 +494,7 @@ async def test_basemaps_api_key_never_leaked(
     data = resp.json()
 
     for entry in data:
-        assert entry.get("api_key") is None, f"api_key leaked for {entry['id']}"
+        assert "api_key" not in entry, f"api_key leaked for {entry['id']}"
 
 
 @pytest.mark.anyio

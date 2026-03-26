@@ -114,29 +114,47 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
 
         <div className="space-y-3">
           {customs.map((basemap) => (
-            <div key={basemap.id} className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">{basemap.label}</p>
-                <p className="text-xs text-muted-foreground truncate">{basemap.url}</p>
-                {basemap.api_key && <p className="text-xs text-muted-foreground">API key: ••••••••</p>}
+            <div key={basemap.id} className="space-y-2 border rounded-md p-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{basemap.label}</p>
+                  <p className="text-xs text-muted-foreground truncate">{basemap.url}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={basemap.enabled}
+                    onCheckedChange={(checked) => handleToggle(basemap.id, checked)}
+                    disabled={envOnly}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDelete(basemap.id)}
+                    disabled={envOnly}
+                    className="h-7 w-7"
+                    aria-label={t('settings.basemaps.removeBasemap')}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={basemap.enabled}
-                  onCheckedChange={(checked) => handleToggle(basemap.id, checked)}
-                  disabled={envOnly}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDelete(basemap.id)}
-                  disabled={envOnly}
-                  className="h-7 w-7"
-                  aria-label={t('settings.basemaps.removeBasemap')}
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-              </div>
+              {basemap.url.includes('{api_key}') && !envOnly && (
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs shrink-0">{t('settings.basemaps.apiKeyLabel', 'API Key')}</Label>
+                  <Input
+                    type="password"
+                    className="h-7 text-xs max-w-xs"
+                    placeholder={basemap.api_key ? '••••••••' : t('settings.basemaps.apiKeyPlaceholder', 'Enter API key')}
+                    defaultValue={basemap.api_key ?? ''}
+                    onBlur={(e) => {
+                      const val = e.target.value.trim();
+                      if (val !== (basemap.api_key ?? '')) {
+                        setters.basemaps(basemaps.map((b) => b.id === basemap.id ? { ...b, api_key: val || undefined } : b));
+                      }
+                    }}
+                  />
+                </div>
+              )}
             </div>
           ))}
 

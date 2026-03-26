@@ -29,6 +29,7 @@ from app.config import settings as app_settings
 from app.settings.schemas import (
     ApiKeyStatusResponse,
     BasemapEntry,
+    BasemapPublicResponse,
     ConfigModeResponse,
     DetectEmbeddingDimsResponse,
     MapDefaultsResponse,
@@ -352,26 +353,23 @@ async def delete_oauth_provider(
 @router.get("/basemaps/")
 async def get_basemaps(
     db: AsyncSession = Depends(get_db),
-) -> list[BasemapEntry]:
+) -> list[BasemapPublicResponse]:
     """Return the configured basemap list (public, no auth required).
 
     Basemaps with ``{api_key}`` in the URL are filtered out when no key is
-    configured.  When a key IS set the placeholder is resolved server-side
-    and the ``api_key`` value is stripped from the response so it is never
-    leaked to non-admin callers.
+    configured.  When a key IS set the placeholder is resolved server-side.
+    The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
     """
     stored = await BASEMAPS.get(db)
-    result: list[BasemapEntry] = []
+    result: list[BasemapPublicResponse] = []
     for entry in stored:
         url = entry.get("url", "")
         key_value = entry.get("api_key")
         if "{api_key}" in url:
             if not key_value:
                 continue
-            entry = {**entry, "url": url.replace("{api_key}", key_value), "api_key": None}
-        else:
-            entry = {**entry, "api_key": None}
-        result.append(BasemapEntry(**entry))
+            entry = {**entry, "url": url.replace("{api_key}", key_value)}
+        result.append(BasemapPublicResponse(**entry))
     return result
 
 

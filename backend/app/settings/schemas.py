@@ -3,7 +3,7 @@
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class BasemapEntry(BaseModel):
@@ -13,7 +13,7 @@ class BasemapEntry(BaseModel):
     enabled: bool = True
     is_preset: bool = False
     attribution: str | None = None
-    api_key: str | None = None
+    api_key: str | None = Field(default=None, max_length=500)
 
     @field_validator("url")
     @classmethod
@@ -32,6 +32,17 @@ class BasemapEntry(BaseModel):
         raise ValueError(
             "Tile URL must end with .json (style), contain /styles/, or contain {z}, {x}, {y} placeholders"
         )
+
+
+class BasemapPublicResponse(BaseModel):
+    """Public basemap response — excludes api_key."""
+
+    id: str
+    label: str
+    url: str
+    enabled: bool
+    is_preset: bool
+    attribution: str | None = None
 
 
 class BasemapsUpdate(BaseModel):
