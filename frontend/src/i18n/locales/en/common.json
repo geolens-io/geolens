@@ -285,7 +285,8 @@
     }
   },
   "footer": {
-    "poweredBy": "Powered by GeoLens"
+    "poweredBy": "Powered by GeoLens",
+    "community": "Community"
   },
   "notFound": {
     "title": "Page not found",

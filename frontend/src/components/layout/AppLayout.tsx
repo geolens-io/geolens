@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Navbar } from './Navbar';
 
 const GEOLENS_GITHUB_URL = 'https://github.com/geolens-io/geolens';
+const GEOLENS_DISCUSSIONS_URL = 'https://github.com/geolens-io/geolens/discussions';
 
 export function AppLayout() {
   const { t } = useTranslation();
@@ -24,6 +25,15 @@ export function AppLayout() {
             className="hover:text-foreground transition-colors"
           >
             {t('footer.poweredBy')}
+          </a>
+          <span className="mx-1.5">·</span>
+          <a
+            href={GEOLENS_DISCUSSIONS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground transition-colors"
+          >
+            {t('footer.community')}
           </a>
         </footer>
       )}
