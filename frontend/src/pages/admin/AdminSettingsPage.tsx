@@ -11,7 +11,7 @@ import { SettingsAuthTab } from '@/components/admin/settings/SettingsAuthTab';
 import { SettingsAITab } from '@/components/admin/settings/SettingsAITab';
 import { SettingsNetworkTab } from '@/components/admin/settings/SettingsNetworkTab';
 import { SettingsStorageTab } from '@/components/admin/settings/SettingsStorageTab';
-import { SettingsAppearanceTab } from '@/components/admin/settings/SettingsAppearanceTab';
+import { SettingsMapTab } from '@/components/admin/settings/SettingsMapTab';
 import { SettingsPermissionsTab } from '@/components/admin/settings/SettingsPermissionsTab';
 import { useAllSettings, useConfigMode, useUpdateSettings, useResetSettings } from '@/hooks/use-settings';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
@@ -44,7 +44,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
   ai: SettingsAITab,
   network: SettingsNetworkTab,
   storage: SettingsStorageTab,
-  map: SettingsAppearanceTab,
+  map: SettingsMapTab,
   permissions: SettingsPermissionsTab,
 };
 

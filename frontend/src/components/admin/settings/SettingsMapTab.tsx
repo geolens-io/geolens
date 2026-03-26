@@ -31,14 +31,14 @@ function isValidTileUrl(url: string): boolean {
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
 }
 
-const APPEARANCE_FIELDS = [
+const MAP_FIELDS = [
   { key: 'basemaps', defaultValue: [] as BasemapEntry[], compare: 'json' as const },
   { key: 'map_defaults', defaultValue: { center_lat: 20, center_lng: 0, zoom: 2 } as MapDefaultsValue, compare: 'json' as const },
 ] as const;
 
-export function SettingsAppearanceTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
+export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
-  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, APPEARANCE_FIELDS);
+  const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, MAP_FIELDS);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newAttribution, setNewAttribution] = useState('');
