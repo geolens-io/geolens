@@ -107,7 +107,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   return (
     <div className="space-y-6">
       {/* --- Inference (LLM) Configuration --- */}
-      <div>
+      <div className="space-y-4">
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
           {t('ai.sectionInference')}
         </h3>
