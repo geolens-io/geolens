@@ -1,13 +1,15 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import type { BasemapEntry } from '@/api/settings';
 
-export const LIGHT_PRESET_ID = 'carto-positron';
-export const DARK_PRESET_ID = 'carto-dark-matter';
+export const LIGHT_PRESET_ID = 'openfreemap-positron';
+export const DARK_PRESET_ID = 'openfreemap-dark';
 
 const LEGACY_KEY_MAP: Record<string, string> = {
-  positron: 'carto-positron',
-  'dark-matter': 'carto-dark-matter',
-  voyager: 'carto-positron',
+  positron: 'openfreemap-positron',
+  'dark-matter': 'openfreemap-dark',
+  voyager: 'openfreemap-positron',
+  'carto-positron': 'openfreemap-positron',
+  'carto-dark-matter': 'openfreemap-dark',
 };
 
 /**
