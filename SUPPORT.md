@@ -6,7 +6,7 @@ For questions, how-to help, and general discussions, use [GitHub Discussions](ht
 
 - **Q&A** — Ask questions and get help from the community in the [Q&A category](https://github.com/geolens-io/geolens/discussions/categories/q-a)
 - **Ideas** — Suggest features or discuss enhancements in the [Ideas category](https://github.com/geolens-io/geolens/discussions/categories/ideas)
-- **Show & Tell** — Share what you've built with GeoLens
+- **Show & Tell** — Share what you've built with GeoLens in the [Show & Tell category](https://github.com/geolens-io/geolens/discussions/categories/show-and-tell)
 
 Please search existing discussions before creating a new one.
 
