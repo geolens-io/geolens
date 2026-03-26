@@ -24,7 +24,7 @@ export function BboxMapPicker({ onBboxSelected }: BboxMapPickerProps) {
 
   const basemapStyle = useMemo(() => {
     const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
-    if (themeBasemap) return toMaplibreStyle(themeBasemap.url);
+    if (themeBasemap) return toMaplibreStyle(themeBasemap.url, themeBasemap.attribution);
     return toMaplibreStyle(
       resolvedTheme === 'dark'
         ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
@@ -93,7 +93,6 @@ export function BboxMapPicker({ onBboxSelected }: BboxMapPickerProps) {
           style={{ width: '100%', height: 250 }}
           mapStyle={basemapStyle as string}
           onLoad={handleMapLoad}
-          attributionControl={false}
         />
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">
