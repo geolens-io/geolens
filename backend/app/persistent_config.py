@@ -434,7 +434,7 @@ _DEFAULT_BASEMAPS = [
         "url": "https://tiles.openfreemap.org/styles/positron",
         "enabled": True,
         "is_preset": True,
-        "attribution": "&copy; <a href='https://carto.com/'>CARTO</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+        "attribution": "&copy; <a href='https://openfreemap.org'>OpenFreeMap</a>, &copy; <a href='https://openmaptiles.org/'>OpenMapTiles</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
     {
         "id": "openfreemap-dark",
@@ -442,7 +442,7 @@ _DEFAULT_BASEMAPS = [
         "url": "https://tiles.openfreemap.org/styles/dark",
         "enabled": True,
         "is_preset": True,
-        "attribution": "&copy; <a href='https://carto.com/'>CARTO</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+        "attribution": "&copy; <a href='https://openfreemap.org'>OpenFreeMap</a>, &copy; <a href='https://openmaptiles.org/'>OpenMapTiles</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
     {
         "id": "openstreetmap",

@@ -211,10 +211,12 @@ Plan: Not started
 | 260325-qrg | Review map sharing/embed controls admin vs map creator alignment | 2026-03-25 | 647f6884 | Verified | [260325-qrg-review-map-sharing-embed-controls-admin-](./quick/260325-qrg-review-map-sharing-embed-controls-admin-/) |
 | 260325-sos | QA pass on dataset details page for KISS, DRY and best practices | 2026-03-26 | b231c1f7 | Gaps | [260325-sos-qa-pass-on-dataset-details-page-for-kiss](./quick/260325-sos-qa-pass-on-dataset-details-page-for-kiss/) |
 | 260325-rpv | Review admin appearance settings page — naming, basemap licensing, custom basemap flexibility, gaps, easy wins | 2026-03-25 | f0b8f0b3 | Verified | [260325-rpv-review-admin-appearance-settings-page-na](./quick/260325-rpv-review-admin-appearance-settings-page-na/) |
+| 260326-8ea | Fix map console errors: outline-width paint prop, addLayer cascade, ViewerMap stripCustomProps, DB migration | 2026-03-26 | 181753d6 | Verified | [260326-8ea-use-playwright-mcp-to-inspect-and-resolv](./quick/260326-8ea-use-playwright-mcp-to-inspect-and-resolv/) |
+| 260326-a07 | Bundle default basemaps for public release with licensing review | 2026-03-26 | 6fd35752 | Verified | [260326-a07-bundle-default-basemaps-for-public-relea](./quick/260326-a07-bundle-default-basemaps-for-public-relea/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-25 - Completed quick task 260325-rpv: Review admin appearance settings — rename to Map, replace Stamen Terrain, add attribution
+Last activity: 2026-03-26 - Completed quick task 260326-a07: Bundle default basemaps for public release with licensing review
 Last session: 2026-03-25T19:53:26.470Z
 Stopped at: Completed quick-260325-lq4
 Resume file: None
