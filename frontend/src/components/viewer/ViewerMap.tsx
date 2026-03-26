@@ -12,7 +12,7 @@ import {
   DARK_PRESET_ID,
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
-import { getLayerType } from '@/components/builder/map-sync';
+import { getLayerType, stripCustomProps } from '@/components/builder/map-sync';
 import { getTileTokenWithApiKey } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
 import { getEnvConfig } from '@/lib/env';
@@ -289,96 +289,109 @@ export function ViewerMap({
         const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
 
         if (type === 'circle') {
-          map.addLayer({
-            id: layerId,
-            type: 'circle',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: (layer.paint as Record<string, unknown>) ?? {
-              'circle-radius': 5,
-              'circle-color': MAP_COLORS.default.fill,
-              'circle-stroke-color': MAP_COLORS.default.stroke,
-              'circle-stroke-width': 1,
-            },
-            layout: {
-              ...(layer.layout as Record<string, unknown>) ?? {},
-              visibility: vis,
-            },
-          });
-          if (layer.opacity !== undefined && layer.opacity < 1) {
-            map.setPaintProperty(layerId, 'circle-opacity', layer.opacity);
-          }
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-            map.setFilter(layerId, layer.filter);
+          try {
+            map.addLayer({
+              id: layerId,
+              type: 'circle',
+              source: sourceId,
+              'source-layer': sourceLayer,
+              paint: stripCustomProps((layer.paint as Record<string, unknown>) ?? {
+                'circle-radius': 5,
+                'circle-color': MAP_COLORS.default.fill,
+                'circle-stroke-color': MAP_COLORS.default.stroke,
+                'circle-stroke-width': 1,
+              }),
+              layout: {
+                ...(layer.layout as Record<string, unknown>) ?? {},
+                visibility: vis,
+              },
+            });
+            if (layer.opacity !== undefined && layer.opacity < 1) {
+              map.setPaintProperty(layerId, 'circle-opacity', layer.opacity);
+            }
+            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+              map.setFilter(layerId, layer.filter);
+            }
+          } catch (e) {
+            console.warn(`[ViewerMap] addLayer failed for ${layerId}:`, e);
           }
         } else if (type === 'line') {
-          map.addLayer({
-            id: layerId,
-            type: 'line',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: (layer.paint as Record<string, unknown>) ?? {
-              'line-color': MAP_COLORS.default.fill,
-              'line-width': 2,
-            },
-            layout: {
-              ...(layer.layout as Record<string, unknown>) ?? {},
-              visibility: vis,
-              'line-cap': 'round' as const,
-              'line-join': 'round' as const,
-            },
-          });
-          if (layer.opacity !== undefined && layer.opacity < 1) {
-            map.setPaintProperty(layerId, 'line-opacity', layer.opacity);
-          }
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-            map.setFilter(layerId, layer.filter);
+          try {
+            map.addLayer({
+              id: layerId,
+              type: 'line',
+              source: sourceId,
+              'source-layer': sourceLayer,
+              paint: stripCustomProps((layer.paint as Record<string, unknown>) ?? {
+                'line-color': MAP_COLORS.default.fill,
+                'line-width': 2,
+              }),
+              layout: {
+                ...(layer.layout as Record<string, unknown>) ?? {},
+                visibility: vis,
+                'line-cap': 'round' as const,
+                'line-join': 'round' as const,
+              },
+            });
+            if (layer.opacity !== undefined && layer.opacity < 1) {
+              map.setPaintProperty(layerId, 'line-opacity', layer.opacity);
+            }
+            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+              map.setFilter(layerId, layer.filter);
+            }
+          } catch (e) {
+            console.warn(`[ViewerMap] addLayer failed for ${layerId}:`, e);
           }
         } else {
-          map.addLayer({
-            id: layerId,
-            type: 'fill',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: (layer.paint as Record<string, unknown>) ?? {
-              'fill-color': MAP_COLORS.default.fill,
-              'fill-opacity': MAP_COLORS.default.fillOpacity,
-            },
-            layout: {
-              ...(layer.layout as Record<string, unknown>) ?? {},
-              visibility: vis,
-            },
-          });
-          if (layer.opacity !== undefined && layer.opacity < 1) {
-            const fillOpacity =
-              ((layer.paint as Record<string, unknown>)?.['fill-opacity'] as number) ?? 0.3;
-            map.setPaintProperty(layerId, 'fill-opacity', fillOpacity * layer.opacity);
-          }
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-            map.setFilter(layerId, layer.filter);
-          }
-          const outlineColor =
-            (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined;
-          const outlineWidth =
-            (layer.paint as Record<string, unknown>)?.['_outline-width'] as number | undefined;
-          map.addLayer({
-            id: outlineId,
-            type: 'line',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: {
-              'line-color': outlineColor ?? MAP_COLORS.default.stroke,
-              'line-width': outlineWidth ?? 1,
-            },
-            layout: {
-              visibility: vis,
-            },
-          });
-          if (layer.opacity !== undefined && layer.opacity < 1) {
-            map.setPaintProperty(outlineId, 'line-opacity', layer.opacity);
-          }
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-            map.setFilter(outlineId, layer.filter);
+          try {
+            map.addLayer({
+              id: layerId,
+              type: 'fill',
+              source: sourceId,
+              'source-layer': sourceLayer,
+              paint: stripCustomProps((layer.paint as Record<string, unknown>) ?? {
+                'fill-color': MAP_COLORS.default.fill,
+                'fill-opacity': MAP_COLORS.default.fillOpacity,
+              }),
+              layout: {
+                ...(layer.layout as Record<string, unknown>) ?? {},
+                visibility: vis,
+              },
+            });
+            if (layer.opacity !== undefined && layer.opacity < 1) {
+              const fillOpacity =
+                ((layer.paint as Record<string, unknown>)?.['fill-opacity'] as number) ?? 0.3;
+              map.setPaintProperty(layerId, 'fill-opacity', fillOpacity * layer.opacity);
+            }
+            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+              map.setFilter(layerId, layer.filter);
+            }
+            const paint = (layer.paint as Record<string, unknown>) ?? {};
+            const outlineColor =
+              (paint['_outline-color'] ?? paint['outline-color']) as string | undefined;
+            const outlineWidth =
+              (paint['_outline-width'] ?? paint['outline-width']) as number | undefined;
+            map.addLayer({
+              id: outlineId,
+              type: 'line',
+              source: sourceId,
+              'source-layer': sourceLayer,
+              paint: {
+                'line-color': outlineColor ?? MAP_COLORS.default.stroke,
+                'line-width': outlineWidth ?? 1,
+              },
+              layout: {
+                visibility: vis,
+              },
+            });
+            if (layer.opacity !== undefined && layer.opacity < 1) {
+              map.setPaintProperty(outlineId, 'line-opacity', layer.opacity);
+            }
+            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+              map.setFilter(outlineId, layer.filter);
+            }
+          } catch (e) {
+            console.warn(`[ViewerMap] addLayer failed for ${layerId}:`, e);
           }
         }
 
