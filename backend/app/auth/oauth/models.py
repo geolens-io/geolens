@@ -42,6 +42,12 @@ class OAuthProvider(Base):
     default_role: Mapped[str] = mapped_column(String(50), server_default="viewer")
     group_claim: Mapped[str | None] = mapped_column(String(100), nullable=True)
     group_role_mapping: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # SAML-specific columns (nullable -- only populated for provider_type='saml')
+    idp_entity_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    idp_sso_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    idp_certificate: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sp_entity_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
