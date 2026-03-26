@@ -215,10 +215,11 @@ Plan: Not started
 | 260326-a07 | Bundle default basemaps for public release with licensing review | 2026-03-26 | 6fd35752 | Verified | [260326-a07-bundle-default-basemaps-for-public-relea](./quick/260326-a07-bundle-default-basemaps-for-public-relea/) |
 | 260326-ce7 | API-key-gated basemap support for Mapbox and MapTiler | 2026-03-26 | pending | Verified | [260326-ce7-api-key-gated-basemap-support-for-mapbox](./quick/260326-ce7-api-key-gated-basemap-support-for-mapbox/) |
 | 260326-e7u | Review the feature flags - are they necessary? | 2026-03-26 | 564b079f | Verified | [260326-e7u-review-the-feature-flags-are-they-necess](./quick/260326-e7u-review-the-feature-flags-are-they-necess/) |
+| 260326-f71 | MVT rendering, DB querying & caching optimization review | 2026-03-26 | 67acf3de | Pending | [260326-f71-review-the-current-mvt-rendering-and-dat](./quick/260326-f71-review-the-current-mvt-rendering-and-dat/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-26 - Completed quick task 260326-e7u: Review the feature flags - are they necessary?
+Last activity: 2026-03-26 - Completed quick task 260326-f71: MVT rendering, DB querying & caching optimization review
 Last session: 2026-03-25T19:53:26.470Z
 Stopped at: Completed quick-260325-lq4
 Resume file: None

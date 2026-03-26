@@ -417,12 +417,15 @@ async def tile_endpoint(
     if tile_cache is not None:
         cached = await tile_cache.get(table_name, z, x, y)
         if cached is not None:
+            if len(cached) == 0:
+                # Empty sentinel — tile was previously confirmed empty
+                return Response(status_code=204)
             return Response(
                 content=cached,
                 media_type="application/vnd.mapbox-vector-tile",
                 headers={
                     "Content-Encoding": "gzip",
-                    "Cache-Control": "no-cache",
+                    "Cache-Control": f"{cache_scope}, max-age={cache_ttl}",
                     "Access-Control-Allow-Origin": "*",
                 },
             )
@@ -432,6 +435,9 @@ async def tile_endpoint(
     tile_data = await get_tile(pool, table_name, z, x, y, columns)
 
     if tile_data is None:
+        # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets
+        if tile_cache is not None:
+            await tile_cache.set(table_name, z, x, y, b"", ttl=cache_ttl)
         return Response(status_code=204)
 
     # Log successful tile access

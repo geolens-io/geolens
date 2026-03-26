@@ -2,19 +2,21 @@
 
 **Date:** 2026-03-26
 **Scope:** Vector tiles (ST_AsMVT) -- query patterns, PostGIS indexing, cache headers, DB query efficiency
-**Result:** 2 easy wins implemented, 2 deferred (no tile cache layer), 2 medium-effort items recommended
+**Result:** 4 easy wins implemented, 2 medium-effort items recommended
 
 ## Executive Summary
 
-The MVT tile pipeline is well-architected: dedicated asyncpg pool isolates tile queries from API traffic, ST_AsMVTGeom uses correct parameters (4096 extent, 256 buffer, clipping enabled), GIST indexes on `geom_4326` are created at ingestion time, and column filtering prevents geometry bloat in tile attributes. Two easy-win optimizations were implemented (bounds CTE precomputation, log level reduction). Two additional fixes (empty tile caching, Cache-Control on cache hits) are deferred because the codebase does not currently have a tile-specific cache layer in the request path. Two medium-effort items (dataset lookup caching, extended simplification) are documented for future work.
+The MVT tile pipeline is well-architected: dedicated asyncpg pool isolates tile queries from API traffic, ST_AsMVTGeom uses correct parameters (4096 extent, 256 buffer, clipping enabled), GIST indexes on `geom_4326` are created at ingestion time, column filtering prevents geometry bloat in tile attributes, and a binary Redis tile cache (`TileCacheProvider`) with Prometheus hit/miss counters is fully wired into the request path. Four easy-win optimizations were implemented (bounds CTE precomputation, log level reduction, Cache-Control on cache hits, empty tile caching). Two medium-effort items (dataset lookup caching, extended simplification) are documented for future work.
 
 ## Architecture Overview
 
 ```
 Request -> router.py (auth: embed token or HMAC signature)
         -> dataset lookup (SQLAlchemy ORM, joinedload Record)
-        -> get_tile() via dedicated asyncpg pool (service.py)
+        -> TileCacheProvider.get() (Redis, binary)
+        -> [cache miss] get_tile() via dedicated asyncpg pool (service.py)
         -> gzip compress (compresslevel=6)
+        -> TileCacheProvider.set() (Redis, binary)
         -> Response with Cache-Control headers
 ```
 
@@ -23,6 +25,7 @@ Request -> router.py (auth: embed token or HMAC signature)
 - `backend/app/tiles/service.py` -- SQL query builder and executor
 - `backend/app/tiles/pool.py` -- dedicated asyncpg pool (min=2, max=10)
 - `backend/app/tiles/signing.py` -- HMAC tile token generation/verification
+- `backend/app/cache/tile_cache.py` -- binary Redis tile cache (TileCacheProvider)
 - `backend/app/cache/provider.py` -- generic cache singleton (Redis/in-memory)
 
 ## What Is Done Well
@@ -85,21 +88,25 @@ WHERE t.geom_4326 && bounds.geom_4326
 
 **Impact:** Reduces log volume by ~95% at default INFO level. Tile access is still logged and available when DEBUG logging is enabled for troubleshooting.
 
-## Issues Found but NOT Fixed (No Tile Cache Layer)
+### Fix 3: Cache-Control header on cache hits (IMPLEMENTED)
 
-The plan called for two cache-related fixes, but the current tile endpoint does **not** have a tile-specific cache layer in the request path. The generic `CacheProvider` (Redis/in-memory) exists but uses JSON serialization, which is incompatible with binary MVT bytes. These fixes are deferred until a binary tile cache is added.
+**File:** `backend/app/tiles/router.py`, cache-hit response path
 
-### Deferred Fix A: Cache-Control header on cache hits
+**Problem:** Cache hits returned `"Cache-Control": "no-cache"` while cache misses returned proper `max-age={ttl}`. This meant browsers never cached tiles served from the Redis cache, defeating the benefit of server-side caching for repeat visits. The `no-cache` was originally introduced to avoid stale-tile bugs after feature mutations, but this is already handled by `invalidate_table()` in the Redis cache — the browser `Cache-Control` should match.
 
-**Problem (hypothetical):** If a tile cache layer is added, cache-hit responses must use the same `Cache-Control: {scope}, max-age={ttl}` header as cache-miss responses. Returning `no-cache` on cache hits would defeat browser-level caching.
+**Fix:** Changed cache-hit response to use `f"{cache_scope}, max-age={cache_ttl}"`, matching the cache-miss path.
 
-**Recommendation:** When implementing tile caching, ensure the cache-hit code path passes the same `cache_scope` and `cache_ttl` to the response headers.
+**Impact:** Browsers now cache tiles from both paths, reducing redundant requests for static map views.
 
-### Deferred Fix B: Cache empty tiles
+### Fix 4: Cache empty tiles as sentinel (IMPLEMENTED)
 
-**Problem:** When `get_tile()` returns None (empty tile), a 204 is returned without caching. For datasets with sparse spatial coverage, many tile requests will hit PostGIS for tiles that are always empty.
+**File:** `backend/app/tiles/router.py`, empty tile response path
 
-**Recommendation:** When implementing tile caching, store a sentinel value (e.g., `b""`) for empty tiles. On cache hit, detect the sentinel and return 204 without querying PostGIS. Estimated savings: avoids repeated PostGIS round-trips for ~60-80% of tiles in sparse datasets.
+**Problem:** When `get_tile()` returns None (empty tile), a 204 was returned without caching. For datasets with sparse spatial coverage, many tile requests hit PostGIS for tiles that are always empty, wasting a database round-trip each time.
+
+**Fix:** Store `b""` (empty bytes) in the tile cache for empty tiles. On cache hit, detect the empty sentinel and return 204 without querying PostGIS.
+
+**Impact:** Eliminates repeated PostGIS queries for empty tiles in sparse datasets. For a typical sparse dataset, ~60-80% of tiles are empty — this can significantly reduce tile query load.
 
 ## Remaining Optimization Opportunities
 
