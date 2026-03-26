@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuditLogs } from '@/hooks/use-admin';
+import { useEdition } from '@/hooks/use-edition';
 import { formatDateTimeSmart } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { DataTablePagination } from './DataTablePagination';
 import { DataTableSearch } from './DataTableSearch';
 import { DataTableSkeleton } from './DataTableSkeleton';
+import { ExportSplitButton } from './ExportSplitButton';
 import { FilterSelect } from './FilterSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
 
@@ -27,6 +29,7 @@ const ACTION_OPTIONS = [
 
 export function AuditLogViewer() {
   const { t } = useTranslation('admin');
+  const { isEnterprise } = useEdition();
   const [action, setAction] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -58,13 +61,25 @@ export function AuditLogViewer() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">{t('audit.title')}</CardTitle>
-          <DataTableSearch
-            value={searchQuery}
-            onChange={(v) => { setSearchQuery(v); setPage(0); }}
-            placeholder={t('audit.table.user') + ' / ' + t('audit.table.action')}
-          />
+          <div className="flex items-center gap-2">
+            {isEnterprise && (
+              <ExportSplitButton
+                filters={{
+                  action: action || undefined,
+                  date_from: dateFrom || undefined,
+                  date_to: dateTo || undefined,
+                  search: searchQuery || undefined,
+                }}
+              />
+            )}
+            <DataTableSearch
+              value={searchQuery}
+              onChange={(v) => { setSearchQuery(v); setPage(0); }}
+              placeholder={t('audit.table.user') + ' / ' + t('audit.table.action')}
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
