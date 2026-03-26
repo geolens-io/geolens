@@ -107,7 +107,7 @@ class LLMMapSpec(BaseModel):
     center_lng: float = 0.0
     center_lat: float = 0.0
     zoom: float = 2.0
-    basemap_style: str = "positron"
+    basemap_style: str = "openfreemap-positron"
     layers: list[LLMLayerSpec]
     explanation: str = ""
 

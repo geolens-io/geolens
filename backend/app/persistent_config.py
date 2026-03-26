@@ -458,7 +458,7 @@ _DEFAULT_BASEMAPS = [
         "url": "https://tiles.openfreemap.org/styles/bright",
         "enabled": True,
         "is_preset": True,
-        "attribution": "&copy; <a href='https://openfreemap.org'>OpenFreeMap</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+        "attribution": "&copy; <a href='https://openfreemap.org'>OpenFreeMap</a>, &copy; <a href='https://openmaptiles.org/'>OpenMapTiles</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
 ]
 
