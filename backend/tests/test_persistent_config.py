@@ -309,7 +309,7 @@ async def test_get_all_settings_returns_grouped(
     assert "auth" in tabs
     assert "ai" in tabs
     assert "storage" in tabs
-    assert "appearance" in tabs
+    assert "map" in tabs
 
     # Check each setting has required fields
     for tab_name, items in tabs.items():

@@ -9,16 +9,7 @@ import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
-import type { SettingItem } from '@/api/settings';
-
-interface BasemapEntry {
-  id: string;
-  label: string;
-  url: string;
-  enabled: boolean;
-  is_preset: boolean;
-  attribution?: string;
-}
+import type { SettingItem, BasemapEntry } from '@/api/settings';
 
 interface MapDefaultsValue {
   center_lat: number;

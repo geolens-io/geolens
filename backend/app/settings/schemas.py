@@ -12,6 +12,7 @@ class BasemapEntry(BaseModel):
     url: str
     enabled: bool = True
     is_preset: bool = False
+    attribution: str | None = None
 
     @field_validator("url")
     @classmethod
