@@ -47,10 +47,11 @@ def _build_tile_query(table_name: str, columns: list[dict]) -> str:
 
     return f"""
 WITH
+_env AS (
+    SELECT ST_TileEnvelope($1::integer, $2::integer, $3::integer) AS geom
+),
 bounds AS (
-    SELECT
-        ST_TileEnvelope($1::integer, $2::integer, $3::integer) AS geom,
-        ST_Transform(ST_TileEnvelope($1::integer, $2::integer, $3::integer), 4326) AS geom_4326
+    SELECT _env.geom, ST_Transform(_env.geom, 4326) AS geom_4326 FROM _env
 ),
 mvtgeom AS (
     SELECT ST_AsMVTGeom(
