@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,8 @@ import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { useDataset, useUpdateDataset, useUpdatePublicationStatus, useValidation } from '@/hooks/use-dataset';
 import { useDatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
+import { useDraftEditing } from '@/hooks/use-draft-editing';
+import { useHeroState } from '@/hooks/use-hero-state';
 import { useAllSettings } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
@@ -21,10 +23,7 @@ import {
 } from '@/components/dataset/DatasetDetailHeader';
 import { DataTab } from '@/components/dataset/tabs/DataTab';
 import { RelatedRecordsPanel } from '@/components/dataset/RelatedRecordsPanel';
-import { VectorDetailPanel } from '@/components/dataset/panels/VectorDetailPanel';
-import { RasterDetailPanel } from '@/components/dataset/panels/RasterDetailPanel';
-import { VrtDetailPanel } from '@/components/dataset/panels/VrtDetailPanel';
-import { CollectionDetailPanel } from '@/components/dataset/panels/CollectionDetailPanel';
+import { DetailPanel } from '@/components/dataset/panels/DetailPanel';
 import { PendingEditsBar } from '@/components/dataset/PendingEditsBar';
 import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
@@ -49,9 +48,11 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { visibilityColors } from '@/lib/status-colors';
-import type { DatasetUpdateRequest, DatasetResponse } from '@/types/api';
+import type { DatasetResponse } from '@/types/api';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
+
+const Sep = () => <span className="text-muted-foreground/50">·</span>;
 
 function normalizeLegacyTabHash(hash: string): string | null {
   if (hash === 'source-quality' || hash === 'coverage' || hash === 'source-coverage') {
@@ -69,27 +70,6 @@ function getInitialTab(): string {
   return VALID_TABS.includes(hash as (typeof VALID_TABS)[number]) ? hash : 'overview';
 }
 
-type PendingDraftField =
-  | 'summary'
-  | 'lineage_summary'
-  | 'source_url'
-  | 'source_organization'
-  | 'update_frequency'
-  | 'usage_constraints'
-  | 'access_constraints'
-  | 'sensitivity_classification'
-  | 'quality_statement';
-type PendingDrafts = Partial<Record<PendingDraftField, string | null>>;
-
-function normalizeDraftValue(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeDatasetValue(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? '';
-  return normalized.length > 0 ? normalized : null;
-}
 
 export function DatasetPage() {
   const { t } = useTranslation('dataset');
@@ -107,9 +87,6 @@ export function DatasetPage() {
   const { data: validationData } = useValidation(id);
   const { data: allSettings } = useAllSettings();
   const [activeTab, setActiveTab] = useState(getInitialTab);
-  const [pendingDrafts, setPendingDrafts] = useState<PendingDrafts>({});
-  const [dirtyFields, setDirtyFields] = useState<Set<PendingDraftField>>(() => new Set());
-  const [isSavingPendingEdits, setIsSavingPendingEdits] = useState(false);
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const selectedFeatureGid = useDrawingStore((s) => s.selectedFeature?.gid ?? null);
@@ -121,8 +98,31 @@ export function DatasetPage() {
   const capabilities = useDatasetEditCapabilities();
   const isDrawing = useDrawingStore((s) => s.isDrawing);
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
-  const updateDataset = useUpdateDataset();
   useDocumentTitle(dataset?.title ?? 'Dataset');
+
+  const {
+    stagePendingDraft,
+    handleDraftDirtyChange,
+    resolveDraftValue,
+    pendingCount: metadataPendingCount,
+    isSaving: isSavingPendingEdits,
+    savePendingDrafts,
+    discardPendingDrafts,
+  } = useDraftEditing({ datasetId: id, dataset, isGeometryEditDirty });
+
+  const {
+    isRasterOrVrt,
+    heroState,
+    retryCount,
+    mapKey,
+    handleRetry,
+    onMapReady,
+    onTileError,
+  } = useHeroState({
+    datasetId: id,
+    recordType: dataset?.record_type,
+    hasTileUrl: !!dataset?.raster?.tile_url,
+  });
 
   // Clear read-only selection when editing mode activates
   useEffect(() => {
@@ -131,17 +131,13 @@ export function DatasetPage() {
     }
   }, [selectedFeatureGid]);
 
-  // Hero state machine for raster/VRT previews
-  type HeroState = 'loading' | 'loaded' | 'error';
-  const isRasterOrVrt = dataset?.record_type === 'raster_dataset' || dataset?.record_type === 'vrt_dataset';
-  const [heroState, setHeroState] = useState<HeroState>('loading');
-  const [retryCount, setRetryCount] = useState(0);
-  const [mapKey, setMapKey] = useState(0);
-
   const handleTabChange = useCallback((value: string) => {
     setActiveTab(value);
     window.location.hash = value;
   }, []);
+
+  const updateDataset = useUpdateDataset();
+  const hasUnsavedChanges = metadataPendingCount > 0 || isGeometryEditDirty;
 
   const handleSaveName = useCallback(
     async (newName: string) => {
@@ -150,118 +146,6 @@ export function DatasetPage() {
     },
     [id, updateDataset],
   );
-
-  const stagePendingDraft = useCallback(
-    (field: PendingDraftField, value: string) => {
-      const normalizedNext = normalizeDraftValue(value);
-      const currentDatasetValue = normalizeDatasetValue(
-        (dataset?.[field] as string | null | undefined) ?? null,
-      );
-
-      setPendingDrafts((prev) => {
-        const next = { ...prev };
-        if (normalizedNext === currentDatasetValue) {
-          delete next[field];
-          return next;
-        }
-        next[field] = normalizedNext;
-        return next;
-      });
-    },
-    [dataset],
-  );
-
-  const handleDraftDirtyChange = useCallback((field: PendingDraftField, isDirty: boolean) => {
-    setDirtyFields((prev) => {
-      const next = new Set(prev);
-      if (isDirty) {
-        next.add(field);
-      } else {
-        next.delete(field);
-      }
-      return next;
-    });
-  }, []);
-
-  const resolveDraftValue = useCallback(
-    (field: PendingDraftField) => {
-      const staged = pendingDrafts[field];
-      if (staged !== undefined) {
-        return staged ?? '';
-      }
-      return (dataset?.[field] as string | null | undefined) ?? '';
-    },
-    [dataset, pendingDrafts],
-  );
-
-  const pendingFields = useMemo(() => {
-    const fields = new Set<PendingDraftField>(Object.keys(pendingDrafts) as PendingDraftField[]);
-    for (const field of dirtyFields) {
-      fields.add(field);
-    }
-    return fields;
-  }, [dirtyFields, pendingDrafts]);
-
-  const metadataPendingCount = pendingFields.size;
-  const hasUnsavedChanges = metadataPendingCount > 0 || isGeometryEditDirty;
-
-  const savePendingDrafts = useCallback(async (): Promise<boolean> => {
-    if (!id) return false;
-
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-
-    const entries = Object.entries(pendingDrafts) as Array<[PendingDraftField, string | null]>;
-    if (entries.length === 0) {
-      return true;
-    }
-
-    const payload = entries.reduce<Record<PendingDraftField, string | null>>((acc, [field, value]) => {
-      acc[field] = value;
-      return acc;
-    }, {} as Record<PendingDraftField, string | null>);
-
-    setIsSavingPendingEdits(true);
-    try {
-      await updateDataset.mutateAsync({ datasetId: id, data: payload as DatasetUpdateRequest });
-      setPendingDrafts({});
-      setDirtyFields(new Set());
-      toast.success(
-        t('affordances.pending.saved', {
-          defaultValue: 'Changes saved.',
-        }),
-      );
-      if (isGeometryEditDirty) {
-        toast.info(
-          t('affordances.pending.geometryHint', {
-            defaultValue: 'Field changes saved. Save geometry changes from the map toolbar.',
-          }),
-        );
-      }
-      return true;
-    } catch {
-      toast.error(
-        t('affordances.pending.saveFailed', {
-          defaultValue: 'Failed to save pending edits.',
-        }),
-      );
-      return false;
-    } finally {
-      setIsSavingPendingEdits(false);
-    }
-  }, [id, isGeometryEditDirty, pendingDrafts, t, updateDataset]);
-
-  const discardPendingDrafts = useCallback(() => {
-    setPendingDrafts({});
-    setDirtyFields(new Set());
-    toast.message(
-      t('affordances.pending.canceled', {
-        defaultValue: 'All changes discarded.',
-      }),
-    );
-  }, [t]);
 
   const handleNavigateToValidationField = useCallback(
     (field: string) => {
@@ -275,36 +159,6 @@ export function DatasetPage() {
     },
     [handleTabChange],
   );
-
-  // 10s timeout: if raster/VRT map never calls onMapReady, show error
-  useEffect(() => {
-    if (!isRasterOrVrt || heroState !== 'loading') return;
-    const timer = setTimeout(() => {
-      setHeroState('error');
-    }, 10_000);
-    return () => clearTimeout(timer);
-  }, [heroState, isRasterOrVrt]);
-
-  // Retry handler for raster/VRT hero error state
-  const handleRetry = useCallback(() => {
-    setRetryCount(prev => prev + 1);
-    setHeroState('loading');
-    setMapKey(prev => prev + 1);
-  }, []);
-
-  // Reset hero state when dataset changes
-  useEffect(() => {
-    setHeroState('loading');
-    setRetryCount(0);
-    setMapKey(0);
-  }, [id]);
-
-  // Raster with no tile_url: skip to 'loaded' immediately (no tiles to wait for)
-  useEffect(() => {
-    if (dataset?.record_type === 'raster_dataset' && !dataset.raster?.tile_url) {
-      setHeroState('loaded');
-    }
-  }, [dataset?.record_type, dataset?.raster?.tile_url]);
 
   // Warn before navigating away with unsaved changes
   useEffect(() => {
@@ -459,8 +313,6 @@ export function DatasetPage() {
       setUnpublishConfirmOpen(false);
     }
   };
-
-  const Sep = () => <span className="text-muted-foreground/50">·</span>;
 
   const statsLine = (
     <>
@@ -664,8 +516,8 @@ export function DatasetPage() {
             tileVersion={dataset.updated_at}
             onFeatureClick={setReadOnlyFeatureGid}
             {...(isRasterOrVrt ? {
-              onMapReady: () => setHeroState('loaded'),
-              onTileError: () => setHeroState('error'),
+              onMapReady,
+              onTileError,
             } : {})}
           />
           {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
@@ -708,63 +560,19 @@ export function DatasetPage() {
         </div>
       )}
 
-      {/* Type-specific tabbed content */}
-      {dataset.record_type === 'raster_dataset' && (
-        <RasterDetailPanel
-          dataset={dataset}
-          canEdit={isEditor}
-          capabilities={capabilities}
-          datasetId={id!}
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          resolveDraftValue={resolveDraftValue}
-          stagePendingDraft={stagePendingDraft}
-          handleDraftDirtyChange={handleDraftDirtyChange}
-          onNavigateToValidationField={handleNavigateToValidationField}
-        />
-      )}
-      {dataset.record_type === 'vrt_dataset' && (
-        <VrtDetailPanel
-          dataset={dataset}
-          canEdit={isEditor}
-          capabilities={capabilities}
-          datasetId={id!}
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          resolveDraftValue={resolveDraftValue}
-          stagePendingDraft={stagePendingDraft}
-          handleDraftDirtyChange={handleDraftDirtyChange}
-          onNavigateToValidationField={handleNavigateToValidationField}
-        />
-      )}
-      {dataset.record_type === 'collection' && (
-        <CollectionDetailPanel
-          dataset={dataset}
-          canEdit={isEditor}
-          capabilities={capabilities}
-          datasetId={id!}
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          resolveDraftValue={resolveDraftValue}
-          stagePendingDraft={stagePendingDraft}
-          handleDraftDirtyChange={handleDraftDirtyChange}
-          onNavigateToValidationField={handleNavigateToValidationField}
-        />
-      )}
-      {(dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type) && (
-        <VectorDetailPanel
-          dataset={dataset}
-          canEdit={isEditor}
-          capabilities={capabilities}
-          datasetId={id!}
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          resolveDraftValue={resolveDraftValue}
-          stagePendingDraft={stagePendingDraft}
-          handleDraftDirtyChange={handleDraftDirtyChange}
-          onNavigateToValidationField={handleNavigateToValidationField}
-        />
-      )}
+      {/* Tabbed content — tabs shown are driven by record_type */}
+      <DetailPanel
+        dataset={dataset}
+        canEdit={isEditor}
+        capabilities={capabilities}
+        datasetId={id!}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        resolveDraftValue={resolveDraftValue}
+        stagePendingDraft={stagePendingDraft}
+        handleDraftDirtyChange={handleDraftDirtyChange}
+        onNavigateToValidationField={handleNavigateToValidationField}
+      />
 
       {/* Related records panel -- shown when a feature is selected (editing or read-only) */}
       {effectiveGid != null && (dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type) && (

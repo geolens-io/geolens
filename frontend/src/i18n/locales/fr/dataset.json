@@ -21,9 +21,12 @@
     "history": "Historique",
     "api": "API",
     "structure": "Structure",
-    "sourceCoverage": "Source et Couverture",
-    "accessSharing": "Acces et Partage",
-    "sources": "Sources"
+    "sources": "Sources",
+    "access": "Accès",
+    "members": "Membres"
+  },
+  "collection": {
+    "membersPlaceholder": "Liste des membres de la collection bientôt disponible."
   },
   "inline": {
     "noDescription": "Ajouter une description..."
@@ -51,6 +54,27 @@
       "read_only_field": "Ce champ est géré comme une métadonnée en lecture seule."
     },
     "roleHelp": "Aide sur les rôles"
+  },
+  "connect": {
+    "copyCogUrl": "Copier l'URL COG",
+    "copyXyzTileUrl": "Copier l'URL XYZ Tile",
+    "copyS3Uri": "Copier l'URI S3",
+    "copyApiUrl": "Copier l'URL API",
+    "copyTileUrl": "Copier l'URL Tile",
+    "copied": "Copié : {{preview}}"
+  },
+  "addToMap": {
+    "button": "Ajouter à la carte",
+    "loading": "Chargement des cartes...",
+    "noMaps": "Aucune carte disponible",
+    "newMap": "+ Nouvelle carte",
+    "creating": "Création...",
+    "newMapName": "Carte {{title}}",
+    "newMapFallback": "Nouvelle carte",
+    "createFailed": "Impossible de créer la carte"
+  },
+  "usedInMaps": {
+    "title": "Utilisé dans les cartes"
   },
   "actions": {
     "edit": "Modifier",

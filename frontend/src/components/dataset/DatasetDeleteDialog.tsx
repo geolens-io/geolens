@@ -81,13 +81,17 @@ export function DatasetDeleteDialog({ dataset, open, onOpenChange }: DatasetDele
           />
         </div>
 
-        {deleteDataset.error && (
+        {deleteDataset.error && (() => {
+          const dependentVrts = deleteDataset.error instanceof Error
+            ? parseDependentVrts(deleteDataset.error)
+            : null;
+          return (
           <div className="text-sm text-destructive space-y-1">
-            {deleteDataset.error instanceof Error && parseDependentVrts(deleteDataset.error) ? (
+            {dependentVrts ? (
               <>
                 <p>{t('deleteDialog.dependentVrtMessage')}</p>
                 <ul className="space-y-0.5">
-                  {parseDependentVrts(deleteDataset.error)!.map((vrt) => (
+                  {dependentVrts.map((vrt) => (
                     <li key={vrt.vrt_dataset_id}>
                       <Link
                         to={`/datasets/${vrt.vrt_dataset_id}`}
@@ -108,7 +112,8 @@ export function DatasetDeleteDialog({ dataset, open, onOpenChange }: DatasetDele
               </p>
             )}
           </div>
-        )}
+          );
+        })()}
 
         <AlertDialogFooter>
           <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
