@@ -9,6 +9,7 @@ Requirements:
 """
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
@@ -192,6 +193,29 @@ class TestTileEndpoint:
             # Tile at high zoom far from (0,0) should be empty
             resp = await client.get(f"/tiles/data.{table_name}/18/100000/100000.pbf")
             assert resp.status_code == 204
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+    async def test_empty_tile_sentinel_cache_hit_returns_204(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Cached empty sentinel (b'') returns 204 without hitting PostGIS."""
+        table_name = f"tile_test_{uuid.uuid4().hex[:8]}"
+        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            mock_cache = AsyncMock()
+            mock_cache.get.return_value = b""  # empty sentinel
+
+            with patch("app.tiles.router.get_tile_cache", return_value=mock_cache):
+                resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
+
+            assert resp.status_code == 204
+            mock_cache.get.assert_called_once()
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 
