@@ -48,7 +48,9 @@ def _build_tile_query(table_name: str, columns: list[dict]) -> str:
     return f"""
 WITH
 bounds AS (
-    SELECT ST_TileEnvelope($1::integer, $2::integer, $3::integer) AS geom
+    SELECT
+        ST_TileEnvelope($1::integer, $2::integer, $3::integer) AS geom,
+        ST_Transform(ST_TileEnvelope($1::integer, $2::integer, $3::integer), 4326) AS geom_4326
 ),
 mvtgeom AS (
     SELECT ST_AsMVTGeom(
@@ -69,8 +71,8 @@ mvtgeom AS (
     ) AS geom,
     t.gid{attr_columns}
     FROM data.{table_name} t, bounds
-    WHERE t.geom_4326 && ST_Transform(bounds.geom, 4326)
-      AND ST_Intersects(t.geom_4326, ST_Transform(bounds.geom, 4326))
+    WHERE t.geom_4326 && bounds.geom_4326
+      AND ST_Intersects(t.geom_4326, bounds.geom_4326)
 )
 SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
 FROM mvtgeom

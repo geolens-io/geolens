@@ -435,7 +435,7 @@ async def tile_endpoint(
         return Response(status_code=204)
 
     # Log successful tile access
-    logger.info(
+    logger.debug(
         "tile_access",
         dataset_id=str(dataset.record_id),
         table_name=table_name,
