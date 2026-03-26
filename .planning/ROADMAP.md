@@ -81,7 +81,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
-- [ ] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
+- [x] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
 **UI hint**: yes
 
 ### Phase 208: Audit Log Export
@@ -95,7 +95,7 @@ Plans:
   4. Export button is visible in the admin audit log view with format selection
 **Plans**: 2 plans
 Plans:
-- [ ] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
+- [x] 207-01-PLAN.md — Backend PersistentConfig and branding API endpoints
 - [ ] 207-02-PLAN.md — Frontend admin Appearance tab, badge conditional rendering
 **UI hint**: yes
 
