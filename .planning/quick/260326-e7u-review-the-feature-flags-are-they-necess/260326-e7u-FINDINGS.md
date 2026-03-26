@@ -78,8 +78,8 @@ None are dead code. None duplicate another mechanism. All serve distinct deploym
 | Aspect | Detail |
 |--------|--------|
 | **Declaration** | `persistent_config.py:293-298` -- `PersistentConfig[bool]`, tab=`general`, default=`False` |
-| **Backend usage** | `datasets/service.py:381-390` -- validation gate on record status transition to "published". When true, calls `validate_record()` and blocks publish if metadata is incomplete. |
-| **Frontend usage** | `PublishButton.tsx:42` -- reads from unified settings to display validation warnings; `ValidationStatus.tsx:30` -- same pattern for status display |
+| **Backend usage** | `datasets/service.py:441-453` -- validation gate on record status transition to "published". When true, calls `validate_record()` and blocks publish if metadata is incomplete. |
+| **Frontend usage** | `DatasetPage.tsx:279` -- reads from unified settings to display validation warnings; `ValidationStatus.tsx:30` -- same pattern for status display |
 | **Admin UI toggle** | `SettingsGeneralTab.tsx:22,39,45-46` -- checkbox in General settings tab with source badge |
 | **Deployment scenario** | Data governance: organizations that require complete metadata (title, description, source, license) before records go public. Casual deployments leave it off. |
 | **Duplicates?** | No -- the only mechanism gating publish on metadata completeness |
