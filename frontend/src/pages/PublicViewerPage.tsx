@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useEdition } from '@/hooks/use-edition';
+import { useBranding } from '@/hooks/use-settings';
 
 function parseCenter(raw: string | null): { lng: number; lat: number } | null {
   if (!raw) return null;
@@ -32,6 +33,8 @@ export function PublicViewerPage() {
   const { t } = useTranslation('common');
   useDocumentTitle('Shared Map');
   const { isEnterprise } = useEdition();
+  const { data: branding } = useBranding();
+  const showBadge = !isEnterprise || branding?.show_badge !== false;
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
   const isEmbed = searchParams.get('embed') === 'true';
@@ -172,7 +175,7 @@ export function PublicViewerPage() {
       )}
 
       {/* Powered by GeoLens badge */}
-      {!isEnterprise && (
+      {showBadge && (
         <div className="absolute bottom-2 right-2 z-10 hidden min-[400px]:block">
           <a
             href="https://github.com/geolens-io/geolens"
