@@ -49,6 +49,8 @@ from app.embed_tokens.router import router as embed_tokens_router
 from app.tiles.router import router as tiles_router
 from app.tiles.pool import init_tile_pool, close_tile_pool
 from app.stac.router import stac_router
+from app.extensions import load_extensions, list_extensions
+from app.edition import init_edition, get_edition
 from app.ingest.tasks import task_app
 
 # Configure structured logging before app creation so lifespan logs are structured
@@ -119,6 +121,12 @@ async def lifespan(app: FastAPI):
     # Seed roles and initial admin
     await seed_roles()
     await seed_initial_admin()
+
+    # Discover and load enterprise extensions (no-op if geolens-enterprise not installed)
+    load_extensions()
+    init_edition(list_extensions())
+    edition_info = get_edition()
+    logger.info("Edition detected", edition=edition_info.edition, features=list(edition_info.features))
 
     # Ensure staging paths exist and are writable before bootstrapping services.
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
