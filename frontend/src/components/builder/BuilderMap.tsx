@@ -48,7 +48,7 @@ export function BuilderMap({
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
   const basemapEntry = findBasemapById(basemaps ?? [], basemapStyle);
-  const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+  const fallbackUrl = 'https://tiles.openfreemap.org/styles/positron';
   const styleValue = useMemo(
     () => toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
     [basemapEntry?.url, basemapEntry?.attribution],

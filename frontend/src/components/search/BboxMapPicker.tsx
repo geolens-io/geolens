@@ -27,8 +27,8 @@ export function BboxMapPicker({ onBboxSelected }: BboxMapPickerProps) {
     if (themeBasemap) return toMaplibreStyle(themeBasemap.url, themeBasemap.attribution);
     return toMaplibreStyle(
       resolvedTheme === 'dark'
-        ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
-        : 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+        ? 'https://tiles.openfreemap.org/styles/dark'
+        : 'https://tiles.openfreemap.org/styles/positron',
     );
   }, [basemaps, resolvedTheme]);
 

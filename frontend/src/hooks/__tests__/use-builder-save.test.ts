@@ -87,7 +87,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
   return {
     mapId: 'map-1',
     localLayers: [],
-    localBasemap: 'carto-positron',
+    localBasemap: 'openfreemap-positron',
     localName: 'Test Map',
     localDescription: 'A test',
     mapInstanceRef: { current: createMockMap() },
@@ -117,7 +117,7 @@ describe('useBuilderSave', () => {
     const [payload] = mockMutate.mock.calls[0];
     expect(payload.id).toBe('map-1');
     expect(payload.data.name).toBe('Test Map');
-    expect(payload.data.basemap_style).toBe('carto-positron');
+    expect(payload.data.basemap_style).toBe('openfreemap-positron');
     expect(payload.data.center_lng).toBe(-73.9);
     expect(payload.data.center_lat).toBe(40.7);
     expect(payload.data.zoom).toBe(10);

@@ -114,7 +114,6 @@ export function MapBuilderPage() {
     searchParams,
     setSearchParams,
   );
-
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
 

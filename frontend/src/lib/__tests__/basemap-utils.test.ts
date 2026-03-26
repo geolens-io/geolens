@@ -12,7 +12,7 @@ import type { BasemapEntry } from '@/api/settings';
 
 describe('toMaplibreStyle', () => {
   it('returns GL style JSON URL as-is', () => {
-    const url = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+    const url = 'https://example.com/style.json';
     expect(toMaplibreStyle(url)).toBe(url);
   });
 
@@ -64,16 +64,28 @@ describe('toMaplibreStyle', () => {
 });
 
 describe('resolveBasemapId', () => {
-  it('maps legacy "positron" to carto-positron', () => {
-    expect(resolveBasemapId('positron')).toBe('carto-positron');
+  it('maps legacy "positron" to openfreemap-positron', () => {
+    expect(resolveBasemapId('positron')).toBe('openfreemap-positron');
   });
 
-  it('maps legacy "dark-matter" to carto-dark-matter', () => {
-    expect(resolveBasemapId('dark-matter')).toBe('carto-dark-matter');
+  it('maps legacy "dark-matter" to openfreemap-dark', () => {
+    expect(resolveBasemapId('dark-matter')).toBe('openfreemap-dark');
   });
 
-  it('maps legacy "voyager" to carto-positron', () => {
-    expect(resolveBasemapId('voyager')).toBe('carto-positron');
+  it('maps legacy "voyager" to openfreemap-positron', () => {
+    expect(resolveBasemapId('voyager')).toBe('openfreemap-positron');
+  });
+
+  it('maps legacy "carto-positron" to openfreemap-positron', () => {
+    expect(resolveBasemapId('carto-positron')).toBe('openfreemap-positron');
+  });
+
+  it('maps legacy "carto-dark-matter" to openfreemap-dark', () => {
+    expect(resolveBasemapId('carto-dark-matter')).toBe('openfreemap-dark');
+  });
+
+  it('passes through openfreemap-positron as-is', () => {
+    expect(resolveBasemapId('openfreemap-positron')).toBe('openfreemap-positron');
   });
 
   it('returns non-legacy keys unchanged', () => {
@@ -84,8 +96,8 @@ describe('resolveBasemapId', () => {
 
 describe('getThemeBasemap', () => {
   const basemaps: BasemapEntry[] = [
-    { id: LIGHT_PRESET_ID, label: 'Light', url: 'light.json', enabled: true, is_preset: true },
-    { id: DARK_PRESET_ID, label: 'Dark', url: 'dark.json', enabled: true, is_preset: true },
+    { id: LIGHT_PRESET_ID, label: 'Light', url: 'https://tiles.openfreemap.org/styles/positron', enabled: true, is_preset: true },
+    { id: DARK_PRESET_ID, label: 'Dark', url: 'https://tiles.openfreemap.org/styles/dark', enabled: true, is_preset: true },
     { id: 'osm', label: 'OSM', url: 'https://tile.osm.org/{z}/{x}/{y}.png', enabled: true, is_preset: true },
   ];
 
@@ -116,7 +128,8 @@ describe('getThemeBasemap', () => {
 
 describe('findBasemapById', () => {
   const basemaps: BasemapEntry[] = [
-    { id: 'carto-positron', label: 'CARTO Positron', url: 'positron.json', enabled: true, is_preset: true },
+    { id: 'openfreemap-positron', label: 'OpenFreeMap Positron', url: 'https://tiles.openfreemap.org/styles/positron', enabled: true, is_preset: true },
+    { id: 'openfreemap-dark', label: 'OpenFreeMap Dark', url: 'https://tiles.openfreemap.org/styles/dark', enabled: true, is_preset: true },
     { id: 'custom-1', label: 'Custom', url: 'https://tiles.example.com/{z}/{x}/{y}.png', enabled: true, is_preset: false },
   ];
 
@@ -124,11 +137,29 @@ describe('findBasemapById', () => {
     expect(findBasemapById(basemaps, 'custom-1')?.label).toBe('Custom');
   });
 
-  it('finds by legacy key mapping', () => {
-    expect(findBasemapById(basemaps, 'positron')?.id).toBe('carto-positron');
+  it('finds by legacy key "positron"', () => {
+    expect(findBasemapById(basemaps, 'positron')?.id).toBe('openfreemap-positron');
+  });
+
+  it('finds by legacy key "carto-positron"', () => {
+    expect(findBasemapById(basemaps, 'carto-positron')?.id).toBe('openfreemap-positron');
+  });
+
+  it('finds by legacy key "carto-dark-matter"', () => {
+    expect(findBasemapById(basemaps, 'carto-dark-matter')?.id).toBe('openfreemap-dark');
   });
 
   it('returns undefined for unknown id', () => {
     expect(findBasemapById(basemaps, 'nonexistent')).toBeUndefined();
+  });
+});
+
+describe('preset IDs', () => {
+  it('LIGHT_PRESET_ID is openfreemap-positron', () => {
+    expect(LIGHT_PRESET_ID).toBe('openfreemap-positron');
+  });
+
+  it('DARK_PRESET_ID is openfreemap-dark', () => {
+    expect(DARK_PRESET_ID).toBe('openfreemap-dark');
   });
 });

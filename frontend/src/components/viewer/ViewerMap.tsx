@@ -109,7 +109,7 @@ export function ViewerMap({
   const effectiveBasemap = isDefaultBasemap
     ? getThemeBasemap(basemaps ?? [], resolvedTheme)
     : findBasemapById(basemaps ?? [], basemapStyle);
-  const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+  const fallbackUrl = 'https://tiles.openfreemap.org/styles/positron';
   const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl, effectiveBasemap?.attribution);
 
   // Fetch tile tokens for all layers using API key auth
