@@ -21,6 +21,11 @@ describe('toMaplibreStyle', () => {
     expect(toMaplibreStyle(url, '© Example')).toBe(url);
   });
 
+  it('returns /styles/ URL as-is (GL style without .json extension)', () => {
+    const url = 'https://tiles.openfreemap.org/styles/bright';
+    expect(toMaplibreStyle(url)).toBe(url);
+  });
+
   it('wraps XYZ URL in StyleSpecification', () => {
     const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const result = toMaplibreStyle(url) as StyleSpecification;
