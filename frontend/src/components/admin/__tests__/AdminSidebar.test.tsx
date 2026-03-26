@@ -29,7 +29,7 @@ vi.mock('react-i18next', () => ({
         'admin:settings.tabs.ai': 'AI',
         'admin:settings.tabs.network': 'Network',
         'admin:settings.tabs.storage': 'Storage',
-        'admin:settings.tabs.appearance': 'Appearance',
+        'admin:settings.tabs.map': 'Map',
         'admin:settings.tabs.permissions': 'Permissions',
       };
       return labels[key] ?? key;
@@ -80,7 +80,7 @@ describe('AdminSidebar', () => {
     expect(screen.getByText('AI')).toBeInTheDocument();
     expect(screen.getByText('Network')).toBeInTheDocument();
     expect(screen.getByText('Storage')).toBeInTheDocument();
-    expect(screen.getByText('Appearance')).toBeInTheDocument();
+    expect(screen.getByText('Map')).toBeInTheDocument();
     expect(screen.getByText('Permissions')).toBeInTheDocument();
     expect(screen.getByText('Config Ops')).toBeInTheDocument();
   });

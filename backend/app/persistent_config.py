@@ -424,7 +424,7 @@ TILE_CACHE_TTL = PersistentConfig[int](
     label="Tile Cache TTL (s)",
 )
 
-# -- Appearance tab --
+# -- Map tab --
 # Import default basemaps/map-defaults from the existing router constants
 # to avoid circular imports, define them inline
 _DEFAULT_BASEMAPS = [
@@ -434,6 +434,7 @@ _DEFAULT_BASEMAPS = [
         "url": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         "enabled": True,
         "is_preset": True,
+        "attribution": "&copy; <a href='https://carto.com/'>CARTO</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
     {
         "id": "carto-dark-matter",
@@ -441,6 +442,7 @@ _DEFAULT_BASEMAPS = [
         "url": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
         "enabled": True,
         "is_preset": True,
+        "attribution": "&copy; <a href='https://carto.com/'>CARTO</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
     {
         "id": "openstreetmap",
@@ -448,13 +450,15 @@ _DEFAULT_BASEMAPS = [
         "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         "enabled": True,
         "is_preset": True,
+        "attribution": "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
     {
-        "id": "stamen-terrain",
-        "label": "Stamen Terrain",
-        "url": "https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}.png",
+        "id": "openfreemap-bright",
+        "label": "OpenFreeMap Bright",
+        "url": "https://tiles.openfreemap.org/styles/bright",
         "enabled": True,
         "is_preset": True,
+        "attribution": "&copy; <a href='https://openfreemap.org'>OpenFreeMap</a>, &copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
     },
 ]
 
@@ -463,14 +467,14 @@ _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 BASEMAPS = PersistentConfig[list](
     key="basemaps",
     env_default=_DEFAULT_BASEMAPS,
-    tab="appearance",
+    tab="map",
     label="Basemaps",
 )
 
 MAP_DEFAULTS = PersistentConfig[dict](
     key="map_defaults",
     env_default=_DEFAULT_MAP_DEFAULTS,
-    tab="appearance",
+    tab="map",
     label="Map Defaults",
 )
 

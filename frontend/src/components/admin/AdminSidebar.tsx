@@ -26,7 +26,6 @@ import {
   Brain,
   Globe,
   HardDrive,
-  Palette,
   Lock,
   ArrowLeft,
 } from 'lucide-react';
@@ -57,7 +56,7 @@ const settingsItems = [
   { labelKey: 'admin:settings.tabs.ai', to: '/admin/settings/ai', icon: Brain },
   { labelKey: 'admin:settings.tabs.network', to: '/admin/settings/network', icon: Globe },
   { labelKey: 'admin:settings.tabs.storage', to: '/admin/settings/storage', icon: HardDrive },
-  { labelKey: 'admin:settings.tabs.appearance', to: '/admin/settings/appearance', icon: Palette },
+  { labelKey: 'admin:settings.tabs.map', to: '/admin/settings/map', icon: Globe },
   { labelKey: 'admin:settings.tabs.permissions', to: '/admin/settings/permissions', icon: Lock },
   { labelKey: 'adminNav.configOps', to: '/admin/config-ops', icon: Wrench },
 ] as const;
