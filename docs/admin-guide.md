@@ -479,7 +479,7 @@ curl "http://localhost:8080/api/admin/audit-logs?user_id={user_id}&date_from=202
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Available audit actions: `dataset.view`, `dataset.export`, `metadata.edit`
+Available audit actions: `dataset.view`, `dataset.export`, `dataset.download_cog`, `metadata.edit`, `collection.create`, `collection.update`, `collection.delete`, `collection.add_datasets`, `collection.remove_dataset`, `map.create`, `map.update`, `map.delete`, `map.duplicate`, `map.share`, `map.update_share_token`, `map.revoke_share`, `map.add_layer`, `map.remove_layer`, `feature.insert`, `feature.replace`, `feature.update`, `feature.delete`, `embed_token.create`, `embed_token.update`, `embed_token.revoke`, `embed_token.bulk_revoke`, `oauth_provider.create`, `oauth_provider.update`, `oauth_provider.delete`, `config_import`, `update`, `reset`, `probe_service`, `preview_service_layer`
 
 ### Catalog statistics
 

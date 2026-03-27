@@ -29,7 +29,8 @@ All environment variables used by GeoLens, their defaults, and descriptions. Set
 |---|---|---|---|
 | `UPLOAD_MAX_SIZE_MB` | `500` | No | Maximum upload file size in megabytes |
 | `UPLOAD_STAGING_DIR` | `/app/staging` | No | Directory for temporary file storage during ingestion/export. Must be writable by the API runtime user (uid:gid `1001:1001`). Mapped to `upload_staging` Docker volume. |
-| `UPLOAD_ALLOWED_EXTENSIONS` | `.zip,.gpkg,.geojson,.json,.csv` | No | Comma-separated list of allowed file extensions for upload |
+| `UPLOAD_ALLOWED_EXTENSIONS` | `.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls` | No | Comma-separated list of allowed file extensions for upload |
+| `PRESIGNED_MULTIPART_THRESHOLD_MB` | `100` | No | Files larger than this (MB) use multipart presigned S3 URLs. Only applies when `STORAGE_PROVIDER=s3`. |
 
 ### `UPLOAD_STAGING_DIR` Writability Requirement
 
@@ -52,6 +53,40 @@ If this command fails, fix ownership/permissions on the mounted path or set `UPL
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `PROCRASTINATE_SCHEMA` | `catalog` | No | PostgreSQL schema for the Procrastinate job queue tables |
+
+## Public URLs
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `PUBLIC_APP_URL` | `http://localhost:8080` | No | Browser-facing app URL. Used for share links and OAuth redirect URIs. |
+| `PUBLIC_API_URL` | `http://localhost:8080/api` | No | Externally-reachable API base URL. Used in OGC self/collection/next link hrefs. |
+| `PUBLIC_BASE_URL` | None | No | **Deprecated.** Legacy alias for `PUBLIC_API_URL`. Use `PUBLIC_API_URL` instead. |
+
+## CORS
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `CORS_ALLOWED_ORIGINS` | `""` (same-origin only) | No | Comma-separated list of allowed origins for cross-origin API requests. Required when the frontend is served from a different domain than the API. |
+
+## Tile Serving & CDN
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `TILE_CACHE_TTL` | `300` | No | Tile cache TTL in seconds |
+| `TILE_SIGNING_SECRET` | None (falls back to `JWT_SECRET_KEY`) | No | Secret for signing tile request URLs. Set separately when you want to rotate tile secrets without invalidating JWT tokens. |
+| `CDN_BASE_URL` | None | No | CDN origin URL for tile delivery. When set, the frontend requests tiles from this URL instead of the API. |
+
+## Worker
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `WORKER_SHUTDOWN_TIMEOUT` | `30` | No | Graceful shutdown timeout for the background worker in seconds |
+
+## Enterprise Extensions
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `GEOLENS_ENTERPRISE_PATH` | `/enterprise` | No | Path to the geolens-enterprise package inside the container. Used by entrypoint scripts to auto-install enterprise extensions on startup. Set via `docker-compose.enterprise.yml` volume mount. |
 
 ## AI & LLM
 
@@ -116,7 +151,7 @@ These variables control which ports are exposed on the Docker host. They do not 
 |---|---|---|
 | `DB_PORT` | `5432` | Host port for PostgreSQL. Set to `5434` in `.env.example` to avoid conflicts. |
 | `API_PORT` | `8000` | Host port for the FastAPI backend. Set to `8001` in `.env.example`. |
-| `FRONTEND_PORT` | `8080` | Host port for the frontend (nginx serves static SPA). |
+| `FRONTEND_PORT` | `8080` | Host port for the frontend. |
 
 ## Internal Service Ports
 
@@ -127,6 +162,7 @@ These are fixed inside Docker containers and are not configurable:
 | PostgreSQL (`db`) | 5432 | TCP |
 | FastAPI (`api`) | 8000 | HTTP |
 | Worker (`worker`) | 8001 | HTTP (health only) |
+| Titiler (`titiler`) | 8000 | HTTP |
 | Frontend (`frontend`) | 8080 | HTTP |
 
 ## Docker Volumes

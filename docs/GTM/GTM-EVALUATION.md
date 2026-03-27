@@ -259,7 +259,7 @@ The repo-split advice is architecturally correct but premature. The current mono
 
 These items require less than one week of effort each and meaningfully strengthen the GTM position.
 
-1. **Publish FEATURES.md as a web page.** A comprehensive features document already exists (`docs/FEATURES.md`, written in quick task 260324-qln). Convert it to a landing page or publish on GitHub Pages.
+1. **Publish a features page.** The README contains a categorized features list. Consider converting it to a dedicated landing page or GitHub Pages site for marketing visibility.
 
 2. **Set up a public read-only demo instance.** Deploy to a $20/month VPS with sample data. Link from the repository README. Government evaluators will click a demo URL before they will run `docker compose up`.
 
@@ -403,4 +403,4 @@ Everything needed for public launch. Nothing else belongs in the critical path.
 - `docs/GTM/pricing-to-tiers.md` -- Pricing model and revenue projections
 - `docs/GTM/repo-split.md` -- Repository architecture recommendations
 - `.planning/quick/260324-t98-evaluate-gtm-advisement-for-public-relea/260324-t98-RESEARCH.md` -- Independent market research
-- `docs/FEATURES.md` -- Existing features one-pager
+- `README.md` -- Public-facing features list and quickstart
