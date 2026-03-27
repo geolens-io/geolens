@@ -148,7 +148,7 @@ async def test_facets_with_text_filter(
     admin_auth_header: dict,
     facet_datasets: dict,
 ):
-    """GET /search/facets?q=Parks filters counts to matching datasets."""
+    """GET /search/facets/?q=Parks filters counts to matching datasets."""
     resp = await client.get(
         "/search/facets/",
         params={"q": "Vector Parks Facet"},
@@ -169,7 +169,7 @@ async def test_facets_with_srid_filter(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """GET /search/facets?srid=3857 returns only datasets with that SRID."""
+    """GET /search/facets/?srid=3857 returns only datasets with that SRID."""
     session = test_db_session
     admin_id = await _get_user_id(session, "admin")
 

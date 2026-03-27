@@ -163,7 +163,7 @@ async def test_list_api_keys(client: AsyncClient):
 
     # List keys filtered by user
     list_resp = await client.get(
-        f"/admin/api-keys?user_id={viewer_id}",
+        f"/admin/api-keys/?user_id={viewer_id}",
         headers=admin_headers,
     )
     assert list_resp.status_code == 200

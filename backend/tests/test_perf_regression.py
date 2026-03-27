@@ -152,8 +152,8 @@ async def _perf_tile_pool(_perf_dataset):
 async def test_search_latency(
     client: AsyncClient, admin_auth_header: dict, _perf_dataset
 ):
-    """GET /search/datasets?q=test completes under threshold."""
-    url = "/search/datasets?q=test"
+    """GET /search/datasets/?q=test completes under threshold."""
+    url = "/search/datasets/?q=test"
 
     # Warm-up
     await client.get(url, headers=admin_auth_header)
