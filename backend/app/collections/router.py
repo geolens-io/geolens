@@ -3,7 +3,6 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from geoalchemy2.shape import to_shape
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,24 +37,9 @@ from app.collections.service import (
 )
 from app.datasets.schemas import DatasetListResponse, DatasetResponse
 from app.dependencies import get_db
+from app.utils.geo import extent_to_bbox
 
 router = APIRouter(prefix="/catalog/collections", tags=["Datasets"])
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _extent_to_bbox(extent) -> list[float] | None:
-    """Convert a GeoAlchemy2 geometry extent to a [minx, miny, maxx, maxy] bbox."""
-    if extent is None:
-        return None
-    try:
-        shape = to_shape(extent)
-        return list(shape.bounds)
-    except Exception:
-        return None
 
 
 def _dataset_to_response(
@@ -74,7 +58,7 @@ def _dataset_to_response(
         srid=dataset.srid,
         geometry_type=dataset.geometry_type,
         feature_count=dataset.feature_count,
-        extent_bbox=_extent_to_bbox(record.spatial_extent),
+        extent_bbox=extent_to_bbox(record.spatial_extent),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,

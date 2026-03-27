@@ -328,7 +328,7 @@ _OPENAPI_TAGS = [
 
 app = FastAPI(
     title="GeoLens API",
-    version="2.6.0",
+    version="12.3.0",
     summary="PostGIS-native geospatial data catalog with OGC API Features compliance",
     description=_DESCRIPTION,
     root_path="/api",
@@ -389,11 +389,13 @@ app.include_router(embed_tokens_admin_router)
 app.include_router(tiles_router)
 app.include_router(stac_router)
 
+from app.health.schemas import HealthResponse  # noqa: E402
+
 # Prometheus instrumentation -- must happen before app starts (cannot add middleware in lifespan)
 init_metrics(app)
 
 
-@app.get("/health", include_in_schema=False)
+@app.get("/health", response_model=HealthResponse)
 @limiter.exempt
 async def health():
     """Health check endpoint for ALB, Docker, and Nginx."""

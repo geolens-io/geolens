@@ -71,8 +71,8 @@ export async function updateSettings(settings: Record<string, unknown>): Promise
 }
 
 export async function resetSettings(keys: string[]): Promise<AllSettingsResponse> {
-  return apiFetch<AllSettingsResponse>('/settings/', {
-    method: 'DELETE',
+  return apiFetch<AllSettingsResponse>('/settings/reset/', {
+    method: 'POST',
     body: JSON.stringify({ keys }),
   });
 }

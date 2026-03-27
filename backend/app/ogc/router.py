@@ -2,7 +2,6 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
-from geoalchemy2.shape import to_shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +21,7 @@ from app.ogc.schemas import (
 )
 from app.ogc.utils import build_url
 from app.public_urls import get_public_api_url
+from app.utils.geo import extent_to_bbox
 
 ogc_router = APIRouter(tags=["OGC Features"])
 
@@ -29,22 +29,6 @@ ogc_router = APIRouter(tags=["OGC Features"])
 # Must be registered AFTER collections_router in main.py to avoid
 # /collections/{dataset_id} catching literal paths like /collections/datasets.
 ogc_features_router = APIRouter(tags=["OGC Features"])
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _extent_to_bbox(extent) -> list[float] | None:
-    """Convert a GeoAlchemy2 geometry extent to [minx, miny, maxx, maxy]."""
-    if extent is None:
-        return None
-    try:
-        shape = to_shape(extent)
-        return list(shape.bounds)
-    except Exception:
-        return None
 
 
 def _validate_f_param(f: str | None) -> None:
@@ -185,7 +169,7 @@ async def get_dataset_collection(
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
     extent = {}
-    bbox = _extent_to_bbox(dataset.record.spatial_extent)
+    bbox = extent_to_bbox(dataset.record.spatial_extent)
     if bbox:
         extent["spatial"] = {
             "bbox": [bbox],

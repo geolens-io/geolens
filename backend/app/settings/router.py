@@ -185,7 +185,7 @@ async def update_settings(
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-@router.delete("/")
+@router.post("/reset/")
 async def reset_settings(
     body: SettingsResetRequest,
     request: Request,

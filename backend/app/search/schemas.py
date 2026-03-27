@@ -156,6 +156,7 @@ class SavedSearchListResponse(BaseModel):
     """Response wrapping a list of saved searches."""
 
     searches: list[SavedSearchResponse]
+    total: int
 
 
 class FacetCountResponse(BaseModel):

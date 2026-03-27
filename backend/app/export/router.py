@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import uuid
+from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -22,6 +23,13 @@ from app.export.service import export_dataset
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
 
+class ExportFormat(str, Enum):
+    gpkg = "gpkg"
+    geojson = "geojson"
+    shp = "shp"
+    csv = "csv"
+
+
 def _cleanup_export(path: str) -> None:
     """Remove the temporary export directory after response is sent."""
     if os.path.isdir(path):
@@ -32,7 +40,7 @@ def _cleanup_export(path: str) -> None:
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
     request: Request,
-    format: str = Query("gpkg", description="Export format: gpkg, geojson, shp, csv"),
+    format: ExportFormat = Query(ExportFormat.gpkg, description="Export format"),
     target_crs: str | None = Query(None, description="Target CRS, e.g. EPSG:3857"),
     bbox: str | None = Query(
         None, description="Bounding box: minx,miny,maxx,maxy (WGS84)"

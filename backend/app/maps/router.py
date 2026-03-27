@@ -6,8 +6,6 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from geoalchemy2.shape import to_shape
-
 from app.audit.service import log_action
 from app.auth.dependencies import (
     get_current_active_user,
@@ -18,6 +16,7 @@ from app.auth.models import User
 from app.auth.visibility import get_user_roles
 from app.datasets.models import Dataset, Record
 from app.dependencies import get_db
+from app.utils.geo import extent_to_bbox
 from app.maps.schemas import (
     DuplicateMapResponse,
     MapCreate,
@@ -31,6 +30,7 @@ from app.maps.schemas import (
     ShareTokenRequest,
     SharedMapResponse,
     ShareTokenResponse,
+    VisibilityCheckResponse,
 )
 from app.maps.service import (
     add_layer,
@@ -60,17 +60,6 @@ router = APIRouter(prefix="/maps", tags=["Maps"])
 # ---------------------------------------------------------------------------
 
 
-def _extent_to_bbox(extent) -> list[float] | None:
-    """Convert a GeoAlchemy2 geometry extent to a [minx, miny, maxx, maxy] bbox."""
-    if extent is None:
-        return None
-    try:
-        shape = to_shape(extent)
-        return list(shape.bounds)
-    except Exception:
-        return None
-
-
 def _build_layer_response(
     layer,
     dataset_name: str,
@@ -89,7 +78,7 @@ def _build_layer_response(
         dataset_name=dataset_name,
         dataset_geometry_type=geometry_type,
         dataset_table_name=table_name,
-        dataset_extent_bbox=_extent_to_bbox(extent),
+        dataset_extent_bbox=extent_to_bbox(extent),
         dataset_column_info=column_info,
         dataset_feature_count=feature_count,
         dataset_sample_values=sample_values,
@@ -233,12 +222,12 @@ async def get_shared_map_endpoint(
     return SharedMapResponse(**map_data, layers=layers)
 
 
-@router.get("/{map_id}/visibility-check")
+@router.get("/{map_id}/visibility-check", response_model=VisibilityCheckResponse)
 async def visibility_check_endpoint(
     map_id: uuid.UUID,
     user: User = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> VisibilityCheckResponse:
     """Check if a map has non-public datasets. Informational only."""
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -247,10 +236,10 @@ async def visibility_check_endpoint(
             detail="Map not found",
         )
     non_public_names = await validate_public_visibility(db, map_id)
-    return {
-        "non_public_datasets": non_public_names,
-        "has_non_public": len(non_public_names) > 0,
-    }
+    return VisibilityCheckResponse(
+        non_public_datasets=non_public_names,
+        has_non_public=len(non_public_names) > 0,
+    )
 
 
 @router.get("/{map_id}", response_model=MapResponse)
@@ -481,6 +470,13 @@ async def get_map_share_token_endpoint(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse | None:
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
     token_obj = await get_active_share_token(db, map_id)
     if token_obj is None:
         return None

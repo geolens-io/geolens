@@ -60,7 +60,8 @@ export async function getAuthConfig(): Promise<AuthConfigResponse> {
 }
 
 export async function listMyApiKeys(): Promise<MyApiKeyResponse[]> {
-  return apiFetch<MyApiKeyResponse[]>('/auth/api-keys/');
+  const data = await apiFetch<{ items: MyApiKeyResponse[]; total: number }>('/auth/api-keys/');
+  return data.items;
 }
 
 export async function createMyApiKey(name: string): Promise<ApiKeyCreateResponse> {

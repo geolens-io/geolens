@@ -560,13 +560,16 @@ async def create_saved_search_endpoint(
 
 @search_router.get("/saved", response_model=SavedSearchListResponse)
 async def list_saved_searches_endpoint(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> SavedSearchListResponse:
     """List saved searches for the authenticated user."""
-    searches = await list_saved_searches(db, user.id)
+    searches, total = await list_saved_searches(db, user.id, skip=skip, limit=limit)
     return SavedSearchListResponse(
-        searches=[SavedSearchResponse.model_validate(s) for s in searches]
+        searches=[SavedSearchResponse.model_validate(s) for s in searches],
+        total=total,
     )
 
 

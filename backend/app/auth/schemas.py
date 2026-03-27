@@ -68,3 +68,8 @@ class ApiKeyListItem(BaseModel):
     is_active: bool
     created_at: datetime
     last_used_at: datetime | None
+
+
+class ApiKeyListResponse(BaseModel):
+    items: list[ApiKeyListItem]
+    total: int
