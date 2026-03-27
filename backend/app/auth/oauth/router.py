@@ -142,7 +142,7 @@ async def oauth_callback(
         return RedirectResponse(url=error_url, status_code=302)
 
 
-@router.get("/providers", response_model=list[OAuthProviderPublic])
+@router.get("/providers/", response_model=list[OAuthProviderPublic])
 async def list_public_providers(
     db: AsyncSession = Depends(get_db),
 ) -> list[OAuthProviderPublic]:

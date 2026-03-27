@@ -57,7 +57,7 @@ def _user_response(user) -> UserResponse:
 
 
 @router.post(
-    "/users",
+    "/users/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("manage_users"))],
@@ -84,7 +84,7 @@ async def create_user(
 
 
 @router.get(
-    "/users",
+    "/users/",
     response_model=UserListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
 )
@@ -107,7 +107,7 @@ async def list_users(
 
 
 @router.get(
-    "/users/names",
+    "/users/names/",
     response_model=list[UserNameItem],
     dependencies=[Depends(require_permission("manage_users"))],
 )
@@ -280,7 +280,7 @@ async def delete_user(
 
 
 @router.get(
-    "/stats",
+    "/stats/",
     response_model=CatalogStatsResponse,
 )
 async def get_catalog_stats(
@@ -293,7 +293,7 @@ async def get_catalog_stats(
 
 
 @router.get(
-    "/jobs",
+    "/jobs/",
     response_model=AdminJobListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
 )
@@ -363,7 +363,7 @@ async def list_admin_jobs(
 
 
 @router.post(
-    "/api-keys",
+    "/api-keys/",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("manage_users"))],
@@ -397,7 +397,7 @@ async def create_api_key(
 
 
 @router.get(
-    "/api-keys",
+    "/api-keys/",
     response_model=AdminApiKeyListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
 )
@@ -624,7 +624,7 @@ async def get_infrastructure(
 
 
 @router.get(
-    "/share-tokens",
+    "/share-tokens/",
     response_model=AdminShareTokenListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
 )

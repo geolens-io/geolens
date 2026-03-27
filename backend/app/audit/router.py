@@ -16,7 +16,7 @@ from app.dependencies import get_db
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
-@router.get("/audit-logs", response_model=AuditLogListResponse)
+@router.get("/audit-logs/", response_model=AuditLogListResponse)
 async def list_audit_logs(
     user_id: uuid.UUID | None = Query(None),
     action: str | None = Query(None),

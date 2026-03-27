@@ -21,14 +21,14 @@ export async function searchDatasets(
   options?: RequestInit,
 ): Promise<SearchResponse> {
   const query = buildSearchParams(params);
-  return apiFetch<SearchResponse>(`/search/datasets?${query}`, options);
+  return apiFetch<SearchResponse>(`/search/datasets/?${query}`, options);
 }
 
 export async function fetchFacets(
   params: Record<string, string>,
 ): Promise<FacetResponse> {
   const query = buildSearchParams(params);
-  return apiFetch<FacetResponse>(`/search/facets?${query}`);
+  return apiFetch<FacetResponse>(`/search/facets/?${query}`);
 }
 
 export async function fetchCatalogSummary(): Promise<CatalogCollectionResponse> {

@@ -395,7 +395,7 @@ async def _handle_search(
 search_router = APIRouter(prefix="/search", tags=["Search"])
 
 
-@search_router.get("/facets")
+@search_router.get("/facets/")
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, description="Full-text search query"),
@@ -471,7 +471,7 @@ async def search_facets_endpoint(
     return result
 
 
-@search_router.get("/datasets", response_model=OGCFeatureCollectionResponse)
+@search_router.get("/datasets/", response_model=OGCFeatureCollectionResponse)
 async def search_datasets_endpoint(
     request: Request,
     q: str | None = Query(None, description="Full-text search query"),
@@ -542,7 +542,7 @@ async def search_datasets_endpoint(
 
 
 @search_router.post(
-    "/saved",
+    "/saved/",
     response_model=SavedSearchResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -558,7 +558,7 @@ async def create_saved_search_endpoint(
     return SavedSearchResponse.model_validate(saved)
 
 
-@search_router.get("/saved", response_model=SavedSearchListResponse)
+@search_router.get("/saved/", response_model=SavedSearchListResponse)
 async def list_saved_searches_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),

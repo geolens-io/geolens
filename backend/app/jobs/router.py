@@ -24,7 +24,7 @@ JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
 
 
-@router.post("/cleanup/stale")
+@router.post("/cleanup/stale/")
 async def cleanup_stale_jobs(
     user: User = Depends(require_permission("admin")),
     db: AsyncSession = Depends(get_db),
