@@ -214,7 +214,7 @@ async def test_search_text_match(
 ):
     """Search q=water returns the Water Boundaries dataset."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "water"},
         headers=admin_auth_header,
     )
@@ -233,7 +233,7 @@ async def test_search_text_empty_returns_all(
 ):
     """Search with no q param returns all visible datasets (at least our 5)."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"limit": 100},
         headers=admin_auth_header,
     )
@@ -251,7 +251,7 @@ async def test_search_text_prefix_match(
 ):
     """Short prefix searches still match obvious catalog titles."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "wet"},
         headers=admin_auth_header,
     )
@@ -274,7 +274,7 @@ async def test_search_bbox_intersects(
 ):
     """Search with NYC bbox returns datasets whose extent intersects NYC."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"bbox": "-74.1,40.6,-73.8,40.9", "limit": 100},
         headers=admin_auth_header,
     )
@@ -296,7 +296,7 @@ async def test_search_bbox_within(
 ):
     """Search with spatial_predicate=within returns only datasets fully inside bbox."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"bbox": "-180,-90,180,90", "spatial_predicate": "within", "limit": 100},
         headers=admin_auth_header,
     )
@@ -315,7 +315,7 @@ async def test_search_bbox_no_match(
     """Search with a remote bbox that has no intersections returns 0 results."""
     # Middle of Pacific Ocean
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"bbox": "170.0,-10.0,175.0,-5.0", "limit": 100},
         headers=admin_auth_header,
     )
@@ -341,7 +341,7 @@ async def test_search_filter_by_keywords(
 ):
     """Filter keywords=water returns only the water-keyworded dataset."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"keywords": "water", "limit": 100},
         headers=admin_auth_header,
     )
@@ -360,7 +360,7 @@ async def test_search_filter_by_geometry_type(
 ):
     """Filter geometry_type=Point returns only Point datasets."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"geometry_type": "Point", "limit": 100},
         headers=admin_auth_header,
     )
@@ -381,7 +381,7 @@ async def test_search_filter_by_srid(
 ):
     """Filter srid=2263 returns only datasets with that SRID."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"srid": 2263, "limit": 100},
         headers=admin_auth_header,
     )
@@ -408,7 +408,7 @@ async def test_search_filter_by_date_range(
     tomorrow = today + timedelta(days=1)
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={
             "date_from": yesterday.isoformat(),
             "date_to": tomorrow.isoformat(),
@@ -423,7 +423,7 @@ async def test_search_filter_by_date_range(
 
     # Now filter with a past date range that no dataset should match
     resp2 = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={
             "date_from": "2020-01-01",
             "date_to": "2020-01-31",
@@ -448,7 +448,7 @@ async def test_search_filter_by_vintage(
     """Filter by vintage_start/vintage_end narrows to matching vintage range."""
     # 2020-2023 should include water (2021-2022), roads (2023), buildings (2019-2020)
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={
             "vintage_start": "2021-01-01",
             "vintage_end": "2023-12-31",
@@ -497,7 +497,7 @@ async def test_search_by_keyword(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "hydrogeology", "limit": 100},
         headers=admin_auth_header,
     )
@@ -536,7 +536,7 @@ async def test_search_by_contact_name(
     await session.commit()
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "Weatherstone", "limit": 100},
         headers=admin_auth_header,
     )
@@ -574,7 +574,7 @@ async def test_search_by_contact_organization(
     await session.commit()
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "NationalGeographicSurvey", "limit": 100},
         headers=admin_auth_header,
     )
@@ -612,7 +612,7 @@ async def test_search_by_theme_category_camelcase(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "climatology", "limit": 100},
         headers=admin_auth_header,
     )
@@ -641,7 +641,7 @@ async def test_search_by_lineage_summary(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "LiDAR", "limit": 100},
         headers=admin_auth_header,
     )
@@ -664,7 +664,7 @@ async def test_search_sort_by_name(
 ):
     """Sort by title ascending returns alphabetical order."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"sort_by": "title", "limit": 100},
         headers=admin_auth_header,
     )
@@ -682,7 +682,7 @@ async def test_search_sort_by_frontend_name_alias(
 ):
     """Frontend sort_by=name alias should match title sorting."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"sort_by": "name", "limit": 100},
         headers=admin_auth_header,
     )
@@ -700,7 +700,7 @@ async def test_search_sort_by_date_added(
 ):
     """Sort by date_added returns newest first."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"sort_by": "date_added", "limit": 100},
         headers=admin_auth_header,
     )
@@ -725,7 +725,7 @@ async def test_search_pagination(
     # Use a specific text query to isolate our fixture datasets
     # Filter by geometry_type=MultiPolygon to get a known set
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"geometry_type": "MultiPolygon", "limit": 1, "offset": 0},
         headers=admin_auth_header,
     )
@@ -738,7 +738,7 @@ async def test_search_pagination(
 
     # Page 2
     resp2 = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"geometry_type": "MultiPolygon", "limit": 1, "offset": 1},
         headers=admin_auth_header,
     )
@@ -765,7 +765,7 @@ async def test_search_rbac_private_hidden(
 ):
     """Viewer cannot see private datasets in search results."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"limit": 100},
         headers=viewer_auth_header,
     )
@@ -889,7 +889,7 @@ async def test_ranking_published_boost(
     await session.commit()
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"sort_by": "relevance", "q": "Ranking", "limit": 100},
         headers=admin_auth_header,
     )
@@ -908,5 +908,5 @@ async def test_search_unauthenticated_returns_401(
     client: AsyncClient,
 ):
     """GET /search/datasets without token returns 401."""
-    resp = await client.get("/search/datasets")
+    resp = await client.get("/search/datasets/")
     assert resp.status_code == 401

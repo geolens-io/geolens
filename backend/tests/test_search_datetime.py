@@ -156,7 +156,7 @@ async def test_datetime_overlap_filter(
 ):
     """Datetime interval 2021-01-01/2021-12-31 returns 2020-2022 dataset, not 2023-2025."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"datetime": "2021-01-01/2021-12-31", "limit": 100},
         headers=admin_auth_header,
     )
@@ -175,7 +175,7 @@ async def test_datetime_open_end(
 ):
     """Datetime 2024-01-01/.. returns dataset 2023-2025."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"datetime": "2024-01-01/..", "limit": 100},
         headers=admin_auth_header,
     )
@@ -193,7 +193,7 @@ async def test_datetime_single_instant(
 ):
     """Datetime 2024-06-15 (instant) returns 2023-2025 but not 2020-2022."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"datetime": "2024-06-15", "limit": 100},
         headers=admin_auth_header,
     )
@@ -212,7 +212,7 @@ async def test_datetime_no_filter_returns_all(
 ):
     """Search without datetime returns all datasets including temporal and non-temporal."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"limit": 100},
         headers=admin_auth_header,
     )

@@ -161,7 +161,7 @@ async def test_conformance_f_unsupported_returns_400(client):
 
 async def test_ogc_record_includes_conforms_to(client, admin_auth_header):
     """OGC Record responses include conformsTo array."""
-    response = await client.get("/search/datasets", headers=admin_auth_header)
+    response = await client.get("/search/datasets/", headers=admin_auth_header)
     assert response.status_code == 200
     data = response.json()
     if data["features"]:

@@ -59,7 +59,7 @@ class TestUpload:
     async def test_upload_requires_auth(self, client: AsyncClient):
         """POST /ingest/upload without token returns 401."""
         resp = await client.post(
-            "/ingest/upload",
+            "/ingest/upload/",
             files={
                 "file": (
                     "test.geojson",
@@ -75,7 +75,7 @@ class TestUpload:
     ):
         """POST /ingest/upload with viewer token returns 403."""
         resp = await client.post(
-            "/ingest/upload",
+            "/ingest/upload/",
             files={
                 "file": (
                     "test.geojson",
@@ -92,7 +92,7 @@ class TestUpload:
     ):
         """POST /ingest/upload with a .txt file returns 400."""
         resp = await client.post(
-            "/ingest/upload",
+            "/ingest/upload/",
             files={"file": ("data.txt", b"some text content", "text/plain")},
             headers=admin_auth_header,
         )
@@ -110,7 +110,7 @@ class TestUpload:
         """POST /ingest/upload with valid file returns 201 with job_id."""
         geojson = b'{"type":"FeatureCollection","features":[]}'
         resp = await client.post(
-            "/ingest/upload",
+            "/ingest/upload/",
             files={"file": ("test.geojson", geojson, "application/json")},
             headers=admin_auth_header,
         )
@@ -146,7 +146,7 @@ class TestCsvUpload:
         """POST /ingest/upload with a valid CSV file returns 201 with job_id."""
         csv_content = b"id,name,value\n1,Alice,100\n2,Bob,200\n"
         resp = await client.post(
-            "/ingest/upload",
+            "/ingest/upload/",
             files={"file": ("data.csv", csv_content, "text/csv")},
             headers=admin_auth_header,
         )
@@ -174,7 +174,7 @@ class TestRegister:
     async def test_register_requires_auth(self, client: AsyncClient):
         """POST /ingest/register without token returns 401."""
         resp = await client.post(
-            "/ingest/register",
+            "/ingest/register/",
             json={
                 "table_name": "nonexistent",
                 "title": "Test",
@@ -187,7 +187,7 @@ class TestRegister:
     ):
         """POST /ingest/register with viewer token returns 403."""
         resp = await client.post(
-            "/ingest/register",
+            "/ingest/register/",
             json={
                 "table_name": "nonexistent",
                 "title": "Test",
@@ -201,7 +201,7 @@ class TestRegister:
     ):
         """POST /ingest/register with a table_name that doesn't exist returns 400."""
         resp = await client.post(
-            "/ingest/register",
+            "/ingest/register/",
             json={
                 "table_name": "totally_nonexistent_table_xyz",
                 "title": "Bad Table",
@@ -216,7 +216,7 @@ class TestRegister:
     ):
         """POST /ingest/register with SQL injection in table_name returns 400."""
         resp = await client.post(
-            "/ingest/register",
+            "/ingest/register/",
             json={
                 "table_name": "test'; DROP TABLE data.users; --",
                 "title": "Exploit",
@@ -231,7 +231,7 @@ class TestRegister:
     ):
         """POST /ingest/register with uppercase table_name returns 400."""
         resp = await client.post(
-            "/ingest/register",
+            "/ingest/register/",
             json={
                 "table_name": "MyTable",
                 "title": "Bad",
@@ -318,7 +318,7 @@ class TestJobStatus:
         unique = uuid.uuid4().hex[:8]
         username = f"editor_jobtest_{unique}"
         resp = await client.post(
-            "/admin/users",
+            "/admin/users/",
             json={"username": username, "password": "testpass123", "role": "editor"},
             headers=admin_auth_header,
         )
@@ -465,7 +465,7 @@ class TestCsvNonSpatialPipeline:
 
             # 2. Register via POST /ingest/register
             resp = await client.post(
-                "/ingest/register",
+                "/ingest/register/",
                 json={"table_name": table_name, "title": "Test CSV Table"},
                 headers=admin_auth_header,
             )
@@ -527,7 +527,7 @@ class TestCsvNonSpatialPipeline:
         await test_db_session.commit()
 
         resp = await client.post(
-            "/ingest/register",
+            "/ingest/register/",
             json={"table_name": table_name, "title": title},
             headers=admin_auth_header,
         )

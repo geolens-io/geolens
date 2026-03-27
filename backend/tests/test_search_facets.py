@@ -130,7 +130,7 @@ async def test_facets_returns_all_types(
 ):
     """GET /search/facets returns counts for all record types present."""
     resp = await client.get(
-        "/search/facets",
+        "/search/facets/",
         headers=admin_auth_header,
     )
     assert resp.status_code == 200
@@ -150,7 +150,7 @@ async def test_facets_with_text_filter(
 ):
     """GET /search/facets?q=Parks filters counts to matching datasets."""
     resp = await client.get(
-        "/search/facets",
+        "/search/facets/",
         params={"q": "Vector Parks Facet"},
         headers=admin_auth_header,
     )
@@ -183,7 +183,7 @@ async def test_facets_with_srid_filter(
     )
 
     resp = await client.get(
-        "/search/facets",
+        "/search/facets/",
         params={"srid": 3857},
         headers=admin_auth_header,
     )
@@ -193,7 +193,7 @@ async def test_facets_with_srid_filter(
     assert counts.get("vector_dataset", 0) >= 1
     # Count should be smaller than unfiltered total
     resp_all = await client.get(
-        "/search/facets",
+        "/search/facets/",
         headers=admin_auth_header,
     )
     all_counts = resp_all.json()["record_type"]
@@ -222,7 +222,7 @@ async def test_facets_includes_collection_count(
     await session.commit()
 
     resp = await client.get(
-        "/search/facets",
+        "/search/facets/",
         headers=admin_auth_header,
     )
     assert resp.status_code == 200
@@ -238,7 +238,7 @@ async def test_facets_returns_keyword_groups(
     facet_datasets: dict,
 ):
     """GET /search/facets returns keywords, source_organization, srid groups."""
-    resp = await client.get("/search/facets", headers=admin_auth_header)
+    resp = await client.get("/search/facets/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "record_type" in data

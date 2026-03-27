@@ -415,7 +415,7 @@ class TestExportAudit:
 
         # Query audit logs
         resp = await client.get(
-            "/admin/audit-logs",
+            "/admin/audit-logs/",
             params={"action": "dataset.export"},
             headers=admin_auth_header,
         )

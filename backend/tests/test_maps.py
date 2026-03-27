@@ -1579,7 +1579,7 @@ class TestAdminShareTokenListing:
         # Ensure at least one share token exists
         await _make_public_map_with_share_token(client, admin_auth_header)
 
-        resp = await client.get("/admin/share-tokens", headers=admin_auth_header)
+        resp = await client.get("/admin/share-tokens/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert "tokens" in data
@@ -1652,7 +1652,7 @@ class TestAdminShareTokenListing:
     ):
         """GET /admin/share-tokens as viewer returns 403."""
         resp = await client.get(
-            "/admin/share-tokens", headers=viewer_auth_header
+            "/admin/share-tokens/", headers=viewer_auth_header
         )
         assert resp.status_code == 403
 

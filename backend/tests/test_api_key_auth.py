@@ -25,11 +25,11 @@ async def test_create_api_key(client: AsyncClient):
     admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
 
     # Get admin user id
-    me_resp = await client.get("/auth/me", headers=admin_headers)
+    me_resp = await client.get("/auth/me/", headers=admin_headers)
     admin_id = me_resp.json()["id"]
 
     resp = await client.post(
-        "/admin/api-keys",
+        "/admin/api-keys/",
         json={"user_id": admin_id, "name": "Test Key"},
         headers=admin_headers,
     )
@@ -45,12 +45,12 @@ async def test_create_api_key(client: AsyncClient):
 async def test_api_key_authenticates_to_search(client: AsyncClient):
     """Create API key, use raw key in X-Api-Key header to call GET /search/datasets."""
     admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
-    me_resp = await client.get("/auth/me", headers=admin_headers)
+    me_resp = await client.get("/auth/me/", headers=admin_headers)
     admin_id = me_resp.json()["id"]
 
     # Create API key
     resp = await client.post(
-        "/admin/api-keys",
+        "/admin/api-keys/",
         json={"user_id": admin_id, "name": "Search Key"},
         headers=admin_headers,
     )
@@ -58,7 +58,7 @@ async def test_api_key_authenticates_to_search(client: AsyncClient):
 
     # Use API key to access authenticated endpoint
     search_resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         headers={"X-Api-Key": raw_key},
     )
     assert search_resp.status_code == 200
@@ -68,11 +68,11 @@ async def test_api_key_authenticates_to_search(client: AsyncClient):
 async def test_api_key_authenticates_to_collection_items(client: AsyncClient):
     """Use API key to call GET /collections/datasets/items. Assert 200."""
     admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
-    me_resp = await client.get("/auth/me", headers=admin_headers)
+    me_resp = await client.get("/auth/me/", headers=admin_headers)
     admin_id = me_resp.json()["id"]
 
     resp = await client.post(
-        "/admin/api-keys",
+        "/admin/api-keys/",
         json={"user_id": admin_id, "name": "Collection Key"},
         headers=admin_headers,
     )
@@ -89,7 +89,7 @@ async def test_api_key_authenticates_to_collection_items(client: AsyncClient):
 async def test_invalid_api_key_returns_401(client: AsyncClient):
     """Call GET /search/datasets with invalid X-Api-Key. Assert 401."""
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         headers={"X-Api-Key": "invalid-key-value"},
     )
     assert resp.status_code == 401
@@ -99,12 +99,12 @@ async def test_invalid_api_key_returns_401(client: AsyncClient):
 async def test_revoked_api_key_returns_401(client: AsyncClient):
     """Create key, revoke via DELETE, then try to use it. Assert 401."""
     admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
-    me_resp = await client.get("/auth/me", headers=admin_headers)
+    me_resp = await client.get("/auth/me/", headers=admin_headers)
     admin_id = me_resp.json()["id"]
 
     # Create key
     resp = await client.post(
-        "/admin/api-keys",
+        "/admin/api-keys/",
         json={"user_id": admin_id, "name": "Revoke Me"},
         headers=admin_headers,
     )
@@ -121,7 +121,7 @@ async def test_revoked_api_key_returns_401(client: AsyncClient):
 
     # Try using revoked key on authenticated endpoint
     search_resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         headers={"X-Api-Key": raw_key},
     )
     assert search_resp.status_code == 401
@@ -156,7 +156,7 @@ async def test_list_api_keys(client: AsyncClient):
         name = f"list-test-key-{uuid.uuid4().hex[:6]}"
         key_names.add(name)
         await client.post(
-            "/admin/api-keys",
+            "/admin/api-keys/",
             json={"user_id": viewer_id, "name": name},
             headers=admin_headers,
         )
@@ -191,7 +191,7 @@ async def test_api_key_inherits_user_roles(client: AsyncClient):
 
     # Create API key for the viewer
     resp = await client.post(
-        "/admin/api-keys",
+        "/admin/api-keys/",
         json={"user_id": viewer_id, "name": "Viewer API Key"},
         headers=admin_headers,
     )
@@ -200,14 +200,14 @@ async def test_api_key_inherits_user_roles(client: AsyncClient):
 
     # Viewer can access search (requires authentication, viewer has access)
     search_resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         headers={"X-Api-Key": raw_key},
     )
     assert search_resp.status_code == 200
 
     # Viewer cannot access admin endpoints (requires admin role)
     admin_resp = await client.get(
-        "/admin/users",
+        "/admin/users/",
         headers={"X-Api-Key": raw_key},
     )
     assert admin_resp.status_code == 403

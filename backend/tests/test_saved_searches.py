@@ -26,7 +26,7 @@ async def test_create_saved_search(
 ):
     """POST /search/saved creates a saved search and returns it."""
     resp = await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={
             "name": "My Search",
             "params": {"q": "rivers", "geometry_type": "LineString"},
@@ -49,18 +49,18 @@ async def test_list_saved_searches(
     """GET /search/saved returns all saved searches for the user, newest first."""
     # Create two saved searches
     await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={"name": "First Search", "params": {"q": "parks"}},
         headers=admin_auth_header,
     )
     resp2 = await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={"name": "Second Search", "params": {"q": "lakes"}},
         headers=admin_auth_header,
     )
     assert resp2.status_code == 201
 
-    resp = await client.get("/search/saved", headers=admin_auth_header)
+    resp = await client.get("/search/saved/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     names = [s["name"] for s in data["searches"]]
@@ -79,7 +79,7 @@ async def test_load_saved_search(
 ):
     """GET /search/saved/{id} returns the saved search with correct params."""
     create_resp = await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={"name": "Load Test", "params": {"q": "bridges", "srid": 4326}},
         headers=admin_auth_header,
     )
@@ -105,7 +105,7 @@ async def test_delete_saved_search(
 ):
     """DELETE /search/saved/{id} removes the search, and it no longer appears in list."""
     create_resp = await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={"name": "To Delete", "params": {"q": "temp"}},
         headers=admin_auth_header,
     )
@@ -135,7 +135,7 @@ async def test_cannot_access_other_users_saved_search(
     """User B cannot GET or DELETE a saved search owned by User A."""
     # Create a saved search as admin (User A)
     create_resp = await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={"name": "Admin Only", "params": {"q": "secret"}},
         headers=admin_auth_header,
     )
@@ -166,7 +166,7 @@ async def test_create_saved_search_unauthenticated(
 ):
     """POST /search/saved without auth returns 401."""
     resp = await client.post(
-        "/search/saved",
+        "/search/saved/",
         json={"name": "No Auth", "params": {"q": "test"}},
     )
     assert resp.status_code == 401

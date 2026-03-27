@@ -238,7 +238,7 @@ async def get_auth_header(
 ) -> dict[str, str]:
     """Log in via POST /auth/login and return an Authorization header dict."""
     resp = await client.post(
-        "/auth/login",
+        "/auth/login/",
         data={"username": username, "password": password},
     )
     assert resp.status_code == 200, f"Login failed for {username}: {resp.text}"
@@ -256,7 +256,7 @@ async def _create_test_user(
     username = f"{role}_{unique}"
     password = "testpass123"
     resp = await client.post(
-        "/admin/users",
+        "/admin/users/",
         json={"username": username, "password": password, "role": role},
         headers=admin_headers,
     )

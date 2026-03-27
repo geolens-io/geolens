@@ -135,6 +135,34 @@ async def test_rate_limit_health_excluded(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_ai_endpoint_rate_limit(client: AsyncClient, admin_auth_header: dict):
+    """AI endpoints respect their per-route rate limit (10/minute for generate)."""
+    from app.auth.router import limiter
+
+    original_enabled = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+
+        results = []
+        for _ in range(12):
+            resp = await client.post(
+                "/ai/generate-map/",
+                json={"prompt": "test"},
+                headers=admin_auth_header,
+            )
+            results.append(resp.status_code)
+
+        # Expect 429 to appear after exceeding 10/minute limit.
+        # Early responses may be 403 (AI disabled) or 503 (no API key) — that's fine,
+        # the rate limiter fires before the endpoint body runs.
+        assert 429 in results, f"Expected at least one 429 in {results}"
+    finally:
+        limiter.enabled = original_enabled
+        limiter._storage.reset()
+
+
+@pytest.mark.anyio
 async def test_global_rate_limit_configurable(client: AsyncClient):
     """Global rate limit is configurable and defaults to 60/second."""
     from app.auth.router import _global_rate_limit

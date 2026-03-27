@@ -637,7 +637,7 @@ class TestCollectionAudit:
 
         # Check audit logs
         resp = await client.get(
-            "/admin/audit-logs",
+            "/admin/audit-logs/",
             params={"action": "collection.create"},
             headers=admin_auth_header,
         )

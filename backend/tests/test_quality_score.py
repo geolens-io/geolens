@@ -233,7 +233,7 @@ async def test_quality_score_in_search_results(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "Scored Rivers", "limit": 100},
         headers=admin_auth_header,
     )

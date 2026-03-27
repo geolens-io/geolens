@@ -78,7 +78,7 @@ async def _search_feature(
     dataset_id: uuid.UUID,
 ) -> dict:
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": query, "limit": 50},
         headers=auth_header,
     )
