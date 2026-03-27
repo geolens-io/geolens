@@ -19,31 +19,29 @@ async def test_get_branding_default(client: AsyncClient):
 async def test_put_branding_returns_404_community(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PUT /api/settings/branding/ returns 404 in community mode (no enterprise)."""
+    """PUT /api/settings/branding/ returns 405 in community mode (no PUT route)."""
     resp = await client.put(
         "/api/settings/branding/",
         json={"show_badge": False},
         headers=admin_auth_header,
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 405
 
 
 @pytest.mark.anyio
 async def test_put_branding_invalid_body(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PUT /api/settings/branding/ with invalid body returns 422.
+    """PUT /api/settings/branding/ with invalid body returns 405.
 
-    Note: In community mode, require_enterprise fires first (404).
-    This test validates the enterprise gate takes precedence.
+    Note: In community mode, no PUT route exists (enterprise only).
     """
     resp = await client.put(
         "/api/settings/branding/",
         json={"wrong_key": "value"},
         headers=admin_auth_header,
     )
-    # Enterprise gate fires before body validation
-    assert resp.status_code == 404
+    assert resp.status_code == 405
 
 
 @pytest.mark.anyio
