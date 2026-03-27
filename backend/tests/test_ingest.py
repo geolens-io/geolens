@@ -365,7 +365,7 @@ class TestJobStatus:
 class TestJobCleanup:
     async def test_cleanup_requires_admin(self, client: AsyncClient):
         """POST /jobs/cleanup/stale without auth returns 401."""
-        resp = await client.post("/jobs/cleanup/stale")
+        resp = await client.post("/jobs/cleanup/stale/")
         assert resp.status_code == 401
 
     async def test_cleanup_stale_jobs(
@@ -404,7 +404,7 @@ class TestJobCleanup:
         await test_db_session.commit()
         await test_db_session.refresh(fresh_job)
 
-        resp = await client.post("/jobs/cleanup/stale", headers=admin_auth_header)
+        resp = await client.post("/jobs/cleanup/stale/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert data["pending_failed"] >= 1
