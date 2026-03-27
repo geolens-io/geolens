@@ -452,11 +452,11 @@ class TestAttributeAPI:
         client: AsyncClient,
         test_db_session: AsyncSession,
     ):
-        """GET without token returns 401."""
+        """GET without token on public dataset returns 200 (anonymous allowed)."""
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(f"/datasets/{ds.id}/attributes/")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     async def test_patch_requires_editor(
         self,
