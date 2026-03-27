@@ -303,11 +303,11 @@ class TestContacts:
     async def test_contact_requires_auth(
         self, client: AsyncClient, test_db_session: AsyncSession
     ):
-        """GET contacts without token returns 401."""
+        """GET contacts without token returns 200 (anonymous allowed on public datasets)."""
         admin_id = await _get_user_id(test_db_session, "admin")
         ds = await _create_dataset(test_db_session, created_by=admin_id)
         resp = await client.get(f"/records/{ds.record_id}/contacts/")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     async def test_contact_create_requires_editor(
         self,

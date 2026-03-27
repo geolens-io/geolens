@@ -904,9 +904,9 @@ async def test_ranking_published_boost(
 
 
 @pytest.mark.anyio
-async def test_search_unauthenticated_returns_401(
+async def test_search_unauthenticated_returns_200(
     client: AsyncClient,
 ):
-    """GET /search/datasets without token returns 401."""
+    """GET /search/datasets without token returns 200 (anonymous access allowed)."""
     resp = await client.get("/search/datasets/")
-    assert resp.status_code == 401
+    assert resp.status_code == 200
