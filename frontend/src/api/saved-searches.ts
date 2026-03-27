@@ -9,14 +9,14 @@ export interface SavedSearch {
 }
 
 export async function fetchSavedSearches(): Promise<{ searches: SavedSearch[]; total: number }> {
-  return apiFetch<{ searches: SavedSearch[]; total: number }>('/search/saved');
+  return apiFetch<{ searches: SavedSearch[]; total: number }>('/search/saved/');
 }
 
 export async function createSavedSearch(data: {
   name: string;
   params: Record<string, string>;
 }): Promise<SavedSearch> {
-  return apiFetch<SavedSearch>('/search/saved', {
+  return apiFetch<SavedSearch>('/search/saved/', {
     method: 'POST',
     body: JSON.stringify(data),
   });

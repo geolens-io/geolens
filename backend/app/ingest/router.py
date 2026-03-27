@@ -81,7 +81,7 @@ async def get_upload_config(
 
 
 @router.post(
-    "/upload/presigned",
+    "/upload/presigned/",
     response_model=PresignedUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -207,7 +207,7 @@ async def complete_presigned_upload(
 
 
 @router.post(
-    "/upload",
+    "/upload/",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -493,7 +493,7 @@ async def commit_import(
 
 
 @router.post(
-    "/register",
+    "/register/",
     response_model=TableRegisterResponse,
     status_code=status.HTTP_201_CREATED,
 )

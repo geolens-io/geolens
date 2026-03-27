@@ -23,7 +23,7 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
 
-  return apiFetch<UploadResponse>('/ingest/upload', {
+  return apiFetch<UploadResponse>('/ingest/upload/', {
     method: 'POST',
     body: formData,
   });
@@ -32,7 +32,7 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
 export async function registerTable(
   request: RegisterRequest,
 ): Promise<RegisterResponse> {
-  return apiFetch<RegisterResponse>('/ingest/register', {
+  return apiFetch<RegisterResponse>('/ingest/register/', {
     method: 'POST',
     body: JSON.stringify(request),
   });
@@ -107,7 +107,7 @@ export async function requestPresignedUpload(
   fileSize: number,
   contentType?: string,
 ): Promise<PresignedUploadResponse> {
-  return apiFetch<PresignedUploadResponse>('/ingest/upload/presigned', {
+  return apiFetch<PresignedUploadResponse>('/ingest/upload/presigned/', {
     method: 'POST',
     body: JSON.stringify({
       filename,

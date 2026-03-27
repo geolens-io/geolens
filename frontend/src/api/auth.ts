@@ -6,7 +6,7 @@ export async function login(
   username: string,
   password: string,
 ): Promise<TokenResponse> {
-  const response = await fetch(`${API_BASE}/auth/login`, {
+  const response = await fetch(`${API_BASE}/auth/login/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username, password }),
@@ -29,7 +29,7 @@ export async function login(
 }
 
 export async function getMe(): Promise<UserResponse> {
-  return apiFetch<UserResponse>('/auth/me');
+  return apiFetch<UserResponse>('/auth/me/');
 }
 
 export async function registerUser(data: {
@@ -37,7 +37,7 @@ export async function registerUser(data: {
   password: string;
   email: string;
 }): Promise<MessageResponse> {
-  const response = await fetch(`${API_BASE}/auth/register`, {
+  const response = await fetch(`${API_BASE}/auth/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -54,7 +54,7 @@ export async function registerUser(data: {
 }
 
 export async function getAuthConfig(): Promise<AuthConfigResponse> {
-  const response = await fetch(`${API_BASE}/auth/config`);
+  const response = await fetch(`${API_BASE}/auth/config/`);
   if (!response.ok) throw new Error('Failed to fetch auth config');
   return response.json() as Promise<AuthConfigResponse>;
 }
@@ -76,12 +76,12 @@ export async function revokeMyApiKey(keyId: string): Promise<void> {
 }
 
 export async function getMyPermissions(): Promise<{ permissions: Record<string, boolean> }> {
-  return apiFetch('/auth/me/permissions');
+  return apiFetch('/auth/me/permissions/');
 }
 
 export async function getOAuthProviders(): Promise<OAuthProviderPublic[]> {
   try {
-    const response = await fetch(`${API_BASE}/auth/oauth/providers`);
+    const response = await fetch(`${API_BASE}/auth/oauth/providers/`);
     if (!response.ok) return [];
     return (await response.json()) as OAuthProviderPublic[];
   } catch {
@@ -92,7 +92,7 @@ export async function getOAuthProviders(): Promise<OAuthProviderPublic[]> {
 export async function refreshAccessToken(
   refreshToken: string,
 ): Promise<TokenResponse> {
-  const response = await fetch(`${API_BASE}/auth/refresh`, {
+  const response = await fetch(`${API_BASE}/auth/refresh/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),

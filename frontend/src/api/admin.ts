@@ -19,7 +19,7 @@ import type {
 } from '@/types/api';
 
 export async function getCatalogStats(): Promise<CatalogStatsResponse> {
-  return apiFetch<CatalogStatsResponse>('/admin/stats');
+  return apiFetch<CatalogStatsResponse>('/admin/stats/');
 }
 
 export async function listUsers(
@@ -31,11 +31,11 @@ export async function listUsers(
   if (params.status) query.set('status', params.status);
   if (params.search) query.set('search', params.search);
   const qs = query.toString();
-  return apiFetch<UserListResponse>(`/admin/users${qs ? `?${qs}` : ''}`);
+  return apiFetch<UserListResponse>(`/admin/users/${qs ? `?${qs}` : ''}`);
 }
 
 export async function listUserNames(): Promise<{ id: string; username: string }[]> {
-  return apiFetch<{ id: string; username: string }[]>('/admin/users/names');
+  return apiFetch<{ id: string; username: string }[]>('/admin/users/names/');
 }
 
 export async function listAdminJobs(
@@ -48,7 +48,7 @@ export async function listAdminJobs(
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   const qs = query.toString();
-  return apiFetch<AdminJobListResponse>(`/admin/jobs${qs ? `?${qs}` : ''}`);
+  return apiFetch<AdminJobListResponse>(`/admin/jobs/${qs ? `?${qs}` : ''}`);
 }
 
 export async function listAuditLogs(
@@ -71,7 +71,7 @@ export async function listAuditLogs(
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   const qs = query.toString();
-  return apiFetch<AuditLogListResponse>(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
+  return apiFetch<AuditLogListResponse>(`/admin/audit-logs/${qs ? `?${qs}` : ''}`);
 }
 
 // User CRUD
@@ -81,7 +81,7 @@ export async function createUser(data: {
   email?: string;
   role: string;
 }): Promise<UserResponse> {
-  return apiFetch<UserResponse>('/admin/users', { method: 'POST', body: JSON.stringify(data) });
+  return apiFetch<UserResponse>('/admin/users/', { method: 'POST', body: JSON.stringify(data) });
 }
 
 export async function updateUser(userId: string, data: {
@@ -110,12 +110,12 @@ export async function rejectUser(userId: string): Promise<void> {
 
 // API Key management
 export async function listApiKeys(userId: string): Promise<ApiKeyResponse[]> {
-  const data = await apiFetch<{ items: ApiKeyResponse[]; total: number }>(`/admin/api-keys?user_id=${userId}`);
+  const data = await apiFetch<{ items: ApiKeyResponse[]; total: number }>(`/admin/api-keys/?user_id=${userId}`);
   return data.items;
 }
 
 export async function createApiKey(userId: string, name: string): Promise<ApiKeyCreateResponse> {
-  return apiFetch<ApiKeyCreateResponse>('/admin/api-keys', {
+  return apiFetch<ApiKeyCreateResponse>('/admin/api-keys/', {
     method: 'POST',
     body: JSON.stringify({ user_id: userId, name }),
   });
@@ -135,7 +135,7 @@ export async function listShareTokens(
   if (params.search) query.set('search', params.search);
   if (params.status) query.set('status', params.status);
   const qs = query.toString();
-  return apiFetch<AdminShareTokenListResponse>(`/admin/share-tokens${qs ? `?${qs}` : ''}`);
+  return apiFetch<AdminShareTokenListResponse>(`/admin/share-tokens/${qs ? `?${qs}` : ''}`);
 }
 
 export async function adminRevokeShareToken(tokenId: string): Promise<void> {

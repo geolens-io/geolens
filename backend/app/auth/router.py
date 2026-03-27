@@ -52,7 +52,7 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login/", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
 async def login(
     request: Request,
@@ -105,7 +105,7 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh/", response_model=TokenResponse)
 async def refresh(
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
@@ -135,7 +135,7 @@ async def refresh(
 
 
 @router.post(
-    "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
+    "/register/", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
 )
 async def register(
     body: UserCreate,
@@ -167,7 +167,7 @@ async def register(
     )
 
 
-@router.get("/config", response_model=ConfigResponse)
+@router.get("/config/", response_model=ConfigResponse)
 async def config(
     db: AsyncSession = Depends(get_db),
 ) -> ConfigResponse:
@@ -176,7 +176,7 @@ async def config(
     return ConfigResponse(registration_enabled=reg_enabled)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me/", response_model=UserResponse)
 async def me(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -196,7 +196,7 @@ async def me(
     )
 
 
-@router.get("/me/permissions", response_model=PermissionsResponse)
+@router.get("/me/permissions/", response_model=PermissionsResponse)
 async def me_permissions(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
