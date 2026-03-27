@@ -249,10 +249,10 @@ async def test_collections_list_content_type_is_json(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_search_datasets_still_requires_auth(client: AsyncClient):
-    """GET /search/datasets with no auth returns 401."""
+async def test_search_datasets_allows_anonymous(client: AsyncClient):
+    """GET /search/datasets with no auth returns 200 (anonymous access allowed)."""
     resp = await client.get("/search/datasets/")
-    assert resp.status_code == 401
+    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
