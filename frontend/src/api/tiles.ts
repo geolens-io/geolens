@@ -16,6 +16,7 @@ export type RasterTileToken = {
   minzoom: number;
   maxzoom: number;
   tile_size: number;
+  format: string;
 };
 
 export type TileToken = VectorTileToken | RasterTileToken;
