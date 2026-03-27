@@ -267,7 +267,7 @@ class TestAdminUserNames:
     async def test_returns_id_and_username(self, client: AsyncClient):
         """GET /admin/users/names returns lightweight user list."""
         headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
-        resp = await client.get("/admin/users/names", headers=headers)
+        resp = await client.get("/admin/users/names/", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -289,12 +289,12 @@ class TestAdminUserNames:
             client, admin_headers, username=f"viewer_{unique}", role="viewer"
         )
         viewer_headers = await get_auth_header(client, f"viewer_{unique}", "testpass123")
-        resp = await client.get("/admin/users/names", headers=viewer_headers)
+        resp = await client.get("/admin/users/names/", headers=viewer_headers)
         assert resp.status_code == 403
 
     async def test_unauthenticated(self, client: AsyncClient):
         """Unauthenticated request returns 401."""
-        resp = await client.get("/admin/users/names")
+        resp = await client.get("/admin/users/names/")
         assert resp.status_code == 401
 
 
