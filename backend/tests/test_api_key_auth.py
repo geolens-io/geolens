@@ -87,9 +87,9 @@ async def test_api_key_authenticates_to_collection_items(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_invalid_api_key_returns_401(client: AsyncClient):
-    """Call GET /search/datasets with invalid X-Api-Key. Assert 401."""
+    """Call GET /auth/me/ with invalid X-Api-Key. Assert 401."""
     resp = await client.get(
-        "/search/datasets/",
+        "/auth/me/",
         headers={"X-Api-Key": "invalid-key-value"},
     )
     assert resp.status_code == 401
@@ -121,7 +121,7 @@ async def test_revoked_api_key_returns_401(client: AsyncClient):
 
     # Try using revoked key on authenticated endpoint
     search_resp = await client.get(
-        "/search/datasets/",
+        "/auth/me/",
         headers={"X-Api-Key": raw_key},
     )
     assert search_resp.status_code == 401
