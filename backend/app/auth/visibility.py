@@ -106,6 +106,22 @@ async def get_user_roles(db: AsyncSession, user: User) -> set[str]:
     return {row[0] for row in result.all()}
 
 
+async def check_dataset_access_or_anonymous(
+    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: User | None
+) -> None:
+    """Enforce visibility for both authenticated and anonymous users.
+
+    Anonymous users may only access public + published datasets.
+    Authenticated users follow the full RBAC rules via check_dataset_access().
+    """
+    if user is None:
+        record = dataset.record
+        if record.visibility != "public" or record.record_status != "published":
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        return
+    await check_dataset_access(db, dataset, dataset_id, user)
+
+
 async def check_dataset_access(
     db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: User
 ) -> None:

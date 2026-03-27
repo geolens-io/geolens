@@ -48,12 +48,15 @@ export const appRoutes = (
     <Route path="/register" element={<RegisterPage />} />
     <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
     <Route path="/m/:token" element={<PublicViewerPage />} />
-    <Route element={<ProtectedRoute />}>
-      <Route element={<AppLayout />}>
-        <Route index element={<SearchPage />} />
-        <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
-        <Route path="collections" element={<CollectionsPage />} />
-        <Route path="collections/:id" element={<CollectionDetailPage />} />
+    <Route element={<AppLayout />}>
+      {/* Public routes — no auth required */}
+      <Route index element={<SearchPage />} />
+      <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="collections" element={<CollectionsPage />} />
+      <Route path="collections/:id" element={<CollectionDetailPage />} />
+
+      {/* Protected routes — auth required */}
+      <Route element={<ProtectedRoute />}>
         <Route path="settings" element={<SettingsPage />} />
         <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} />
@@ -87,8 +90,8 @@ export const appRoutes = (
             <Route path="admin/infrastructure" element={<Navigate to="/admin/overview" replace />} />
           </Route>
         </Route>
-        <Route path="*" element={<NotFoundPage />} />
       </Route>
+      <Route path="*" element={<NotFoundPage />} />
     </Route>
   </Route>
 );

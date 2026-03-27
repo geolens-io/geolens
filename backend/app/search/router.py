@@ -413,7 +413,7 @@ async def search_facets_endpoint(
     spatial_predicate: Literal["intersects", "within"] = Query("intersects", description="Spatial predicate: intersects or within"),
     geometry: str | None = Query(None, description="GeoJSON geometry for spatial filter"),
     collection_id: uuid.UUID | None = Query(None, description="Filter by collection membership"),
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return record_type facet counts for the given filters."""
@@ -506,7 +506,7 @@ async def search_datasets_endpoint(
     spatial_predicate: Literal["intersects", "within"] = Query("intersects", description="Spatial predicate: intersects or within"),
     geometry: str | None = Query(None, description="GeoJSON geometry for spatial filter"),
     collection_id: uuid.UUID | None = Query(None, description="Filter by collection membership"),
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""

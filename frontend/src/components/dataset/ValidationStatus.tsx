@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
 import { useValidation } from '@/hooks/use-dataset';
 import { useAllSettings } from '@/hooks/use-settings';
+import { useAuthStore } from '@/stores/auth-store';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,9 +24,10 @@ export function ValidationStatus({
   onNavigateToField,
 }: ValidationStatusProps) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useValidation(datasetId);
+  const token = useAuthStore((s) => s.token);
+  const { data, isLoading } = useValidation(token ? datasetId : undefined);
   const [troubleshootOpen, setTroubleshootOpen] = useState(false);
-  const { data: allSettings } = useAllSettings();
+  const { data: allSettings } = useAllSettings({ enabled: !!token });
   const requireMetadata = allSettings?.tabs?.general?.find(
     (s: { key: string }) => s.key === 'require_metadata_for_publish'
   )?.value ?? false;

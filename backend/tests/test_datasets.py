@@ -327,3 +327,173 @@ class TestUpdateMetadata:
         )
         assert resp.status_code == 200
         assert resp.json()["visibility"] == "restricted"
+
+
+# ---------------------------------------------------------------------------
+# Anonymous access tests
+# ---------------------------------------------------------------------------
+
+
+class TestAnonymousAccess:
+    """Verify anonymous (no auth) users can access public resources."""
+
+    async def test_anon_get_public_dataset(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id} returns 200 for public+published dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Anon Public DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}")
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "Anon Public DS"
+
+    async def test_anon_get_private_dataset_returns_404(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id} returns 404 for private dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            name="Anon Private DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}")
+        assert resp.status_code == 404
+
+    async def test_anon_search_returns_public_only(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /search/datasets returns only public+published datasets."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        pub = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Search Public",
+        )
+        priv = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            name="Search Private",
+        )
+        resp = await client.get("/search/datasets")
+        assert resp.status_code == 200
+        ids = [f["id"] for f in resp.json()["features"]]
+        assert str(pub.id) in ids
+        assert str(priv.id) not in ids
+
+    async def test_anon_search_facets(self, client: AsyncClient):
+        """Anonymous GET /search/facets returns 200."""
+        resp = await client.get("/search/facets")
+        assert resp.status_code == 200
+
+    async def test_anon_get_dataset_rows_public(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id}/rows returns 200 for public dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Anon Rows DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}/rows")
+        # 200 or 404 (no data table), but NOT 401
+        assert resp.status_code != 401
+
+    async def test_anon_get_restricted_dataset_returns_404(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id} returns 404 for restricted dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="restricted",
+            name="Anon Restricted DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}")
+        assert resp.status_code == 404
+
+    async def test_anon_get_attributes_public(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id}/attributes/ returns non-401 for public dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Anon Attrs DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}/attributes/")
+        assert resp.status_code != 401
+
+    async def test_anon_get_validate_public(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id}/validate/ returns non-401 for public dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Anon Validate DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}/validate/")
+        assert resp.status_code != 401
+
+    async def test_anon_get_versions_public(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id}/versions returns non-401 for public dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Anon Versions DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}/versions")
+        assert resp.status_code != 401
+
+    async def test_anon_get_history_public(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Anonymous GET /datasets/{id}/history returns non-401 for public dataset."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            name="Anon History DS",
+        )
+        resp = await client.get(f"/datasets/{ds.id}/history")
+        assert resp.status_code != 401
+
+    async def test_anon_collections_list(self, client: AsyncClient):
+        """Anonymous GET /catalog/collections/ returns 200."""
+        resp = await client.get("/catalog/collections/")
+        assert resp.status_code == 200
+
+    async def test_anon_protected_routes_return_401(self, client: AsyncClient):
+        """Anonymous access to protected endpoints returns 401."""
+        # Settings (admin-only)
+        resp = await client.get("/settings/all/")
+        assert resp.status_code == 401
+
+        # Import (editor-only)
+        resp = await client.post("/ingest/upload")
+        assert resp.status_code in (401, 422)  # 422 if missing body, but auth checked first
+
+        # Admin users
+        resp = await client.get("/admin/users")
+        assert resp.status_code == 401

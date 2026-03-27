@@ -27,6 +27,7 @@ import { DetailPanel } from '@/components/dataset/panels/DetailPanel';
 import { PendingEditsBar } from '@/components/dataset/PendingEditsBar';
 import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
+import { AuthPrompt } from '@/components/auth/AuthPrompt';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
@@ -84,8 +85,9 @@ export function DatasetPage() {
   const [vrtOpen, setVrtOpen] = useState(false);
   const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
   const updatePublicationStatus = useUpdatePublicationStatus();
-  const { data: validationData } = useValidation(id);
-  const { data: allSettings } = useAllSettings();
+  const token = useAuthStore((s) => s.token);
+  const { data: validationData } = useValidation(token ? id : undefined);
+  const { data: allSettings } = useAllSettings({ enabled: !!token });
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -451,7 +453,8 @@ export function DatasetPage() {
         statsLine={statsLine}
         leadingContent={
           <div className="flex items-center gap-2">
-            {!isTable && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
+            {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
+            {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
             {isRaster && dataset.raster?.connect && (
               <Button asChild variant="default" size="sm">
                 <a href={`/api/datasets/${dataset.id}/download/cog`} download>

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_active_user, require_permission
+from app.auth.dependencies import get_current_active_user, get_optional_user, require_permission
 from app.auth.models import User
 from app.dependencies import get_db
 from app.records.schemas import (
@@ -48,7 +48,7 @@ router = APIRouter(prefix="/records", tags=["Records"])
 @router.get("/{record_id}/contacts/", response_model=ContactListResponse)
 async def list_contacts_endpoint(
     record_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ContactListResponse:
     """List all contacts for a record."""
@@ -57,6 +57,8 @@ async def list_contacts_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
+    if user is None and (record.visibility != "public" or record.record_status != "published"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     contacts = await list_contacts(db, record_id)
     return ContactListResponse(
         contacts=[ContactResponse.model_validate(c) for c in contacts],
@@ -159,7 +161,7 @@ async def delete_contact_endpoint(
 @router.get("/{record_id}/keywords/", response_model=KeywordListResponse)
 async def list_keywords_endpoint(
     record_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> KeywordListResponse:
     """List all keywords for a record."""
@@ -168,6 +170,8 @@ async def list_keywords_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
+    if user is None and (record.visibility != "public" or record.record_status != "published"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     keywords = await list_keywords(db, record_id)
     return KeywordListResponse(
         keywords=[KeywordResponse.model_validate(k) for k in keywords],
@@ -238,7 +242,7 @@ async def delete_keyword_endpoint(
 @router.get("/{record_id}/distributions/", response_model=DistributionListResponse)
 async def list_distributions_endpoint(
     record_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DistributionListResponse:
     """List all distributions for a record."""
@@ -247,6 +251,8 @@ async def list_distributions_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
+    if user is None and (record.visibility != "public" or record.record_status != "published"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
     distributions = await list_distributions(db, record_id)
     return DistributionListResponse(
         distributions=[DistributionResponse.model_validate(d) for d in distributions],

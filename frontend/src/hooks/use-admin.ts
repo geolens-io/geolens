@@ -166,11 +166,12 @@ export function useRejectUser() {
 }
 
 // AI Status
-export function useAIStatus() {
+export function useAIStatus(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['admin', 'ai-status'],
     queryFn: getAIStatus,
     staleTime: 30_000,
+    enabled: options?.enabled,
   });
 }
 

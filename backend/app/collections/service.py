@@ -175,7 +175,7 @@ async def remove_dataset_from_collection(
 async def get_collection_datasets(
     session: AsyncSession,
     collection_id: uuid.UUID,
-    user: User,
+    user: User | None,
     user_roles: set[str],
     skip: int = 0,
     limit: int = 50,
@@ -231,7 +231,7 @@ async def get_dataset_collections(
 async def compute_collection_extent(
     session: AsyncSession,
     collection_id: uuid.UUID,
-    user: User,
+    user: User | None,
     user_roles: set[str],
 ) -> dict:
     """Compute aggregated spatial and temporal extent from member datasets visible to the user.
@@ -275,7 +275,7 @@ async def compute_collection_extent(
 async def get_collection_dataset_count(
     session: AsyncSession,
     collection_id: uuid.UUID,
-    user: User,
+    user: User | None,
     user_roles: set[str],
 ) -> int:
     """Count visible datasets in collection. Apply visibility filter."""

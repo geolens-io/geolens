@@ -255,7 +255,7 @@ async def visibility_check_endpoint(
 @router.get("/{map_id}", response_model=MapResponse)
 async def get_map_endpoint(
     map_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Get a single map with its layers."""
@@ -265,6 +265,23 @@ async def get_map_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
+
+    # Visibility check
+    if user is None:
+        if map_obj.visibility != "public":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Map not found",
+            )
+    else:
+        user_roles = await get_user_roles(db, user)
+        is_admin = "admin" in user_roles
+        is_owner = map_obj.created_by == user.id
+        if map_obj.visibility != "public" and not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Map not found",
+            )
     layers = [
         _build_layer_response(
             layer,

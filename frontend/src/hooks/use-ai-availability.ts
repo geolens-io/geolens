@@ -1,8 +1,10 @@
 import { useAIStatus } from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuthStore } from '@/stores/auth-store';
 
 export function useAIAvailability() {
-  const aiStatus = useAIStatus();
+  const token = useAuthStore((s) => s.token);
+  const aiStatus = useAIStatus({ enabled: !!token });
   const { can } = usePermissions();
 
   return {
