@@ -29,7 +29,7 @@ Before deploying on any cloud provider, complete these steps.
 
 ### PostGIS Extension
 
-GeoLens requires PostgreSQL 15+ with PostGIS 3.x. All three providers support PostGIS on their managed PostgreSQL offerings, but it must be explicitly enabled.
+GeoLens requires PostgreSQL 15+ (tested with 17) with PostGIS 3.x. All three providers support PostGIS on their managed PostgreSQL offerings, but it must be explicitly enabled.
 
 ### Database Initialization SQL
 
@@ -90,7 +90,7 @@ Database schema migrations run automatically when the API container starts. Afte
 
 ### Database: Amazon RDS for PostgreSQL
 
-1. **Create an RDS instance** with PostgreSQL 15+ engine.
+1. **Create an RDS instance** with PostgreSQL 15+ (tested with 17) engine.
 
 2. **Enable PostGIS.** PostGIS is included in the default RDS parameter group for PostgreSQL. After the instance is available, connect via `psql` and run:
 
@@ -218,7 +218,7 @@ LOG_JSON=true
 
 ### Database: Cloud SQL for PostgreSQL
 
-1. **Create a Cloud SQL instance** with PostgreSQL 15+ and the `postgis` database flag enabled.
+1. **Create a Cloud SQL instance** with PostgreSQL 15+ (tested with 17) and the `postgis` database flag enabled.
 
    ```bash
    gcloud sql instances create geolens-db \
@@ -361,7 +361,7 @@ LOG_JSON=true
 
 ### Database: DigitalOcean Managed PostgreSQL
 
-1. **Create a Managed Database cluster** with PostgreSQL 15+.
+1. **Create a Managed Database cluster** with PostgreSQL 15+ (tested with 17).
 
    ```bash
    doctl databases create geolens-db \
@@ -478,7 +478,7 @@ LOG_JSON=true
 
 Follow these steps to migrate from a Docker Compose deployment to cloud managed services.
 
-1. **Provision managed database.** Create a PostgreSQL 15+ instance with PostGIS on your cloud provider (RDS, Cloud SQL, or Managed DB).
+1. **Provision managed database.** Create a PostgreSQL 15+ (tested with 17) instance with PostGIS on your cloud provider (RDS, Cloud SQL, or Managed DB).
 
 2. **Run init SQL.** Connect to the managed database via `psql` and run the initialization SQL from the [Prerequisites](#database-initialization-sql) section (extensions, schemas, roles).
 
