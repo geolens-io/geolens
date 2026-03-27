@@ -8,8 +8,8 @@ export interface SavedSearch {
   updated_at: string;
 }
 
-export async function fetchSavedSearches(): Promise<{ searches: SavedSearch[] }> {
-  return apiFetch<{ searches: SavedSearch[] }>('/search/saved');
+export async function fetchSavedSearches(): Promise<{ searches: SavedSearch[]; total: number }> {
+  return apiFetch<{ searches: SavedSearch[]; total: number }>('/search/saved');
 }
 
 export async function createSavedSearch(data: {

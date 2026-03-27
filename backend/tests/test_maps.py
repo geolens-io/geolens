@@ -907,6 +907,25 @@ class TestShareToken:
         )
         assert resp.status_code == 403
 
+    async def test_get_share_token_non_owner_forbidden(
+        self, client: AsyncClient, admin_auth_header: dict, viewer_auth_header: dict
+    ):
+        """GET /maps/{id}/share as non-owner returns 403."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Make public and create share token as owner
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+
+        # Viewer (non-owner) should not be able to read the share token
+        resp = await client.get(f"/maps/{map_id}/share", headers=viewer_auth_header)
+        assert resp.status_code == 403
+
     async def test_admin_revoke_share_token_cascades_embed_tokens(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

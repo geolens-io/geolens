@@ -125,9 +125,8 @@ class TestGetEffectivePermissions:
         assert result["viewer"]["upload"] is True
 
         # Cleanup: reset to defaults
-        resp = await client.request(
-            "DELETE",
-            "/settings/",
+        resp = await client.post(
+            "/settings/reset/",
             json={"keys": ["role_permissions"]},
             headers=admin_auth_header,
         )
@@ -198,9 +197,8 @@ class TestSettingsIntegration:
         assert rp["source"] == "overridden"
 
         # Cleanup
-        await client.request(
-            "DELETE",
-            "/settings/",
+        await client.post(
+            "/settings/reset/",
             json={"keys": ["role_permissions"]},
             headers=admin_auth_header,
         )
@@ -349,9 +347,8 @@ class TestRequirePermission:
         assert perms["upload"] is True
 
         # Cleanup
-        await client.request(
-            "DELETE",
-            "/settings/",
+        await client.post(
+            "/settings/reset/",
             json={"keys": ["role_permissions"]},
             headers=admin_auth_header,
         )
