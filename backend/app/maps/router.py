@@ -115,6 +115,7 @@ def _build_map_response(
     created_by_username: str | None = None,
 ) -> MapResponse:
     """Build a MapResponse from a map object and layer list."""
+    thumbnail_url = f"/maps/{map_obj.id}/thumbnail" if map_obj.thumbnail_uri else None
     return MapResponse(
         id=map_obj.id,
         name=map_obj.name,
@@ -126,7 +127,7 @@ def _build_map_response(
         pitch=map_obj.pitch,
         basemap_style=map_obj.basemap_style,
         visibility=map_obj.visibility,
-        thumbnail=map_obj.thumbnail,
+        thumbnail_url=thumbnail_url,
         forked_from_id=map_obj.forked_from,
         forked_from_name=forked_from_name,
         created_by=map_obj.created_by,
@@ -614,7 +615,15 @@ async def upload_thumbnail(
     user: User = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Upload a base64 thumbnail for a map."""
+    """Upload a base64 thumbnail for a map.
+
+    Accepts a data:image/ URI, decodes the base64 payload, writes the image
+    bytes to the configured storage provider, and stores the storage key.
+    """
+    import base64
+
+    from app.storage.provider import get_storage
+
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
@@ -634,9 +643,46 @@ async def upload_thumbnail(
             detail="Thumbnail too large (max 100KB)",
         )
 
-    map_obj.thumbnail = data_uri
+    # Decode base64 data URI → raw image bytes
+    # Format: data:image/jpeg;base64,<payload>
+    header, encoded = data_uri.split(",", 1)
+    image_bytes = base64.b64decode(encoded)
+
+    # Determine extension from MIME type
+    ext = "jpg" if "jpeg" in header else "png"
+    storage_key = f"maps/thumbnails/{map_id}.{ext}"
+
+    storage = get_storage()
+    await storage.put(storage_key, image_bytes)
+
+    map_obj.thumbnail_uri = storage_key
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{map_id}/thumbnail")
+async def get_thumbnail(
+    map_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve map thumbnail image from storage."""
+    from app.storage.provider import get_storage
+
+    map_obj = await get_map(db, map_id)
+    if map_obj is None or not map_obj.thumbnail_uri:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thumbnail not found",
+        )
+
+    storage = get_storage()
+    data = await storage.get(map_obj.thumbnail_uri)
+    media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.post(

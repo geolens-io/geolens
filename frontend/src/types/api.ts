@@ -677,7 +677,7 @@ export interface MapResponse {
   pitch: number;
   basemap_style: string;
   visibility: string;
-  thumbnail: string | null;
+  thumbnail_url: string | null;
   created_by: string | null;
   created_by_username: string | null;
   created_at: string;
@@ -697,7 +697,7 @@ export interface MapSummaryResponse {
   name: string;
   description: string | null;
   visibility: string;
-  thumbnail: string | null;
+  thumbnail_url: string | null;
   layer_count: number;
   created_by_username: string | null;
   created_at: string;
