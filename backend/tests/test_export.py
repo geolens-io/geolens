@@ -232,7 +232,7 @@ class TestExportValidation:
             params={"format": "xyz"},
             headers=admin_auth_header,
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422  # FastAPI enum validation
 
     @pytest.mark.anyio
     async def test_export_invalid_bbox_too_few_values(
