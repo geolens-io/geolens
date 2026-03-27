@@ -1,6 +1,4 @@
-"""SAML SSO unit tests: metadata parsing, replay cache, and schema validation."""
-
-import time
+"""SAML SSO unit tests: metadata parsing and schema validation."""
 
 import pytest
 
@@ -69,38 +67,6 @@ class TestMetadataParsing:
 </EntityDescriptor>"""
         with pytest.raises(ValueError, match="SSO"):
             parse_idp_metadata(xml)
-
-
-class TestReplayCache:
-    """Test SAML assertion replay cache."""
-
-    def test_new_assertion_accepted(self):
-        from app.auth.saml.replay import ReplayCache
-
-        cache = ReplayCache()
-        assert cache.check_and_record("id-1") is True
-
-    def test_duplicate_rejected(self):
-        from app.auth.saml.replay import ReplayCache
-
-        cache = ReplayCache()
-        cache.check_and_record("id-1")
-        assert cache.check_and_record("id-1") is False
-
-    def test_different_ids_accepted(self):
-        from app.auth.saml.replay import ReplayCache
-
-        cache = ReplayCache()
-        assert cache.check_and_record("id-1") is True
-        assert cache.check_and_record("id-2") is True
-
-    def test_eviction_after_ttl(self):
-        from app.auth.saml.replay import ReplayCache
-
-        cache = ReplayCache(ttl_seconds=0)
-        cache.check_and_record("id-1")
-        time.sleep(0.01)
-        assert cache.check_and_record("id-1") is True
 
 
 class TestSamlSchemas:
