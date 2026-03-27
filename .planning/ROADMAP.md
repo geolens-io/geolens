@@ -126,8 +126,11 @@ Plans:
   4. At least one enterprise feature (branding toggle or SAML) is implemented in the enterprise repo and functions when the package is installed
 **Plans**: 2 plans
 Plans:
-- [x] 209-01-PLAN.md — Backend SAML infrastructure: migration, model/schema, pysaml2 modules, router, tests
-- [ ] 209-02-PLAN.md — Frontend admin SAML form, login page buttons, i18n
+- [ ] 210-01-PLAN.md — Enterprise package scaffold, core extension loader, Alembic multi-dir, compose overlay
+- [ ] 210-02-PLAN.md — Extract SAML/audit/branding to enterprise package, clean core
+
+
+
 
 ### Phase 211: Licensing & Public Documentation
 **Goal**: The repository is ready for public consumption with proper licensing, clear documentation, and a working quickstart
