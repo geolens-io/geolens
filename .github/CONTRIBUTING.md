@@ -118,7 +118,7 @@ If you're unsure where to start, open an issue describing what you'd like to wor
 
 ## Reporting Security Issues
 
-If you discover a security vulnerability, please report it responsibly. **Do not open a public issue.** Instead, email the maintainers directly at the address listed in the repository's security policy.
+If you discover a security vulnerability, please report it responsibly. **Do not open a public issue.** Instead, follow the process in our [Security Policy](SECURITY.md).
 
 Include:
 - Description of the vulnerability
