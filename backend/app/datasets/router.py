@@ -19,7 +19,6 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
-from geoalchemy2.shape import to_shape
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select, text
@@ -100,6 +99,7 @@ from app.datasets.service import (
 )
 from app.public_urls import get_public_api_url
 from app.dependencies import get_db
+from app.utils.geo import extent_to_bbox
 from app.ingest.metadata import compute_quality_score
 from app.ingest.ogr import IngestionError, run_ogrinfo_preview
 from app.ingest.schemas import (
@@ -150,20 +150,8 @@ def _public_base_url(request: Request) -> str:
         return f"{proto}://{host}:{port}"
     return f"{proto}://{host}"
 
-PRIORITY_QUEUE_THRESHOLD_BYTES = (
-    10 * 1024 * 1024
-)  # 10MB -- small files get priority queue
+from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
 
-
-def _extent_to_bbox(extent) -> list[float] | None:
-    """Convert a GeoAlchemy2 geometry extent to a [minx, miny, maxx, maxy] bbox."""
-    if extent is None:
-        return None
-    try:
-        shape = to_shape(extent)
-        return list(shape.bounds)
-    except Exception:
-        return None
 
 
 async def _load_actor_identities(
@@ -295,7 +283,7 @@ def _dataset_to_response(
         srid=dataset.srid,
         geometry_type=dataset.geometry_type,
         feature_count=dataset.feature_count,
-        extent_bbox=_extent_to_bbox(record.spatial_extent),
+        extent_bbox=extent_to_bbox(record.spatial_extent),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,
@@ -1141,6 +1129,7 @@ async def update_dataset_metadata(
     await db.commit()
     await db.refresh(dataset)
     await db.refresh(dataset.record)
+    await invalidate_catalog_cache()
 
     actors_by_id = await _load_actor_identities(
         db,

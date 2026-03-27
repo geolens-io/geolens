@@ -40,8 +40,7 @@ async def export_configuration(
     """
     from fastapi.responses import JSONResponse
 
-    result = export_config(db)
-    data = await result
+    data = await export_config(db)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     headers = {

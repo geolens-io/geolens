@@ -110,7 +110,8 @@ export async function rejectUser(userId: string): Promise<void> {
 
 // API Key management
 export async function listApiKeys(userId: string): Promise<ApiKeyResponse[]> {
-  return apiFetch<ApiKeyResponse[]>(`/admin/api-keys?user_id=${userId}`);
+  const data = await apiFetch<{ items: ApiKeyResponse[]; total: number }>(`/admin/api-keys?user_id=${userId}`);
+  return data.items;
 }
 
 export async function createApiKey(userId: string, name: string): Promise<ApiKeyCreateResponse> {

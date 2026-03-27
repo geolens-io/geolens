@@ -177,3 +177,8 @@ class AdminShareTokenResponse(BaseModel):
 class AdminShareTokenListResponse(BaseModel):
     tokens: list[AdminShareTokenResponse]
     total: int
+
+
+class VisibilityCheckResponse(BaseModel):
+    non_public_datasets: list[str]
+    has_non_public: bool

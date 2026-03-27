@@ -12,6 +12,7 @@ from app.auth.dependencies import require_permission
 from app.auth.models import User
 from app.dependencies import get_db
 
+# Shares /admin prefix with admin/router.py — kept separate for module organization.
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 

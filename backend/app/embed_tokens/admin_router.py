@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
-from app.auth.dependencies import require_role
+from app.auth.dependencies import require_permission
 from app.auth.models import User
 from app.dependencies import get_db
 from app.embed_tokens.schemas import (
@@ -37,7 +37,7 @@ async def list_all_embed_tokens(
     map_search: str | None = Query(None),
     creator: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
-    user: User = Depends(require_role("admin")),
+    user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> AdminEmbedTokenListResponse:
     """List all embed tokens across all maps with optional filters (admin only)."""
@@ -62,7 +62,7 @@ async def list_all_embed_tokens(
 @router.post("/bulk-revoke/", response_model=BulkRevokeResponse)
 async def bulk_revoke(
     body: BulkRevokeRequest,
-    user: User = Depends(require_role("admin")),
+    user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> BulkRevokeResponse:
     """Bulk-revoke multiple embed tokens (admin only)."""

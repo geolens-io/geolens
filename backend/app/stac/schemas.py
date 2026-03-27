@@ -41,3 +41,10 @@ class StacItemCollection(BaseModel):
     numberMatched: int
     numberReturned: int
     context: dict
+
+
+class StacCollectionListResponse(BaseModel):
+    """STAC collections list response."""
+
+    collections: list[dict]
+    links: list[StacLink]

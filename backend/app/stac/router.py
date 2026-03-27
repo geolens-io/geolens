@@ -20,7 +20,7 @@ from app.dependencies import get_db
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
 from app.search.service import _build_assets, dataset_to_ogc_record
-from app.stac.schemas import StacCatalog, StacConformance, StacItemCollection, StacLink
+from app.stac.schemas import StacCatalog, StacCollectionListResponse, StacConformance, StacItemCollection, StacLink
 from app.stac.serializer import (
     STAC_CONFORMANCE,
     ogc_collection_to_stac_collection,
@@ -206,11 +206,11 @@ async def conformance() -> StacConformance:
     return StacConformance(conformsTo=STAC_CONFORMANCE)
 
 
-@stac_router.get("/collections")
+@stac_router.get("/collections", response_model=StacCollectionListResponse)
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> StacCollectionListResponse:
     """List all STAC Collections."""
     stac_api_url = await _resolve_stac_api_url(db, request)
 
@@ -218,26 +218,31 @@ async def get_collections(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
+    # Batch spatial + temporal extent for all collections in a single query
+    extent_stmt = text("""
+        SELECT
+            cd.collection_id,
+            ST_XMin(ST_Extent(r.spatial_extent)),
+            ST_YMin(ST_Extent(r.spatial_extent)),
+            ST_XMax(ST_Extent(r.spatial_extent)),
+            ST_YMax(ST_Extent(r.spatial_extent)),
+            MIN(r.temporal_start),
+            MAX(r.temporal_end)
+        FROM catalog.records r
+        JOIN catalog.datasets d ON d.record_id = r.id
+        JOIN catalog.collection_datasets cd ON cd.dataset_id = d.id
+        WHERE r.record_type IN ('raster_dataset', 'vrt_dataset')
+          AND r.record_status = 'published'
+        GROUP BY cd.collection_id
+    """)
+    ext_rows = await db.execute(extent_stmt)
+    extent_map: dict[str, tuple] = {}
+    for row in ext_rows.all():
+        extent_map[str(row[0])] = row[1:]
+
     stac_collections = []
     for coll in collections:
-        # Compute spatial + temporal extent from published raster/VRT datasets
-        extent_stmt = text("""
-            SELECT
-                ST_XMin(ST_Extent(r.spatial_extent)),
-                ST_YMin(ST_Extent(r.spatial_extent)),
-                ST_XMax(ST_Extent(r.spatial_extent)),
-                ST_YMax(ST_Extent(r.spatial_extent)),
-                MIN(r.temporal_start),
-                MAX(r.temporal_end)
-            FROM catalog.records r
-            JOIN catalog.datasets d ON d.record_id = r.id
-            JOIN catalog.collection_datasets cd ON cd.dataset_id = d.id
-            WHERE cd.collection_id = :cid
-              AND r.record_type IN ('raster_dataset', 'vrt_dataset')
-              AND r.record_status = 'published'
-        """)
-        ext_result = await db.execute(extent_stmt, {"cid": str(coll.id)})
-        ext_row = ext_result.one_or_none()
+        ext_row = extent_map.get(str(coll.id))
 
         spatial_extent = None
         temporal_extent = None
@@ -258,13 +263,13 @@ async def get_collections(
         )
         stac_collections.append(stac_coll)
 
-    return {
-        "collections": stac_collections,
-        "links": [
-            {"rel": "self", "href": f"{stac_api_url}/collections", "type": "application/json"},
-            {"rel": "root", "href": f"{stac_api_url}/", "type": "application/json"},
+    return StacCollectionListResponse(
+        collections=stac_collections,
+        links=[
+            StacLink(rel="self", href=f"{stac_api_url}/collections", type="application/json"),
+            StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
         ],
-    }
+    )
 
 
 @stac_router.get("/collections/{collection_id}")

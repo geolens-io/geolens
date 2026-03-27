@@ -23,6 +23,7 @@ from app.cache.provider import get_tile_cache
 from app.tiles.pool import get_tile_pool
 from app.tiles.service import get_tile
 from app.auth.router import limiter
+from app.tiles.schemas import RasterTileToken, VectorTileToken
 from app.tiles.signing import (
     generate_tile_signature,
     round_expiry,
@@ -256,13 +257,13 @@ async def raster_tile_proxy(
     )
 
 
-@router.get("/token/{dataset_id}/")
+@router.get("/token/{dataset_id}/", response_model=VectorTileToken | RasterTileToken)
 @limiter.exempt
 async def get_tile_token(
     dataset_id: uuid.UUID,
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> VectorTileToken | RasterTileToken:
     """Generate a tile token for a dataset.
 
     For vector datasets: returns HMAC-signed token (sig, exp, scope, expires_in).
@@ -303,28 +304,28 @@ async def get_tile_token(
             except Exception:
                 bounds = None
 
-        return {
-            "kind": "raster",
-            "tile_url": f"/raster-tiles/{dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png",
-            "bounds": bounds,
-            "minzoom": 0,
-            "maxzoom": 18,
-            "tile_size": 256,
-            "format": "png",
-        }
+        return RasterTileToken(
+            kind="raster",
+            tile_url=f"/raster-tiles/{dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png",
+            bounds=bounds,
+            minzoom=0,
+            maxzoom=18,
+            tile_size=256,
+            format="png",
+        )
 
     # Vector dataset branch (unchanged, kind added for discriminated union)
     exp = round_expiry()
     scope = dataset.table_name
     sig = generate_tile_signature(scope, exp)
 
-    return {
-        "kind": "vector",
-        "sig": sig,
-        "exp": exp,
-        "scope": scope,
-        "expires_in": exp - int(time.time()),
-    }
+    return VectorTileToken(
+        kind="vector",
+        sig=sig,
+        exp=exp,
+        scope=scope,
+        expires_in=exp - int(time.time()),
+    )
 
 
 @router.get("/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf")

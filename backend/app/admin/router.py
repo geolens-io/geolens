@@ -14,6 +14,7 @@ from app.admin.schemas import (
     AIStatusUpdate,
     AdminApiKeyCreateRequest,
     AdminApiKeyListItem,
+    AdminApiKeyListResponse,
     AdminJobListResponse,
     AdminJobResponse,
     AdminUserCreate,
@@ -29,7 +30,7 @@ from app.admin.schemas import (
     UserUpdate,
 )
 from app.admin.service import AdminService
-from app.auth.dependencies import get_current_user, require_permission
+from app.auth.dependencies import get_current_active_user, require_permission
 from app.auth.models import ApiKey, User
 from app.auth.schemas import UserResponse
 from app.config import settings as app_settings
@@ -397,30 +398,36 @@ async def create_api_key(
 
 @router.get(
     "/api-keys",
-    response_model=list[AdminApiKeyListItem],
+    response_model=AdminApiKeyListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
 )
 async def list_api_keys(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     user_id: uuid.UUID | None = Query(None, description="Filter by user ID"),
     db: AsyncSession = Depends(get_db),
-) -> list[AdminApiKeyListItem]:
+) -> AdminApiKeyListResponse:
     """List all API keys (admin only). Never returns the raw key."""
     stmt = select(ApiKey)
     if user_id is not None:
         stmt = stmt.where(ApiKey.user_id == user_id)
-    result = await db.execute(stmt)
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    result = await db.execute(stmt.offset(skip).limit(limit))
     keys = result.scalars().all()
-    return [
-        AdminApiKeyListItem(
-            id=k.id,
-            user_id=k.user_id,
-            name=k.name,
-            is_active=k.is_active,
-            created_at=k.created_at,
-            last_used_at=k.last_used_at,
-        )
-        for k in keys
-    ]
+    return AdminApiKeyListResponse(
+        items=[
+            AdminApiKeyListItem(
+                id=k.id,
+                user_id=k.user_id,
+                name=k.name,
+                is_active=k.is_active,
+                created_at=k.created_at,
+                last_used_at=k.last_used_at,
+            )
+            for k in keys
+        ],
+        total=total,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +467,7 @@ def _ai_status(
     response_model=AIStatusResponse,
 )
 async def get_ai_status(
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
     """Return AI provider status and runtime toggle (any authenticated user)."""

@@ -155,3 +155,8 @@ class AdminApiKeyListItem(BaseModel):
     is_active: bool
     created_at: datetime
     last_used_at: datetime | None
+
+
+class AdminApiKeyListResponse(BaseModel):
+    items: list[AdminApiKeyListItem]
+    total: int

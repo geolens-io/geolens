@@ -4,7 +4,7 @@ import hashlib
 import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -19,6 +19,7 @@ from app.auth.schemas import (
     ApiKeyCreateRequest,
     ApiKeyCreateResponse,
     ApiKeyListItem,
+    ApiKeyListResponse,
     ConfigResponse,
     PermissionsResponse,
     RefreshRequest,
@@ -222,24 +223,31 @@ async def me_permissions(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api-keys/", response_model=list[ApiKeyListItem])
+@router.get("/api-keys/", response_model=ApiKeyListResponse)
 async def list_my_api_keys(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> list[ApiKeyListItem]:
+) -> ApiKeyListResponse:
     """List the current user's API keys."""
-    result = await db.execute(select(ApiKey).where(ApiKey.user_id == current_user.id))
+    base_stmt = select(ApiKey).where(ApiKey.user_id == current_user.id)
+    total = (await db.execute(select(func.count()).select_from(base_stmt.subquery()))).scalar_one()
+    result = await db.execute(base_stmt.offset(skip).limit(limit))
     keys = result.scalars().all()
-    return [
-        ApiKeyListItem(
-            id=k.id,
-            name=k.name,
-            is_active=k.is_active,
-            created_at=k.created_at,
-            last_used_at=k.last_used_at,
-        )
-        for k in keys
-    ]
+    return ApiKeyListResponse(
+        items=[
+            ApiKeyListItem(
+                id=k.id,
+                name=k.name,
+                is_active=k.is_active,
+                created_at=k.created_at,
+                last_used_at=k.last_used_at,
+            )
+            for k in keys
+        ],
+        total=total,
+    )
 
 
 @router.post(
