@@ -946,7 +946,7 @@ class TestShareToken:
 
         # Fetch share token ID via admin listing (POST response doesn't include id)
         admin_list = await client.get(
-            "/admin/share-tokens?limit=50", headers=admin_auth_header
+            "/admin/share-tokens/?limit=50", headers=admin_auth_header
         )
         share_token_id = next(
             t["id"]
@@ -1591,7 +1591,7 @@ class TestAdminShareTokenListing:
         client: AsyncClient,
         admin_auth_header: dict,
     ):
-        """GET /admin/share-tokens?search=... filters by map name."""
+        """GET /admin/share-tokens/?search=... filters by map name."""
         # Create a map with a unique name and share it
         unique_name = f"SearchTest_{uuid.uuid4().hex[:6]}"
         created = await _create_map(client, admin_auth_header, name=unique_name)
@@ -1605,7 +1605,7 @@ class TestAdminShareTokenListing:
 
         # Search for the unique name
         resp = await client.get(
-            f"/admin/share-tokens?search={unique_name}",
+            f"/admin/share-tokens/?search={unique_name}",
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
@@ -1615,7 +1615,7 @@ class TestAdminShareTokenListing:
 
         # Search for nonexistent name
         resp = await client.get(
-            "/admin/share-tokens?search=zzz_nonexistent_xyz",
+            "/admin/share-tokens/?search=zzz_nonexistent_xyz",
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
@@ -1624,11 +1624,11 @@ class TestAdminShareTokenListing:
     async def test_admin_filter_share_tokens_by_status(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /admin/share-tokens?status=active returns only active tokens."""
+        """GET /admin/share-tokens/?status=active returns only active tokens."""
         await _make_public_map_with_share_token(client, admin_auth_header)
 
         resp = await client.get(
-            "/admin/share-tokens?status=active",
+            "/admin/share-tokens/?status=active",
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
@@ -1640,9 +1640,9 @@ class TestAdminShareTokenListing:
     async def test_admin_filter_invalid_status_rejected(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """GET /admin/share-tokens?status=invalid returns 422."""
+        """GET /admin/share-tokens/?status=invalid returns 422."""
         resp = await client.get(
-            "/admin/share-tokens?status=invalid",
+            "/admin/share-tokens/?status=invalid",
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
