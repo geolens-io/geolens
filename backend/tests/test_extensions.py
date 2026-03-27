@@ -105,6 +105,57 @@ class TestRegistryHelpers:
         assert sorted(list_extensions()) == ["alpha", "beta"]
 
 
+class TestExtensionRouters:
+    def test_get_extension_routers_empty(self):
+        """get_extension_routers() returns empty list when no extensions loaded."""
+        from app.extensions import get_extension_routers, load_extensions
+
+        load_extensions()
+        assert get_extension_routers() == []
+
+    def test_get_extension_routers_populated(self):
+        """get_extension_routers() returns routers registered by extensions."""
+        from app.extensions import get_extension_routers, load_extensions
+
+        mock_router = MagicMock(name="fake_router")
+        mock_ep = MagicMock()
+        mock_ep.name = "test_ext"
+
+        def _loader(registry: dict):
+            registry["_routers"] = [mock_router]
+
+        mock_ep.load.return_value = _loader
+
+        with patch("app.extensions.entry_points", return_value=[mock_ep]):
+            load_extensions()
+
+        routers = get_extension_routers()
+        assert len(routers) == 1
+        assert routers[0] is mock_router
+
+    def test_get_extension_routers_clears_on_reload(self):
+        """Calling load_extensions() twice clears previous routers."""
+        from app.extensions import get_extension_routers, load_extensions
+
+        mock_router = MagicMock(name="fake_router")
+        mock_ep = MagicMock()
+        mock_ep.name = "test_ext"
+
+        def _loader(registry: dict):
+            registry["_routers"] = [mock_router]
+
+        mock_ep.load.return_value = _loader
+
+        with patch("app.extensions.entry_points", return_value=[mock_ep]):
+            load_extensions()
+        assert len(get_extension_routers()) == 1
+
+        # Reload with no extensions — routers should be empty
+        with patch("app.extensions.entry_points", return_value=[]):
+            load_extensions()
+        assert get_extension_routers() == []
+
+
 class TestProtocolDefaults:
     def test_protocol_defaults(self):
         """Default implementations are runtime_checkable instances of their protocols."""
