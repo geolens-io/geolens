@@ -4,7 +4,7 @@
 
 Find any dataset in your catalog in seconds. GeoLens is a self-hosted, database-first geospatial data catalog that gives GIS teams and data engineers a single place to store, search, preview, and share spatial data -- all within your own infrastructure.
 
-Upload datasets in any common format (Shapefile, GeoJSON, GeoPackage, CSV, KML) and GeoLens automatically ingests them into PostGIS with spatial indexing, metadata extraction, and coordinate system detection. Full-text and semantic search let users discover datasets by name, description, or natural language queries. Every dataset gets an interactive map preview powered by built-in vector tile serving, so users can visually verify data before downloading.
+Upload datasets in any common format (Shapefile, GeoJSON, GeoPackage, CSV, GeoTIFF, XLSX) and GeoLens automatically ingests them into PostGIS with spatial indexing, metadata extraction, and coordinate system detection. Full-text and semantic search let users discover datasets by name, description, or natural language queries. Every dataset gets an interactive map preview powered by built-in vector tile serving, so users can visually verify data before downloading.
 
 GeoLens includes AI-assisted map building that turns natural language prompts into styled, multi-layer maps. Built-in OGC API compliance (Features and Tiles) lets external tools connect directly to your catalog. Secure sharing with embed tokens and domain locking makes it safe to publish interactive maps to external audiences. When users need data out, multi-format export supports GeoJSON, Shapefile, GeoPackage, and CSV.
 

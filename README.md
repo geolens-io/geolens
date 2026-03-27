@@ -64,7 +64,7 @@ GeoLens gives your team a single place to find, preview, and share spatial data.
 
 - JWT authentication with refresh tokens
 - API key management per user
-- OAuth 2.0 / OIDC and SAML SSO support
+- OAuth 2.0 / OIDC support (SAML SSO available via enterprise extension)
 - Role-based access control (RBAC) with per-dataset permissions
 - Audit logging for all administrative actions
 - Internationalization: English, Spanish, French, German
