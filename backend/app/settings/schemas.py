@@ -111,7 +111,7 @@ class SettingsUpdateRequest(BaseModel):
 
 
 class SettingsResetRequest(BaseModel):
-    """Request for DELETE /settings/."""
+    """Request for POST /settings/reset/."""
 
     keys: list[str]
 

@@ -168,11 +168,13 @@ async def test_list_api_keys(client: AsyncClient):
     )
     assert list_resp.status_code == 200
     data = list_resp.json()
-    assert len(data) >= 2
+    items = data["items"]
+    assert "total" in data
+    assert len(items) >= 2
 
     # Verify raw key is never in list response
     returned_names = set()
-    for item in data:
+    for item in items:
         assert "key" not in item  # raw key must NOT be returned
         returned_names.add(item["name"])
 
