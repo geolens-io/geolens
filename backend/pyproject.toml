@@ -3,7 +3,7 @@ name = "geolens"
 version = "0.1.0"
 description = "PostGIS-native GIS data catalog"
 requires-python = ">=3.13"
-license = "BUSL-1.1"
+license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
     "fastapi[standard]",
