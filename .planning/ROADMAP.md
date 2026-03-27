@@ -127,7 +127,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 210-01-PLAN.md — Enterprise package scaffold, core extension loader, Alembic multi-dir, compose overlay
-- [ ] 210-02-PLAN.md — Extract SAML/audit/branding to enterprise package, clean core
+- [x] 210-02-PLAN.md — Extract SAML/audit/branding to enterprise package, clean core
 
 
 

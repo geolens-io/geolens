@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.0
 milestone_name: Open-Core Pre-Release
 status: verifying
-stopped_at: Completed 210-01-PLAN.md
-last_updated: "2026-03-27T00:36:11.501Z"
+stopped_at: Completed 210-02-PLAN.md
+last_updated: "2026-03-27T00:44:54.746Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 7
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 8
   percent: 0
 ---
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 209 P01 | 5min | 3 tasks | 14 files |
 | Phase 209 P02 | 4min | 2 tasks | 11 files |
 | Phase 210 P01 | 3 | 2 tasks | 16 files |
+| Phase 210 P02 | 5 | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 210]: Enterprise package uses setuptools entry_points for both extension and migration discovery
 - [Phase 210]: Dynamic router registration replaces hardcoded SAML import in main.py
 - [Phase 210]: Enterprise install hook runs before migrations in entrypoint for entry_points discoverability
+- [Phase 210]: SAML metadata parser stays in core (used by OAuth service CRUD), router/config/replay move to enterprise
+- [Phase 210]: pysaml2 dependency enterprise-only, defusedxml stays in core for metadata.py
 
 ### Pending Todos
 
@@ -244,6 +247,6 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last activity: 2026-03-26 - Roadmap created for v13.0 Open-Core Pre-Release (6 phases, 206-211)
-Last session: 2026-03-27T00:36:11.498Z
-Stopped at: Completed 210-01-PLAN.md
+Last session: 2026-03-27T00:44:54.743Z
+Stopped at: Completed 210-02-PLAN.md
 Resume file: None
