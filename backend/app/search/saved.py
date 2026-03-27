@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, select, func
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, select, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped, mapped_column
@@ -14,7 +14,10 @@ from app.database import Base
 
 class SavedSearch(Base):
     __tablename__ = "saved_searches"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_saved_searches_user_name"),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
