@@ -26,7 +26,7 @@ PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
 
 @router.post("/cleanup/stale/")
 async def cleanup_stale_jobs(
-    user: User = Depends(require_permission("admin")),
+    user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Fail all stale jobs: pending >1h or running >1h.
