@@ -31,9 +31,9 @@ export function MapCardGrid({ map, onDelete }: MapCardProps) {
           to={`/maps/${map.id}`}
           className="aspect-video bg-muted flex items-center justify-center overflow-hidden"
         >
-          {map.thumbnail ? (
+          {map.thumbnail_url ? (
             <img
-              src={map.thumbnail}
+              src={map.thumbnail_url}
               alt={t('maps.card.previewAlt', { name: map.name })}
               className="w-full h-full object-cover"
               loading="lazy"

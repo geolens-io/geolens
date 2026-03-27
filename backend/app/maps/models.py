@@ -41,8 +41,8 @@ class Map(Base):
         String(20), default="private", server_default="private"
     )
 
-    # Preview thumbnail (base64 data URI)
-    thumbnail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Preview thumbnail — storage key (e.g. "maps/thumbnails/{id}.jpg")
+    thumbnail_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Lineage (fork tracking)
     forked_from: Mapped[uuid.UUID | None] = mapped_column(

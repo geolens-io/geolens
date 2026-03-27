@@ -136,7 +136,7 @@ export function MapBuilderPage() {
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
-    hasThumbnail: !!mapData?.thumbnail,
+    hasThumbnail: !!mapData?.thumbnail_url,
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {

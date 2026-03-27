@@ -81,7 +81,7 @@ class MapResponse(BaseModel):
     pitch: float
     basemap_style: str
     visibility: str
-    thumbnail: str | None = None
+    thumbnail_url: str | None = None
     forked_from_id: uuid.UUID | None = None
     forked_from_name: str | None = None
     created_by: uuid.UUID | None
@@ -103,7 +103,7 @@ class MapSummaryResponse(BaseModel):
     name: str
     description: str | None
     visibility: str
-    thumbnail: str | None = None
+    thumbnail_url: str | None = None
     layer_count: int
     created_by_username: str | None = None
     created_at: datetime
