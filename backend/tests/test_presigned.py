@@ -165,5 +165,6 @@ def test_upload_config_response():
         presigned_uploads=True,
         presigned_threshold_bytes=104857600,
         max_file_size_bytes=524288000,
+        allowed_extensions=".geojson,.gpkg,.shp,.csv,.xlsx,.xls,.json,.tif,.tiff,.vrt",
     )
     assert config.presigned_uploads is True
