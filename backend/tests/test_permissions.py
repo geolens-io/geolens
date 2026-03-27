@@ -271,7 +271,7 @@ class TestRequirePermission:
     ):
         """GET /auth/me/permissions returns effective permissions for each role."""
         # Admin should have all True
-        resp = await client.get("/auth/me/permissions", headers=admin_auth_header)
+        resp = await client.get("/auth/me/permissions/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert "permissions" in data
@@ -281,7 +281,7 @@ class TestRequirePermission:
             assert val is True, f"Admin should have {cap}=True"
 
         # Editor should have upload=True, manage_users=False
-        resp = await client.get("/auth/me/permissions", headers=editor_auth_header)
+        resp = await client.get("/auth/me/permissions/", headers=editor_auth_header)
         assert resp.status_code == 200
         perms = resp.json()["permissions"]
         assert perms["upload"] is True
@@ -289,7 +289,7 @@ class TestRequirePermission:
         assert perms["manage_settings"] is False
 
         # Viewer should have export=True, upload=False
-        resp = await client.get("/auth/me/permissions", headers=viewer_auth_header)
+        resp = await client.get("/auth/me/permissions/", headers=viewer_auth_header)
         assert resp.status_code == 200
         perms = resp.json()["permissions"]
         assert perms["export"] is True
@@ -341,7 +341,7 @@ class TestRequirePermission:
         assert resp.status_code == 200
 
         # Viewer should now have upload=True
-        resp = await client.get("/auth/me/permissions", headers=viewer_auth_header)
+        resp = await client.get("/auth/me/permissions/", headers=viewer_auth_header)
         assert resp.status_code == 200
         perms = resp.json()["permissions"]
         assert perms["upload"] is True
