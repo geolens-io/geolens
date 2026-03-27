@@ -14,7 +14,7 @@ from app.cache.tiles import invalidate_catalog_cache
 from app.auth.dependencies import get_current_active_user, get_optional_user, require_permission
 from app.auth.models import User
 from app.auth.visibility import get_user_roles
-from app.services.provenance import UNKNOWN_ACTOR_LABEL, resolve_actor
+from app.services.provenance import UNKNOWN_ACTOR_LABEL, derive_last_edited, resolve_actor
 from app.collections.schemas import (
     AddDatasetsResponse,
     CollectionAddDatasetsRequest,
@@ -49,6 +49,16 @@ def _dataset_to_response(
     record = dataset.record
     actor_map = actor_map or {}
     created_user = actor_map.get(record.created_by) if record.created_by else None
+    updated_user = actor_map.get(record.updated_by) if record.updated_by else None
+
+    last_edited = derive_last_edited(
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        updated_by=record.updated_by,
+        updated_user=updated_user,
+    )
+    record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
+
     return DatasetResponse(
         id=dataset.id,
         record_id=dataset.record_id,
@@ -78,6 +88,8 @@ def _dataset_to_response(
         ),
         created_at=record.created_at,
         updated_at=record.updated_at,
+        last_edited_by_display=last_edited.display,
+        last_edited_at=last_edited.timestamp,
         collections=collections,
         record_status=record.record_status,
         lineage_summary=record.lineage_summary,
@@ -89,6 +101,7 @@ def _dataset_to_response(
         owner_org=record.owner_org,
         published_at=record.published_at,
         updated_by=record.updated_by,
+        record_type=record_type,
     )
 
 
@@ -372,8 +385,13 @@ async def get_collection_datasets_endpoint(
         db, collection_id, user, user_roles, skip=skip, limit=limit
     )
 
-    # Build actor map for created_by_display
-    actor_ids = {d.record.created_by for d in datasets if d.record.created_by}
+    # Build actor map for created_by_display and last_edited_by_display
+    actor_ids: set = set()
+    for d in datasets:
+        if d.record.created_by:
+            actor_ids.add(d.record.created_by)
+        if d.record.updated_by:
+            actor_ids.add(d.record.updated_by)
     actor_map: dict = {}
     if actor_ids:
         rows = await db.execute(select(User).where(User.id.in_(actor_ids)))
