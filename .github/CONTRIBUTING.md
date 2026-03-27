@@ -30,7 +30,7 @@ The app will be available at [http://localhost:8080](http://localhost:8080). Def
 docker compose ps
 ```
 
-All services (db, api, worker, frontend, titiler, nginx) should show as healthy.
+All services (db, migrate, api, worker, frontend, titiler) should show as healthy or exited (migrate exits after completing).
 
 ### Making changes
 

@@ -82,6 +82,8 @@ GeoLens supports two ingestion methods: file upload and PostGIS table registrati
 | GeoPackage | `.gpkg` | Recommended for complex datasets |
 | GeoJSON | `.geojson`, `.json` | UTF-8 encoded |
 | CSV | `.csv` | Must have lat/lon columns or WKT geometry; defaults to EPSG:4326 |
+| GeoTIFF / COG | `.tif`, `.tiff` | Cloud-Optimized GeoTIFF recommended for raster datasets |
+| Excel | `.xlsx`, `.xls` | Must have lat/lon columns or WKT geometry |
 
 ### Upload a file
 

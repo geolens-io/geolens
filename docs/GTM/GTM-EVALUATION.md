@@ -71,7 +71,7 @@ The Year 1 revenue projection of $50K-$200K is aggressive for a zero-awareness p
 
 | Dimension | CKAN | GeoServer | GeoNode | Terria | MapStore | GeoLens |
 |-----------|------|-----------|---------|--------|----------|---------|
-| **License** | AGPL-3.0 | GPL-2.0 | GPL-3.0 | Apache-2.0 | BSD | MIT (planned) |
+| **License** | AGPL-3.0 | GPL-2.0 | GPL-3.0 | Apache-2.0 | BSD | Apache-2.0 |
 | **Revenue model** | Services ecosystem (Datopian, Link Digital) | Service companies (GeoSolutions, GeoCat) | Bundled with GeoServer services | SaaS tiers | Bundled with GeoServer ecosystem | Open-core (planned) |
 | **Pricing range** | Managed hosting: $6K-$20K/yr | Custom quotes; crowdfunding for major versions | No standalone pricing | $3.8K-$13.2K/yr (SaaS) | No standalone pricing | Proposed: $8K-$200K/yr |
 | **Open-core boundary** | None (pure services) | None (pure services) | None (pure services) | Free tier vs. hosted tiers (SSO, white-label in Custom) | None (pure services) | Governance, white-label, SSO, compliance |
