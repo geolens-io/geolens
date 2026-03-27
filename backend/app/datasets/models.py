@@ -69,7 +69,9 @@ class Record(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     license: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # source_organization: the entity that published or provided the data (used in facets/search)
     source_organization: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # owner_org: the entity that owns the data (governance/provenance, not used in search)
     owner_org: Mapped[str | None] = mapped_column(Text, nullable=True)
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     record_status: Mapped[str] = mapped_column(String(20), default="draft")
@@ -243,7 +245,16 @@ class Dataset(Base):
 
 class RecordContact(Base):
     __tablename__ = "record_contacts"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('resourceProvider', 'custodian', 'owner', 'user', 'distributor', "
+            "'originator', 'pointOfContact', 'principalInvestigator', 'processor', "
+            "'publisher', 'author', 'sponsor', 'coAuthor', 'collaborator', 'editor', "
+            "'mediator', 'rightsHolder', 'contributor', 'funder', 'stakeholder')",
+            name="chk_contact_role",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -267,9 +278,14 @@ class RecordContact(Base):
 class RecordKeyword(Base):
     __tablename__ = "record_keywords"
     __table_args__ = (
+        CheckConstraint(
+            "keyword_type IN ('discipline', 'place', 'stratum', 'temporal', 'theme', "
+            "'dataCentre', 'featureType', 'instrument', 'platform', 'process', "
+            "'product', 'project', 'service', 'subTopicCategory', 'taxon')",
+            name="chk_keyword_type",
+        ),
         # NOTE: uniqueness enforced by functional unique index in migration:
         # CREATE UNIQUE INDEX uq_record_keyword ON ... (record_id, keyword, keyword_type, COALESCE(vocabulary_uri, ''))
-        # No UniqueConstraint here — the index handles it at the DB level.
         {"schema": "catalog"},
     )
 
@@ -406,6 +422,8 @@ class DatasetRelationship(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
     )
+    # FK targets records.id (not datasets.id) because relationships are defined at the
+    # catalog record level. Dataset and record share a 1:1 FK, so record.id == dataset.record_id.
     source_dataset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
     )

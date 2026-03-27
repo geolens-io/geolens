@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,7 +10,13 @@ from app.database import Base
 
 class Map(Base):
     __tablename__ = "maps"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IN ('private', 'public', 'unlisted')",
+            name="chk_maps_visibility",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -27,12 +33,12 @@ class Map(Base):
 
     # Basemap
     basemap_style: Mapped[str] = mapped_column(
-        Text, default="openfreemap-positron", server_default="openfreemap-positron"
+        String(30), default="openfreemap-positron", server_default="openfreemap-positron"
     )
 
     # Visibility
     visibility: Mapped[str] = mapped_column(
-        Text, default="private", server_default="private"
+        String(20), default="private", server_default="private"
     )
 
     # Preview thumbnail (base64 data URI)
@@ -45,7 +51,7 @@ class Map(Base):
 
     # Ownership
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -57,7 +63,13 @@ class Map(Base):
 
 class MapLayer(Base):
     __tablename__ = "map_layers"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "layer_type IN ('vector_geolens', 'raster_geolens', 'geojson')",
+            name="chk_map_layers_layer_type",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()

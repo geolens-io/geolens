@@ -80,7 +80,7 @@ The primary areas for improvement are:
 
 #### H1 — `api_keys.user_id` has no index
 
-**Affected:** `ApiKey` — `backend/app/auth/models.py:75`
+**Affected:** `ApiKey` — `backend/app/auth/models.py:71`
 **Table:** `catalog.api_keys`
 
 The `user_id` FK column is used in auth resolution on every API-key-authenticated request (`ApiKey.user_id == current_user.id`), in admin listing, and in bulk deletion (`delete(ApiKey).where(ApiKey.user_id == user_id)`). No btree index exists in any migration. The `ix_refresh_tokens_user_id` index exists for RefreshToken but no equivalent exists for ApiKey.
@@ -104,7 +104,7 @@ op.create_index("idx_api_keys_user_id", "api_keys", ["user_id"], schema="catalog
 
 #### H2 — `ingest_jobs.created_by` has no index
 
-**Affected:** `IngestJob` — `backend/app/jobs/models.py:34`
+**Affected:** `IngestJob` — `backend/app/jobs/models.py:11`
 **Table:** `catalog.ingest_jobs`
 
 Filtered in admin job listing (`IngestJob.created_by == user_id`) at `backend/app/admin/router.py:316` and joined to users at line 330. No index exists despite `idx_ingest_jobs_status` being present (added in migration 0004).
@@ -230,7 +230,7 @@ __table_args__ = (
 
 #### H8 — `RasterAsset` model missing `chk_raster_assets_status` and `chk_raster_assets_vrt_type`
 
-**Affected:** `RasterAsset` — `backend/app/raster/models.py`
+**Affected:** `RasterAsset` — `backend/app/raster/models.py:11`
 **Table:** `catalog.raster_assets`
 
 The initial_schema.sql defines two check constraints on `raster_assets`:
@@ -264,7 +264,7 @@ __table_args__ = (
 
 #### H9 — `chk_records_record_type` value set diverges between model and schema
 
-**Affected:** `Record` — `backend/app/datasets/models.py:51`
+**Affected:** `Record` — `backend/app/datasets/models.py:28`
 **Table:** `catalog.records`
 
 The model's `chk_records_record_type` check constraint includes `'table'` as a valid value:
@@ -404,7 +404,7 @@ Add this constraint to both the model `__table_args__` and a new migration.
 
 #### M6 — `VrtGeneration.status` has no CHECK constraint
 
-**Affected:** `VrtGeneration` — `backend/app/raster/models.py` (VrtGeneration class)
+**Affected:** `VrtGeneration` — `backend/app/raster/models.py:95`
 **Table:** `catalog.vrt_generations`
 
 `status` is `String(20)` with `server_default="pending"`. Known values: `pending`, `running`, `completed`, `failed`. Index `ix_vrt_generations_status` exists in migration but no CHECK.
@@ -515,16 +515,16 @@ Both columns use `Text` (unbounded) despite having a small known value set. `Rec
 
 ---
 
-#### M11 — `Record.owner_org` column appears unused
+#### M11 — `Record.owner_org` has unclear semantic distinction from `source_organization`
 
 **Affected:** `Record` — `backend/app/datasets/models.py:73`
 **Table:** `catalog.records`
 
-`owner_org` is `Text, nullable=True`. No query, serializer, or API handler in the codebase references this column. `source_organization` serves the organization-based filtering and display role. This is dead schema or an unimplemented feature.
+`owner_org` is `Text, nullable=True`. The column IS actively used — it is set in `datasets/service.py:457-458`, serialized in `datasets/schemas.py:130,173`, and read in `datasets/router.py:326,1115` and `collections/router.py:105`. However, it has no filtering or search use (unlike `source_organization`, which drives facet filtering and display). The semantic distinction between `owner_org` (the organization that owns the data) and `source_organization` (the organization that published/provided the data) is not documented anywhere in the codebase.
 
-**Recommendation:** Determine if the column is intentional (planned feature) and add a code comment, or drop it with a migration to reduce schema clutter. If kept, document the intended semantic distinction from `source_organization`.
+**Recommendation:** Add a docstring or inline comment to `Record` clarifying the semantic distinction between `owner_org` and `source_organization`. If the distinction is not meaningful for this project, consolidate into a single column and migrate existing data. If kept, consider adding `owner_org` to search facets if ownership filtering is valuable.
 
-**Effort:** Small (decision required first)
+**Effort:** Small (clarification required first)
 
 ---
 
@@ -668,7 +668,7 @@ Or add a `UniqueConstraint` in `__table_args__` to be explicit about the constra
 
 #### L5 — `DatasetRelationship` FK columns reference `records.id` despite being named `*_dataset_id`
 
-**Affected:** `DatasetRelationship` — `backend/app/datasets/models.py` (DatasetRelationship class)
+**Affected:** `DatasetRelationship` — `backend/app/datasets/models.py:394`
 **Table:** `catalog.dataset_relationships`
 
 `source_dataset_id` and `target_dataset_id` both declare `ForeignKey("catalog.records.id", ...)`. The column names suggest they are dataset IDs, but they reference the records table. Since datasets and records are 1:1 this works, but it creates confusion for anyone reading the model without context.
@@ -689,7 +689,7 @@ source_dataset_id: Mapped[uuid.UUID] = mapped_column(
 
 #### L6 — `RasterAsset.current_generation_id` has no FK constraint
 
-**Affected:** `RasterAsset` — `backend/app/raster/models.py`
+**Affected:** `RasterAsset` — `backend/app/raster/models.py:11`
 **Table:** `catalog.raster_assets`
 
 `current_generation_id` stores a `VrtGeneration.id` value but declares no `ForeignKey`. If a `VrtGeneration` row is deleted, this becomes a dangling reference with no DB-enforced cleanup.
@@ -708,7 +708,7 @@ current_generation_id: Mapped[uuid.UUID | None] = mapped_column(
 
 #### L7 — `VrtSourceLink` model missing `UniqueConstraint` for `(vrt_dataset_id, source_dataset_id)`
 
-**Affected:** `VrtSourceLink` — `backend/app/raster/models.py` (VrtSourceLink class)
+**Affected:** `VrtSourceLink` — `backend/app/raster/models.py:123`
 **Table:** `catalog.vrt_source_links`
 
 The initial_schema.sql creates `uq_vsl_vrt_source UNIQUE (vrt_dataset_id, source_dataset_id)`. The `VrtSourceLink` model's `__table_args__` is only `{"schema": "catalog"}`. Both FK columns have explicit `index=True` (so the autogenerate index drift issue does not apply), but the unique constraint itself is not reflected in the model. Same drift pattern as H6/H7 but lower severity because the unique constraint does not appear to be referenced by name in application code.
@@ -835,7 +835,7 @@ Verify that all existing rows satisfy the proposed CHECK values before deploying
 | ID | Change | Notes |
 |----|--------|-------|
 | L6 | Add FK from `RasterAsset.current_generation_id` to `vrt_generations.id` | Prevents dangling references; requires migration |
-| M10 | Determine fate of `Record.owner_org` | Drop or document |
+| M10 | Clarify `Record.owner_org` vs `source_organization` distinction | Document or consolidate |
 | M11 | Migrate `Map.thumbnail` to external storage URI | Eliminates per-row bloat; medium effort |
 | M12 | Change `Map.basemap_style` and `Map.visibility` from `Text` to `String(N)` | Minor benefit; document-only change is acceptable |
 | L3 | Audit and standardize lazy loading strategies | Review `selectin` relationships for necessity |

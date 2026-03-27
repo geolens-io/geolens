@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Double, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Double, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +12,22 @@ class RasterAsset(Base):
     __tablename__ = "raster_assets"
     __table_args__ = (
         UniqueConstraint("dataset_id", name="uq_raster_assets_dataset"),
+        CheckConstraint(
+            "status IN ('ready', 'regenerating', 'failed')",
+            name="chk_raster_assets_status",
+        ),
+        CheckConstraint(
+            "vrt_type IS NULL OR vrt_type IN ('mosaic', 'band_stack')",
+            name="chk_raster_assets_vrt_type",
+        ),
+        CheckConstraint(
+            "cog_status IS NULL OR cog_status IN ('compliant', 'non_compliant', 'unknown')",
+            name="chk_raster_assets_cog_status",
+        ),
+        CheckConstraint(
+            "storage_backend IN ('local', 's3')",
+            name="chk_raster_assets_storage_backend",
+        ),
         {"schema": "catalog"},
     )
 
@@ -59,7 +75,9 @@ class RasterAsset(Base):
     vrt_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     resolution_strategy: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ready")
-    current_generation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    current_generation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.vrt_generations.id", ondelete="SET NULL"), nullable=True
+    )
     last_regenerated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def to_stac_properties(self) -> dict:
@@ -94,7 +112,13 @@ class RasterAsset(Base):
 
 class VrtGeneration(Base):
     __tablename__ = "vrt_generations"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed')",
+            name="chk_vrt_generations_status",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -124,7 +148,12 @@ class VrtSourceLink(Base):
     """Tracks which COG datasets are sources for a VRT dataset."""
 
     __tablename__ = "vrt_source_links"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        UniqueConstraint(
+            "vrt_dataset_id", "source_dataset_id", name="uq_vsl_vrt_source"
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -158,6 +187,10 @@ class DatasetAsset(Base):
     __tablename__ = "dataset_assets"
     __table_args__ = (
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
+        CheckConstraint(
+            "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata')",
+            name="chk_dataset_assets_key",
+        ),
         {"schema": "catalog"},
     )
 

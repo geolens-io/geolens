@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -9,7 +9,17 @@ from app.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'pending', 'suspended', 'deactivated')",
+            name="chk_users_status",
+        ),
+        CheckConstraint(
+            "auth_provider IN ('local', 'oidc', 'saml')",
+            name="chk_users_auth_provider",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -76,7 +86,7 @@ class ApiKey(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     key_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

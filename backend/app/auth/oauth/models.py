@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     String,
@@ -22,7 +23,13 @@ class OAuthProvider(Base):
     """OAuth/OIDC provider configuration (Google, Microsoft, generic OIDC)."""
 
     __tablename__ = "oauth_providers"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        CheckConstraint(
+            "provider_type IN ('oidc', 'google', 'microsoft', 'saml')",
+            name="chk_oauth_providers_type",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -75,7 +82,7 @@ class OAuthAccount(Base):
         ForeignKey("catalog.oauth_providers.id", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
