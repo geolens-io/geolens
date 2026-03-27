@@ -57,7 +57,7 @@ jobs:
             type=semver,pattern={{major}}
           labels: |
             org.opencontainers.image.description=${{ matrix.description }}
-            org.opencontainers.image.licenses=BUSL-1.1
+            org.opencontainers.image.licenses=Apache-2.0
 
       # Build local image for security scanning (single platform)
       - name: Build image for scanning

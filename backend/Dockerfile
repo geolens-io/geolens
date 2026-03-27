@@ -2,7 +2,7 @@ FROM python:3.13-slim AS base
 
 LABEL org.opencontainers.image.title="geolens-api"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog API"
-LABEL org.opencontainers.image.licenses="BUSL-1.1"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # Install uv from official image
 COPY --from=ghcr.io/astral-sh/uv:0.10.2 /uv /uvx /bin/

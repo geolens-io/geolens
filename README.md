@@ -129,7 +129,7 @@ The script downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), i
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (Redis-compatible) |
-| Database | PostgreSQL 16 + PostGIS 3.4 |
+| Database | PostgreSQL 17 + PostGIS 3.5 |
 | Reverse Proxy | Nginx |
 
 ## Configuration

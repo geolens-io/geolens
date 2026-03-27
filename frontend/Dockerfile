@@ -11,7 +11,7 @@ FROM nginxinc/nginx-unprivileged:alpine
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"
-LABEL org.opencontainers.image.licenses="BUSL-1.1"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=builder --chown=nginx:nginx /app/dist /usr/share/nginx/html
 COPY --from=builder --chown=nginx:nginx /app/public/env-config.template.js /usr/share/nginx/html/env-config.template.js
