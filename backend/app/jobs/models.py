@@ -12,7 +12,7 @@ class IngestJob(Base):
     __tablename__ = "ingest_jobs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'running', 'completed', 'failed', 'cancelled')",
+            "status IN ('pending', 'running', 'complete', 'failed', 'cancelled')",
             name="chk_ingest_jobs_status",
         ),
         {"schema": "catalog"},

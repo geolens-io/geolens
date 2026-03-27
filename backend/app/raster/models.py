@@ -21,7 +21,7 @@ class RasterAsset(Base):
             name="chk_raster_assets_vrt_type",
         ),
         CheckConstraint(
-            "cog_status IS NULL OR cog_status IN ('compliant', 'non_compliant', 'unknown')",
+            "cog_status IS NULL OR cog_status IN ('verified', 'converted', 'unknown')",
             name="chk_raster_assets_cog_status",
         ),
         CheckConstraint(
@@ -75,9 +75,9 @@ class RasterAsset(Base):
     vrt_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     resolution_strategy: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ready")
-    current_generation_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("catalog.vrt_generations.id", ondelete="SET NULL"), nullable=True
-    )
+    # NOTE: Not a FK — router code sets this to uuid.uuid4() as a placeholder before
+    # the VRT regeneration task creates the actual VrtGeneration row.
+    current_generation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     last_regenerated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def to_stac_properties(self) -> dict:
