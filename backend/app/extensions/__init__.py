@@ -14,12 +14,15 @@ import structlog
 logger = structlog.stdlib.get_logger(__name__)
 
 _extensions: dict[str, object] = {}
+_routers: list = []
 _loaded: bool = False
 
 
 def load_extensions() -> None:
     """Discover and load all extensions from the ``geolens.extensions`` group."""
     global _loaded
+
+    _routers.clear()
 
     eps = entry_points(group="geolens.extensions")
     for ep in eps:
@@ -30,6 +33,10 @@ def load_extensions() -> None:
                 logger.info("Loaded extension", name=ep.name)
         except Exception:
             logger.warning("Failed to load extension", name=ep.name, exc_info=True)
+
+    # Extract routers registered by extensions
+    routers = _extensions.pop("_routers", [])
+    _routers.extend(routers)
 
     _loaded = True
 
@@ -47,3 +54,8 @@ def has_extension(name: str) -> bool:
 def list_extensions() -> list[str]:
     """Return the names of all registered extensions."""
     return list(_extensions.keys())
+
+
+def get_extension_routers() -> list:
+    """Return FastAPI routers registered by extensions."""
+    return list(_routers)
