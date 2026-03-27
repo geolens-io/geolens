@@ -24,7 +24,7 @@ async def test_stats_returns_total_datasets(
     admin_auth_header: dict,
 ):
     """GET /admin/stats returns total_datasets as a non-negative integer."""
-    resp = await client.get("/admin/stats", headers=admin_auth_header)
+    resp = await client.get("/admin/stats/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "total_datasets" in data
@@ -38,7 +38,7 @@ async def test_stats_returns_recent_additions(
     admin_auth_header: dict,
 ):
     """recent_additions is <= total_datasets."""
-    resp = await client.get("/admin/stats", headers=admin_auth_header)
+    resp = await client.get("/admin/stats/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "recent_additions" in data
@@ -52,7 +52,7 @@ async def test_stats_returns_storage(
     admin_auth_header: dict,
 ):
     """total_storage_bytes is an integer or None."""
-    resp = await client.get("/admin/stats", headers=admin_auth_header)
+    resp = await client.get("/admin/stats/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "total_storage_bytes" in data
@@ -67,7 +67,7 @@ async def test_stats_returns_geometry_breakdown(
     admin_auth_header: dict,
 ):
     """datasets_by_geometry_type is a dict."""
-    resp = await client.get("/admin/stats", headers=admin_auth_header)
+    resp = await client.get("/admin/stats/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "datasets_by_geometry_type" in data
@@ -80,7 +80,7 @@ async def test_stats_returns_visibility_breakdown(
     admin_auth_header: dict,
 ):
     """datasets_by_visibility is a dict."""
-    resp = await client.get("/admin/stats", headers=admin_auth_header)
+    resp = await client.get("/admin/stats/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
     assert "datasets_by_visibility" in data
@@ -98,7 +98,7 @@ async def test_stats_viewer_forbidden(
     viewer_auth_header: dict,
 ):
     """Viewer cannot access stats (403)."""
-    resp = await client.get("/admin/stats", headers=viewer_auth_header)
+    resp = await client.get("/admin/stats/", headers=viewer_auth_header)
     assert resp.status_code == 403
 
 
@@ -107,5 +107,5 @@ async def test_stats_unauthenticated_returns_401(
     client: AsyncClient,
 ):
     """Unauthenticated request to stats returns 401."""
-    resp = await client.get("/admin/stats")
+    resp = await client.get("/admin/stats/")
     assert resp.status_code == 401

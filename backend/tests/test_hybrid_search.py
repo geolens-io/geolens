@@ -227,7 +227,7 @@ async def test_semantic_search_returns_200(
         return_value=_TRANSPORT_VECTOR,
     ):
         resp = await client.get(
-            "/search/datasets",
+            "/search/datasets/",
             params={"q": "transportation"},
             headers=admin_auth_header,
         )
@@ -263,7 +263,7 @@ async def test_semantic_fallback_no_embeddings(
     await session.commit()
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "roads"},
         headers=admin_auth_header,
     )
@@ -293,7 +293,7 @@ async def test_semantic_fallback_toggle_off(
 
     # Should still work via FTS
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "roads"},
         headers=admin_auth_header,
     )
@@ -352,7 +352,7 @@ async def test_semantic_works_when_ai_disabled(
         return_value=_TRANSPORT_VECTOR,
     ):
         resp = await client.get(
-            "/search/datasets",
+            "/search/datasets/",
             params={"q": "transportation"},
             headers=admin_auth_header,
         )
@@ -398,7 +398,7 @@ async def test_rrf_ranking_with_embeddings(
         return_value=_TRANSPORT_VECTOR,
     ):
         resp_with = await client.get(
-            "/search/datasets",
+            "/search/datasets/",
             params={"q": "transport", "limit": 10},
             headers=admin_auth_header,
         )
@@ -413,7 +413,7 @@ async def test_rrf_ranking_with_embeddings(
     await _set_semantic_search(session, False)
 
     resp_without = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "transport", "limit": 10},
         headers=admin_auth_header,
     )

@@ -912,7 +912,7 @@ class TestAdminEmbedTokenList:
         """Non-admin user gets 403."""
         # Create a viewer user
         viewer_resp = await client.post(
-            "/admin/users",
+            "/admin/users/",
             json={
                 "username": f"viewer_{uuid.uuid4().hex[:6]}",
                 "password": "testpass123",
@@ -925,7 +925,7 @@ class TestAdminEmbedTokenList:
 
         # Login as viewer
         login_resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": viewer_username, "password": "testpass123"},
         )
         assert login_resp.status_code == 200
@@ -1171,7 +1171,7 @@ class TestUpdateEmbedToken:
 
         # Create a viewer user
         viewer_resp = await client.post(
-            "/admin/users",
+            "/admin/users/",
             json={
                 "username": f"viewer_patch_{uuid.uuid4().hex[:6]}",
                 "password": "testpass123",
@@ -1184,7 +1184,7 @@ class TestUpdateEmbedToken:
 
         # Login as viewer
         login_resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": viewer_username, "password": "testpass123"},
         )
         assert login_resp.status_code == 200

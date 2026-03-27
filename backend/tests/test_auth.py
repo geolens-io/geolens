@@ -41,7 +41,7 @@ async def _create_user_via_admin(
     body = {"username": username, "password": password, "role": role}
     if email is not None:
         body["email"] = email
-    resp = await client.post("/admin/users", json=body, headers=admin_headers)
+    resp = await client.post("/admin/users/", json=body, headers=admin_headers)
     assert resp.status_code == 201, f"Create user failed: {resp.text}"
     return resp.json()
 
@@ -62,7 +62,7 @@ class TestRegistration:
 
         unique = uuid.uuid4().hex[:8]
         resp = await client.post(
-            "/auth/register",
+            "/auth/register/",
             json={"username": f"reguser_{unique}", "password": "securepass123"},
         )
         assert resp.status_code == 201
@@ -73,7 +73,7 @@ class TestRegistration:
     async def test_register_when_disabled(self, client: AsyncClient):
         """Registration is blocked when registration is disabled (default)."""
         resp = await client.post(
-            "/auth/register",
+            "/auth/register/",
             json={"username": "shouldfail", "password": "securepass123"},
         )
         assert resp.status_code == 403
@@ -90,14 +90,14 @@ class TestRegistration:
         username = f"dupuser_{unique}"
         # First registration
         resp1 = await client.post(
-            "/auth/register",
+            "/auth/register/",
             json={"username": username, "password": "securepass123"},
         )
         assert resp1.status_code == 201
 
         # Second registration with same username
         resp2 = await client.post(
-            "/auth/register",
+            "/auth/register/",
             json={"username": username, "password": "securepass123"},
         )
         assert resp2.status_code == 409
@@ -112,7 +112,7 @@ class TestLogin:
     async def test_login_success(self, client: AsyncClient):
         """Seeded admin user can log in and receives a JWT token."""
         resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         assert resp.status_code == 200
@@ -124,7 +124,7 @@ class TestLogin:
         """Successful login populates last_login_at on the user profile."""
         # Login
         resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         assert resp.status_code == 200
@@ -132,14 +132,14 @@ class TestLogin:
 
         # Check /auth/me for last_login_at
         headers = {"Authorization": f"Bearer {token}"}
-        me_resp = await client.get("/auth/me", headers=headers)
+        me_resp = await client.get("/auth/me/", headers=headers)
         assert me_resp.status_code == 200
         assert me_resp.json()["last_login_at"] is not None
 
     async def test_login_wrong_password(self, client: AsyncClient):
         """Wrong password returns 401."""
         resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": ADMIN_USER, "password": "wrongpassword"},
         )
         assert resp.status_code == 401
@@ -147,7 +147,7 @@ class TestLogin:
     async def test_login_nonexistent_user(self, client: AsyncClient):
         """Nonexistent username returns 401."""
         resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": "nonexistent_user_xyz", "password": "anypass123"},
         )
         assert resp.status_code == 401
@@ -172,7 +172,7 @@ class TestLogin:
 
         # Try to log in -- deactivated users get 403
         resp = await client.post(
-            "/auth/login",
+            "/auth/login/",
             data={"username": username, "password": "testpass123"},
         )
         assert resp.status_code == 403
@@ -188,7 +188,7 @@ class TestTokenMe:
     async def test_me_with_valid_token(self, client: AsyncClient):
         """GET /auth/me returns user profile with roles when authenticated."""
         headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
-        resp = await client.get("/auth/me", headers=headers)
+        resp = await client.get("/auth/me/", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["username"] == ADMIN_USER
@@ -198,13 +198,13 @@ class TestTokenMe:
 
     async def test_me_without_token(self, client: AsyncClient):
         """GET /auth/me without Authorization header returns 401."""
-        resp = await client.get("/auth/me")
+        resp = await client.get("/auth/me/")
         assert resp.status_code == 401
 
     async def test_me_with_invalid_token(self, client: AsyncClient):
         """GET /auth/me with garbage token returns 401."""
         resp = await client.get(
-            "/auth/me", headers={"Authorization": "Bearer garbage.token.here"}
+            "/auth/me/", headers={"Authorization": "Bearer garbage.token.here"}
         )
         assert resp.status_code == 401
 
@@ -218,7 +218,7 @@ class TestRBAC:
     async def test_admin_can_access_admin_endpoints(self, client: AsyncClient):
         """Admin user can access /admin/users."""
         headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
-        resp = await client.get("/admin/users", headers=headers)
+        resp = await client.get("/admin/users/", headers=headers)
         assert resp.status_code == 200
 
     async def test_viewer_cannot_access_admin_endpoints(self, client: AsyncClient):
@@ -236,7 +236,7 @@ class TestRBAC:
         )
 
         viewer_headers = await get_auth_header(client, username, "testpass123")
-        resp = await client.get("/admin/users", headers=viewer_headers)
+        resp = await client.get("/admin/users/", headers=viewer_headers)
         assert resp.status_code == 403
 
     async def test_editor_cannot_access_admin_endpoints(self, client: AsyncClient):
@@ -254,7 +254,7 @@ class TestRBAC:
         )
 
         editor_headers = await get_auth_header(client, username, "testpass123")
-        resp = await client.get("/admin/users", headers=editor_headers)
+        resp = await client.get("/admin/users/", headers=editor_headers)
         assert resp.status_code == 403
 
 
@@ -311,7 +311,7 @@ class TestAdminUserManagement:
         unique = uuid.uuid4().hex[:8]
         username = f"newuser_{unique}"
         resp = await client.post(
-            "/admin/users",
+            "/admin/users/",
             json={
                 "username": username,
                 "password": "testpass123",
@@ -348,7 +348,7 @@ class TestAdminUserManagement:
         """Admin can list users with pagination."""
         admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
 
-        resp = await client.get("/admin/users", headers=admin_headers)
+        resp = await client.get("/admin/users/", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "users" in data

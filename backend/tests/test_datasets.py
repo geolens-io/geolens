@@ -383,7 +383,7 @@ class TestAnonymousAccess:
             visibility="private",
             name="Search Private",
         )
-        resp = await client.get("/search/datasets")
+        resp = await client.get("/search/datasets/")
         assert resp.status_code == 200
         ids = [f["id"] for f in resp.json()["features"]]
         assert str(pub.id) in ids
@@ -391,7 +391,7 @@ class TestAnonymousAccess:
 
     async def test_anon_search_facets(self, client: AsyncClient):
         """Anonymous GET /search/facets returns 200."""
-        resp = await client.get("/search/facets")
+        resp = await client.get("/search/facets/")
         assert resp.status_code == 200
 
     async def test_anon_get_dataset_rows_public(
@@ -491,9 +491,9 @@ class TestAnonymousAccess:
         assert resp.status_code == 401
 
         # Import (editor-only)
-        resp = await client.post("/ingest/upload")
+        resp = await client.post("/ingest/upload/")
         assert resp.status_code in (401, 422)  # 422 if missing body, but auth checked first
 
         # Admin users
-        resp = await client.get("/admin/users")
+        resp = await client.get("/admin/users/")
         assert resp.status_code == 401

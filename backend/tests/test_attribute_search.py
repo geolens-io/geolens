@@ -96,7 +96,7 @@ async def test_search_by_title(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": "water infrastructure", "limit": 100},
         headers=admin_auth_header,
     )
@@ -124,7 +124,7 @@ async def test_search_by_summary(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": f"hydrological {unique}", "limit": 100},
         headers=admin_auth_header,
     )
@@ -152,7 +152,7 @@ async def test_search_by_tag(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": unique_tag, "limit": 100},
         headers=admin_auth_header,
     )
@@ -191,7 +191,7 @@ async def test_title_ranks_higher_than_summary(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": f"population {unique}", "limit": 100},
         headers=admin_auth_header,
     )
@@ -235,7 +235,7 @@ async def test_column_names_not_searchable_via_fts(
     )
 
     resp = await client.get(
-        "/search/datasets",
+        "/search/datasets/",
         params={"q": f"xyzcolumn{unique}", "limit": 100},
         headers=admin_auth_header,
     )

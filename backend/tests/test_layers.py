@@ -222,7 +222,7 @@ class TestCreateLayerSearchable:
 
         # Search for the layer
         search_resp = await client.get(
-            "/search/datasets",
+            "/search/datasets/",
             params={"q": unique_name},
             headers=editor_auth_header,
         )

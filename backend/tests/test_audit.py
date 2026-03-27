@@ -84,7 +84,7 @@ async def test_metadata_edit_creates_audit_log(
 
     # Admin queries audit logs for metadata.edit
     log_resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         params={"action": "metadata.edit"},
         headers=admin_auth_header,
     )
@@ -120,7 +120,7 @@ async def test_dataset_view_creates_audit_log(
 
     # Admin queries audit logs for dataset.view
     log_resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         params={"action": "dataset.view"},
         headers=admin_auth_header,
     )
@@ -154,7 +154,7 @@ async def test_audit_log_filter_by_user(
 
     # Filter by admin user_id
     log_resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         params={"user_id": str(admin_id)},
         headers=admin_auth_header,
     )
@@ -173,7 +173,7 @@ async def test_audit_log_filter_by_action(
 ):
     """Filter audit logs by action returns only matching actions."""
     log_resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         params={"action": "metadata.edit"},
         headers=admin_auth_header,
     )
@@ -191,7 +191,7 @@ async def test_audit_log_filter_by_date_range(
 ):
     """Filter audit logs by date range returns logs within that range."""
     log_resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         params={
             "date_from": "2026-01-01T00:00:00Z",
             "date_to": "2026-12-31T23:59:59Z",
@@ -229,7 +229,7 @@ async def test_audit_log_pagination(
 
     # Request page with limit=2
     log_resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         params={"limit": 2, "skip": 0},
         headers=admin_auth_header,
     )
@@ -251,7 +251,7 @@ async def test_audit_log_viewer_forbidden(
 ):
     """Viewer cannot access audit logs (403)."""
     resp = await client.get(
-        "/admin/audit-logs",
+        "/admin/audit-logs/",
         headers=viewer_auth_header,
     )
     assert resp.status_code == 403
@@ -262,5 +262,5 @@ async def test_audit_log_unauthenticated_returns_401(
     client: AsyncClient,
 ):
     """Unauthenticated request to audit logs returns 401."""
-    resp = await client.get("/admin/audit-logs")
+    resp = await client.get("/admin/audit-logs/")
     assert resp.status_code == 401

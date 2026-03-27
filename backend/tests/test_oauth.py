@@ -585,7 +585,7 @@ class TestOAuthProvidersEndpoint:
         )
         await test_db_session.commit()
 
-        resp = await client.get("/auth/oauth/providers")
+        resp = await client.get("/auth/oauth/providers/")
         assert resp.status_code == 200
         data = resp.json()
         slugs = {p["slug"] for p in data}

@@ -115,7 +115,7 @@ async def _create_vector_dataset(
 
 
 async def _get_auth_header(client: AsyncClient, username: str, password: str) -> dict:
-    resp = await client.post("/auth/login", data={"username": username, "password": password})
+    resp = await client.post("/auth/login/", data={"username": username, "password": password})
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
@@ -264,7 +264,7 @@ class TestRasterAuthCheck:
         username = f"viewer_{unique}"
         password = "testpass123"
         resp = await client.post(
-            "/admin/users",
+            "/admin/users/",
             json={"username": username, "password": password, "role": "viewer"},
             headers=admin_auth_header,
         )
@@ -303,7 +303,7 @@ class TestRasterAuthRbacParity:
         username = f"rbac_parity_{uuid.uuid4().hex[:6]}"
         password = "testpass123"
         resp = await client.post(
-            "/admin/users",
+            "/admin/users/",
             json={"username": username, "password": password, "role": "viewer"},
             headers=admin_auth_header,
         )
