@@ -230,11 +230,11 @@ async def geom_rows_dataset(test_db_session, geom_rows_table, admin_auth_header)
 
 class TestRowsAuth:
     @pytest.mark.anyio
-    async def test_rows_requires_auth(self, client: AsyncClient):
-        """GET /datasets/{uuid}/rows without token returns 401."""
+    async def test_rows_anonymous_nonexistent_returns_404(self, client: AsyncClient):
+        """GET /datasets/{uuid}/rows without token returns 404 for nonexistent dataset."""
         fake_id = str(uuid.uuid4())
         resp = await client.get(f"/datasets/{fake_id}/rows")
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
     @pytest.mark.anyio
     async def test_rows_dataset_not_found(
