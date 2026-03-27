@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import uuid
-from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -18,16 +17,10 @@ from app.auth.visibility import check_dataset_access
 from app.datasets.service import get_dataset
 from app.dependencies import get_db
 from app.export.ogr import ExportError
+from app.export.schemas import ExportFormat
 from app.export.service import export_dataset
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
-
-
-class ExportFormat(str, Enum):
-    gpkg = "gpkg"
-    geojson = "geojson"
-    shp = "shp"
-    csv = "csv"
 
 
 def _cleanup_export(path: str) -> None:
