@@ -954,7 +954,30 @@ class TestShareToken:
             if t["map_id"] == map_id
         )
 
-        # Create an embed token for the map
+        # Create an embed token for the map (requires layers for dataset scope).
+        # Use the ORM directly to create a minimal dataset + layer for the embed token.
+        from app.datasets.models import Dataset, Record
+        from app.maps.models import MapLayer
+
+        record = Record(
+            title="Cascade Test DS",
+            summary="For embed cascade test",
+            visibility="public",
+            record_status="published",
+            theme_category=["test"],
+            created_by=(await test_db_session.execute(
+                select(User).where(User.username == "admin")
+            )).scalar_one().id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(record_id=record.id, table_name="data.cascade_test")
+        test_db_session.add(dataset)
+        await test_db_session.flush()
+        layer = MapLayer(map_id=uuid.UUID(map_id), dataset_id=dataset.id)
+        test_db_session.add(layer)
+        await test_db_session.commit()
+
         embed_resp = await client.post(
             f"/maps/{map_id}/embed-tokens/",
             json={"name": "Cascade Test Embed"},
