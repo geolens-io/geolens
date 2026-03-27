@@ -280,6 +280,81 @@ class TestRasterAuthCheck:
 
 
 # ---------------------------------------------------------------------------
+# RBAC regression: inline raster auth vs check_dataset_access
+# ---------------------------------------------------------------------------
+
+
+class TestRasterAuthRbacParity:
+    """Verify the inline RBAC in raster_auth_check mirrors check_dataset_access."""
+
+    async def test_private_dataset_non_owner_blocked_by_both_paths(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Private dataset: non-owner viewer is blocked by raster auth (inline RBAC)
+        AND by the token endpoint (check_dataset_access). Both must agree."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="private"
+        )
+
+        admin_auth_header = await _get_auth_header(
+            client, settings.geolens_admin_username, settings.geolens_admin_password
+        )
+        username = f"rbac_parity_{uuid.uuid4().hex[:6]}"
+        password = "testpass123"
+        resp = await client.post(
+            "/admin/users",
+            json={"username": username, "password": password, "role": "viewer"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        viewer_header = await _get_auth_header(client, username, password)
+
+        # Path A: inline RBAC in raster-auth-check
+        auth_check_resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+            headers=viewer_header,
+        )
+
+        # Path B: check_dataset_access in token endpoint
+        token_resp = await client.get(
+            f"/tiles/token/{dataset.id}/",
+            headers=viewer_header,
+        )
+
+        # Both must block the non-owner viewer
+        assert auth_check_resp.status_code in (403, 404), (
+            f"raster-auth-check returned {auth_check_resp.status_code}, expected 403/404"
+        )
+        assert token_resp.status_code in (403, 404), (
+            f"token endpoint returned {token_resp.status_code}, expected 403/404"
+        )
+
+    async def test_public_dataset_accessible_by_both_paths(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Public dataset: unauthenticated access succeeds on both paths."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, _asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+
+        # Path A: raster-auth-check (no auth)
+        auth_check_resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+        )
+
+        # Path B: token endpoint (no auth)
+        token_resp = await client.get(f"/tiles/token/{dataset.id}/")
+
+        # Both must allow access
+        assert auth_check_resp.status_code == 200
+        assert token_resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Token endpoint tests
 # ---------------------------------------------------------------------------
 

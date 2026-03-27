@@ -6,7 +6,7 @@ import uuid as uuid_mod
 import anthropic
 import openai
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,11 +37,18 @@ from app.datasets.models import Dataset
 from app.dependencies import get_db
 from app.maps.models import Map
 from app.persistent_config import AI_ENABLED, LLM_PROVIDER
+from app.auth.router import limiter
 from app.sandbox.validator import build_table_allowlist
 
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["Maps"])
+
+# AI endpoints call external LLM APIs — rate limit to prevent quota exhaustion.
+# Map generation/chat: 10/min (heavy, multi-step tool loops)
+# Metadata assist: 20/min (lighter, single LLM call)
+_AI_GENERATE_LIMIT = "10/minute"
+_AI_METADATA_LIMIT = "20/minute"
 
 
 async def _check_ai_available(
@@ -142,7 +149,9 @@ async def _validate_chat_layers(
 
 
 @router.post("/generate-map/", response_model=MapGenerateResponse)
+@limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_endpoint(
+    request: Request,
     body: MapGenerateRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -190,7 +199,9 @@ async def generate_map_endpoint(
 
 
 @router.post("/generate-map/stream/")
+@limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_stream_endpoint(
+    request: Request,
     body: MapGenerateRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -215,7 +226,9 @@ async def generate_map_stream_endpoint(
 
 
 @router.post("/chat/", response_model=ChatResponse)
+@limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_endpoint(
+    request: Request,
     body: ChatRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -267,7 +280,9 @@ async def chat_endpoint(
 
 
 @router.post("/chat/stream/")
+@limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_stream_endpoint(
+    request: Request,
     body: ChatRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -304,7 +319,9 @@ async def chat_stream_endpoint(
 
 
 @router.post("/metadata/summary/", response_model=SummaryDraftResponse)
+@limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_summary(
+    request: Request,
     body: MetadataAssistRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -340,7 +357,9 @@ async def generate_metadata_summary(
 
 
 @router.post("/metadata/keywords/", response_model=KeywordSuggestionsResponse)
+@limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_keywords(
+    request: Request,
     body: MetadataAssistRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -376,7 +395,9 @@ async def generate_metadata_keywords(
 
 
 @router.post("/metadata/lineage/", response_model=LineageDraftResponse)
+@limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_lineage(
+    request: Request,
     body: MetadataAssistRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
@@ -414,7 +435,9 @@ async def generate_metadata_lineage(
 @router.post(
     "/metadata/quality-statement/", response_model=QualityStatementDraftResponse
 )
+@limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_quality_statement(
+    request: Request,
     body: MetadataAssistRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
