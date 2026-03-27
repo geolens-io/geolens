@@ -33,9 +33,9 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 
 ### Enterprise Repo
 
-- [ ] **REPO-01**: A `geolens-enterprise` repo scaffold exists with `pyproject.toml` defining entry_points that register with the core extension system
-- [ ] **REPO-02**: Enterprise repo installs as an editable pip package (`pip install -e`) into the existing Docker Compose setup via a compose override file
-- [ ] **REPO-03**: Enterprise Alembic migrations use a separate branch label and do not conflict with core migrations
+- [x] **REPO-01**: A `geolens-enterprise` repo scaffold exists with `pyproject.toml` defining entry_points that register with the core extension system
+- [x] **REPO-02**: Enterprise repo installs as an editable pip package (`pip install -e`) into the existing Docker Compose setup via a compose override file
+- [x] **REPO-03**: Enterprise Alembic migrations use a separate branch label and do not conflict with core migrations
 - [ ] **REPO-04**: At least one enterprise feature (branding toggle or SAML) lives in the enterprise repo, proving the overlay pattern end-to-end
 
 ### Licensing & Documentation
@@ -96,9 +96,9 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 | SAML-03 | Phase 209 | Complete |
 | SAML-04 | Phase 209 | Complete |
 | SAML-05 | Phase 209 | Complete |
-| REPO-01 | Phase 210 | Pending |
-| REPO-02 | Phase 210 | Pending |
-| REPO-03 | Phase 210 | Pending |
+| REPO-01 | Phase 210 | Complete |
+| REPO-02 | Phase 210 | Complete |
+| REPO-03 | Phase 210 | Complete |
 | REPO-04 | Phase 210 | Pending |
 | DOCS-01 | Phase 211 | Pending |
 | DOCS-02 | Phase 211 | Pending |

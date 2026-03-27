@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.0
 milestone_name: Open-Core Pre-Release
 status: verifying
-stopped_at: Completed 209-02-PLAN.md
-last_updated: "2026-03-26T23:49:18.488Z"
-last_activity: 2026-03-26
+stopped_at: Completed 210-01-PLAN.md
+last_updated: "2026-03-27T00:36:11.501Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 6
+  completed_phases: 2
+  total_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 Phase: 209 (saml-sso) — EXECUTING
 Plan: 2 of 2
 Status: Phase complete — ready for verification
-Last activity: 2026-03-26
+Last activity: 2026-03-27
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 208 P02 | 2 | 2 tasks | 4 files |
 | Phase 209 P01 | 5min | 3 tasks | 14 files |
 | Phase 209 P02 | 4min | 2 tasks | 11 files |
+| Phase 210 P01 | 3 | 2 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 208]: Used fetch() directly for blob export (apiFetch assumes JSON); split button pattern with joined rounded corners
 - [Phase 209]: pysaml2 7.5.4 for SAML SSO backend; metadata parsed on save, IdP cert encrypted, in-memory replay cache
 - [Phase 209]: SAML form uses conditional field visibility matching Microsoft tenant_id pattern; enterprise gated via useEdition isEnterprise
+- [Phase 210]: Enterprise package uses setuptools entry_points for both extension and migration discovery
+- [Phase 210]: Dynamic router registration replaces hardcoded SAML import in main.py
+- [Phase 210]: Enterprise install hook runs before migrations in entrypoint for entry_points discoverability
 
 ### Pending Todos
 
@@ -240,6 +244,6 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last activity: 2026-03-26 - Roadmap created for v13.0 Open-Core Pre-Release (6 phases, 206-211)
-Last session: 2026-03-26T23:49:18.486Z
-Stopped at: Completed 209-02-PLAN.md
+Last session: 2026-03-27T00:36:11.498Z
+Stopped at: Completed 210-01-PLAN.md
 Resume file: None
