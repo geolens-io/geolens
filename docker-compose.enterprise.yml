@@ -1,0 +1,28 @@
+# Enterprise overlay: mount the private enterprise package into containers.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.enterprise.yml up
+services:
+  api:
+    volumes:
+      - ../geolens-enterprise:/enterprise
+    environment:
+      GEOLENS_ENTERPRISE_PATH: /enterprise
+
+  worker:
+    volumes:
+      - ../geolens-enterprise:/enterprise
+    environment:
+      GEOLENS_ENTERPRISE_PATH: /enterprise
+
+  migrate:
+    volumes:
+      - ../geolens-enterprise:/enterprise
+    environment:
+      GEOLENS_ENTERPRISE_PATH: /enterprise
+    command: >
+      sh -c "
+        if [ -d /enterprise ] && [ -f /enterprise/pyproject.toml ]; then
+          echo 'Installing enterprise extensions for migration...' &&
+          uv pip install -e /enterprise 2>&1 || true;
+        fi &&
+        uv run alembic upgrade head
+      "
