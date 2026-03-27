@@ -20,6 +20,32 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+import pathlib
+from importlib.metadata import entry_points as iter_entry_points
+
+
+def _discover_migration_paths() -> list[str]:
+    """Discover additional migration version directories from plugins."""
+    paths = []
+    for ep in iter_entry_points(group="geolens.migrations"):
+        try:
+            fn = ep.load()
+            if callable(fn):
+                for p in fn():
+                    if pathlib.Path(p).is_dir():
+                        paths.append(p)
+        except Exception:
+            pass  # Non-fatal: core migrations still run
+    return paths
+
+
+# Append enterprise migration paths to version_locations
+_extra_paths = _discover_migration_paths()
+if _extra_paths:
+    _base_versions = config.get_main_option("version_locations") or "alembic/versions"
+    _all_paths = _base_versions + " " + " ".join(_extra_paths)
+    config.set_main_option("version_locations", _all_paths)
+
 target_metadata = Base.metadata
 
 
