@@ -31,6 +31,7 @@ import { AiAssistButton, AiDraftPreview } from '@/components/dataset/AiAssistBut
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useSummaryDraft } from '@/hooks/use-ai-metadata';
 import { useValidation } from '@/hooks/use-dataset';
+import { useAuthStore } from '@/stores/auth-store';
 import { useVrtGenerations } from '@/hooks/use-vrt';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
@@ -107,9 +108,10 @@ export function OverviewTab({
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
 
-  // Health / QA block
+  // Health / QA block (skip for anonymous users — endpoint requires auth)
+  const token = useAuthStore((s) => s.token);
   const resolvedDatasetId = datasetId ?? dataset.id;
-  const { data: validationData } = useValidation(resolvedDatasetId);
+  const { data: validationData } = useValidation(token ? resolvedDatasetId : undefined);
   const requiredCount = validationData?.errors?.length ?? 0;
   const recommendedCount = validationData?.warnings?.length ?? 0;
   const totalValidatableFields = 12;

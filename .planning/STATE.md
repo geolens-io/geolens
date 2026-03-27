@@ -4,13 +4,13 @@ milestone: v13.0
 milestone_name: Open-Core Pre-Release
 status: verifying
 stopped_at: Completed 210-02-PLAN.md
-last_updated: "2026-03-27T00:44:54.746Z"
+last_updated: "2026-03-27T13:27:57.827Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 8
+  completed_phases: 5
+  total_plans: 12
+  completed_plans: 10
   percent: 0
 ---
 
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: 209 (saml-sso) — EXECUTING
-Plan: 2 of 2
+Phase: 211
+Plan: Not started
 Status: Phase complete — ready for verification
 Last activity: 2026-03-27
 
@@ -243,10 +243,11 @@ Progress: [░░░░░░░░░░] 0%
 | 260326-e7u | Review the feature flags - are they necessary? | 2026-03-26 | 564b079f | Verified | [260326-e7u-review-the-feature-flags-are-they-necess](./quick/260326-e7u-review-the-feature-flags-are-they-necess/) |
 | 260326-f71 | MVT rendering, DB querying & caching optimization review | 2026-03-26 | 67acf3de | Pending | [260326-f71-review-the-current-mvt-rendering-and-dat](./quick/260326-f71-review-the-current-mvt-rendering-and-dat/) |
 | 260326-fzo | Support & Discussions strategy for public release | 2026-03-26 | 9d1e2d7d | Verified | [260326-fzo-how-should-we-handle-support-and-discuss](./quick/260326-fzo-how-should-we-handle-support-and-discuss/) |
+| 260327-e7w | Anonymous public browsing: allow unauthenticated users to browse/search public datasets and view public maps without login | 2026-03-27 | 2a7501d9 | Verified | [260327-e7w-anonymous-public-browsing-allow-unauthen](./quick/260327-e7w-anonymous-public-browsing-allow-unauthen/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-26 - Roadmap created for v13.0 Open-Core Pre-Release (6 phases, 206-211)
+Last activity: 2026-03-27 - Completed quick task 260327-e7w: Anonymous public browsing
 Last session: 2026-03-27T00:44:54.743Z
 Stopped at: Completed 210-02-PLAN.md
 Resume file: None

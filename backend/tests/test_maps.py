@@ -224,9 +224,9 @@ class TestGetMap:
         assert resp.status_code == 404
 
     async def test_get_map_unauthenticated(self, client: AsyncClient):
-        """GET /maps/{id} without auth returns 401."""
+        """GET /maps/{id} without auth returns 404 (anonymous access allowed, map not found)."""
         resp = await client.get(f"/maps/{uuid.uuid4()}")
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -42,10 +42,11 @@ export function useTileConfig() {
 
 // --- Unified admin hooks ---
 
-export function useAllSettings() {
+export function useAllSettings(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['settings', 'all'],
     queryFn: getAllSettings,
+    enabled: options?.enabled,
   });
 }
 

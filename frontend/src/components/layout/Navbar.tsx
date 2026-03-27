@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload } from 'lucide-react';
+import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
@@ -104,6 +104,19 @@ function UserMenu() {
   const { user, logout } = useAuth();
   const { can } = usePermissions();
   const { t } = useTranslation();
+  const { t: tAuth } = useTranslation('auth');
+
+  // Anonymous: show sign-in button instead of user dropdown
+  if (!user) {
+    return (
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/login">
+          <LogIn className="h-4 w-4 mr-1" />
+          {tAuth('signIn')}
+        </Link>
+      </Button>
+    );
+  }
 
   const initial = user?.username?.charAt(0).toUpperCase();
 
@@ -183,6 +196,7 @@ function MobileNav() {
   const { user } = useAuth();
   const { can } = usePermissions();
   const { t } = useTranslation();
+  const { t: tAuth } = useTranslation('auth');
   const location = useLocation();
   const [open, setOpen] = useState(false);
 
@@ -273,6 +287,19 @@ function MobileNav() {
                     {t('nav.importData')}
                   </Link>
                 )}
+              </>
+            )}
+            {!user && (
+              <>
+                <Separator className="my-2" />
+                <Link
+                  to="/login"
+                  className={mobileNavLinkClass({ isActive: false })}
+                  onClick={() => setOpen(false)}
+                >
+                  <LogIn className="h-4 w-4 mr-2" />
+                  {tAuth('signIn')}
+                </Link>
               </>
             )}
           </nav>

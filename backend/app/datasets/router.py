@@ -39,6 +39,7 @@ from app.auth.models import User
 from app.auth.visibility import (
     apply_visibility_filter,
     check_dataset_access,
+    check_dataset_access_or_anonymous,
     get_user_roles,
 )
 from app.config import settings
@@ -524,7 +525,7 @@ async def get_dcat_record(
 async def get_single_dataset(
     dataset_id: uuid.UUID,
     request: Request,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetResponse:
     """Get a single dataset by ID with visibility check."""
@@ -536,18 +537,19 @@ async def get_single_dataset(
         )
 
     # Visibility check
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # Log dataset access
-    await log_action(
-        db,
-        user_id=user.id,
-        action="dataset.view",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        ip_address=request.client.host if request.client else None,
-    )
-    await db.commit()
+    # Log dataset access for authenticated users only
+    if user is not None:
+        await log_action(
+            db,
+            user_id=user.id,
+            action="dataset.view",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            ip_address=request.client.host if request.client else None,
+        )
+        await db.commit()
 
     # Fetch collection memberships for detail view
     colls = await get_dataset_collections(db, dataset_id)
@@ -595,7 +597,7 @@ async def get_single_dataset(
             size_bytes=da.size_bytes,
         )
 
-    single_user_roles = await get_user_roles(db, user)
+    single_user_roles = await get_user_roles(db, user) if user is not None else set()
     single_is_admin = "admin" in single_user_roles
 
     return _dataset_to_response(
@@ -625,13 +627,7 @@ async def get_quicklook(
             detail="Dataset not found",
         )
 
-    record = dataset.record
-    if user is None:
-        # Anonymous access: only published + public datasets
-        if record.record_status != "published" or record.visibility != "public":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
-    else:
-        await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     record_type = getattr(dataset.record, "record_type", None)
 
@@ -992,11 +988,11 @@ async def regenerate_vrt_endpoint(
 @router.get("/{dataset_id}/related/", response_model=RelatedDatasetsResponse)
 async def list_related_datasets(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> RelatedDatasetsResponse:
     """Return top-5 datasets similar to this one by embedding cosine similarity."""
-    user_roles = await get_user_roles(db, user)
+    user_roles = await get_user_roles(db, user) if user is not None else set()
     items = await get_related_datasets(db, dataset_id, user, user_roles)
     return RelatedDatasetsResponse(items=items, total=len(items))
 
@@ -1007,7 +1003,7 @@ async def get_dataset_rows_endpoint(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRowsResponse:
     """Get keyset-paginated rows from a dataset's data table.
@@ -1024,7 +1020,7 @@ async def get_dataset_rows_endpoint(
         )
 
     # Visibility check
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # Extract filter[col]=value params
     filters: dict[str, str] = {}
@@ -1053,7 +1049,7 @@ async def get_dataset_rows_endpoint(
 @router.get("/{dataset_id}/validate/", response_model=ValidationResultResponse)
 async def validate_dataset(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ValidationResultResponse:
     """Get validation status for a dataset. Shows hard errors and soft warnings."""
@@ -1068,7 +1064,7 @@ async def validate_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     validation = await run_validation(db, dataset.record, dataset)
     quality = await compute_quality_score(
@@ -1206,7 +1202,7 @@ async def get_dataset_history(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> AuditLogListResponse:
     """Get audit log history for a specific dataset."""
@@ -1218,7 +1214,7 @@ async def get_dataset_history(
         )
 
     # Visibility check
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     logs, total = await query_audit_logs(
         db,
@@ -1747,7 +1743,7 @@ async def get_dataset_versions_endpoint(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetVersionListResponse:
     """Get paginated version history for a dataset."""
@@ -1759,7 +1755,7 @@ async def get_dataset_versions_endpoint(
         )
 
     # Visibility check
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     versions, total = await get_dataset_versions(db, dataset_id, skip=skip, limit=limit)
 
@@ -1778,7 +1774,7 @@ async def get_dataset_versions_endpoint(
 async def list_attributes_endpoint(
     dataset_id: uuid.UUID,
     include_removed: bool = Query(False),
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> AttributeMetadataListResponse:
     """List all attribute metadata for a dataset."""
@@ -1787,7 +1783,7 @@ async def list_attributes_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
     from app.datasets.service import list_attributes
 
     attributes = await list_attributes(db, dataset_id, include_removed=include_removed)
@@ -2176,12 +2172,7 @@ async def list_dataset_relationships(
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
-    if user is None:
-        record = dataset.record
-        if record.record_status != "published" or record.visibility != "public":
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
-    else:
-        await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     from app.datasets.service import list_relationships
 
@@ -2239,7 +2230,7 @@ async def get_feature_related_records(
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     from app.datasets.service import get_related_records
 
