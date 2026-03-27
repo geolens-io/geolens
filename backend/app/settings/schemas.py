@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class BasemapEntry(BaseModel):
-    id: str
+    id: str = Field(max_length=30)
     label: str
     url: str
     enabled: bool = True
