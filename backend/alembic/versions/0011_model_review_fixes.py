@@ -1,10 +1,9 @@
-"""Address database model review findings: indexes, CHECK constraints, FK constraint.
+"""Address database model review findings: indexes, CHECK constraints, type narrowing.
 
 Adds missing indexes on frequently queried FK/sort columns (H1-H5, L2),
 new CHECK constraints for enum-like string columns (M1-M7, M13-M15),
-updates record_type CHECK to include 'table' (H9), narrows Map.basemap_style
-and Map.visibility from Text to String(N) (M10), and adds FK from
-RasterAsset.current_generation_id to vrt_generations (L6).
+updates record_type CHECK to include 'table' (H9), and narrows
+Map.basemap_style and Map.visibility from Text to String(N) (M10).
 
 Model-only changes (H6-H8, M8-M9, L4, L7) reflect existing DB constraints
 into SQLAlchemy models and require no DB migration.
@@ -66,11 +65,11 @@ def upgrade() -> None:
     # ── Tier 3: New CHECK constraints (M1-M7, M13-M15) ───────────────────
     op.execute("""
         ALTER TABLE catalog.maps ADD CONSTRAINT chk_maps_visibility
-            CHECK (visibility IN ('private', 'public', 'unlisted'))
+            CHECK (visibility IN ('private', 'public', 'internal', 'unlisted'))
     """)
     op.execute("""
         ALTER TABLE catalog.ingest_jobs ADD CONSTRAINT chk_ingest_jobs_status
-            CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled'))
+            CHECK (status IN ('pending', 'running', 'complete', 'failed', 'cancelled'))
     """)
     op.execute("""
         ALTER TABLE catalog.users ADD CONSTRAINT chk_users_status
@@ -78,11 +77,11 @@ def upgrade() -> None:
     """)
     op.execute("""
         ALTER TABLE catalog.users ADD CONSTRAINT chk_users_auth_provider
-            CHECK (auth_provider IN ('local', 'oidc', 'saml'))
+            CHECK (auth_provider IN ('local', 'oidc', 'saml', 'oauth'))
     """)
     op.execute("""
         ALTER TABLE catalog.raster_assets ADD CONSTRAINT chk_raster_assets_cog_status
-            CHECK (cog_status IS NULL OR cog_status IN ('compliant', 'non_compliant', 'unknown'))
+            CHECK (cog_status IS NULL OR cog_status IN ('verified', 'converted', 'unknown'))
     """)
     op.execute("""
         ALTER TABLE catalog.vrt_generations ADD CONSTRAINT chk_vrt_generations_status
@@ -121,25 +120,8 @@ def upgrade() -> None:
         schema="catalog",
     )
 
-    # ── L6: Add FK from RasterAsset.current_generation_id to vrt_generations ──
-    op.create_foreign_key(
-        "fk_raster_assets_current_generation",
-        "raster_assets",
-        "vrt_generations",
-        ["current_generation_id"],
-        ["id"],
-        source_schema="catalog",
-        referent_schema="catalog",
-        ondelete="SET NULL",
-    )
-
 
 def downgrade() -> None:
-    # L6
-    op.drop_constraint(
-        "fk_raster_assets_current_generation", "raster_assets", schema="catalog"
-    )
-
     # M10
     op.alter_column(
         "maps",
@@ -168,13 +150,13 @@ def downgrade() -> None:
     op.execute("ALTER TABLE catalog.ingest_jobs DROP CONSTRAINT IF EXISTS chk_ingest_jobs_status")
     op.execute("ALTER TABLE catalog.maps DROP CONSTRAINT IF EXISTS chk_maps_visibility")
 
-    # H9 — restore original record_type CHECK without 'table'
+    # H9 — restore record_type CHECK preserving 'table' (added in migration 0002)
     op.execute("ALTER TABLE catalog.records DROP CONSTRAINT IF EXISTS chk_records_record_type")
     op.execute("""
         ALTER TABLE catalog.records ADD CONSTRAINT chk_records_record_type
             CHECK (record_type IN (
                 'vector_dataset', 'raster_dataset', 'vrt_dataset',
-                'map', 'service', 'collection'
+                'map', 'service', 'collection', 'table'
             ))
     """)
 

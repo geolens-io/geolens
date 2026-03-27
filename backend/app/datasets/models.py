@@ -60,6 +60,12 @@ class Record(Base):
             "spatial_extent",
             postgresql_using="gist",
         ),
+        Index("idx_records_created_at_desc", "created_at", postgresql_using="btree"),
+        Index(
+            "idx_records_source_organization",
+            "source_organization",
+            postgresql_where="source_organization IS NOT NULL",
+        ),
         {"schema": "catalog"},
     )
 
