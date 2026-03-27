@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Map as MapIcon, Globe, Lock, Users, User, Layers, Calendar } from 'lucide-react';
+import { API_BASE } from '@/lib/constants';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,7 +39,7 @@ export function MapCard({ map, onDelete }: MapCardProps) {
         >
           {map.thumbnail_url ? (
             <img
-              src={map.thumbnail_url}
+              src={`${API_BASE}${map.thumbnail_url}`}
               alt={t('maps.card.previewAlt', { name: map.name })}
               className="w-full h-full object-cover"
               loading="lazy"

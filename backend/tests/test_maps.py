@@ -803,7 +803,7 @@ class TestDuplicateMap:
 
         resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
         assert resp.status_code == 201
-        assert resp.json()["thumbnail"] is None
+        assert resp.json()["thumbnail_url"] is None
 
 
 # ---------------------------------------------------------------------------

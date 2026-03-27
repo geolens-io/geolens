@@ -645,8 +645,19 @@ async def upload_thumbnail(
 
     # Decode base64 data URI → raw image bytes
     # Format: data:image/jpeg;base64,<payload>
-    header, encoded = data_uri.split(",", 1)
-    image_bytes = base64.b64decode(encoded)
+    if ";base64," not in data_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a base64-encoded data URI",
+        )
+    try:
+        header, encoded = data_uri.split(",", 1)
+        image_bytes = base64.b64decode(encoded)
+    except (ValueError, Exception):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid data URI or base64 encoding",
+        )
 
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
@@ -663,9 +674,10 @@ async def upload_thumbnail(
 @router.get("/{map_id}/thumbnail")
 async def get_thumbnail(
     map_id: uuid.UUID,
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Serve map thumbnail image from storage."""
+    """Serve map thumbnail image from storage (visibility-checked)."""
     from app.storage.provider import get_storage
 
     map_obj = await get_map(db, map_id)
@@ -675,8 +687,31 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
 
+    # Visibility check — mirrors get_map_endpoint
+    if user is None:
+        if map_obj.visibility != "public":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thumbnail not found",
+            )
+    else:
+        user_roles = await get_user_roles(db, user)
+        is_admin = "admin" in user_roles
+        is_owner = map_obj.created_by == user.id
+        if map_obj.visibility != "public" and not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thumbnail not found",
+            )
+
     storage = get_storage()
-    data = await storage.get(map_obj.thumbnail_uri)
+    try:
+        data = await storage.get(map_obj.thumbnail_uri)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thumbnail not found",
+        )
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
     return Response(
         content=data,
