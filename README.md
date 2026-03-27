@@ -1,41 +1,87 @@
 # GeoLens
 
-**AI-powered spatial data catalog with a built-in map builder.**
+A self-hosted spatial data catalog built on PostGIS. Search, preview, and export your GIS datasets from a single interface.
 
-Upload your GIS data, search and preview it instantly, build styled interactive maps, and share or export — all from a single Docker Compose stack. Optional AI features let you chat with your maps, generate metadata, and search semantically.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Docker Compose](https://img.shields.io/badge/Docker_Compose-ready-2496ED.svg)](docker-compose.yml)
+![GitHub last commit](https://img.shields.io/github/last-commit/geolens-io/geolens)
 
-[![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
-[![Docker Compose](https://img.shields.io/badge/Docker_Compose-ready-blue?logo=docker)](docker-compose.yml)
-[![GitHub last commit](https://img.shields.io/github/last-commit/geolens-io/geolens)](https://github.com/geolens-io/geolens/commits/main)
+---
 
 <p align="center">
-  <img src="docs/images/geolens-hero.png" alt="GeoLens — dataset detail with interactive map preview" width="900">
+  <img src="docs/images/geolens-hero.png" alt="GeoLens - Spatial Data Catalog" width="900" />
 </p>
 
 <p align="center">
-  <img src="docs/images/geolens-map-builder.png" alt="GeoLens — multi-layer map builder with styling controls" width="900">
+  <img src="docs/images/geolens-map-builder.png" alt="GeoLens Map Builder" width="900" />
 </p>
 
-### Why GeoLens?
+## Why GeoLens?
 
-Most open-source GIS catalogs (GeoServer, GeoNode) are heavyweight Java stacks designed for enterprise IT teams. GeoLens is a lightweight Python/React stack that runs in a single `docker compose up` and gives you a modern catalog with a visual map builder and optional AI features — chat-driven map editing, semantic search, and automated metadata — out of the box.
+GeoLens gives your team a single place to find, preview, and share spatial data. It connects directly to PostGIS, serves vector tiles and raster COGs, and speaks OGC APIs -- so it works with the tools GIS professionals already use (QGIS, ArcGIS, custom clients). Upload shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable within minutes.
 
 ## Features
 
-| | |
-|---|---|
-| **Map Builder** | Create multi-layer interactive maps with custom styling, filters, labels, and per-category color ramps |
-| **AI Chat** | Talk to your map — style layers, filter data, and run spatial queries in natural language (Claude or OpenAI) |
-| **Semantic Search** | Find datasets by meaning, not just keywords, powered by pgvector embeddings |
-| **AI Metadata** | One-click AI-generated summaries, keywords, lineage, and quality statements for any dataset |
-| **Search & Discovery** | Full-text search, spatial/bbox filtering, type facets, keyword tags, saved searches, and collection browsing |
-| **Vector & Raster** | Upload Shapefiles, GeoJSON, GeoPackage, CSV, XLSX, GeoTIFF, COG, and VRT — served as vector tiles (ST_AsMVT) or raster tiles (Titiler) |
-| **Export** | Download in GeoJSON, Shapefile, GeoPackage, CSV, or KML |
-| **Sharing & Embeds** | Public share links with expiration, embeddable map iframes with domain-restricted token-based access |
-| **OGC Standards** | OGC API Features, Records, and STAC endpoints for interoperability with QGIS, ArcGIS, and other clients |
-| **Admin Panel** | User management, roles, permissions, audit logging, published maps registry, AI provider configuration |
-| **Auth** | JWT + API keys + OAuth/OIDC (Google, Microsoft, custom providers) |
-| **i18n** | English, Spanish, French, German |
+### Search and Discovery
+
+- Full-text search across dataset names, descriptions, and metadata
+- Spatial search with bounding box and map-drawn filters
+- Faceted filtering by format, tags, collections, and record type
+- Saved searches for repeated workflows
+- Semantic search powered by pgvector (optional, requires LLM API key)
+
+### Map Builder
+
+- Multi-layer interactive maps with drag-and-drop layer ordering
+- Point, line, and polygon styling with color ramps and category breaks
+- Per-layer filters, labels, and opacity controls
+- Share maps via public links or embeddable iframes
+- Raster and vector layers side by side
+
+### AI-Powered (Optional)
+
+- Chat with your maps -- ask questions, AI adds and styles layers
+- Semantic search across dataset metadata using natural language
+- Auto-generated dataset descriptions and tags on ingest
+- Requires an OpenAI-compatible API key; fully functional without it
+
+### Data Management
+
+- **Vector:** Shapefile, GeoPackage, GeoJSON, CSV, XLSX upload and ingestion
+- **Raster:** GeoTIFF and Cloud-Optimized GeoTIFF (COG) with automatic conversion
+- **Mosaics:** VRT-based raster mosaics from multiple source files
+- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, with CRS reprojection
+- Provenance tracking and metadata editing
+
+### Standards and Interop
+
+- OGC API - Features and OGC API - Records compliant
+- STAC 1.1 catalog endpoint
+- Direct tile URL access for QGIS, ArcGIS, and MapLibre clients
+- API key authentication for external tool integration
+
+### Enterprise Ready
+
+- JWT authentication with refresh tokens
+- API key management per user
+- OAuth 2.0 / OIDC and SAML SSO support
+- Role-based access control (RBAC) with per-dataset permissions
+- Audit logging for all administrative actions
+- Internationalization: English, Spanish, French, German
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/geolens-catalog.png" alt="GeoLens Catalog View" width="900" />
+  <br />
+  <em>Catalog view with search, spatial filters, and dataset cards</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/geolens-dataset.png" alt="GeoLens Dataset Detail" width="900" />
+  <br />
+  <em>Dataset detail with map preview, metadata, and attribute table</em>
+</p>
 
 ## Quick Start
 
@@ -44,71 +90,67 @@ Most open-source GIS catalogs (GeoServer, GeoNode) are heavyweight Java stacks d
 ```bash
 git clone https://github.com/geolens-io/geolens.git
 cd geolens
+cp .env.example .env
 docker compose up -d
 ```
 
-Open `http://localhost:8080` — log in with `admin` / `admin` and change the password immediately.
+Open [http://localhost:8080](http://localhost:8080) -- log in with `admin` / `admin`.
 
-### Seed with sample data
+For production deployment, see the [Install Guide](docs/install-guide.md).
 
-Populate your catalog with 130 [Natural Earth](https://www.naturalearthdata.com/) vector datasets:
+### Seed Data
+
+GeoLens ships with a script that imports all 130 [Natural Earth](https://www.naturalearthdata.com/) 1:10m vector datasets, giving you a fully populated catalog out of the box.
 
 ```bash
 pip install httpx
+
+# Import all datasets
 python scripts/seed-natural-earth.py --api-key admin
+
+# Dry run -- list datasets without importing
+python scripts/seed-natural-earth.py --api-key admin --dry-run
+
+# Filter by theme
+python scripts/seed-natural-earth.py --api-key admin --theme cultural
+
+# Cache downloads for resumable imports
+python scripts/seed-natural-earth.py --api-key admin --cache-dir /tmp/ne-cache
 ```
 
-The script downloads, ingests, and organizes datasets into collections automatically. Re-runs are idempotent.
+The script downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), ingests through the upload API, skips duplicates on re-run, and creates "Natural Earth Cultural (10m)" and "Natural Earth Physical (10m)" collections.
 
 ## Architecture
 
 | Component | Technology |
-| --- | --- |
-| Backend | FastAPI, SQLAlchemy, Alembic |
-| Frontend | React 19, Vite, TanStack Query, MapLibre GL |
-| Database | PostgreSQL + PostGIS + pgvector |
-| Raster Tiles | Titiler |
-| Object Storage | S3-compatible (MinIO for local dev) |
+|-----------|-----------|
+| Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
+| Backend API | FastAPI (Python), PostGIS, Procrastinate (task queue) |
+| Raster Tiles | Titiler (COG tile server) |
+| Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (Redis-compatible) |
-| Reverse Proxy | nginx |
+| Database | PostgreSQL 16 + PostGIS 3.4 |
+| Reverse Proxy | Nginx |
 
 ## Configuration
 
-GeoLens is configured through environment variables. Key settings:
-
-| Variable | Description | Default |
-|---|---|---|
-| `GEOLENS_ADMIN_USERNAME` | Initial admin username | (required) |
-| `GEOLENS_ADMIN_PASSWORD` | Initial admin password | (required) |
-| `JWT_SECRET_KEY` | Secret for JWT signing | (required) |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
-| `STORAGE_PROVIDER` | `local` or `s3` | `local` |
-
-See [docs/configuration-reference.md](docs/configuration-reference.md) for the full reference.
+All configuration is managed through environment variables in `.env`. See the [Configuration Reference](docs/configuration-reference.md) for the full list of options with defaults and descriptions.
 
 ## Documentation
 
 | Guide | Description |
-|---|---|
-| [Install Guide](docs/install-guide.md) | Detailed setup instructions |
-| [Configuration Reference](docs/configuration-reference.md) | All environment variables and settings |
-| [Admin Guide](docs/admin-guide.md) | User management, permissions, and system settings |
-| [Cloud Deployment](docs/cloud-deployment.md) | AWS, DigitalOcean, and Kubernetes guides |
-| [Database Design](docs/database-design.md) | Schema documentation |
-| [AI Map Features](docs/llm-map-features.md) | AI chat and map generation |
-| [AI Data Features](docs/llm-data-features.md) | Semantic search and metadata generation |
-| [Testing & CI](docs/testing-and-ci.md) | Test suites and CI/CD |
+|-------|-------------|
+| [Install Guide](docs/install-guide.md) | Step-by-step deployment with Docker Compose |
+| [Configuration Reference](docs/configuration-reference.md) | All environment variables and their defaults |
+| [Admin Guide](docs/admin-guide.md) | User management, datasets, system health |
+| [Cloud Deployment](docs/cloud-deployment.md) | AWS, GCP, and DigitalOcean deployment guides |
+| [AI Map Features](docs/llm-map-features.md) | Chat-driven map building with LLMs |
+| [AI Data Features](docs/llm-data-features.md) | Semantic search and auto-generated metadata |
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for development setup, code style, and PR guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for development setup, code style, and PR guidelines.
 
 ## License
 
-GeoLens is licensed under the [Business Source License 1.1](LICENSE).
-
-- **Free** for your organization's internal use, including commercial organizations and consultant deployments for clients.
-- **Restricted** from being offered as a hosted/managed service to third parties.
-- **Converts to MIT** on 2030-02-17.
-
-See [LICENSE-FAQ.md](LICENSE-FAQ.md) for plain-English answers to common questions.
+GeoLens is licensed under the [Apache License 2.0](LICENSE).
