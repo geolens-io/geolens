@@ -22,7 +22,7 @@ services:
       sh -c "
         if [ -d /enterprise ] && [ -f /enterprise/pyproject.toml ]; then
           echo 'Installing enterprise extensions for migration...' &&
-          uv pip install -e /enterprise 2>&1 || true;
+          uv add --editable /enterprise 2>&1 || true;
         fi &&
         uv run alembic upgrade head
       "
