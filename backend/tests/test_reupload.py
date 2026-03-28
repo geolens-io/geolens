@@ -80,7 +80,7 @@ async def _create_dataset(
 @pytest.fixture(autouse=True)
 def mock_reupload_task():
     """Prevent procrastinate task deferral in reupload tests."""
-    with patch("app.datasets.router.reupload_file") as mock_task:
+    with patch("app.datasets.router_reupload.reupload_file") as mock_task:
         # Default queue path
         mock_task.defer_async = AsyncMock(return_value=None)
         # Priority queue path (reupload_file.configure(...).defer_async(...))
@@ -111,7 +111,7 @@ def mock_reupload_file_save():
         return out_path
 
     with patch(
-        "app.datasets.router.save_upload_file", new_callable=AsyncMock
+        "app.datasets.router_reupload.save_upload_file", new_callable=AsyncMock
     ) as mock_save:
         mock_save.side_effect = _fake_save
         yield mock_save
@@ -121,7 +121,7 @@ def mock_reupload_file_save():
 def mock_ogrinfo_preview():
     """Mock ogrinfo preview to return predictable data."""
     with patch(
-        "app.datasets.router.run_ogrinfo_preview", new_callable=AsyncMock
+        "app.datasets.router_reupload.run_ogrinfo_preview", new_callable=AsyncMock
     ) as mock_preview:
         mock_preview.return_value = {
             "srid": 4326,
@@ -308,9 +308,9 @@ class TestServiceReuploadPreview:
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         with (
-            patch("app.datasets.router.build_gdal_source") as mock_build_source,
+            patch("app.datasets.router_reupload.build_gdal_source") as mock_build_source,
             patch(
-                "app.datasets.router.run_service_preview",
+                "app.datasets.router_reupload.run_service_preview",
                 new_callable=AsyncMock,
             ) as mock_run_preview,
         ):
@@ -406,14 +406,14 @@ class TestServiceReuploadPreview:
 
         with (
             patch(
-                "app.datasets.router.validate_url_for_ssrf",
+                "app.datasets.router_reupload.validate_url_for_ssrf",
                 side_effect=SSRFError(
                     "URLs targeting private/internal networks are not allowed"
                 ),
             ) as mock_ssrf,
-            patch("app.datasets.router.build_gdal_source") as mock_build_source,
+            patch("app.datasets.router_reupload.build_gdal_source") as mock_build_source,
             patch(
-                "app.datasets.router.run_service_preview",
+                "app.datasets.router_reupload.run_service_preview",
                 new_callable=AsyncMock,
             ) as mock_run_preview,
         ):

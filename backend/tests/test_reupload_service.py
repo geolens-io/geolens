@@ -105,8 +105,8 @@ class TestServiceReuploadCommitDispatch:
         )
 
         with (
-            patch("app.datasets.router.reupload_service") as mock_reupload_service,
-            patch("app.datasets.router.reupload_file") as mock_reupload_file,
+            patch("app.datasets.router_reupload.reupload_service") as mock_reupload_service,
+            patch("app.datasets.router_reupload.reupload_file") as mock_reupload_file,
         ):
             mock_reupload_service.defer_async = AsyncMock(return_value=None)
             mock_reupload_file.defer_async = AsyncMock(return_value=None)
