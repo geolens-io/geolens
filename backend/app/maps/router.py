@@ -45,7 +45,6 @@ from app.maps.service import (
     get_shared_map,
     list_maps,
     remove_layer,
-    resolve_forked_from_name,
     revoke_share_token_by_map,
     update_map,
     update_share_token,
@@ -126,14 +125,6 @@ def _build_map_response(
         layers=layers,
         layer_count=len(layers),
     )
-
-
-async def _resolve_owner_username(db: AsyncSession, created_by) -> str | None:
-    """Resolve username from a user UUID."""
-    if not created_by:
-        return None
-    row = await db.execute(select(User.username).where(User.id == created_by))
-    return row.scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +240,7 @@ async def get_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Get a single map with its layers."""
-    map_obj, layer_tuples = await get_map_with_layers(db, map_id)
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(db, map_id)
     if map_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -286,8 +277,6 @@ async def get_map_endpoint(
         )
         for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
     ]
-    forked_name = await resolve_forked_from_name(db, map_obj.forked_from)
-    owner_username = await _resolve_owner_username(db, map_obj.created_by)
     return _build_map_response(
         map_obj,
         layers,
@@ -344,7 +333,7 @@ async def update_map_endpoint(
     await db.commit()
 
     # Re-fetch with layers for full response
-    map_obj, layer_tuples = await get_map_with_layers(db, map_id)
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(db, map_id)
     layers = [
         _build_layer_response(
             layer,
@@ -359,8 +348,6 @@ async def update_map_endpoint(
         )
         for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
     ]
-    forked_name = await resolve_forked_from_name(db, map_obj.forked_from)
-    owner_username = await _resolve_owner_username(db, map_obj.created_by)
     return _build_map_response(
         map_obj,
         layers,
@@ -435,7 +422,7 @@ async def duplicate_map_endpoint(
     await db.commit()
 
     # Re-fetch with layers for full response
-    map_obj, layer_tuples = await get_map_with_layers(db, new_map.id)
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(db, new_map.id)
     layers = [
         _build_layer_response(
             layer,
@@ -450,8 +437,6 @@ async def duplicate_map_endpoint(
         )
         for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
     ]
-    forked_name = await resolve_forked_from_name(db, map_obj.forked_from)
-    owner_username = await _resolve_owner_username(db, map_obj.created_by)
     base_resp = _build_map_response(
         map_obj,
         layers,
