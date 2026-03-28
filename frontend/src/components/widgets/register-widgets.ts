@@ -1,12 +1,22 @@
-import { LayoutGrid } from 'lucide-react';
+import { Ruler, Layers } from 'lucide-react';
 import { registerWidget } from './registry';
-import { PlaceholderWidget } from './builtin/PlaceholderWidget';
+import { MeasurementWidget } from './builtin/MeasurementWidget';
+import { LegendWidget } from './builtin/LegendWidget';
 
 registerWidget({
-  id: 'placeholder',
-  label: 'Widget Demo',
-  icon: LayoutGrid,
+  id: 'measurement',
+  label: 'Measure',
+  icon: Ruler,
   slot: 'top-left',
-  component: PlaceholderWidget,
+  component: MeasurementWidget,
+  defaultVisible: false,
+});
+
+registerWidget({
+  id: 'legend',
+  label: 'Legend',
+  icon: Layers,
+  slot: 'bottom-left',
+  component: LegendWidget,
   defaultVisible: true,
 });

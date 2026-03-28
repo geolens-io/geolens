@@ -19,7 +19,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { MapLegend } from '@/components/map/MapLegend';
 import {
   Tooltip,
   TooltipContent,
@@ -183,18 +182,6 @@ export function MapBuilderPage() {
   }
 
   const existingDatasetIds = layers.localLayers.map((l) => l.dataset_id);
-
-  const legendLayers = layers.localLayers.map((l) => ({
-    name: l.display_name ?? l.dataset_name,
-    styleConfig: l.style_config,
-    visible: l.visible,
-    show_in_legend: l.show_in_legend ?? true,
-    geometryType: l.dataset_geometry_type,
-    paint: l.paint,
-    layerType: l.layer_type,
-    layout: l.layout as Record<string, unknown>,
-    opacity: l.opacity ?? 1,
-  }));
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
@@ -419,7 +406,6 @@ export function MapBuilderPage() {
             onDismiss={layers.handleDismissEphemeral}
           />
         )}
-        <MapLegend layers={legendLayers} />
         <WidgetHost ctx={{ mapInstance: mapInstanceRef.current, layers: layers.localLayers, mapId: id! }} />
       </div>
 
