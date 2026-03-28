@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Plus, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { searchDatasets } from '@/api/search';
+import { queryKeys } from '@/lib/query-keys';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,7 @@ export function DatasetSearchPanel({
   if (recordType) searchParams.record_type = recordType;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['dataset-search', debouncedQuery, recordType],
+    queryKey: queryKeys.datasetSearch.results(debouncedQuery, recordType),
     queryFn: () => searchDatasets(searchParams),
     enabled: debouncedQuery.trim().length > 0 || recordType !== '',
   });

@@ -5,6 +5,7 @@ import { AlertCircle, X, Search, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/api/client';
 import { searchDatasets } from '@/api/search';
+import { queryKeys } from '@/lib/query-keys';
 import { useCreateVrt } from '@/hooks/use-ingest';
 import { JobProgress } from '@/components/import/JobProgress';
 import { Button } from '@/components/ui/button';
@@ -152,7 +153,7 @@ export function VrtCreatorForm({ initialSourceId, onCancel }: VrtCreatorFormProp
 
   // Pre-select source from query param
   const { data: initialSource } = useQuery({
-    queryKey: ['ogc-record', initialSourceId],
+    queryKey: queryKeys.ogcRecords.detail(initialSourceId!),
     queryFn: () =>
       apiFetch<OGCRecordResponse>(`/collections/datasets/items/${initialSourceId}`),
     enabled: !!initialSourceId,
@@ -178,7 +179,7 @@ export function VrtCreatorForm({ initialSourceId, onCancel }: VrtCreatorFormProp
 
   // COG search query
   const { data: searchResults, isFetching: isSearchFetching } = useQuery({
-    queryKey: ['cog-search', debouncedQuery],
+    queryKey: queryKeys.cogSearch.results(debouncedQuery),
     queryFn: () =>
       searchDatasets({
         q: debouncedQuery,

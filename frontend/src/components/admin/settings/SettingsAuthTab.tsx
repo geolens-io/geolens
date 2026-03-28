@@ -46,6 +46,7 @@ import {
   updateOAuthProvider,
   deleteOAuthProvider,
 } from '@/api/settings';
+import { queryKeys } from '@/lib/query-keys';
 
 interface TabProps {
   settings: SettingItem[];
@@ -121,14 +122,14 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const queryClient = useQueryClient();
 
   const { data: providers = [], isLoading } = useQuery({
-    queryKey: ['settings', 'oauth-providers'],
+    queryKey: queryKeys.settingsOAuth.providers,
     queryFn: listOAuthProviders,
   });
 
   const createMutation = useMutation({
     mutationFn: (data: OAuthProviderCreateData) => createOAuthProvider(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'oauth-providers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
       toast.success(t('settings.oauth.created'));
     },
     onError: () => {
@@ -140,7 +141,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
     mutationFn: ({ id, data }: { id: string; data: OAuthProviderUpdateData }) =>
       updateOAuthProvider(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'oauth-providers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
       toast.success(t('settings.oauth.updated'));
     },
     onError: () => {
@@ -151,7 +152,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteOAuthProvider(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'oauth-providers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.settingsOAuth.providers });
       toast.success(t('settings.oauth.deleted'));
     },
     onError: () => {

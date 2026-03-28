@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { useCreateMap } from '@/hooks/use-maps';
 import { streamGenerateMap } from '@/api/maps';
+import { queryKeys } from '@/lib/query-keys';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,7 +88,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
             explanation: string;
             datasets_used: string[];
           };
-          qc.invalidateQueries({ queryKey: ['maps'] });
+          qc.invalidateQueries({ queryKey: queryKeys.maps.all });
           toast.success(
             t('mapCreate.mapCreatedWithDatasets', { count: result.datasets_used.length }),
             { description: result.explanation, duration: 8000 },

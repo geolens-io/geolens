@@ -72,6 +72,12 @@ describe('queryKeys factory', () => {
       const full = queryKeys.datasets.rows('abc', 50, 0);
       expect(full.slice(0, prefix.length)).toEqual([...prefix]);
     });
+
+    it('versionsPrefix is a prefix of versions', () => {
+      const prefix = queryKeys.datasets.versionsPrefix('abc');
+      const full = queryKeys.datasets.versions('abc', 0, 50);
+      expect(full.slice(0, prefix.length)).toEqual([...prefix]);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -276,6 +282,93 @@ describe('queryKeys factory', () => {
   describe('edition', () => {
     it('info returns expected key', () => {
       expect(queryKeys.edition.info).toEqual(['edition']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Auth config & OAuth
+  // -------------------------------------------------------------------------
+  describe('authConfig', () => {
+    it('config returns expected key', () => {
+      expect(queryKeys.authConfig.config).toEqual(['auth', 'config']);
+    });
+
+    it('oauthProviders returns expected key', () => {
+      expect(queryKeys.authConfig.oauthProviders).toEqual(['auth', 'oauth-providers']);
+    });
+
+    it('config is a superset of auth.all', () => {
+      expect(queryKeys.authConfig.config[0]).toBe('auth');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Settings OAuth
+  // -------------------------------------------------------------------------
+  describe('settingsOAuth', () => {
+    it('providers returns expected key', () => {
+      expect(queryKeys.settingsOAuth.providers).toEqual(['settings', 'oauth-providers']);
+    });
+
+    it('is a superset of settings.all', () => {
+      expect(queryKeys.settingsOAuth.providers[0]).toBe('settings');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Relationships
+  // -------------------------------------------------------------------------
+  describe('relationships', () => {
+    it('list includes datasetId', () => {
+      expect(queryKeys.relationships.list('abc')).toEqual(['dataset-relationships', 'abc']);
+    });
+
+    it('records includes all params', () => {
+      expect(queryKeys.relationships.records('abc', 42, 'rel1')).toEqual([
+        'related-records', 'abc', 42, 'rel1',
+      ]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // OGC records
+  // -------------------------------------------------------------------------
+  describe('ogcRecords', () => {
+    it('detail includes id', () => {
+      expect(queryKeys.ogcRecords.detail('abc')).toEqual(['ogc-record', 'abc']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // COG search
+  // -------------------------------------------------------------------------
+  describe('cogSearch', () => {
+    it('results includes query', () => {
+      expect(queryKeys.cogSearch.results('test')).toEqual(['cog-search', 'test']);
+    });
+
+    it('addSource includes query', () => {
+      expect(queryKeys.cogSearch.addSource('test')).toEqual(['cog-search-add-source', 'test']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Dataset search
+  // -------------------------------------------------------------------------
+  describe('datasetSearch', () => {
+    it('results includes query and recordType', () => {
+      expect(queryKeys.datasetSearch.results('test', 'vector_dataset')).toEqual([
+        'dataset-search', 'test', 'vector_dataset',
+      ]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Typeahead
+  // -------------------------------------------------------------------------
+  describe('typeahead', () => {
+    it('results includes query', () => {
+      expect(queryKeys.typeahead.results('test')).toEqual(['typeahead', 'test']);
     });
   });
 });

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
+import { queryKeys } from '@/lib/query-keys';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 import { GeoLensLogo } from '@/components/GeoLensLogo';
 import { PendingApproval } from '@/components/auth/PendingApproval';
@@ -23,7 +24,7 @@ export function RegisterPage() {
   const token = useAuthStore((s) => s.token);
 
   const { data: config, isLoading } = useQuery({
-    queryKey: ['auth', 'config'],
+    queryKey: queryKeys.authConfig.config,
     queryFn: getAuthConfig,
     staleTime: 5 * 60 * 1000,
   });

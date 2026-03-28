@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDiscoverTables, useBulkRegister } from '@/hooks/use-ingest';
+import { queryKeys } from '@/lib/query-keys';
 import type { BulkRegisterResult } from '@/types/api';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -82,7 +83,7 @@ export function RegisterForm() {
         toast.success(t('register.successToast', { count: successes.length }));
       }
 
-      await queryClient.invalidateQueries({ queryKey: ['discover-tables'] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.ingest.discoverTables });
 
       // Single success with no errors: navigate directly
       if (successes.length === 1 && errors.length === 0 && successes[0].dataset_id) {
@@ -96,7 +97,7 @@ export function RegisterForm() {
   function handleRegisterMore() {
     setResults(null);
     setSelected(new Set());
-    queryClient.invalidateQueries({ queryKey: ['discover-tables'] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.ingest.discoverTables });
   }
 
   // Results view

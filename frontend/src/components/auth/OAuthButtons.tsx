@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ShieldCheck } from 'lucide-react';
 import { getOAuthProviders } from '@/api/auth';
+import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { API_BASE } from '@/lib/constants';
 
@@ -71,7 +72,7 @@ function getButtonLabel(
 export function OAuthButtons() {
   const { t } = useTranslation('auth');
   const { data: providers, isLoading } = useQuery({
-    queryKey: ['auth', 'oauth-providers'],
+    queryKey: queryKeys.authConfig.oauthProviders,
     queryFn: getOAuthProviders,
     staleTime: 5 * 60 * 1000,
   });

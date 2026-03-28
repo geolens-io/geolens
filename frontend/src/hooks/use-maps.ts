@@ -20,16 +20,9 @@ import {
   fetchColumnStats,
   fetchDatasetMaps,
 } from '@/api/maps';
-import type { MapUpdateRequest, MapLayerInput } from '@/types/api';
+import type { MapUpdateRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
 
-export interface MapBrowseParams {
-  skip?: number;
-  limit?: number;
-  search?: string;
-  sort_by?: string;
-  sort_dir?: string;
-  visibility?: string;
-}
+export type { MapBrowseParams };
 
 export function useMaps(params: MapBrowseParams = {}) {
   return useQuery({

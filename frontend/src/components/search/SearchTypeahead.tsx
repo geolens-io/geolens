@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { searchDatasets } from '@/api/search';
+import { queryKeys } from '@/lib/query-keys';
 import { geometryIcon } from '@/lib/geo-utils';
 
 interface SearchTypeaheadProps {
@@ -28,7 +29,7 @@ export function SearchTypeahead({
   const [activeIndex, setActiveIndex] = useState(-1);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['typeahead', debouncedQuery],
+    queryKey: queryKeys.typeahead.results(debouncedQuery),
     queryFn: () => searchDatasets({ q: debouncedQuery, limit: '5' }),
     enabled: debouncedQuery.length >= 2,
     staleTime: 10_000,
