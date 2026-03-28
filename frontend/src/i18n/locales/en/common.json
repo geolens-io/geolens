@@ -240,6 +240,7 @@
   "configOps": {
     "exported": "Configuration exported",
     "exportFailed": "Failed to export configuration",
+    "validateFailed": "Connectivity validation failed",
     "previewFailed": "Failed to preview import",
     "importComplete": "Import complete (no changes)",
     "importFailed": "Failed to import configuration",
@@ -256,6 +257,15 @@
       "title": "Export Configuration",
       "description": "Download the current configuration as a JSON file. Includes settings and OAuth providers.",
       "button": "Export JSON"
+    },
+    "validate": {
+      "title": "Validate Connectivity",
+      "description": "Test connectivity to storage, cache, and OIDC providers.",
+      "button": "Run Validation",
+      "statusOk": "Connected",
+      "statusError": "Failed",
+      "latency": "{{ms}}ms",
+      "noOidc": "No OIDC providers configured"
     },
     "import": {
       "title": "Import Configuration",

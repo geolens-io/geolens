@@ -33,16 +33,20 @@ import {
   CheckCircle2,
   Loader2,
   AlertTriangle,
+  ShieldCheck,
+  XCircle,
 } from 'lucide-react';
 import {
   useExportConfig,
   useDryRunImport,
   useImportConfig,
+  useValidateConnectivity,
 } from '@/hooks/use-config-ops';
 import type {
   ImportMode,
   ConfigImportRequest,
   DryRunResult,
+  ServiceProbeResult,
 } from '@/api/config-ops';
 
 function truncateValue(val: unknown, maxLen = 60): string {
@@ -92,6 +96,99 @@ function ExportSection() {
           )}
           {t('configOps.export.button')}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Validate Section ---
+
+function ServiceRow({ name, probe }: { name: string; probe: ServiceProbeResult }) {
+  const { t } = useTranslation();
+  const isOk = probe.status === 'ok';
+  return (
+    <TableRow>
+      <TableCell className="font-medium">{name}</TableCell>
+      <TableCell>
+        <span className={`flex items-center gap-1 ${isOk ? 'text-green-600' : 'text-destructive'}`}>
+          {isOk ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <XCircle className="h-4 w-4" />
+          )}
+          {isOk ? t('configOps.validate.statusOk') : t('configOps.validate.statusError')}
+        </span>
+      </TableCell>
+      <TableCell className="text-muted-foreground text-sm">
+        {t('configOps.validate.latency', { ms: probe.latency_ms.toFixed(1) })}
+      </TableCell>
+      <TableCell className="text-sm text-destructive">
+        {probe.error ?? ''}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function ValidateSection() {
+  const { t } = useTranslation();
+  const validateMutation = useValidateConnectivity();
+
+  const result = validateMutation.data;
+  const oidcEntries = result ? Object.entries(result.oidc_providers) : [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4" />
+          {t('configOps.validate.title')}
+        </CardTitle>
+        <CardDescription>
+          {t('configOps.validate.description')}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Button
+          onClick={() => validateMutation.mutate()}
+          disabled={validateMutation.isPending}
+        >
+          {validateMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <ShieldCheck className="h-4 w-4 mr-2" />
+          )}
+          {t('configOps.validate.button')}
+        </Button>
+
+        {result && (
+          <div className="space-y-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('configOps.import.key')}</TableHead>
+                  <TableHead>{t('configOps.import.action')}</TableHead>
+                  <TableHead>Latency</TableHead>
+                  <TableHead>Error</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <ServiceRow name="Storage" probe={result.storage} />
+                <ServiceRow name="Cache" probe={result.cache} />
+                {oidcEntries.length > 0 ? (
+                  oidcEntries.map(([providerName, probe]) => (
+                    <ServiceRow key={providerName} name={`OIDC: ${providerName}`} probe={probe} />
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                      {t('configOps.validate.noOidc')}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -397,6 +494,7 @@ export function AdminConfigOpsPage() {
       />
       <div className="space-y-6 mt-6">
         <ExportSection />
+        <ValidateSection />
         <ImportSection />
       </div>
     </>

@@ -68,3 +68,22 @@ export async function importConfig(
   });
 }
 
+// --- Connectivity validation types and API function ---
+
+export interface ServiceProbeResult {
+  name: string;
+  status: 'ok' | 'error';
+  latency_ms: number;
+  error: string | null;
+}
+
+export interface ConnectivityResult {
+  storage: ServiceProbeResult;
+  cache: ServiceProbeResult;
+  oidc_providers: Record<string, ServiceProbeResult>;
+}
+
+export async function validateConnectivity(): Promise<ConnectivityResult> {
+  return apiFetch<ConnectivityResult>('/config-ops/validate/', { method: 'POST' });
+}
+
