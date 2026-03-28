@@ -27,8 +27,8 @@ For organizations needing guaranteed response times, private support channels, a
 - Upgrade and migration assistance
 - Security patching guidance
 
-Contact **enterprise@geolens.io** for details.
+Contact **enterprise@getgeolens.io** for details.
 
 ## Security Vulnerabilities
 
-Do **not** report security vulnerabilities publicly. Email **security@geolens.io** with details. See our [security policy](https://github.com/geolens-io/geolens/blob/main/.github/CONTRIBUTING.md#security) for more information.
+Do **not** report security vulnerabilities publicly. Email **security@getgeolens.io** with details. See our [security policy](https://github.com/geolens-io/geolens/blob/main/.github/CONTRIBUTING.md#security) for more information.

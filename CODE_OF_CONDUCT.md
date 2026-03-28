@@ -6,7 +6,7 @@ By participating in this project, you agree to abide by its terms.
 
 ## Enforcement
 
-Instances of unacceptable behavior may be reported to the project team at **conduct@geolens.io**. All complaints will be reviewed and investigated promptly and fairly.
+Instances of unacceptable behavior may be reported to the project team at **conduct@getgeolens.io**. All complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution
 

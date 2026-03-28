@@ -8,15 +8,11 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-39 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v12.3). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). v13.0 in progress — Phase 207 (Branding Toggle) complete: enterprise-gated "Powered by GeoLens" badge toggle via PersistentConfig, admin Appearance tab, and conditional badge rendering in AppLayout/PublicViewerPage.
+40 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete.
 
-## Last Milestone: v12.3 Map Builder Excellence (shipped 2026-03-21)
+## Last Milestone: v13.0 Open-Core Pre-Release (shipped 2026-03-27)
 
-**Delivered:** 6 phases (200-205), 10 plans, 17 requirements — responsive builder shell, a11y hardening, UX discoverability, architecture extraction, and comprehensive test coverage.
-
-## Current Milestone: v13.0 Open-Core Pre-Release
-
-**Goal:** Prepare GeoLens for public release as an open-core product — license, repo split, extension architecture, and minimum viable paid tier features.
+**Delivered:** 6 phases (206-211), 12 plans, 19 requirements — extension seam architecture (Protocol interfaces, entry_point loader, edition detection), enterprise overlay repo (geolens-enterprise with SAML SSO, audit export, branding toggle), Apache 2.0 licensing, public README with quickstart, and CONTRIBUTING guide.
 
 **Target features:**
 - Apache 2.0 LICENSE file and clean public README with quickstart

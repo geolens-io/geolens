@@ -9,11 +9,11 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 
 ### Extension Architecture
 
-- [ ] **EXT-01**: Backend discovers and loads enterprise extensions at startup via `importlib.metadata` entry_points without importing enterprise code from core
-- [ ] **EXT-02**: Protocol interfaces exist for auth, audit, and branding extension points that enterprise implementations can fulfill
-- [ ] **EXT-03**: Edition detection (`community` vs `enterprise`) is determined at startup from package presence and/or `GEOLENS_EDITION` env var
-- [ ] **EXT-04**: Enterprise-gated API endpoints return 404 (not 403) in community mode — no feature leakage
-- [ ] **EXT-05**: Existing enterprise-boundary code (OIDC advanced config, branding footer) is refactored to use extension seam interfaces
+- [x] **EXT-01**: Backend discovers and loads enterprise extensions at startup via `importlib.metadata` entry_points without importing enterprise code from core
+- [x] **EXT-02**: Protocol interfaces exist for auth, audit, and branding extension points that enterprise implementations can fulfill
+- [x] **EXT-03**: Edition detection (`community` vs `enterprise`) is determined at startup from package presence and/or `GEOLENS_EDITION` env var
+- [x] **EXT-04**: Enterprise-gated API endpoints return 404 (not 403) in community mode — no feature leakage
+- [x] **EXT-05**: Existing enterprise-boundary code (OIDC advanced config, branding footer) is refactored to use extension seam interfaces
 
 ### SAML SSO
 
@@ -25,11 +25,11 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 
 ### Compliance
 
-- [ ] **COMP-01**: Admin can export audit logs as CSV from the admin UI with date range and event type filters
-- [ ] **COMP-02**: Admin can export audit logs as JSON from the admin UI with the same filters
-- [ ] **COMP-03**: Audit export streams results for large datasets (no full materialization in memory)
-- [ ] **COMP-04**: "Powered by GeoLens" branding in the footer is removable via a `PersistentConfig` toggle in admin settings
-- [ ] **COMP-05**: Branding toggle is enterprise-gated — only available when enterprise edition is detected
+- [x] **COMP-01**: Admin can export audit logs as CSV from the admin UI with date range and event type filters
+- [x] **COMP-02**: Admin can export audit logs as JSON from the admin UI with the same filters
+- [x] **COMP-03**: Audit export streams results for large datasets (no full materialization in memory)
+- [x] **COMP-04**: "Powered by GeoLens" branding in the footer is removable via a `PersistentConfig` toggle in admin settings
+- [x] **COMP-05**: Branding toggle is enterprise-gated — only available when enterprise edition is detected
 
 ### Enterprise Repo
 
@@ -40,10 +40,10 @@ Requirements for open-core pre-release. Each maps to roadmap phases.
 
 ### Licensing & Documentation
 
-- [ ] **DOCS-01**: Apache 2.0 LICENSE file exists at repo root
-- [ ] **DOCS-02**: README.md is rewritten for public consumption — features, screenshots, quickstart, contributing guidelines link
-- [ ] **DOCS-03**: Installation quickstart documentation enables a working deployment in under 10 minutes (clone, .env, docker compose up)
-- [ ] **DOCS-04**: CONTRIBUTING.md exists with development setup, PR guidelines, and code style notes
+- [x] **DOCS-01**: Apache 2.0 LICENSE file exists at repo root
+- [x] **DOCS-02**: README.md is rewritten for public consumption — features, screenshots, quickstart, contributing guidelines link
+- [x] **DOCS-03**: Installation quickstart documentation enables a working deployment in under 10 minutes (clone, .env, docker compose up)
+- [x] **DOCS-04**: CONTRIBUTING.md exists with development setup, PR guidelines, and code style notes
 
 ## v2 Requirements (Deferred)
 
