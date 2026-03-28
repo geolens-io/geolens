@@ -8,7 +8,7 @@ Verifies:
 
 Requirements:
   - Docker database must be running (docker compose up db)
-  - Alembic migrations must be applied (includes 171_01_vrt_schema)
+  - Alembic migrations must be applied (alembic upgrade head)
 """
 
 import uuid

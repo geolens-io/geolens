@@ -7,7 +7,7 @@ exercises the raster-auth-check and raster-proxy endpoints.
 Requirements:
   - Docker database must be running (docker compose up db)
   - Titiler service must be running (docker compose up titiler)
-  - Alembic migrations must be applied (includes 171_01_vrt_schema)
+  - Alembic migrations must be applied (alembic upgrade head)
   - GDAL CLI tools (gdal_create, gdalbuildvrt) must be available in the api container
 
 Note: Tests in this file skip cleanly if Titiler is unreachable.
