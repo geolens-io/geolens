@@ -1,7 +1,7 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity } from './shared';
-import { CUSTOM_PAINT_PROPS, getOutlineLayerId } from '@/components/builder/map-sync';
+import { CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const fillAdapter: LayerAdapter = {
@@ -9,7 +9,7 @@ export const fillAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter } = input;
-    const outlineId = getOutlineLayerId(input.id);
+    const outlineId = `${input.layerId}-outline`;
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
@@ -61,7 +61,7 @@ export const fillAdapter: LayerAdapter = {
 
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
-    const outlineId = getOutlineLayerId(input.id);
+    const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       for (const [prop, val] of Object.entries(rawPaint)) {
         if (CUSTOM_PAINT_PROPS.has(prop)) continue;
@@ -113,7 +113,7 @@ export const fillAdapter: LayerAdapter = {
 
   syncOpacity(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity } = input;
-    const outlineId = getOutlineLayerId(input.id);
+    const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
     }
@@ -124,7 +124,7 @@ export const fillAdapter: LayerAdapter = {
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, visible } = input;
-    const outlineId = getOutlineLayerId(input.id);
+    const outlineId = `${input.layerId}-outline`;
     const vis = visible ? 'visible' : 'none';
     if (map.getLayer(layerId)) {
       map.setLayoutProperty(layerId, 'visibility', vis);
