@@ -4,7 +4,7 @@ Revision ID: 0001_initial
 Revises:
 Create Date: 2026-03-22
 
-Squashed from 56 incremental migrations into a single initial schema.
+Squashed from 12 incremental migrations into a single initial schema.
 For fresh installs, this creates all tables, indexes, constraints, functions,
 and triggers in the catalog schema. For existing databases, stamp this
 revision: alembic stamp 0001_initial
@@ -34,6 +34,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    from sqlalchemy import text
-    conn = op.get_bind()
-    conn.execute(text("DROP SCHEMA IF EXISTS catalog CASCADE"))
+    raise NotImplementedError("Initial migration cannot be reversed")

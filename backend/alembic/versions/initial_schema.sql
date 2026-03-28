@@ -7,11 +7,8 @@
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
@@ -263,6 +260,8 @@ BEGIN
 END;
 $$;
 
+
+SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
@@ -719,8 +718,8 @@ CREATE TABLE catalog.attribute_metadata (
     is_nullable boolean,
     is_current boolean DEFAULT true NOT NULL,
     user_modified_fields text[] DEFAULT '{}'::text[] NOT NULL,
-    CONSTRAINT chk_domain_type CHECK (((domain_type IS NULL) OR ((domain_type)::text = ANY ((ARRAY['continuous'::character varying, 'discrete'::character varying, 'categorical'::character varying, 'coded'::character varying, 'codedValue'::character varying, 'boolean'::character varying, 'text'::character varying, 'date'::character varying, 'temporal'::character varying, 'geometry'::character varying, 'range'::character varying])::text[])))),
-    CONSTRAINT chk_semantic_role CHECK (((semantic_role IS NULL) OR ((semantic_role)::text = ANY ((ARRAY['geometry'::character varying, 'identifier'::character varying, 'measure'::character varying, 'temporal'::character varying, 'categorical'::character varying, 'category'::character varying, 'label'::character varying, 'foreign_key'::character varying, 'other'::character varying])::text[]))))
+    CONSTRAINT chk_domain_type CHECK (((domain_type IS NULL) OR ((domain_type)::text = ANY (ARRAY[('continuous'::character varying)::text, ('discrete'::character varying)::text, ('categorical'::character varying)::text, ('coded'::character varying)::text, ('codedValue'::character varying)::text, ('boolean'::character varying)::text, ('text'::character varying)::text, ('date'::character varying)::text, ('temporal'::character varying)::text, ('geometry'::character varying)::text, ('range'::character varying)::text])))),
+    CONSTRAINT chk_semantic_role CHECK (((semantic_role IS NULL) OR ((semantic_role)::text = ANY (ARRAY[('geometry'::character varying)::text, ('identifier'::character varying)::text, ('measure'::character varying)::text, ('temporal'::character varying)::text, ('categorical'::character varying)::text, ('category'::character varying)::text, ('label'::character varying)::text, ('foreign_key'::character varying)::text, ('other'::character varying)::text]))))
 );
 
 
@@ -781,7 +780,8 @@ CREATE TABLE catalog.dataset_assets (
     description text,
     roles text[],
     size_bytes bigint,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_dataset_assets_key CHECK (((key)::text = ANY ((ARRAY['data'::character varying, 'vrt'::character varying, 'thumbnail'::character varying, 'overview'::character varying, 'metadata'::character varying])::text[])))
 );
 
 
@@ -792,6 +792,22 @@ CREATE TABLE catalog.dataset_assets (
 CREATE TABLE catalog.dataset_grants (
     dataset_id uuid NOT NULL,
     role_id uuid NOT NULL
+);
+
+
+--
+-- Name: dataset_relationships; Type: TABLE; Schema: catalog; Owner: -
+--
+
+CREATE TABLE catalog.dataset_relationships (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    source_dataset_id uuid NOT NULL,
+    target_dataset_id uuid NOT NULL,
+    source_column character varying(100) NOT NULL,
+    target_column character varying(100) DEFAULT 'gid'::character varying NOT NULL,
+    relationship_type character varying(20) DEFAULT 'foreign_key'::character varying NOT NULL,
+    label character varying(200),
+    created_at timestamp with time zone DEFAULT now()
 );
 
 
@@ -839,7 +855,7 @@ CREATE TABLE catalog.datasets (
     quicklook_256_uri text,
     CONSTRAINT chk_datasets_geometry_type CHECK (((geometry_type IS NULL) OR (upper((geometry_type)::text) = ANY (ARRAY['POINT'::text, 'LINESTRING'::text, 'POLYGON'::text, 'MULTIPOINT'::text, 'MULTILINESTRING'::text, 'MULTIPOLYGON'::text, 'GEOMETRYCOLLECTION'::text])))),
     CONSTRAINT chk_datasets_original_srid_positive CHECK (((original_srid IS NULL) OR (original_srid > 0))),
-    CONSTRAINT chk_datasets_source_format CHECK (((source_format IS NULL) OR ((source_format)::text = ANY ((ARRAY['geojson'::character varying, 'shapefile'::character varying, 'shp'::character varying, 'gpkg'::character varying, 'csv'::character varying, 'kml'::character varying, 'gml'::character varying, 'wfs'::character varying, 'arcgis_featureserver'::character varying, 'fgdb'::character varying, 'created'::character varying, 'geotiff'::character varying])::text[])))),
+    CONSTRAINT chk_datasets_source_format CHECK (((source_format IS NULL) OR ((source_format)::text = ANY (ARRAY[('geojson'::character varying)::text, ('shapefile'::character varying)::text, ('shp'::character varying)::text, ('gpkg'::character varying)::text, ('csv'::character varying)::text, ('kml'::character varying)::text, ('gml'::character varying)::text, ('wfs'::character varying)::text, ('arcgis_featureserver'::character varying)::text, ('fgdb'::character varying)::text, ('created'::character varying)::text, ('geotiff'::character varying)::text])))),
     CONSTRAINT chk_datasets_srid_positive CHECK (((srid IS NULL) OR (srid > 0))),
     CONSTRAINT chk_quality_score_range CHECK (((quality_score_numeric IS NULL) OR ((quality_score_numeric >= (0)::double precision) AND (quality_score_numeric <= (1)::double precision))))
 );
@@ -874,7 +890,7 @@ CREATE TABLE catalog.embed_tokens (
 CREATE TABLE catalog.ingest_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     dataset_id uuid,
-    status character varying(20) NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
     source_filename character varying(500),
     file_path character varying(1000),
     error_message text,
@@ -884,7 +900,8 @@ CREATE TABLE catalog.ingest_jobs (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     user_metadata jsonb,
     source_url character varying(2000),
-    source_layer character varying(500)
+    source_layer character varying(500),
+    CONSTRAINT chk_ingest_jobs_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'complete'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))
 );
 
 
@@ -906,7 +923,9 @@ CREATE TABLE catalog.map_layers (
     filter jsonb,
     label_config jsonb,
     style_config jsonb,
-    layer_type character varying(50) DEFAULT 'vector_geolens'::character varying NOT NULL
+    layer_type character varying(50) DEFAULT 'vector_geolens'::character varying NOT NULL,
+    show_in_legend boolean DEFAULT true NOT NULL,
+    CONSTRAINT chk_map_layers_layer_type CHECK (((layer_type)::text = ANY ((ARRAY['vector_geolens'::character varying, 'raster_geolens'::character varying, 'geojson'::character varying])::text[])))
 );
 
 
@@ -938,14 +957,15 @@ CREATE TABLE catalog.maps (
     zoom double precision,
     bearing double precision DEFAULT '0'::double precision NOT NULL,
     pitch double precision DEFAULT '0'::double precision NOT NULL,
-    basemap_style text DEFAULT 'positron'::text NOT NULL,
+    basemap_style character varying(30) DEFAULT 'openfreemap-positron'::text NOT NULL,
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    visibility text DEFAULT 'private'::text NOT NULL,
-    thumbnail text,
+    visibility character varying(20) DEFAULT 'private'::text NOT NULL,
+    thumbnail_uri text,
     forked_from uuid,
-    CONSTRAINT ck_maps_visibility CHECK ((visibility = ANY (ARRAY['private'::text, 'internal'::text, 'public'::text])))
+    CONSTRAINT chk_maps_visibility CHECK (((visibility)::text = ANY (ARRAY['private'::text, 'public'::text, 'internal'::text, 'unlisted'::text]))),
+    CONSTRAINT ck_maps_visibility CHECK (((visibility)::text = ANY (ARRAY['private'::text, 'internal'::text, 'public'::text])))
 );
 
 
@@ -983,7 +1003,12 @@ CREATE TABLE catalog.oauth_providers (
     group_role_mapping jsonb,
     enabled boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    idp_entity_id character varying(512),
+    idp_sso_url character varying(512),
+    idp_certificate text,
+    sp_entity_id character varying(512),
+    CONSTRAINT chk_oauth_providers_type CHECK (((provider_type)::text = ANY ((ARRAY['oidc'::character varying, 'google'::character varying, 'microsoft'::character varying, 'saml'::character varying])::text[])))
 );
 
 
@@ -1128,8 +1153,10 @@ CREATE TABLE catalog.raster_assets (
     current_generation_id uuid,
     last_regenerated_at timestamp with time zone,
     is_rotated boolean DEFAULT false NOT NULL,
-    CONSTRAINT chk_raster_assets_status CHECK (((status)::text = ANY ((ARRAY['ready'::character varying, 'regenerating'::character varying, 'failed'::character varying])::text[]))),
-    CONSTRAINT chk_raster_assets_vrt_type CHECK (((vrt_type IS NULL) OR ((vrt_type)::text = ANY ((ARRAY['mosaic'::character varying, 'band_stack'::character varying])::text[]))))
+    CONSTRAINT chk_raster_assets_cog_status CHECK (((cog_status IS NULL) OR ((cog_status)::text = ANY ((ARRAY['verified'::character varying, 'converted'::character varying, 'unknown'::character varying])::text[])))),
+    CONSTRAINT chk_raster_assets_status CHECK (((status)::text = ANY (ARRAY[('ready'::character varying)::text, ('regenerating'::character varying)::text, ('failed'::character varying)::text]))),
+    CONSTRAINT chk_raster_assets_storage_backend CHECK (((storage_backend)::text = ANY ((ARRAY['local'::character varying, 's3'::character varying])::text[]))),
+    CONSTRAINT chk_raster_assets_vrt_type CHECK (((vrt_type IS NULL) OR ((vrt_type)::text = ANY (ARRAY[('mosaic'::character varying)::text, ('band_stack'::character varying)::text]))))
 );
 
 
@@ -1147,7 +1174,7 @@ CREATE TABLE catalog.record_contacts (
     phone text,
     extra_json jsonb,
     sort_order integer DEFAULT 0 NOT NULL,
-    CONSTRAINT chk_contact_role CHECK (((role)::text = ANY ((ARRAY['resourceProvider'::character varying, 'custodian'::character varying, 'owner'::character varying, 'user'::character varying, 'distributor'::character varying, 'originator'::character varying, 'pointOfContact'::character varying, 'principalInvestigator'::character varying, 'processor'::character varying, 'publisher'::character varying, 'author'::character varying, 'sponsor'::character varying, 'coAuthor'::character varying, 'collaborator'::character varying, 'editor'::character varying, 'mediator'::character varying, 'rightsHolder'::character varying, 'contributor'::character varying, 'funder'::character varying, 'stakeholder'::character varying])::text[])))
+    CONSTRAINT chk_contact_role CHECK (((role)::text = ANY (ARRAY[('resourceProvider'::character varying)::text, ('custodian'::character varying)::text, ('owner'::character varying)::text, ('user'::character varying)::text, ('distributor'::character varying)::text, ('originator'::character varying)::text, ('pointOfContact'::character varying)::text, ('principalInvestigator'::character varying)::text, ('processor'::character varying)::text, ('publisher'::character varying)::text, ('author'::character varying)::text, ('sponsor'::character varying)::text, ('coAuthor'::character varying)::text, ('collaborator'::character varying)::text, ('editor'::character varying)::text, ('mediator'::character varying)::text, ('rightsHolder'::character varying)::text, ('contributor'::character varying)::text, ('funder'::character varying)::text, ('stakeholder'::character varying)::text])))
 );
 
 
@@ -1167,7 +1194,7 @@ CREATE TABLE catalog.record_distributions (
     media_type character varying(100),
     is_primary boolean DEFAULT false NOT NULL,
     auto_generated boolean DEFAULT false NOT NULL,
-    CONSTRAINT chk_distribution_type CHECK (((distribution_type)::text = ANY ((ARRAY['download'::character varying, 'api'::character varying, 'ogcService'::character varying, 'ogc_features'::character varying, 'webApp'::character varying, 'offlineAccess'::character varying, 'vector_tiles'::character varying])::text[])))
+    CONSTRAINT chk_distribution_type CHECK (((distribution_type)::text = ANY (ARRAY[('download'::character varying)::text, ('api'::character varying)::text, ('ogcService'::character varying)::text, ('ogc_features'::character varying)::text, ('webApp'::character varying)::text, ('offlineAccess'::character varying)::text, ('vector_tiles'::character varying)::text])))
 );
 
 
@@ -1181,8 +1208,8 @@ CREATE TABLE catalog.record_embeddings (
     embedding public.vector NOT NULL,
     model_name character varying(100) NOT NULL,
     content_hash character varying(64) NOT NULL,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
 );
 
 
@@ -1196,7 +1223,7 @@ CREATE TABLE catalog.record_keywords (
     keyword text NOT NULL,
     vocabulary_uri text,
     keyword_type character varying(20) DEFAULT 'theme'::character varying NOT NULL,
-    CONSTRAINT chk_keyword_type CHECK (((keyword_type)::text = ANY ((ARRAY['discipline'::character varying, 'place'::character varying, 'stratum'::character varying, 'temporal'::character varying, 'theme'::character varying, 'dataCentre'::character varying, 'featureType'::character varying, 'instrument'::character varying, 'platform'::character varying, 'process'::character varying, 'product'::character varying, 'project'::character varying, 'service'::character varying, 'subTopicCategory'::character varying, 'taxon'::character varying])::text[])))
+    CONSTRAINT chk_keyword_type CHECK (((keyword_type)::text = ANY (ARRAY[('discipline'::character varying)::text, ('place'::character varying)::text, ('stratum'::character varying)::text, ('temporal'::character varying)::text, ('theme'::character varying)::text, ('dataCentre'::character varying)::text, ('featureType'::character varying)::text, ('instrument'::character varying)::text, ('platform'::character varying)::text, ('process'::character varying)::text, ('product'::character varying)::text, ('project'::character varying)::text, ('service'::character varying)::text, ('subTopicCategory'::character varying)::text, ('taxon'::character varying)::text])))
 );
 
 
@@ -1229,11 +1256,11 @@ CREATE TABLE catalog.records (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     search_vector tsvector GENERATED ALWAYS AS ((((setweight(to_tsvector('english'::regconfig, COALESCE(title, ''::text)), 'A'::"char") || setweight(to_tsvector('english'::regconfig, COALESCE(summary, ''::text)), 'B'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE(lineage_summary, ''::text)), 'C'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE(catalog.immutable_array_camel_to_spaced(theme_category, ' '::text), ''::text)), 'B'::"char"))) STORED,
     record_type character varying(20) DEFAULT 'vector_dataset'::character varying NOT NULL,
-    CONSTRAINT chk_records_record_status CHECK (((record_status)::text = ANY ((ARRAY['draft'::character varying, 'ready'::character varying, 'internal'::character varying, 'published'::character varying])::text[]))),
-    CONSTRAINT chk_records_record_type CHECK (((record_type)::text = ANY ((ARRAY['vector_dataset'::character varying, 'raster_dataset'::character varying, 'vrt_dataset'::character varying, 'map'::character varying, 'service'::character varying, 'collection'::character varying])::text[]))),
-    CONSTRAINT chk_records_sensitivity CHECK (((sensitivity_classification IS NULL) OR ((sensitivity_classification)::text = ANY ((ARRAY['public'::character varying, 'internal'::character varying, 'confidential'::character varying, 'restricted'::character varying])::text[])))),
-    CONSTRAINT chk_records_update_frequency CHECK (((update_frequency IS NULL) OR ((update_frequency)::text = ANY ((ARRAY['continual'::character varying, 'daily'::character varying, 'weekly'::character varying, 'monthly'::character varying, 'quarterly'::character varying, 'biannually'::character varying, 'annually'::character varying, 'asNeeded'::character varying, 'irregular'::character varying, 'notPlanned'::character varying, 'unknown'::character varying])::text[])))),
-    CONSTRAINT chk_records_visibility CHECK (((visibility)::text = ANY ((ARRAY['public'::character varying, 'private'::character varying, 'internal'::character varying, 'restricted'::character varying])::text[]))),
+    CONSTRAINT chk_records_record_status CHECK (((record_status)::text = ANY (ARRAY[('draft'::character varying)::text, ('ready'::character varying)::text, ('internal'::character varying)::text, ('published'::character varying)::text]))),
+    CONSTRAINT chk_records_record_type CHECK (((record_type)::text = ANY ((ARRAY['vector_dataset'::character varying, 'raster_dataset'::character varying, 'vrt_dataset'::character varying, 'map'::character varying, 'service'::character varying, 'collection'::character varying, 'table'::character varying])::text[]))),
+    CONSTRAINT chk_records_sensitivity CHECK (((sensitivity_classification IS NULL) OR ((sensitivity_classification)::text = ANY (ARRAY[('public'::character varying)::text, ('internal'::character varying)::text, ('confidential'::character varying)::text, ('restricted'::character varying)::text])))),
+    CONSTRAINT chk_records_update_frequency CHECK (((update_frequency IS NULL) OR ((update_frequency)::text = ANY (ARRAY[('continual'::character varying)::text, ('daily'::character varying)::text, ('weekly'::character varying)::text, ('monthly'::character varying)::text, ('quarterly'::character varying)::text, ('biannually'::character varying)::text, ('annually'::character varying)::text, ('asNeeded'::character varying)::text, ('irregular'::character varying)::text, ('notPlanned'::character varying)::text, ('unknown'::character varying)::text])))),
+    CONSTRAINT chk_records_visibility CHECK (((visibility)::text = ANY (ARRAY[('public'::character varying)::text, ('private'::character varying)::text, ('internal'::character varying)::text, ('restricted'::character varying)::text]))),
     CONSTRAINT chk_temporal_ordering CHECK (((temporal_start IS NULL) OR (temporal_end IS NULL) OR (temporal_start <= temporal_end)))
 );
 
@@ -1300,7 +1327,10 @@ CREATE TABLE catalog.users (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     status character varying(20) DEFAULT 'active'::character varying NOT NULL,
-    auth_provider character varying(20) DEFAULT 'local'::character varying NOT NULL
+    auth_provider character varying(20) DEFAULT 'local'::character varying NOT NULL,
+    last_login_at timestamp with time zone,
+    CONSTRAINT chk_users_auth_provider CHECK (((auth_provider)::text = ANY ((ARRAY['local'::character varying, 'oidc'::character varying, 'saml'::character varying, 'oauth'::character varying])::text[]))),
+    CONSTRAINT chk_users_status CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'pending'::character varying, 'suspended'::character varying, 'deactivated'::character varying])::text[])))
 );
 
 
@@ -1319,7 +1349,8 @@ CREATE TABLE catalog.vrt_generations (
     source_count integer,
     triggered_by character varying(100),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT vrt_generations_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
+    CONSTRAINT chk_vrt_generations_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying])::text[]))),
+    CONSTRAINT vrt_generations_status_check CHECK (((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('running'::character varying)::text, ('completed'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 
@@ -1419,6 +1450,14 @@ ALTER TABLE ONLY catalog.collections
 
 ALTER TABLE ONLY catalog.dataset_grants
     ADD CONSTRAINT dataset_grants_pkey PRIMARY KEY (dataset_id, role_id);
+
+
+--
+-- Name: dataset_relationships dataset_relationships_pkey; Type: CONSTRAINT; Schema: catalog; Owner: -
+--
+
+ALTER TABLE ONLY catalog.dataset_relationships
+    ADD CONSTRAINT dataset_relationships_pkey PRIMARY KEY (id);
 
 
 --
@@ -1678,6 +1717,14 @@ ALTER TABLE ONLY catalog.dataset_assets
 
 
 --
+-- Name: dataset_relationships uq_dataset_relationship; Type: CONSTRAINT; Schema: catalog; Owner: -
+--
+
+ALTER TABLE ONLY catalog.dataset_relationships
+    ADD CONSTRAINT uq_dataset_relationship UNIQUE (source_dataset_id, target_dataset_id, source_column);
+
+
+--
 -- Name: dataset_versions uq_dataset_version; Type: CONSTRAINT; Schema: catalog; Owner: -
 --
 
@@ -1774,6 +1821,13 @@ ALTER TABLE ONLY catalog.vrt_generations
 
 
 --
+-- Name: idx_api_keys_user_id; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_api_keys_user_id ON catalog.api_keys USING btree (user_id);
+
+
+--
 -- Name: idx_attribute_metadata_dataset_current; Type: INDEX; Schema: catalog; Owner: -
 --
 
@@ -1816,6 +1870,27 @@ CREATE INDEX idx_audit_logs_user_id ON catalog.audit_logs USING btree (user_id);
 
 
 --
+-- Name: idx_dataset_grants_role_dataset; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_dataset_grants_role_dataset ON catalog.dataset_grants USING btree (role_id, dataset_id);
+
+
+--
+-- Name: idx_dataset_relationships_source; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_dataset_relationships_source ON catalog.dataset_relationships USING btree (source_dataset_id);
+
+
+--
+-- Name: idx_dataset_relationships_target; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_dataset_relationships_target ON catalog.dataset_relationships USING btree (target_dataset_id);
+
+
+--
 -- Name: idx_datasets_geometry_type; Type: INDEX; Schema: catalog; Owner: -
 --
 
@@ -1834,6 +1909,55 @@ CREATE UNIQUE INDEX idx_datasets_record_id ON catalog.datasets USING btree (reco
 --
 
 CREATE INDEX idx_datasets_srid ON catalog.datasets USING btree (srid);
+
+
+--
+-- Name: idx_ingest_jobs_created_by; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_ingest_jobs_created_by ON catalog.ingest_jobs USING btree (created_by);
+
+
+--
+-- Name: idx_ingest_jobs_status; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_ingest_jobs_status ON catalog.ingest_jobs USING btree (status);
+
+
+--
+-- Name: idx_map_share_tokens_created_at_desc; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_map_share_tokens_created_at_desc ON catalog.map_share_tokens USING btree (created_at);
+
+
+--
+-- Name: idx_maps_created_at_desc; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_maps_created_at_desc ON catalog.maps USING btree (created_at);
+
+
+--
+-- Name: idx_maps_created_by; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_maps_created_by ON catalog.maps USING btree (created_by);
+
+
+--
+-- Name: idx_maps_visibility; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_maps_visibility ON catalog.maps USING btree (visibility);
+
+
+--
+-- Name: idx_oauth_accounts_user_id; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_oauth_accounts_user_id ON catalog.oauth_accounts USING btree (user_id);
 
 
 --
@@ -1886,6 +2010,27 @@ CREATE INDEX idx_record_keywords_record_id ON catalog.record_keywords USING btre
 
 
 --
+-- Name: idx_records_created_at_desc; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_records_created_at_desc ON catalog.records USING btree (created_at DESC);
+
+
+--
+-- Name: idx_records_record_status; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_records_record_status ON catalog.records USING btree (record_status);
+
+
+--
+-- Name: idx_records_record_type; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_records_record_type ON catalog.records USING btree (record_type);
+
+
+--
 -- Name: idx_records_search_vector; Type: INDEX; Schema: catalog; Owner: -
 --
 
@@ -1893,10 +2038,31 @@ CREATE INDEX idx_records_search_vector ON catalog.records USING gin (search_vect
 
 
 --
+-- Name: idx_records_source_organization; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_records_source_organization ON catalog.records USING btree (source_organization) WHERE (source_organization IS NOT NULL);
+
+
+--
 -- Name: idx_records_spatial_extent; Type: INDEX; Schema: catalog; Owner: -
 --
 
 CREATE INDEX idx_records_spatial_extent ON catalog.records USING gist (spatial_extent);
+
+
+--
+-- Name: idx_records_visibility; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_records_visibility ON catalog.records USING btree (visibility);
+
+
+--
+-- Name: idx_records_visibility_status_creator; Type: INDEX; Schema: catalog; Owner: -
+--
+
+CREATE INDEX idx_records_visibility_status_creator ON catalog.records USING btree (visibility, record_status, created_by);
 
 
 --
@@ -2235,6 +2401,22 @@ ALTER TABLE ONLY catalog.dataset_grants
 
 ALTER TABLE ONLY catalog.dataset_grants
     ADD CONSTRAINT dataset_grants_role_id_fkey FOREIGN KEY (role_id) REFERENCES catalog.roles(id) ON DELETE CASCADE;
+
+
+--
+-- Name: dataset_relationships dataset_relationships_source_dataset_id_fkey; Type: FK CONSTRAINT; Schema: catalog; Owner: -
+--
+
+ALTER TABLE ONLY catalog.dataset_relationships
+    ADD CONSTRAINT dataset_relationships_source_dataset_id_fkey FOREIGN KEY (source_dataset_id) REFERENCES catalog.records(id) ON DELETE CASCADE;
+
+
+--
+-- Name: dataset_relationships dataset_relationships_target_dataset_id_fkey; Type: FK CONSTRAINT; Schema: catalog; Owner: -
+--
+
+ALTER TABLE ONLY catalog.dataset_relationships
+    ADD CONSTRAINT dataset_relationships_target_dataset_id_fkey FOREIGN KEY (target_dataset_id) REFERENCES catalog.records(id) ON DELETE CASCADE;
 
 
 --
