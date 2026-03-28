@@ -9,6 +9,7 @@ import {
   useReuploadCommit,
 } from '@/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/hooks/use-ingest';
+import { queryKeys } from '@/lib/query-keys';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { SchemaDiffView } from './SchemaDiffView';
 import {
@@ -158,12 +159,12 @@ export function ReuploadDialog({
     if (step !== 'tracking' || !jobData) return;
 
     if (jobData.status === 'complete') {
-      queryClient.invalidateQueries({ queryKey: ['dataset', dataset.id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
       queryClient.invalidateQueries({
-        queryKey: ['dataset-versions', dataset.id],
+        queryKey: queryKeys.datasets.versionsPrefix(dataset.id),
       });
-      queryClient.invalidateQueries({ queryKey: ['datasets'] });
-      queryClient.invalidateQueries({ queryKey: ['search'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
       setStep('complete');
       toast.success(t('reupload.toastSuccess'));
     } else if (jobData.status === 'failed') {

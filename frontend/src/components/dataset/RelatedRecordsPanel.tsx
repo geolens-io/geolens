@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { ChevronDown, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -26,7 +27,7 @@ function RelatedSection({
   const [open, setOpen] = useState(false);
 
   const { data, isLoading, isError } = useQuery<DatasetRowsResponse>({
-    queryKey: ['related-records', datasetId, featureGid, relationship.id],
+    queryKey: queryKeys.relationships.records(datasetId, featureGid, relationship.id),
     queryFn: () => getRelatedRecords(datasetId, featureGid, relationship.id, { limit: 50 }),
     enabled: open,
   });
@@ -98,7 +99,7 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
   const { t } = useTranslation('dataset');
 
   const { data: relationships, isLoading, isError } = useQuery<DatasetRelationship[]>({
-    queryKey: ['dataset-relationships', datasetId],
+    queryKey: queryKeys.relationships.list(datasetId),
     queryFn: () => listRelationships(datasetId),
   });
 

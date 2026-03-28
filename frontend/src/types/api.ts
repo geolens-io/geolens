@@ -684,6 +684,7 @@ export interface MapResponse {
   updated_at: string;
   layers: MapLayerResponse[];
   layer_count: number;
+  widgets?: string[] | null;
   forked_from_id: string | null;
   forked_from_name: string | null;
 }
@@ -709,6 +710,15 @@ export interface MapListResponse {
   total: number;
 }
 
+export interface MapBrowseParams {
+  skip?: number;
+  limit?: number;
+  search?: string;
+  sort_by?: string;
+  sort_dir?: string;
+  visibility?: string;
+}
+
 export interface MapCreateRequest {
   name: string;
   description?: string | null;
@@ -725,6 +735,7 @@ export interface MapUpdateRequest {
   basemap_style?: string | null;
   visibility?: string | null;
   layers?: MapLayerInput[];
+  widgets?: string[] | null;
 }
 
 export interface MapLayerInput {

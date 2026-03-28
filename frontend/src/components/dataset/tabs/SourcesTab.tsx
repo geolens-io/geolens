@@ -6,6 +6,7 @@ import { Loader2, AlertCircle, Trash2, Search, Plus, RefreshCw } from 'lucide-re
 import { toast } from 'sonner';
 import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVrtGenerations, useRegenerateVrt } from '@/hooks/use-vrt';
 import { searchDatasets } from '@/api/search';
+import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { vrtGenerationColors } from '@/lib/status-colors';
@@ -83,7 +84,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
   }, [searchQuery]);
 
   const { data: searchResults, isFetching: isSearchFetching } = useQuery({
-    queryKey: ['cog-search-add-source', debouncedQuery],
+    queryKey: queryKeys.cogSearch.addSource(debouncedQuery),
     queryFn: () => searchDatasets({ q: debouncedQuery, record_type: 'raster_dataset', limit: '10' }),
     enabled: debouncedQuery.length >= 2,
   });

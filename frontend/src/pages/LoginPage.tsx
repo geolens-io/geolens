@@ -6,6 +6,7 @@ import { Database, Globe2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
+import { queryKeys } from '@/lib/query-keys';
 import { GeoLensLogo } from '@/components/GeoLensLogo';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { OAuthButtons } from '@/components/auth/OAuthButtons';
@@ -36,7 +37,7 @@ export function LoginPage() {
   }, [oauthError]);
 
   const { data: config } = useQuery({
-    queryKey: ['auth', 'config'],
+    queryKey: queryKeys.authConfig.config,
     queryFn: getAuthConfig,
     staleTime: 5 * 60 * 1000,
   });

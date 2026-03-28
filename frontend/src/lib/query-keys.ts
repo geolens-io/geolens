@@ -1,21 +1,21 @@
 /**
  * Centralized query key factory.
  *
- * Every TanStack Query key used across the codebase is defined here.
- * Use these factories in all `queryKey` and `invalidateQueries` calls.
+ * All TanStack Query keys should be defined here. Use these factories in
+ * `queryKey`, `invalidateQueries`, and `getQueryData` calls.
  *
  * Design rules:
- * - Each domain has an `all` key (shortest prefix) for broad invalidation.
- *   e.g. `queryKeys.datasets.all` returns `['datasets']` so
- *   `invalidateQueries({ queryKey: queryKeys.datasets.all })` prefix-matches
- *   all dataset queries.
- * - Parameterized keys extend the prefix:
+ * - Each domain has an `all` key for list/browse invalidation.
+ *   Note: `all` only prefix-matches queries whose keys share the same root
+ *   string. Some domains use different roots for list vs detail (e.g.
+ *   `datasets.all` = `['datasets']` but `datasets.detail(id)` = `['dataset', id]`).
+ * - Parameterized keys extend their respective root:
  *   `queryKeys.datasets.detail(id)` returns `['dataset', id]`.
  * - Key strings match existing cache entries exactly to avoid cache misses
  *   during deployment.
  */
 
-import type { MapBrowseParams } from '@/hooks/use-maps';
+import type { MapBrowseParams } from '@/types/api';
 
 export const queryKeys = {
   // -------------------------------------------------------------------------
@@ -40,6 +40,7 @@ export const queryKeys = {
       ['dataset-history', id, skip, limit] as const,
     versions: (id: string, skip: number, limit: number) =>
       ['dataset-versions', id, skip, limit] as const,
+    versionsPrefix: (id: string) => ['dataset-versions', id] as const,
     attributes: (id: string | undefined) => ['attributes', id] as const,
     validation: (id: string | undefined) => ['validation', id] as const,
     related: (id: string) => ['datasets', id, 'related'] as const,
@@ -138,13 +139,6 @@ export const queryKeys = {
   },
 
   // -------------------------------------------------------------------------
-  // Embed tokens (per-map)
-  // -------------------------------------------------------------------------
-  embedTokens: {
-    list: (mapId: string | undefined) => ['map-embed-tokens', mapId] as const,
-  },
-
-  // -------------------------------------------------------------------------
   // Ingest
   // -------------------------------------------------------------------------
   ingest: {
@@ -189,5 +183,59 @@ export const queryKeys = {
   // -------------------------------------------------------------------------
   edition: {
     info: ['edition'] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // Auth config & OAuth
+  // -------------------------------------------------------------------------
+  authConfig: {
+    config: ['auth', 'config'] as const,
+    oauthProviders: ['auth', 'oauth-providers'] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // Settings OAuth
+  // -------------------------------------------------------------------------
+  settingsOAuth: {
+    providers: ['settings', 'oauth-providers'] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // Relationships
+  // -------------------------------------------------------------------------
+  relationships: {
+    list: (datasetId: string) => ['dataset-relationships', datasetId] as const,
+    records: (datasetId: string, featureGid: number, relationshipId: string) =>
+      ['related-records', datasetId, featureGid, relationshipId] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // OGC records
+  // -------------------------------------------------------------------------
+  ogcRecords: {
+    detail: (id: string) => ['ogc-record', id] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // COG / dataset search (builder & VRT)
+  // -------------------------------------------------------------------------
+  cogSearch: {
+    results: (query: string) => ['cog-search', query] as const,
+    addSource: (query: string) => ['cog-search-add-source', query] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // Dataset search (builder panel)
+  // -------------------------------------------------------------------------
+  datasetSearch: {
+    results: (query: string, recordType: string) =>
+      ['dataset-search', query, recordType] as const,
+  },
+
+  // -------------------------------------------------------------------------
+  // Typeahead
+  // -------------------------------------------------------------------------
+  typeahead: {
+    results: (query: string) => ['typeahead', query] as const,
   },
 } as const;
