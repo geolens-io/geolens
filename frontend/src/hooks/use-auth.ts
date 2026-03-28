@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
@@ -16,7 +17,7 @@ export function useAuth() {
 
   // Validate token on mount by fetching current user
   useQuery({
-    queryKey: ['auth', 'me'],
+    queryKey: queryKeys.auth.me,
     queryFn: getMe,
     enabled: !!token,
     retry: false,

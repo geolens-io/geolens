@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import {
   createDataset,
   getDataset,
@@ -28,15 +29,15 @@ export function useCreateDataset() {
   return useMutation({
     mutationFn: (data: CreateDatasetRequest) => createDataset(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['datasets'] });
-      qc.invalidateQueries({ queryKey: ['search'] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
     },
   });
 }
 
 export function useDataset(id: string, options?: { refetchInterval?: number | false | ((query: any) => number | false) }) {
   return useQuery({
-    queryKey: ['dataset', id],
+    queryKey: queryKeys.datasets.detail(id),
     queryFn: () => getDataset(id),
     enabled: !!id,
     refetchInterval: options?.refetchInterval,
@@ -45,7 +46,7 @@ export function useDataset(id: string, options?: { refetchInterval?: number | fa
 
 export function useDatasetRows(id: string, limit: number, cursor: number, filters?: Record<string, string>) {
   return useQuery({
-    queryKey: ['dataset-rows', id, limit, cursor, filters],
+    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters),
     queryFn: () => getDatasetRows(id, { limit, after: cursor, filters }),
     enabled: !!id,
     placeholderData: keepPreviousData,
@@ -58,9 +59,9 @@ export function useUpdateDataset() {
     mutationFn: ({ datasetId, data }: { datasetId: string; data: DatasetUpdateRequest }) =>
       updateDataset(datasetId, data),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['datasets'] });
-      qc.invalidateQueries({ queryKey: ['search'] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
     },
   });
 }
@@ -71,9 +72,9 @@ export function useUpdatePublicationStatus() {
     mutationFn: ({ datasetId, status }: { datasetId: string; status: string }) =>
       updatePublicationStatus(datasetId, status),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['datasets'] });
-      qc.invalidateQueries({ queryKey: ['search'] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
     },
   });
 }
@@ -84,17 +85,17 @@ export function useDeleteDataset() {
     mutationFn: ({ datasetId, confirmName }: { datasetId: string; confirmName: string }) =>
       deleteDataset(datasetId, confirmName),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['datasets'] });
-      qc.invalidateQueries({ queryKey: ['search'] });
-      qc.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
+      qc.invalidateQueries({ queryKey: queryKeys.admin.stats });
     },
   });
 }
 
 export function useDatasetHistory(datasetId: string, skip = 0, limit = 50) {
   return useQuery({
-    queryKey: ['dataset-history', datasetId, skip, limit],
+    queryKey: queryKeys.datasets.history(datasetId, skip, limit),
     queryFn: () => getDatasetHistory(datasetId, { skip, limit }),
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
@@ -145,7 +146,7 @@ export function useReuploadCommit() {
 
 export function useDatasetVersions(datasetId: string, skip = 0, limit = 50) {
   return useQuery({
-    queryKey: ['dataset-versions', datasetId, skip, limit],
+    queryKey: queryKeys.datasets.versions(datasetId, skip, limit),
     queryFn: () => getDatasetVersions(datasetId, { skip, limit }),
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
@@ -154,7 +155,7 @@ export function useDatasetVersions(datasetId: string, skip = 0, limit = 50) {
 
 export function useAttributes(datasetId: string | undefined) {
   return useQuery({
-    queryKey: ['attributes', datasetId],
+    queryKey: queryKeys.datasets.attributes(datasetId),
     queryFn: () => listAttributes(datasetId!),
     enabled: !!datasetId,
   });
@@ -166,14 +167,14 @@ export function useUpdateAttribute(datasetId: string | undefined) {
     mutationFn: ({ attributeId, data }: { attributeId: string; data: AttributeMetadataUpdate }) =>
       updateAttribute(datasetId!, attributeId, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['attributes', datasetId] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(datasetId) });
     },
   });
 }
 
 export function useValidation(datasetId: string | undefined) {
   return useQuery({
-    queryKey: ['validation', datasetId],
+    queryKey: queryKeys.datasets.validation(datasetId),
     queryFn: () => validateDataset(datasetId!),
     enabled: !!datasetId,
     staleTime: 30_000,

@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { uploadFile, registerTable, getJobStatus, previewFile, commitImport, retryJob, probeService, previewServiceLayer, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
 import type { CommitImportRequest, ServicePreviewRequest, BulkRegisterRequest, VrtCreateRequest } from '@/types/api';
 
@@ -16,7 +17,7 @@ export function useRegisterTable() {
 
 export function useJobStatus(jobId: string | null) {
   return useQuery({
-    queryKey: ['job-status', jobId],
+    queryKey: queryKeys.ingest.jobStatus(jobId),
     queryFn: () => getJobStatus(jobId!),
     enabled: !!jobId,
     refetchInterval: (query) => {
@@ -61,7 +62,7 @@ export function usePreviewServiceLayer() {
 
 export function useDiscoverTables() {
   return useQuery({
-    queryKey: ['discover-tables'],
+    queryKey: queryKeys.ingest.discoverTables,
     queryFn: discoverTables,
   });
 }
@@ -74,7 +75,7 @@ export function useBulkRegister() {
 
 export function useUploadConfig() {
   return useQuery({
-    queryKey: ['upload-config'],
+    queryKey: queryKeys.ingest.uploadConfig,
     queryFn: getUploadConfig,
     staleTime: 300_000, // 5 minutes -- storage provider changes rarely
   });

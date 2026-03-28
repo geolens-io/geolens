@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useNavigate, useBlocker } from 'react-router';
+import { queryKeys } from '@/lib/query-keys';
+import { useNavigate } from 'react-router';
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse } from '@/types/api';
+import { useWidgetStore } from '@/stores/widget-store';
 
 /** Crop and resize the map canvas to a 400x250 JPEG, then upload it. */
 function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
@@ -36,7 +39,7 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
       const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
       uploadThumbnail(mapId, dataUri).then(() => {
-        queryClient.invalidateQueries({ queryKey: ['maps'] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
       }).catch(() => {
         // Silent failure for thumbnails
       });
@@ -112,6 +115,13 @@ export function useBuilderSave(state: SaveState) {
           zoom: zoom ?? null,
           bearing: bearing ?? 0,
           pitch: pitch ?? 0,
+          widgets: (() => {
+            const active = Array.from(useWidgetStore.getState().activeWidgets);
+            // Preserve null (use defaults) if map never had widgets saved and none are active
+            const cached = queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id));
+            if (cached?.widgets == null && active.length === 0) return undefined;
+            return active;
+          })(),
           layers: localLayers.map((l) => ({
             dataset_id: l.dataset_id,
             sort_order: l.sort_order,
@@ -223,18 +233,8 @@ export function useBuilderSave(state: SaveState) {
     captureThumbnail(map, state.mapId, queryClient);
   }, [state.hasThumbnail, state.mapId, queryClient]);
 
-  // Warn before tab close / refresh with unsaved changes
-  useEffect(() => {
-    if (!state.hasUnsavedChanges) return;
-    function handleBeforeUnload(e: BeforeUnloadEvent) {
-      e.preventDefault();
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [state.hasUnsavedChanges]);
-
-  // Block in-app navigation with unsaved changes
-  const blocker = useBlocker(state.hasUnsavedChanges);
+  // Warn before tab close / refresh with unsaved changes, and block in-app navigation
+  const blocker = useUnsavedGuard(state.hasUnsavedChanges);
 
   // Keyboard shortcut: Ctrl/Cmd+S
   useEffect(() => {
