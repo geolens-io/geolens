@@ -12,7 +12,6 @@ import {
   DARK_PRESET_ID,
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
-import { getLayerType, stripCustomProps } from '@/components/builder/map-sync';
 import { getTileTokenWithApiKey } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
 import { getEnvConfig } from '@/lib/env';
@@ -21,6 +20,9 @@ import type { MapLibreEvent, MapMouseEvent, StyleSpecification } from 'maplibre-
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { SharedLayerResponse } from '@/types/api';
+import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
+import { getLayerType } from '@/components/builder/map-sync';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface ViewerMapProps {
@@ -40,7 +42,12 @@ interface ViewerMapProps {
   showBasemapLabels?: boolean;
 }
 
-/** Move basemap symbol/label layers above data layers, or hide them. */
+/**
+ * Move basemap symbol/label layers above data layers, or hide them.
+ * Uses 'viewer-source-' prefix to identify viewer data layers so they
+ * are not confused with basemap symbol layers (which use no source or a
+ * non-viewer source prefix).
+ */
 function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
   const style = map.getStyle();
   if (!style?.layers) return;
@@ -67,12 +74,30 @@ function getLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}`;
 }
 
-function getOutlineLayerId(sortOrder: number) {
-  return `viewer-layer-${sortOrder}-outline`;
-}
-
 function getLabelLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}-label`;
+}
+
+function toAdapterInput(
+  layer: SharedLayerResponse,
+  visibleLayers: Set<number>,
+  tileUrl: string,
+): AdapterLayerInput {
+  return {
+    id: String(layer.sort_order),
+    dataset_table_name: layer.table_name,
+    dataset_geometry_type: layer.geometry_type,
+    opacity: layer.opacity ?? 1,
+    visible: visibleLayers.has(layer.sort_order),
+    paint: (layer.paint as Record<string, unknown>) ?? {},
+    layout: (layer.layout as Record<string, unknown>) ?? {},
+    filter: layer.filter ?? null,
+    label_config: layer.label_config,
+    sourceId: getSourceId(layer.sort_order),
+    layerId: getLayerId(layer.sort_order),
+    sourceLayer: `data.${layer.table_name}`,
+    tileUrl,
+  };
 }
 
 export function ViewerMap({
@@ -109,8 +134,8 @@ export function ViewerMap({
   const effectiveBasemap = isDefaultBasemap
     ? getThemeBasemap(basemaps ?? [], resolvedTheme)
     : findBasemapById(basemaps ?? [], basemapStyle);
-  const fallbackUrl = 'https://tiles.openfreemap.org/styles/positron';
-  const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl, effectiveBasemap?.attribution);
+  const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+  const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
 
   // Fetch tile tokens for all layers using API key auth
   useEffect(() => {
@@ -267,137 +292,29 @@ export function ViewerMap({
 
     for (const layer of layers) {
       const sourceId = getSourceId(layer.sort_order);
-      const layerId = getLayerId(layer.sort_order);
-      const outlineId = getOutlineLayerId(layer.sort_order);
       const token = tokenMap.get(layer.dataset_id) ?? null;
       const tileUrl = buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
+      const adapterInput = toAdapterInput(layer, visibleLayers, tileUrl);
 
       desiredSources.add(sourceId);
 
-      // Add source + layer if not on map
       if (!map.getSource(sourceId)) {
-        const sourceLayer = `data.${layer.table_name}`;
-
         map.addSource(sourceId, {
           type: 'vector',
           tiles: [tileUrl],
           minzoom: 1,
           maxzoom: 22,
         });
-
         const type = getLayerType(layer.geometry_type);
-        const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
-
-        if (type === 'circle') {
-          try {
-            map.addLayer({
-              id: layerId,
-              type: 'circle',
-              source: sourceId,
-              'source-layer': sourceLayer,
-              paint: stripCustomProps((layer.paint as Record<string, unknown>) ?? {
-                'circle-radius': 5,
-                'circle-color': MAP_COLORS.default.fill,
-                'circle-stroke-color': MAP_COLORS.default.stroke,
-                'circle-stroke-width': 1,
-              }),
-              layout: {
-                ...(layer.layout as Record<string, unknown>) ?? {},
-                visibility: vis,
-              },
-            });
-            if (layer.opacity !== undefined && layer.opacity < 1) {
-              map.setPaintProperty(layerId, 'circle-opacity', layer.opacity);
-            }
-            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-              map.setFilter(layerId, layer.filter);
-            }
-          } catch (e) {
-            console.warn(`[ViewerMap] addLayer failed for ${layerId}:`, e);
-          }
-        } else if (type === 'line') {
-          try {
-            map.addLayer({
-              id: layerId,
-              type: 'line',
-              source: sourceId,
-              'source-layer': sourceLayer,
-              paint: stripCustomProps((layer.paint as Record<string, unknown>) ?? {
-                'line-color': MAP_COLORS.default.fill,
-                'line-width': 2,
-              }),
-              layout: {
-                ...(layer.layout as Record<string, unknown>) ?? {},
-                visibility: vis,
-                'line-cap': 'round' as const,
-                'line-join': 'round' as const,
-              },
-            });
-            if (layer.opacity !== undefined && layer.opacity < 1) {
-              map.setPaintProperty(layerId, 'line-opacity', layer.opacity);
-            }
-            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-              map.setFilter(layerId, layer.filter);
-            }
-          } catch (e) {
-            console.warn(`[ViewerMap] addLayer failed for ${layerId}:`, e);
-          }
-        } else {
-          try {
-            map.addLayer({
-              id: layerId,
-              type: 'fill',
-              source: sourceId,
-              'source-layer': sourceLayer,
-              paint: stripCustomProps((layer.paint as Record<string, unknown>) ?? {
-                'fill-color': MAP_COLORS.default.fill,
-                'fill-opacity': MAP_COLORS.default.fillOpacity,
-              }),
-              layout: {
-                ...(layer.layout as Record<string, unknown>) ?? {},
-                visibility: vis,
-              },
-            });
-            if (layer.opacity !== undefined && layer.opacity < 1) {
-              const fillOpacity =
-                ((layer.paint as Record<string, unknown>)?.['fill-opacity'] as number) ?? 0.3;
-              map.setPaintProperty(layerId, 'fill-opacity', fillOpacity * layer.opacity);
-            }
-            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-              map.setFilter(layerId, layer.filter);
-            }
-            const paint = (layer.paint as Record<string, unknown>) ?? {};
-            const outlineColor =
-              (paint['_outline-color'] ?? paint['outline-color']) as string | undefined;
-            const outlineWidth =
-              (paint['_outline-width'] ?? paint['outline-width']) as number | undefined;
-            map.addLayer({
-              id: outlineId,
-              type: 'line',
-              source: sourceId,
-              'source-layer': sourceLayer,
-              paint: {
-                'line-color': outlineColor ?? MAP_COLORS.default.stroke,
-                'line-width': outlineWidth ?? 1,
-              },
-              layout: {
-                visibility: vis,
-              },
-            });
-            if (layer.opacity !== undefined && layer.opacity < 1) {
-              map.setPaintProperty(outlineId, 'line-opacity', layer.opacity);
-            }
-            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-              map.setFilter(outlineId, layer.filter);
-            }
-          } catch (e) {
-            console.warn(`[ViewerMap] addLayer failed for ${layerId}:`, e);
-          }
-        }
-
+        const adapter = getAdapter(type);
+        adapter.addLayers(map, adapterInput);
+      } else {
+        const type = getLayerType(layer.geometry_type);
+        const adapter = getAdapter(type);
+        adapter.syncPaint(map, adapterInput);
       }
 
-      // Sync label layer for existing sources (add/update/remove)
+      // Label layer management (adapters do not handle labels)
       const labelId = getLabelLayerId(layer.sort_order);
       if (map.getSource(sourceId)) {
         if (layer.label_config && (layer.label_config as { column?: string }).column) {
@@ -451,7 +368,7 @@ export function ViewerMap({
       if (!desiredSources.has(sourceId)) {
         const order = parseInt(sourceId.replace('viewer-source-', ''), 10);
         const layerId = getLayerId(order);
-        const outlineId = getOutlineLayerId(order);
+        const outlineId = `${layerId}-outline`;
         const labelId = getLabelLayerId(order);
         if (map.getLayer(labelId)) map.removeLayer(labelId);
         if (map.getLayer(outlineId)) map.removeLayer(outlineId);
@@ -498,18 +415,15 @@ export function ViewerMap({
     if (!map || !map.isStyleLoaded()) return;
 
     for (const layer of layers) {
-      const layerId = getLayerId(layer.sort_order);
-      const outlineId = getOutlineLayerId(layer.sort_order);
-      const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
+      const type = getLayerType(layer.geometry_type);
+      const adapter = getAdapter(type);
+      const adapterInput = toAdapterInput(layer, visibleLayers, '');
+      adapter.syncVisibility(map, adapterInput);
 
-      if (map.getLayer(layerId)) {
-        map.setLayoutProperty(layerId, 'visibility', vis);
-      }
-      if (map.getLayer(outlineId)) {
-        map.setLayoutProperty(outlineId, 'visibility', vis);
-      }
+      // Also sync label visibility (not handled by adapters)
       const labelId = getLabelLayerId(layer.sort_order);
       if (map.getLayer(labelId)) {
+        const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
         map.setLayoutProperty(labelId, 'visibility', vis);
       }
     }
@@ -523,7 +437,7 @@ export function ViewerMap({
     if (!map || currentUrl === prevBasemapUrlRef.current) return;
     prevBasemapUrlRef.current = currentUrl;
 
-    const newStyle = toMaplibreStyle(currentUrl, effectiveBasemap?.attribution);
+    const newStyle = toMaplibreStyle(currentUrl);
     map.setStyle(newStyle, {
       transformStyle: (_prev: StyleSpecification | undefined, next: StyleSpecification) => {
         const customSources: Record<string, unknown> = {};
@@ -566,6 +480,7 @@ export function ViewerMap({
       initialViewState={defaultView}
       mapStyle={styleValue as string}
       style={{ width: '100%', height: '100%' }}
+      attributionControl={false}
       minZoom={1}
       onLoad={handleLoad}
     >
