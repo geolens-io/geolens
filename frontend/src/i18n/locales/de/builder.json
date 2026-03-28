@@ -209,7 +209,8 @@
     "duplicateMap": "Karte duplizieren",
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
-    "expandSidebar": "Seitenleiste ausklappen"
+    "expandSidebar": "Seitenleiste ausklappen",
+    "widgets": "Widgets"
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
