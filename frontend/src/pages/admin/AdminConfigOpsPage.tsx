@@ -165,10 +165,10 @@ function ValidateSection() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t('configOps.import.key')}</TableHead>
-                  <TableHead>{t('configOps.import.action')}</TableHead>
-                  <TableHead>Latency</TableHead>
-                  <TableHead>Error</TableHead>
+                  <TableHead>{t('configOps.validate.serviceHeader')}</TableHead>
+                  <TableHead>{t('configOps.validate.statusHeader')}</TableHead>
+                  <TableHead>{t('configOps.validate.latencyHeader')}</TableHead>
+                  <TableHead>{t('configOps.validate.errorHeader')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

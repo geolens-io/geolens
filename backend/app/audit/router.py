@@ -5,6 +5,7 @@ import io
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,18 +67,17 @@ async def list_audit_logs(
 
 @router.get("/audit-logs/export/{format}")
 async def export_audit_logs(
-    format: str,
+    format: Literal["csv", "json"],
     action: str | None = Query(None),
     resource_type: str | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
     search: str | None = Query(None),
+    max_rows: int = Query(100_000, ge=1, le=1_000_000),
     user: User = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Export audit logs as CSV or JSON (admin only)."""
-    if format not in ("csv", "json"):
-        raise HTTPException(status_code=400, detail="format must be 'csv' or 'json'")
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"audit-export-{timestamp}.{format}"
@@ -93,6 +93,7 @@ async def export_audit_logs(
             buf.seek(0)
             buf.truncate(0)
 
+            row_count = 0
             async for log in stream_audit_logs(
                 db,
                 action=action,
@@ -101,6 +102,8 @@ async def export_audit_logs(
                 date_to=date_to,
                 search=search,
             ):
+                if row_count >= max_rows:
+                    break
                 writer.writerow([
                     log.created_at.isoformat() if log.created_at else "",
                     log.user.username if log.user else "",
@@ -113,6 +116,7 @@ async def export_audit_logs(
                 yield buf.getvalue()
                 buf.seek(0)
                 buf.truncate(0)
+                row_count += 1
 
         return StreamingResponse(
             csv_generator(),
@@ -124,6 +128,7 @@ async def export_audit_logs(
     async def json_generator():
         yield "["
         first = True
+        row_count = 0
         async for log in stream_audit_logs(
             db,
             action=action,
@@ -132,6 +137,8 @@ async def export_audit_logs(
             date_to=date_to,
             search=search,
         ):
+            if row_count >= max_rows:
+                break
             row = {
                 "timestamp": log.created_at.isoformat() if log.created_at else None,
                 "username": log.user.username if log.user else None,
@@ -144,6 +151,7 @@ async def export_audit_logs(
             prefix = "" if first else ","
             yield prefix + json.dumps(row)
             first = False
+            row_count += 1
         yield "]"
 
     return StreamingResponse(
