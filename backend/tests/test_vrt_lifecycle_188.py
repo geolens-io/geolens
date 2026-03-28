@@ -43,7 +43,9 @@ class TestVrtGenerationModel:
     def test_model_schema(self):
         from app.raster.models import VrtGeneration
 
-        assert VrtGeneration.__table_args__["schema"] == "catalog"
+        # __table_args__ is a tuple: (constraints..., {"schema": "catalog"})
+        schema_dict = VrtGeneration.__table_args__[-1]
+        assert schema_dict["schema"] == "catalog"
 
     def test_primary_key_is_uuid(self):
         from app.raster.models import VrtGeneration
