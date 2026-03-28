@@ -23,7 +23,7 @@ export function WidgetPanel({ def, onClose, children }: WidgetPanelProps) {
           <X className="h-3 w-3" />
         </button>
       </div>
-      <div className="overflow-auto max-h-64 p-2.5">
+      <div className="overflow-auto max-h-80 p-2.5">
         {children}
       </div>
     </div>

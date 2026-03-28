@@ -266,6 +266,23 @@
     "featureCount_other": "{{count}} features",
     "dismiss": "Dismiss query result"
   },
+  "widgets": {
+    "measurement": {
+      "label": "Measure",
+      "distance": "Distance",
+      "area": "Area",
+      "clear": "Clear",
+      "clickToMeasure": "Click on map to measure",
+      "metric": "Metric",
+      "imperial": "Imperial"
+    },
+    "legend": {
+      "label": "Legend",
+      "noLayers": "No visible layers"
+    },
+    "closeWidget": "Close widget",
+    "widgetError": "This widget encountered an error"
+  },
   "drawing": {
     "select": "Select",
     "point": "Point",
