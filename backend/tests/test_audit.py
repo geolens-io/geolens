@@ -264,3 +264,59 @@ async def test_audit_log_unauthenticated_returns_401(
     """Unauthenticated request to audit logs returns 401."""
     resp = await client.get("/admin/audit-logs/")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Export tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_export_audit_logs_csv(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """GET /admin/audit-logs/export/csv returns 200 with text/csv content and header row."""
+    admin_id = await _get_user_id(test_db_session, "admin")
+    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+
+    # Trigger a dataset.view audit log
+    await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+
+    resp = await client.get(
+        "/admin/audit-logs/export/csv",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers.get("content-type", "")
+    disposition = resp.headers.get("content-disposition", "")
+    assert ".csv" in disposition
+    body = resp.text
+    assert "timestamp" in body
+    assert "action" in body
+
+
+@pytest.mark.anyio
+async def test_export_audit_logs_json(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """GET /admin/audit-logs/export/json returns 200 with application/json array."""
+    admin_id = await _get_user_id(test_db_session, "admin")
+    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+
+    # Trigger a dataset.view audit log
+    await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+
+    resp = await client.get(
+        "/admin/audit-logs/export/json",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    assert "application/json" in resp.headers.get("content-type", "")
+    disposition = resp.headers.get("content-disposition", "")
+    assert ".json" in disposition
+    data = resp.json()
+    assert isinstance(data, list)
