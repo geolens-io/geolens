@@ -248,10 +248,11 @@ Progress: [░░░░░░░░░░] 0%
 | 260327-kkj | Review all API endpoints for completeness, correctness and optimizations | 2026-03-27 | 8de36537 | Verified | [260327-kkj-review-all-api-endpoints-for-completenes](./quick/260327-kkj-review-all-api-endpoints-for-completenes/) |
 | 260327-rkx | API audit follow-ups: M1 batch N+1, M2 JOIN forked/owner, L4 replace _public_base_url, L5 split datasets/router | 2026-03-27 | 84149333 | Verified | [260327-rkx-api-audit-follow-ups-m1-batch-n-1-m2-joi](./quick/260327-rkx-api-audit-follow-ups-m1-batch-n-1-m2-joi/) |
 | 260328-b42 | Squash all migrations before public release | 2026-03-28 | ae0951ef | Verified | [260328-b42-lets-squash-all-migrations-before-public](./quick/260328-b42-lets-squash-all-migrations-before-public/) |
+| 260328-edx | Review the organization of the admin page | 2026-03-28 | 9929204a | Verified | [260328-edx-review-the-organization-of-the-admin-pag](./quick/260328-edx-review-the-organization-of-the-admin-pag/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-28 - Completed quick task 260328-b42: Squash all migrations before public release
+Last activity: 2026-03-28 - Completed quick task 260328-edx: Review the organization of the admin page
 Last session: 2026-03-27T00:44:54.743Z
 Stopped at: Completed 210-02-PLAN.md
 Resume file: None
