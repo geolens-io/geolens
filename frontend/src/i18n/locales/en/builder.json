@@ -209,7 +209,8 @@
     "duplicateMap": "Duplicate map",
     "save": "Save ({{shortcut}})",
     "collapseSidebar": "Collapse sidebar",
-    "expandSidebar": "Expand sidebar"
+    "expandSidebar": "Expand sidebar",
+    "widgets": "Widgets"
   },
   "toasts": {
     "mapSaved": "Map saved",
