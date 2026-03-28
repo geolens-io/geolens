@@ -25,6 +25,8 @@ from app.collections.schemas import (
 )
 from app.collections.service import (
     add_datasets_to_collection,
+    batch_collection_dataset_counts,
+    batch_collection_extents,
     compute_collection_extent,
     create_collection,
     delete_collection,
@@ -190,11 +192,14 @@ async def list_collections_endpoint(
 
     collections, total = await list_collections(db, skip=skip, limit=limit)
 
-    responses = []
-    for coll in collections:
-        extent_data = await compute_collection_extent(db, coll.id, user, user_roles)
-        ds_count = await get_collection_dataset_count(db, coll.id, user, user_roles)
-        responses.append(_collection_to_response(coll, ds_count, extent_data))
+    coll_ids = [c.id for c in collections]
+    extent_map = await batch_collection_extents(db, coll_ids, user, user_roles)
+    count_map = await batch_collection_dataset_counts(db, coll_ids, user, user_roles)
+    default_extent = {"extent_bbox": None, "temporal_start": None, "temporal_end": None}
+    responses = [
+        _collection_to_response(coll, count_map.get(coll.id, 0), extent_map.get(coll.id, default_extent))
+        for coll in collections
+    ]
 
     response = CollectionListResponse(collections=responses, total=total)
 

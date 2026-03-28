@@ -290,3 +290,86 @@ async def get_collection_dataset_count(
 
     result = await session.execute(stmt)
     return result.scalar_one()
+
+
+async def batch_collection_extents(
+    session: AsyncSession,
+    collection_ids: list[uuid.UUID],
+    user: User | None,
+    user_roles: set[str],
+) -> dict[uuid.UUID, dict]:
+    """Compute aggregated spatial and temporal extents for multiple collections in one query.
+
+    Returns {collection_id: {"extent_bbox": [...] | None, "temporal_start": ..., "temporal_end": ...}}.
+    Collections with zero visible datasets will not appear in the result dict.
+    """
+    if not collection_ids:
+        return {}
+
+    stmt = (
+        select(
+            CollectionDataset.collection_id,
+            func.ST_AsGeoJSON(
+                func.ST_Envelope(func.ST_Collect(Record.spatial_extent))
+            ).label("bbox_geojson"),
+            func.min(Record.temporal_start).label("temporal_start"),
+            func.max(Record.temporal_end).label("temporal_end"),
+        )
+        .select_from(Dataset)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(CollectionDataset.collection_id.in_(collection_ids))
+        .group_by(CollectionDataset.collection_id)
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    extents: dict[uuid.UUID, dict] = {}
+    for row in rows:
+        coll_id = row.collection_id
+        extent_bbox = None
+        if row.bbox_geojson is not None:
+            geojson = json.loads(row.bbox_geojson)
+            coords = geojson["coordinates"][0]
+            xs = [c[0] for c in coords]
+            ys = [c[1] for c in coords]
+            extent_bbox = [min(xs), min(ys), max(xs), max(ys)]
+        extents[coll_id] = {
+            "extent_bbox": extent_bbox,
+            "temporal_start": row.temporal_start,
+            "temporal_end": row.temporal_end,
+        }
+    return extents
+
+
+async def batch_collection_dataset_counts(
+    session: AsyncSession,
+    collection_ids: list[uuid.UUID],
+    user: User | None,
+    user_roles: set[str],
+) -> dict[uuid.UUID, int]:
+    """Count visible datasets for multiple collections in one query.
+
+    Returns {collection_id: count}. Collections with zero visible datasets
+    will not appear in the result dict.
+    """
+    if not collection_ids:
+        return {}
+
+    stmt = (
+        select(
+            CollectionDataset.collection_id,
+            func.count().label("dataset_count"),
+        )
+        .select_from(Dataset)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(CollectionDataset.collection_id.in_(collection_ids))
+        .group_by(CollectionDataset.collection_id)
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+
+    result = await session.execute(stmt)
+    return {row.collection_id: row.dataset_count for row in result.all()}

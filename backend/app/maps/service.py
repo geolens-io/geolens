@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.auth.models import User, UserRole
 from app.auth.visibility import apply_visibility_filter, get_user_roles
@@ -103,15 +104,25 @@ async def get_map(
 async def get_map_with_layers(
     session: AsyncSession,
     map_id: uuid.UUID,
-) -> tuple[Map | None, list[tuple]]:
-    """Fetch map and its layers with dataset info.
+) -> tuple[Map | None, list[tuple], str | None, str | None]:
+    """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
 
-    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values), ...])
-    or (None, []).
+    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values), ...], forked_from_name, owner_username)
+    or (None, [], None, None).
     """
-    map_obj = await get_map(session, map_id)
-    if map_obj is None:
-        return None, []
+    ForkedMap = aliased(Map)
+    map_stmt = (
+        select(Map, ForkedMap.name.label("forked_from_name"), User.username.label("owner_username"))
+        .outerjoin(ForkedMap, Map.forked_from == ForkedMap.id)
+        .outerjoin(User, Map.created_by == User.id)
+        .where(Map.id == map_id)
+    )
+    map_result = await session.execute(map_stmt)
+    map_row = map_result.one_or_none()
+    if map_row is None:
+        return None, [], None, None
+
+    map_obj, forked_from_name, owner_username = map_row
 
     stmt = (
         select(
@@ -133,7 +144,7 @@ async def get_map_with_layers(
     result = await session.execute(stmt)
     rows = result.all()
 
-    return map_obj, [tuple(row) for row in rows]
+    return map_obj, [tuple(row) for row in rows], forked_from_name, owner_username
 
 
 async def list_maps(
