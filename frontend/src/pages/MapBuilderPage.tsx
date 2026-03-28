@@ -45,7 +45,7 @@ import { useBuilderLayout } from '@/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/hooks/use-builder-layers';
 import { useBuilderSave } from '@/hooks/use-builder-save';
-import { WidgetHost, getWidgets } from '@/components/widgets';
+import { WidgetHost, WidgetToolbar, getWidgets } from '@/components/widgets';
 import { useWidgetStore } from '@/stores/widget-store';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
@@ -406,6 +406,7 @@ export function MapBuilderPage() {
             onDismiss={layers.handleDismissEphemeral}
           />
         )}
+        <WidgetToolbar />
         <WidgetHost ctx={{ mapInstance: mapInstanceRef.current, layers: layers.localLayers, mapId: id! }} />
       </div>
 

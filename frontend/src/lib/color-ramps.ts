@@ -44,7 +44,12 @@ export const QUALITATIVE_RAMPS = [
  * Generate an array of hex color strings from a named chroma-js color scale.
  */
 export function getRampColors(rampName: string, count: number): string[] {
-  return chroma.scale(rampName as chroma.BrewerPaletteName).colors(count);
+  try {
+    return chroma.scale(rampName as chroma.BrewerPaletteName).colors(count);
+  } catch {
+    // Fallback for unknown ramp names
+    return chroma.scale('YlOrRd').colors(count);
+  }
 }
 
 /**

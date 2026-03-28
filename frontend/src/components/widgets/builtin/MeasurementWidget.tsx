@@ -171,12 +171,14 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
 
     return () => {
       map.off('click', handleClick);
-      map.getCanvas().style.cursor = '';
-
-      // Remove layers and source
-      if (map.getLayer(MEASURE_POINTS_LAYER)) map.removeLayer(MEASURE_POINTS_LAYER);
-      if (map.getLayer(MEASURE_LINE_LAYER)) map.removeLayer(MEASURE_LINE_LAYER);
-      if (map.getSource(MEASURE_SOURCE)) map.removeSource(MEASURE_SOURCE);
+      try {
+        map.getCanvas().style.cursor = '';
+        if (map.getLayer(MEASURE_POINTS_LAYER)) map.removeLayer(MEASURE_POINTS_LAYER);
+        if (map.getLayer(MEASURE_LINE_LAYER)) map.removeLayer(MEASURE_LINE_LAYER);
+        if (map.getSource(MEASURE_SOURCE)) map.removeSource(MEASURE_SOURCE);
+      } catch {
+        // Map style may already be destroyed during teardown
+      }
     };
   }, [map]); // eslint-disable-line react-hooks/exhaustive-deps
 
