@@ -295,6 +295,8 @@ async def test_export_audit_logs_csv(
     body = resp.text
     assert "timestamp" in body
     assert "action" in body
+    lines = body.strip().splitlines()
+    assert len(lines) >= 2, "CSV should have header + at least one data row"
 
 
 @pytest.mark.anyio
@@ -320,3 +322,39 @@ async def test_export_audit_logs_json(
     assert ".json" in disposition
     data = resp.json()
     assert isinstance(data, list)
+    assert len(data) >= 1, "JSON export should contain at least one audit log entry"
+
+
+@pytest.mark.anyio
+async def test_export_audit_logs_viewer_forbidden(
+    client: AsyncClient,
+    viewer_auth_header: dict,
+):
+    """Viewer cannot export audit logs (403)."""
+    resp = await client.get(
+        "/admin/audit-logs/export/csv",
+        headers=viewer_auth_header,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_export_audit_logs_unauthenticated_returns_401(
+    client: AsyncClient,
+):
+    """Unauthenticated request to export audit logs returns 401."""
+    resp = await client.get("/admin/audit-logs/export/csv")
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_export_audit_logs_invalid_format(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Invalid export format returns 422 (FastAPI Literal validation)."""
+    resp = await client.get(
+        "/admin/audit-logs/export/xml",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
