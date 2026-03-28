@@ -964,8 +964,7 @@ CREATE TABLE catalog.maps (
     visibility character varying(20) DEFAULT 'private'::text NOT NULL,
     thumbnail_uri text,
     forked_from uuid,
-    CONSTRAINT chk_maps_visibility CHECK (((visibility)::text = ANY (ARRAY['private'::text, 'public'::text, 'internal'::text, 'unlisted'::text]))),
-    CONSTRAINT ck_maps_visibility CHECK (((visibility)::text = ANY (ARRAY['private'::text, 'internal'::text, 'public'::text])))
+    CONSTRAINT chk_maps_visibility CHECK (((visibility)::text = ANY (ARRAY['private'::text, 'public'::text, 'internal'::text, 'unlisted'::text])))
 );
 
 
@@ -1349,8 +1348,7 @@ CREATE TABLE catalog.vrt_generations (
     source_count integer,
     triggered_by character varying(100),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_vrt_generations_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying])::text[]))),
-    CONSTRAINT vrt_generations_status_check CHECK (((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('running'::character varying)::text, ('completed'::character varying)::text, ('failed'::character varying)::text])))
+    CONSTRAINT chk_vrt_generations_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
 
 
