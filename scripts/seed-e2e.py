@@ -79,7 +79,7 @@ async def ingest_dataset(
     """Upload, preview, commit, poll. Returns dataset_id."""
     # Step 1 - Upload
     resp = await client.post(
-        f"{base_url}/api/ingest/upload",
+        f"{base_url}/api/ingest/upload/",
         headers=headers,
         files={"file": (f"{stem}.zip", data, "application/zip")},
     )
