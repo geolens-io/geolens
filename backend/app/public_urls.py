@@ -215,6 +215,19 @@ async def get_public_app_url(
     return app_url
 
 
+async def get_dataset_service_url(
+    db: AsyncSession,
+    *,
+    request: Request | None = None,
+) -> str:
+    """Return the public app URL for constructing dataset tile/service connect URLs.
+
+    Thin wrapper over get_public_app_url that gives dataset-specific call sites
+    a purpose-named function, per the API audit recommendation (L4).
+    """
+    return await get_public_app_url(db, request=request)
+
+
 async def get_public_api_url(
     db: AsyncSession,
     *,

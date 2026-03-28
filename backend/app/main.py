@@ -20,6 +20,11 @@ from app.metrics import init_metrics
 from app.storage import init_storage
 from app.database import async_session, engine
 from app.datasets.router import router as datasets_router
+from app.datasets.router_export import router as datasets_export_router
+from app.datasets.router_vrt import router as datasets_vrt_router
+from app.datasets.router_data import router as datasets_data_router
+from app.datasets.router_metadata import router as datasets_metadata_router
+from app.datasets.router_reupload import router as datasets_reupload_router
 from app.records.router import router as records_router
 from app.export.router import router as export_router
 from app.ingest.router import router as ingest_router
@@ -366,7 +371,13 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(audit_router)
 app.include_router(ingest_router)
+# Register export BEFORE core (has /dcat/ that conflicts with /{dataset_id})
+app.include_router(datasets_export_router)
 app.include_router(datasets_router)
+app.include_router(datasets_vrt_router)
+app.include_router(datasets_data_router)
+app.include_router(datasets_metadata_router)
+app.include_router(datasets_reupload_router)
 app.include_router(records_router)
 app.include_router(features_router)
 app.include_router(export_router)

@@ -216,34 +216,34 @@ class TestVrtStatusEndpoint:
     """Tests for GET /datasets/{id}/vrt/status/."""
 
     def test_endpoint_exists_in_router(self):
-        from app.datasets.router import router
+        from app.datasets.router_vrt import router
 
         paths = [r.path for r in router.routes if hasattr(r, "path")]
         assert "/datasets/{dataset_id}/vrt/status/" in paths
 
     def test_endpoint_source_contains_status_logic(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "VrtStatusResponse" in source
         assert "source_health" in source
 
     def test_endpoint_uses_storage_exists_for_health(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "storage" in source.lower()
         assert "exists" in source
 
     def test_endpoint_uses_asyncio_gather_for_parallel_checks(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "asyncio.gather" in source
 
     def test_endpoint_returns_404_for_non_vrt(self):
         """Verify the endpoint checks record_type == 'vrt_dataset'."""
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "vrt_dataset" in source
@@ -253,13 +253,13 @@ class TestVrtGenerationsEndpoint:
     """Tests for GET /datasets/{id}/vrt/generations/."""
 
     def test_endpoint_exists_in_router(self):
-        from app.datasets.router import router
+        from app.datasets.router_vrt import router
 
         paths = [r.path for r in router.routes if hasattr(r, "path")]
         assert "/datasets/{dataset_id}/vrt/generations/" in paths
 
     def test_endpoint_source_contains_generation_logic(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.list_vrt_generations)
         assert "VrtGenerationListResponse" in source
@@ -267,7 +267,7 @@ class TestVrtGenerationsEndpoint:
         assert "offset" in source
 
     def test_endpoint_paginates_by_default(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.list_vrt_generations)
         assert "ORDER BY" in source or "order_by" in source
@@ -277,31 +277,31 @@ class TestVrtRegenerateEndpoint:
     """Tests for POST /datasets/{id}/vrt/regenerate/."""
 
     def test_endpoint_exists_in_router(self):
-        from app.datasets.router import router
+        from app.datasets.router_vrt import router
 
         paths = [r.path for r in router.routes if hasattr(r, "path")]
         assert "/datasets/{dataset_id}/vrt/regenerate/" in paths
 
     def test_endpoint_uses_advisory_lock(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
         assert "pg_try_advisory_xact_lock" in source
 
     def test_endpoint_returns_409_when_regenerating(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
         assert "409" in source or "409_CONFLICT" in source or "regenerating" in source
 
     def test_endpoint_creates_generation_record(self):
-        from app.datasets import router as router_mod
+        from app.datasets import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
         assert "VrtGeneration" in source
 
     def test_advisory_lock_key_helper_exists(self):
-        from app.datasets.router import _advisory_lock_key
+        from app.datasets.router_vrt import _advisory_lock_key
 
         dataset_id = uuid.uuid4()
         key = _advisory_lock_key(dataset_id)

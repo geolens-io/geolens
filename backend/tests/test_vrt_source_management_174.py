@@ -796,7 +796,7 @@ class TestStatusField:
 
     def test_build_raster_metadata_includes_status(self):
         """_build_raster_metadata populates status from raster_asset.status."""
-        from app.datasets.router import _build_raster_metadata
+        from app.datasets.helpers import _build_raster_metadata
 
         mock_dataset = MagicMock()
         mock_dataset.id = uuid.uuid4()
@@ -824,7 +824,7 @@ class TestStatusField:
 
     def test_build_raster_metadata_status_regenerating(self):
         """_build_raster_metadata maps status='regenerating' correctly."""
-        from app.datasets.router import _build_raster_metadata
+        from app.datasets.helpers import _build_raster_metadata
 
         mock_dataset = MagicMock()
         mock_dataset.id = uuid.uuid4()
@@ -852,7 +852,7 @@ class TestStatusField:
 
     def test_build_raster_metadata_returns_none_for_none_asset(self):
         """_build_raster_metadata returns None when raster_asset is None."""
-        from app.datasets.router import _build_raster_metadata
+        from app.datasets.helpers import _build_raster_metadata
         assert _build_raster_metadata(MagicMock(), None) is None
 
 
