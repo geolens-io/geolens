@@ -584,6 +584,60 @@ class TestListCollections:
         assert name_a in names
         assert name_b in names
 
+    async def test_list_collections_with_datasets_has_counts_and_extents(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """GET /catalog/collections returns correct dataset_count and extent for each collection."""
+        admin_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Batch Count DS",
+            extent_wkt="POLYGON((-74 40, -74 41, -73 41, -73 40, -74 40))",
+            data_vintage_start=date(2023, 1, 1),
+            data_vintage_end=date(2023, 12, 31),
+        )
+
+        name_with = f"WithDS {uuid.uuid4().hex[:6]}"
+        name_empty = f"EmptyDS {uuid.uuid4().hex[:6]}"
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": name_with},
+            headers=admin_auth_header,
+        )
+        coll_with_id = resp.json()["id"]
+        await client.post(
+            "/catalog/collections/",
+            json={"name": name_empty},
+            headers=admin_auth_header,
+        )
+
+        await client.post(
+            f"/catalog/collections/{coll_with_id}/datasets",
+            json={"dataset_ids": [str(ds.id)]},
+            headers=admin_auth_header,
+        )
+
+        resp = await client.get(
+            "/catalog/collections/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        colls = {c["name"]: c for c in resp.json()["collections"]}
+
+        # Collection with datasets: count and extent populated
+        assert colls[name_with]["dataset_count"] == 1
+        assert colls[name_with]["extent_bbox"] is not None
+        assert colls[name_with]["temporal_start"] == "2023-01-01"
+
+        # Empty collection: defaults applied
+        assert colls[name_empty]["dataset_count"] == 0
+        assert colls[name_empty]["extent_bbox"] is None
+        assert colls[name_empty]["temporal_start"] is None
+
     async def test_get_single_collection(
         self, client: AsyncClient, admin_auth_header: dict
     ):

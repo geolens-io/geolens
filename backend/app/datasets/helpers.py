@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
-from app.datasets.models import Dataset as DatasetModel
 from app.datasets.schemas import (
     DatasetResponse,
     RasterBandInfo,
