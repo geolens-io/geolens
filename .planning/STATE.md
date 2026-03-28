@@ -163,6 +163,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 210]: Enterprise install hook runs before migrations in entrypoint for entry_points discoverability
 - [Phase 210]: SAML metadata parser stays in core (used by OAuth service CRUD), router/config/replay move to enterprise
 - [Phase 210]: pysaml2 dependency enterprise-only, defusedxml stays in core for metadata.py
+- [Phase 260328-g46]: Widget registry as plain module-level Map (not React Context) -- avoids re-render cascades, tree-shakeable
+- [Phase 260328-g46]: Widget visibility state in zustand store (Set<string>); each widget manages its own internal state
 
 ### Pending Todos
 
@@ -249,10 +251,12 @@ Progress: [░░░░░░░░░░] 0%
 | 260327-rkx | API audit follow-ups: M1 batch N+1, M2 JOIN forked/owner, L4 replace _public_base_url, L5 split datasets/router | 2026-03-27 | 84149333 | Verified | [260327-rkx-api-audit-follow-ups-m1-batch-n-1-m2-joi](./quick/260327-rkx-api-audit-follow-ups-m1-batch-n-1-m2-joi/) |
 | 260328-b42 | Squash all migrations before public release | 2026-03-28 | ae0951ef | Verified | [260328-b42-lets-squash-all-migrations-before-public](./quick/260328-b42-lets-squash-all-migrations-before-public/) |
 | 260328-edx | Review the organization of the admin page | 2026-03-28 | 9929204a | Verified | [260328-edx-review-the-organization-of-the-admin-pag](./quick/260328-edx-review-the-organization-of-the-admin-pag/) |
+| 260328-g46 | explore how we can implement a widget ecosystem for map creation | 2026-03-28 | f11d584d | Needs Review | [260328-g46-explore-how-we-can-implement-a-widget-ec](./quick/260328-g46-explore-how-we-can-implement-a-widget-ec/) |
+| 260328-k40 | fix broken map thumbnail 404 on maps page | 2026-03-28 | 358a7687 | Verified | [260328-k40-fix-broken-map-thumbnail-404-on-maps-pag](./quick/260328-k40-fix-broken-map-thumbnail-404-on-maps-pag/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-28 - Completed quick task 260328-edx: Review the organization of the admin page
+Last activity: 2026-03-28 - Completed quick task 260328-k40: fix broken map thumbnail 404 on maps page
 Last session: 2026-03-27T00:44:54.743Z
 Stopped at: Completed 210-02-PLAN.md
 Resume file: None
