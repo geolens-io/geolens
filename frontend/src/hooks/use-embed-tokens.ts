@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { createEmbedToken, listEmbedTokens, updateEmbedTokenOrigins, revokeEmbedToken } from '@/api/embed-tokens';
 
 export function useCreateEmbedToken() {
@@ -14,14 +15,14 @@ export function useCreateEmbedToken() {
       allowedOrigins?: string[];
     }) => createEmbedToken(mapId, expiresInDays, allowedOrigins),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map-embed-tokens', variables.mapId] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.embedTokens(variables.mapId) });
     },
   });
 }
 
 export function useMapEmbedTokens(mapId: string | undefined) {
   return useQuery({
-    queryKey: ['map-embed-tokens', mapId],
+    queryKey: queryKeys.maps.embedTokens(mapId),
     queryFn: () => listEmbedTokens(mapId!),
     enabled: !!mapId,
   });
@@ -40,7 +41,7 @@ export function useUpdateEmbedToken() {
       allowedOrigins: string[] | null;
     }) => updateEmbedTokenOrigins(mapId, tokenId, allowedOrigins),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map-embed-tokens', variables.mapId] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.embedTokens(variables.mapId) });
     },
   });
 }
@@ -51,8 +52,8 @@ export function useRevokeEmbedToken() {
     mutationFn: ({ mapId, tokenId }: { mapId: string; tokenId: string }) =>
       revokeEmbedToken(mapId, tokenId),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map-embed-tokens', variables.mapId] });
-      qc.invalidateQueries({ queryKey: ['admin', 'embed-tokens'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.embedTokens(variables.mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allEmbedTokens });
     },
   });
 }

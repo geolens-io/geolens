@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { fetchEdition } from '@/api/edition';
 import type { EditionInfo } from '@/api/edition';
 
 export function useEdition() {
   const { data, isLoading } = useQuery({
-    queryKey: ['edition'],
+    queryKey: queryKeys.edition.info,
     queryFn: fetchEdition,
     staleTime: Infinity,
     gcTime: Infinity,

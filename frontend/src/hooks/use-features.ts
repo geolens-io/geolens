@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { createFeature, updateFeature, deleteFeature } from '@/api/features';
 import { addColumn, dropColumn } from '@/api/datasets';
 
@@ -15,8 +16,8 @@ export function useCreateFeature() {
       properties?: Record<string, unknown>;
     }) => createFeature(datasetId, geometry, properties),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['dataset-rows', variables.datasetId] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
   });
 }
@@ -36,8 +37,8 @@ export function useUpdateFeature() {
       properties?: Record<string, unknown>;
     }) => updateFeature(datasetId, gid, geometry, properties),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['dataset-rows', variables.datasetId] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
   });
 }
@@ -53,8 +54,8 @@ export function useDeleteFeature() {
       gid: number;
     }) => deleteFeature(datasetId, gid),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['dataset-rows', variables.datasetId] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
   });
 }
@@ -70,9 +71,9 @@ export function useAddColumn() {
       column: { name: string; type: string };
     }) => addColumn(datasetId, column),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['dataset-rows', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['attributes', variables.datasetId] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
     },
   });
 }
@@ -88,9 +89,9 @@ export function useDropColumn() {
       columnName: string;
     }) => dropColumn(datasetId, columnName),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['dataset', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['dataset-rows', variables.datasetId] });
-      qc.invalidateQueries({ queryKey: ['attributes', variables.datasetId] });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
     },
   });
 }

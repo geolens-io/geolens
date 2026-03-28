@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import {
   listMaps,
   getMap,
@@ -32,7 +33,7 @@ export interface MapBrowseParams {
 
 export function useMaps(params: MapBrowseParams = {}) {
   return useQuery({
-    queryKey: ['maps', params],
+    queryKey: queryKeys.maps.list(params),
     queryFn: () => listMaps(params),
     placeholderData: keepPreviousData,
   });
@@ -40,7 +41,7 @@ export function useMaps(params: MapBrowseParams = {}) {
 
 export function useMap(id: string | undefined) {
   return useQuery({
-    queryKey: ['map', id],
+    queryKey: queryKeys.maps.detail(id),
     queryFn: () => getMap(id!),
     enabled: !!id,
   });
@@ -51,7 +52,7 @@ export function useCreateMap() {
   return useMutation({
     mutationFn: createMap,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
@@ -62,8 +63,8 @@ export function useUpdateMap() {
     mutationFn: ({ id, data }: { id: string; data: MapUpdateRequest }) =>
       updateMap(id, data),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map', variables.id] });
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
@@ -73,7 +74,7 @@ export function useDuplicateMap() {
   return useMutation({
     mutationFn: (mapId: string) => duplicateMap(mapId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
@@ -83,7 +84,7 @@ export function useDeleteMap() {
   return useMutation({
     mutationFn: (id: string) => deleteMap(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
@@ -94,7 +95,7 @@ export function useAddLayer() {
     mutationFn: ({ mapId, data }: { mapId: string; data: MapLayerInput }) =>
       addLayerToMapApi(mapId, data),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map', variables.mapId] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
     },
   });
 }
@@ -105,14 +106,14 @@ export function useRemoveLayer() {
     mutationFn: ({ mapId, layerId }: { mapId: string; layerId: string }) =>
       removeLayerFromMapApi(mapId, layerId),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map', variables.mapId] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
     },
   });
 }
 
 export function useSharedMap(token: string | undefined, apiKey?: string) {
   return useQuery({
-    queryKey: ['shared-map', token, apiKey],
+    queryKey: queryKeys.maps.sharedMap(token, apiKey),
     queryFn: () => getSharedMap(token!, apiKey),
     enabled: !!token,
     retry: false,
@@ -121,7 +122,7 @@ export function useSharedMap(token: string | undefined, apiKey?: string) {
 
 export function useMapShareToken(mapId: string | undefined) {
   return useQuery({
-    queryKey: ['map-share-token', mapId],
+    queryKey: queryKeys.maps.shareToken(mapId),
     queryFn: () => getMapShareToken(mapId!),
     enabled: !!mapId,
   });
@@ -133,8 +134,8 @@ export function usePublishMap() {
     mutationFn: ({ id, visibility }: { id: string; visibility: 'public' | 'private' | 'internal' }) =>
       publishMap(id, visibility),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map', variables.id] });
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
@@ -145,7 +146,7 @@ export function useUpdateShareToken() {
     mutationFn: ({ mapId, expiresAt }: { mapId: string; expiresAt: string | null }) =>
       updateShareTokenExpiration(mapId, expiresAt),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map-share-token', variables.mapId] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
   });
 }
@@ -156,7 +157,7 @@ export function useCreateShareToken() {
     mutationFn: ({ mapId, expiresAt }: { mapId: string; expiresAt?: string }) =>
       createShareToken(mapId, expiresAt),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['map-share-token', variables.mapId] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
   });
 }
@@ -166,10 +167,10 @@ export function useRevokeShareToken() {
   return useMutation({
     mutationFn: (mapId: string) => revokeShareToken(mapId),
     onSuccess: (_data, mapId) => {
-      qc.invalidateQueries({ queryKey: ['map-share-token', mapId] });
-      qc.invalidateQueries({ queryKey: ['map-embed-tokens', mapId] });
-      qc.invalidateQueries({ queryKey: ['map', mapId] });
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.embedTokens(mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
@@ -179,21 +180,21 @@ export function useGenerateMap() {
   return useMutation({
     mutationFn: generateMap,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['maps'] });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
   });
 }
 
 export function useDatasetMaps(datasetId: string) {
   return useQuery({
-    queryKey: ['datasets', datasetId, 'maps'],
+    queryKey: queryKeys.datasets.maps(datasetId),
     queryFn: () => fetchDatasetMaps(datasetId),
   });
 }
 
 export function useColumnValues(datasetId: string | undefined, columnName: string | undefined) {
   return useQuery({
-    queryKey: ['column-values', datasetId, columnName],
+    queryKey: queryKeys.maps.columnValues(datasetId, columnName),
     queryFn: () => fetchColumnValues(datasetId!, columnName!),
     enabled: !!datasetId && !!columnName,
     staleTime: 5 * 60 * 1000, // 5 min cache
@@ -202,7 +203,7 @@ export function useColumnValues(datasetId: string | undefined, columnName: strin
 
 export function useColumnStats(datasetId: string | undefined, columnName: string | undefined) {
   return useQuery({
-    queryKey: ['column-stats', datasetId, columnName],
+    queryKey: queryKeys.maps.columnStats(datasetId, columnName),
     queryFn: () => fetchColumnStats(datasetId!, columnName!),
     enabled: !!datasetId && !!columnName,
     staleTime: 5 * 60 * 1000,

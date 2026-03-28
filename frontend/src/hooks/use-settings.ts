@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import {
@@ -12,13 +13,14 @@ import {
   getApiKeyStatus,
   getBranding,
   updateBranding,
+  getEnabledWidgets,
 } from '@/api/settings';
 
 // --- Public hooks (used by non-admin pages) ---
 
 export function useBasemaps() {
   return useQuery({
-    queryKey: ['settings', 'basemaps'],
+    queryKey: queryKeys.settings.basemaps,
     queryFn: getBasemaps,
     staleTime: 60_000,
   });
@@ -26,7 +28,7 @@ export function useBasemaps() {
 
 export function useMapDefaults() {
   return useQuery({
-    queryKey: ['settings', 'map-defaults'],
+    queryKey: queryKeys.settings.mapDefaults,
     queryFn: getMapDefaults,
     staleTime: 60_000,
   });
@@ -34,9 +36,17 @@ export function useMapDefaults() {
 
 export function useTileConfig() {
   return useQuery({
-    queryKey: ['settings', 'tile-config'],
+    queryKey: queryKeys.settings.tileConfig,
     queryFn: getTileConfig,
     staleTime: 300_000,
+  });
+}
+
+export function useEnabledWidgets() {
+  return useQuery({
+    queryKey: queryKeys.settings.enabledWidgets,
+    queryFn: getEnabledWidgets,
+    staleTime: 60_000,
   });
 }
 
@@ -44,7 +54,7 @@ export function useTileConfig() {
 
 export function useAllSettings(options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['settings', 'all'],
+    queryKey: queryKeys.settings.allSettings,
     queryFn: getAllSettings,
     enabled: options?.enabled,
   });
@@ -52,14 +62,14 @@ export function useAllSettings(options?: { enabled?: boolean }) {
 
 export function useConfigMode() {
   return useQuery({
-    queryKey: ['settings', 'config-mode'],
+    queryKey: queryKeys.settings.configMode,
     queryFn: getConfigMode,
   });
 }
 
 export function useApiKeyStatus() {
   return useQuery({
-    queryKey: ['settings', 'api-key-status'],
+    queryKey: queryKeys.settings.apiKeyStatus,
     queryFn: getApiKeyStatus,
   });
 }
@@ -69,7 +79,7 @@ export function useUpdateSettings() {
   return useMutation({
     mutationFn: (settings: Record<string, unknown>) => updateSettings(settings),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
+      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: () => {
@@ -80,7 +90,7 @@ export function useUpdateSettings() {
 
 export function useBranding() {
   return useQuery({
-    queryKey: ['settings', 'branding'],
+    queryKey: queryKeys.settings.branding,
     queryFn: getBranding,
     staleTime: 60_000,
   });
@@ -91,7 +101,7 @@ export function useUpdateBranding() {
   return useMutation({
     mutationFn: updateBranding,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings', 'branding'] });
+      qc.invalidateQueries({ queryKey: queryKeys.settings.branding });
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: () => {
@@ -105,7 +115,7 @@ export function useResetSettings() {
   return useMutation({
     mutationFn: (keys: string[]) => resetSettings(keys),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
+      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
       toast.success(i18n.t('settingsToasts.resetSuccess'));
     },
     onError: () => {

@@ -1,4 +1,5 @@
 import { useQuery, useQueries } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { getTileToken } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
 
@@ -8,7 +9,7 @@ import type { TileToken } from '@/api/tiles';
  */
 export function useTileToken(datasetId: string | undefined) {
   return useQuery<TileToken>({
-    queryKey: ['tile-token', datasetId],
+    queryKey: queryKeys.tileTokens.token(datasetId),
     queryFn: () => getTileToken(datasetId!),
     enabled: !!datasetId,
     refetchInterval: (query) => {
@@ -29,7 +30,7 @@ export function useTileTokens(datasetIds: string[]) {
   const uniqueIds = [...new Set(datasetIds.filter(Boolean))];
   return useQueries({
     queries: uniqueIds.map((id) => ({
-      queryKey: ['tile-token', id],
+      queryKey: queryKeys.tileTokens.token(id),
       queryFn: () => getTileToken(id),
       refetchInterval: (query: { state: { data: TileToken | undefined } }) => {
         const d = query.state.data;

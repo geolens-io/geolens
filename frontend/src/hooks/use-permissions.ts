@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { useAuthStore } from '@/stores/auth-store';
 import { getMyPermissions } from '@/api/auth';
 
@@ -6,7 +7,7 @@ export function usePermissions() {
   const token = useAuthStore((s) => s.token);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['auth', 'permissions'],
+    queryKey: queryKeys.auth.permissions,
     queryFn: getMyPermissions,
     enabled: !!token,
     staleTime: 60_000,
