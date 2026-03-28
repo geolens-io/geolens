@@ -5,12 +5,14 @@ import {
   exportConfig,
   dryRunImport,
   importConfig,
+  validateConnectivity,
 } from '@/api/config-ops';
 import type {
   ConfigImportRequest,
   ImportMode,
   DryRunResult,
   ImportResult,
+  ConnectivityResult,
 } from '@/api/config-ops';
 
 export function useExportConfig() {
@@ -44,6 +46,15 @@ export function useDryRunImport() {
     mutationFn: ({ data, mode }) => dryRunImport(data, mode),
     onError: (err: Error) => {
       toast.error(err.message || i18n.t('configOps.previewFailed'));
+    },
+  });
+}
+
+export function useValidateConnectivity() {
+  return useMutation<ConnectivityResult, Error>({
+    mutationFn: validateConnectivity,
+    onError: (err: Error) => {
+      toast.error(err.message || i18n.t('configOps.validateFailed'));
     },
   });
 }
