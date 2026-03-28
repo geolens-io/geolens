@@ -46,6 +46,8 @@ import { useBuilderLayout } from '@/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/hooks/use-builder-layers';
 import { useBuilderSave } from '@/hooks/use-builder-save';
+import { WidgetHost, getWidgets } from '@/components/widgets';
+import { useWidgetStore } from '@/stores/widget-store';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
@@ -116,6 +118,12 @@ export function MapBuilderPage() {
   );
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
+
+  // Open all defaultVisible widgets on mount
+  useEffect(() => {
+    const store = useWidgetStore.getState();
+    getWidgets().filter((w) => w.defaultVisible).forEach((w) => store.open(w.id));
+  }, []);
 
   // Initialize name/description from API data (once)
   const nameInitRef = useRef(false);
@@ -412,6 +420,7 @@ export function MapBuilderPage() {
           />
         )}
         <MapLegend layers={legendLayers} />
+        <WidgetHost ctx={{ mapInstance: mapInstanceRef.current, layers: layers.localLayers, mapId: id! }} />
       </div>
 
       {/* Chat panel - compact: Sheet overlay, wide: inline rail */}
