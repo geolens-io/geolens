@@ -35,7 +35,9 @@
     "color": "Color",
     "width": "Ancho",
     "radius": "Radio",
-    "styledBy": "Estilizado por: {{column}}"
+    "styledBy": "Estilizado por: {{column}}",
+    "radiusByColumn": "Radio por: {{column}}",
+    "widthByColumn": "Ancho por: {{column}}"
   },
   "filters": {
     "title": "Filtros",
@@ -66,7 +68,7 @@
     "selectColumn": "Seleccionar columna"
   },
   "dataDriven": {
-    "title": "Color basado en datos",
+    "title": "Estilo basado en datos",
     "clearTitle": "Limpiar estilo basado en datos",
     "mode": "Modo",
     "categorical": "Categórico",
@@ -80,7 +82,13 @@
     "equalInterval": "Intervalo igual",
     "quantile": "Cuantil",
     "classes": "Clases",
-    "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores."
+    "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores.",
+    "target": "Objetivo",
+    "targetColor": "Color",
+    "targetRadius": "Radio",
+    "targetWidth": "Ancho",
+    "sizeMin": "Tamano min",
+    "sizeMax": "Tamano max"
   },
   "search": {
     "title": "Agregar conjunto de datos",

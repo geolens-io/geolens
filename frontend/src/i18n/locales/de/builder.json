@@ -35,7 +35,9 @@
     "color": "Farbe",
     "width": "Breite",
     "radius": "Radius",
-    "styledBy": "Stilisiert nach: {{column}}"
+    "styledBy": "Stilisiert nach: {{column}}",
+    "radiusByColumn": "Radius nach: {{column}}",
+    "widthByColumn": "Breite nach: {{column}}"
   },
   "filters": {
     "title": "Filter",
@@ -66,7 +68,7 @@
     "selectColumn": "Spalte auswählen"
   },
   "dataDriven": {
-    "title": "Datengesteuerte Farbe",
+    "title": "Datengesteuerter Stil",
     "clearTitle": "Datengesteuerten Stil entfernen",
     "mode": "Modus",
     "categorical": "Kategorisch",
@@ -80,7 +82,13 @@
     "equalInterval": "Gleiche Intervalle",
     "quantile": "Quantil",
     "classes": "Klassen",
-    "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte."
+    "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte.",
+    "target": "Ziel",
+    "targetColor": "Farbe",
+    "targetRadius": "Radius",
+    "targetWidth": "Breite",
+    "sizeMin": "Min. Groesse",
+    "sizeMax": "Max. Groesse"
   },
   "search": {
     "title": "Datensatz hinzufügen",

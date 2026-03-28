@@ -42,6 +42,16 @@ vi.mock('@/components/ui/popover', () => ({
   PopoverContent: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
 
+// Mock map-sync to avoid maplibre-gl setup in jsdom
+vi.mock('@/components/builder/map-sync', () => ({
+  getLayerType: (geomType: string | null) => {
+    const gt = (geomType ?? '').toUpperCase();
+    if (gt.includes('POINT')) return 'circle';
+    if (gt.includes('LINE')) return 'line';
+    return 'fill';
+  },
+}));
+
 // Mock ColorRampPicker to avoid chroma.scale errors in jsdom and allow ramp selection
 vi.mock('../ColorRampPicker', () => ({
   ColorRampPicker: ({ rampName, onChange }: { rampName: string; onChange: (name: string) => void; mode: string }) => (
@@ -361,6 +371,129 @@ describe('DataDrivenStyleEditor', () => {
       expect((newConfig as StyleConfig).ramp).toBe('custom');
       expect((newConfig as StyleConfig).colors![0]).toBe('#ff0000');
       expect((newConfig as StyleConfig).colors!.slice(1)).toEqual(colors.slice(1));
+    });
+  });
+
+  describe('target selector', () => {
+    it('shows a target selector with Color and Radius options for a point layer in graduated mode', async () => {
+      const config: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        method: 'equal_interval',
+        classCount: 5,
+      };
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 100,
+          count: 100,
+          mean: 50,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            paint: { 'circle-color': '#3b82f6' },
+            style_config: config,
+          })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      // Target selector should be visible (i18n renders "Target" label)
+      expect(screen.getByText('Target')).toBeDefined();
+    });
+
+    it('does NOT show a target selector for a polygon layer in graduated mode', async () => {
+      const config: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        method: 'equal_interval',
+        classCount: 5,
+      };
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 100,
+          count: 100,
+          mean: 50,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Polygon',
+            paint: { 'fill-color': '#3b82f6' },
+            style_config: config,
+          })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      // Target selector should NOT be visible for polygon
+      expect(screen.queryByText('Target')).toBeNull();
+    });
+
+    it('does NOT show a target selector in categorical mode for a point layer', async () => {
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: ['a', 'b'], count: 2 }),
+      );
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            paint: { 'circle-color': '#3b82f6' },
+          })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      // Categorical mode — target selector should NOT be shown
+      expect(screen.queryByText('Target')).toBeNull();
+    });
+
+    it('resets target to color when handleClear is called', async () => {
+      const config: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        method: 'equal_interval',
+        classCount: 5,
+        target: 'radius',
+        sizes: [2, 6, 10, 14, 18],
+        sizeRange: [2, 18],
+        breaks: [20, 40, 60, 80],
+      };
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            paint: { 'circle-color': '#3b82f6', 'circle-radius': ['step', ['get', 'population'], 2, 20, 6, 40, 10, 60, 14, 80, 18] },
+            style_config: config,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const clearBtn = screen.getByRole('button', { name: /clear/i });
+      await user.click(clearBtn);
+
+      expect(onStyleConfigChange).toHaveBeenCalled();
+      const [layerId, clearedConfig] = onStyleConfigChange.mock.calls[0];
+      expect(layerId).toBe('layer-1');
+      // config should be null after clear
+      expect(clearedConfig).toBeNull();
     });
   });
 });

@@ -35,7 +35,9 @@
     "color": "Couleur",
     "width": "Largeur",
     "radius": "Rayon",
-    "styledBy": "Stylisé par : {{column}}"
+    "styledBy": "Stylisé par : {{column}}",
+    "radiusByColumn": "Rayon par : {{column}}",
+    "widthByColumn": "Largeur par : {{column}}"
   },
   "filters": {
     "title": "Filtres",
@@ -66,7 +68,7 @@
     "selectColumn": "Sélectionner une colonne"
   },
   "dataDriven": {
-    "title": "Couleur pilotée par les données",
+    "title": "Style base sur les donnees",
     "clearTitle": "Effacer le style piloté par les données",
     "mode": "Mode",
     "categorical": "Catégoriel",
@@ -80,7 +82,13 @@
     "equalInterval": "Intervalles égaux",
     "quantile": "Quantile",
     "classes": "Classes",
-    "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs."
+    "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs.",
+    "target": "Cible",
+    "targetColor": "Couleur",
+    "targetRadius": "Rayon",
+    "targetWidth": "Largeur",
+    "sizeMin": "Taille min",
+    "sizeMax": "Taille max"
   },
   "search": {
     "title": "Ajouter un jeu de données",
