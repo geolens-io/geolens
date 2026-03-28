@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Map as MapIcon, Globe, Lock, Users, User, Layers, Calendar } from 'lucide-react';
@@ -23,6 +24,7 @@ function VisibilityIcon({ visibility }: { visibility: string }) {
 
 export function MapCardGrid({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
+  const [imgError, setImgError] = useState(false);
 
   return (
     <TooltipProvider>
@@ -32,12 +34,13 @@ export function MapCardGrid({ map, onDelete }: MapCardProps) {
           to={`/maps/${map.id}`}
           className="aspect-video bg-muted flex items-center justify-center overflow-hidden"
         >
-          {map.thumbnail_url ? (
+          {map.thumbnail_url && !imgError ? (
             <img
               src={`${API_BASE}${map.thumbnail_url}`}
               alt={t('maps.card.previewAlt', { name: map.name })}
               className="w-full h-full object-cover"
               loading="lazy"
+              onError={() => setImgError(true)}
             />
           ) : (
             <MapIcon className="h-10 w-10 text-muted-foreground/40" />
