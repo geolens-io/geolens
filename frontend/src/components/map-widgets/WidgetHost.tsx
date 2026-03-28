@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import i18n from '@/i18n/i18n';
-import { useWidgetStore } from '@/stores/widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
 import { WidgetPanel } from './WidgetPanel';

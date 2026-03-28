@@ -45,8 +45,8 @@ import { useBuilderLayout } from '@/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/hooks/use-builder-layers';
 import { useBuilderSave } from '@/hooks/use-builder-save';
-import { WidgetHost, WidgetToolbar, getWidgets } from '@/components/widgets';
-import { useWidgetStore } from '@/stores/widget-store';
+import { WidgetHost, WidgetToolbar, getWidgets } from '@/components/map-widgets';
+import { useWidgetStore } from '@/stores/map-widget-store';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
