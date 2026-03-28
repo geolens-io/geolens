@@ -25,11 +25,9 @@ from app.auth.dependencies import (
 )
 from app.auth.models import User
 from app.auth.visibility import (
-    check_dataset_access,
     check_dataset_access_or_anonymous,
     get_user_roles,
 )
-from app.config import settings
 from app.datasets.helpers import (
     _dataset_to_response,
     _load_actor_identities,
@@ -42,7 +40,6 @@ from app.datasets.schemas import (
     DatasetResponse,
 )
 from app.collections.service import get_dataset_collections
-from app.datasets.models import Dataset as DatasetModel, Record
 from app.datasets.service import (
     DependentVrtError,
     create_empty_dataset,
@@ -53,7 +50,6 @@ from app.datasets.service import (
 )
 from app.public_urls import get_dataset_service_url
 from app.dependencies import get_db
-from app.ingest.metadata import compute_quality_score
 from app.storage import get_storage
 
 # Re-export for backward compatibility (moved to router_data.py)

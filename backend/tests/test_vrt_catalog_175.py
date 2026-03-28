@@ -276,7 +276,7 @@ class TestQuicklookVrt:
             "app.datasets.router.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch(
-                "app.datasets.router.check_dataset_access", AsyncMock(return_value=None)
+                "app.datasets.router.check_dataset_access_or_anonymous", AsyncMock(return_value=None)
             ):
                 with patch("app.datasets.router.get_storage", return_value=mock_storage):
                     # Should not raise HTTPException 400 — guard passes for vrt_dataset

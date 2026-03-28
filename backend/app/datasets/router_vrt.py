@@ -28,7 +28,6 @@ from app.datasets.schemas import (
 )
 from app.datasets.service import get_dataset
 from app.dependencies import get_db
-from app.storage import get_storage
 
 router = APIRouter(prefix="/datasets", tags=["Datasets - VRT"])
 

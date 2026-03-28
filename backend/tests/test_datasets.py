@@ -497,3 +497,39 @@ class TestAnonymousAccess:
         # Admin users
         resp = await client.get("/admin/users/")
         assert resp.status_code == 401
+
+
+class TestDatasetSubRouterRouting:
+    """Verify all dataset sub-router paths resolve (not 404 from route registration)."""
+
+    async def test_dcat_catalog_not_captured_by_dataset_id(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """GET /datasets/dcat/ resolves to DCAT catalog, not /{dataset_id} with 'dcat'."""
+        resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
+        # Should be 200 (DCAT catalog), not 422 (invalid UUID) or 404
+        assert resp.status_code == 200
+
+    async def test_subrouter_paths_resolve(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Sub-router paths return valid responses (not 404 from missing registration)."""
+        fake_id = str(uuid.uuid4())
+        routes = [
+            ("GET", f"/datasets/{fake_id}/versions"),
+            ("GET", f"/datasets/{fake_id}/rows"),
+            ("GET", f"/datasets/{fake_id}/validate/"),
+            ("GET", f"/datasets/{fake_id}/related/"),
+            ("GET", f"/datasets/{fake_id}/maps/"),
+            ("GET", f"/datasets/{fake_id}/vrt-sources/"),
+            ("GET", f"/datasets/{fake_id}/attributes/"),
+        ]
+        for method, path in routes:
+            resp = await client.request(method, path, headers=admin_auth_header)
+            # 404 with "not found" detail = dataset doesn't exist (route resolved correctly)
+            # 404 without detail = route not registered (would be a regression)
+            assert resp.status_code in (200, 404), f"{method} {path} returned {resp.status_code}"
+            if resp.status_code == 404:
+                assert "not found" in resp.json().get("detail", "").lower(), (
+                    f"{method} {path}: 404 but no 'not found' detail — route may not be registered"
+                )

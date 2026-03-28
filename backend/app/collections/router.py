@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.audit.service import log_action
 from app.cache import get_cache
 from app.cache.tiles import invalidate_catalog_cache
-from app.auth.dependencies import get_current_active_user, get_optional_user, require_permission
+from app.auth.dependencies import get_optional_user, require_permission
 from app.auth.models import User
 from app.auth.visibility import get_user_roles
 from app.services.provenance import UNKNOWN_ACTOR_LABEL, derive_last_edited, resolve_actor
