@@ -548,16 +548,6 @@ async def duplicate_map(
     return new_map, excluded_count
 
 
-async def resolve_forked_from_name(
-    session: AsyncSession, forked_from_id: uuid.UUID | None
-) -> str | None:
-    """Resolve the name of the source map. Returns None if deleted/missing."""
-    if forked_from_id is None:
-        return None
-    result = await session.execute(select(Map.name).where(Map.id == forked_from_id))
-    row = result.one_or_none()
-    return row[0] if row else None
-
 
 async def _resolve_layer_type(
     session: AsyncSession,

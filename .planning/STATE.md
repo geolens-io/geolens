@@ -245,10 +245,12 @@ Progress: [░░░░░░░░░░] 0%
 | 260326-fzo | Support & Discussions strategy for public release | 2026-03-26 | 9d1e2d7d | Verified | [260326-fzo-how-should-we-handle-support-and-discuss](./quick/260326-fzo-how-should-we-handle-support-and-discuss/) |
 | 260327-e7w | Anonymous public browsing: allow unauthenticated users to browse/search public datasets and view public maps without login | 2026-03-27 | 2a7501d9 | Verified | [260327-e7w-anonymous-public-browsing-allow-unauthen](./quick/260327-e7w-anonymous-public-browsing-allow-unauthen/) |
 | 260327-ism | Review all database models for completeness, correctness and optimizations | 2026-03-27 | 7a229fae | Verified | [260327-ism-review-all-database-models-for-completen](./quick/260327-ism-review-all-database-models-for-completen/) |
+| 260327-kkj | Review all API endpoints for completeness, correctness and optimizations | 2026-03-27 | 8de36537 | Verified | [260327-kkj-review-all-api-endpoints-for-completenes](./quick/260327-kkj-review-all-api-endpoints-for-completenes/) |
+| 260327-rkx | API audit follow-ups: M1 batch N+1, M2 JOIN forked/owner, L4 replace _public_base_url, L5 split datasets/router | 2026-03-27 | 84149333 | Verified | [260327-rkx-api-audit-follow-ups-m1-batch-n-1-m2-joi](./quick/260327-rkx-api-audit-follow-ups-m1-batch-n-1-m2-joi/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-27 - Completed quick task 260327-ism: Review all database models for completeness, correctness and optimizations
+Last activity: 2026-03-27 - Completed quick task 260327-rkx: API audit follow-ups (M1, M2, L4, L5)
 Last session: 2026-03-27T00:44:54.743Z
 Stopped at: Completed 210-02-PLAN.md
 Resume file: None
