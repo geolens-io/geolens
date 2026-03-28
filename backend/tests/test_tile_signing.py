@@ -543,7 +543,7 @@ class TestTileAccessLogging:
         await _create_data_table(test_db_session, table_name)
 
         try:
-            with caplog.at_level(logging.INFO, logger="app.tiles.router"):
+            with caplog.at_level(logging.DEBUG, logger="app.tiles.router"):
                 resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
                 assert resp.status_code == 200
 
