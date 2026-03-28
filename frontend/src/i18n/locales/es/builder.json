@@ -11,13 +11,6 @@
     "addData": "Agregar datos"
   },
   "layerItem": {
-    "expandOptions": "Expandir opciones de capa",
-    "collapseOptions": "Contraer opciones de capa",
-    "styleTab": "Estilo",
-    "filterTab": "Filtro",
-    "labelsTab": "Etiquetas",
-    "filterActive": "Filtro activo",
-    "labelsActive": "Etiquetas activadas",
     "hideLayer": "Ocultar capa",
     "showLayer": "Mostrar capa",
     "renameHint": "Doble clic para renombrar",
@@ -30,8 +23,7 @@
     "openDataset": "Abrir detalle del conjunto de datos",
     "columns": "Columnas",
     "rename": "Renombrar",
-    "zoomToLayer": "Zoom a la capa",
-    "moreActions": "Más acciones"
+    "zoomToLayer": "Zoom a la capa"
   },
   "style": {
     "fill": "Relleno",
@@ -43,24 +35,20 @@
     "color": "Color",
     "width": "Ancho",
     "radius": "Radio",
-    "styledBy": "Estilizado por: {{column}}",
-    "pattern": "Patr\u00f3n",
-    "dash": {
-      "solid": "S\u00f3lido",
-      "dashed": "Guiones",
-      "dotted": "Puntos",
-      "dashDot": "Gui\u00f3n-punto"
-    },
-    "toggleFill": "Alternar visibilidad del relleno",
-    "toggleStroke": "Alternar visibilidad del trazo"
+    "styledBy": "Estilizado por: {{column}}"
   },
   "filters": {
     "title": "Filtros",
     "addFilter": "Agregar filtro",
-    "removeFilter": "Eliminar filtro",
     "field": "Campo",
     "op": "Op",
     "value": "Valor",
+    "matchAll": "Coincidir todos (Y)",
+    "matchAny": "Coincidir cualquiera (O)",
+    "rawJson": "JSON",
+    "rawJsonApply": "Aplicar",
+    "rawJsonError": "JSON no válido",
+    "opaqueWarning": "Este filtro usa expresiones avanzadas. Use el modo JSON para editar.",
     "operators": {
       "equals": "igual a",
       "notEquals": "distinto de",
@@ -75,10 +63,7 @@
     "textColor": "Color de texto",
     "haloColor": "Color de halo",
     "haloWidth": "Ancho de halo",
-    "selectColumn": "Seleccionar columna",
-    "zoomRange": "Rango de zoom",
-    "minZoom": "Zoom mín",
-    "maxZoom": "Zoom máx"
+    "selectColumn": "Seleccionar columna"
   },
   "dataDriven": {
     "title": "Color basado en datos",
@@ -95,17 +80,14 @@
     "equalInterval": "Intervalo igual",
     "quantile": "Cuantil",
     "classes": "Clases",
-    "colors": "Colores",
-    "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores.",
-    "customColors": "Colores personalizados aplicados"
+    "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores."
   },
   "search": {
     "title": "Agregar conjunto de datos",
     "placeholder": "Buscar conjuntos de datos...",
     "noResults": "No se encontraron conjuntos de datos",
     "added": "(agregado)",
-    "addToMap": "Agregar al mapa",
-    "dialogDescription": "Buscar y agregar conjuntos de datos a tu mapa."
+    "addToMap": "Agregar al mapa"
   },
   "share": {
     "title": "Compartir",
@@ -131,7 +113,7 @@
     "copyShareLink": "Copiar enlace para compartir",
     "copyEmbedCode": "Copiar código de inserción",
     "cannotPublish": "No se puede publicar: los conjuntos de datos {{datasets}} no son públicos",
-    "embedTokenInfo": "Este mapa incluye capas restringidas. El acceso se concede automáticamente al compartir o insertar.",
+    "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
     "expirationLabel": "Caducidad",
     "expirationPlaceholder": "Sin caducidad",
     "expirationHint": "Dejar en blanco para un enlace sin fecha de caducidad",
@@ -153,8 +135,7 @@
     "summaryUnrestricted": "Sin restricciones",
     "expirationUpdated": "Caducidad actualizada",
     "domainsUpdated": "Restricciones de dominio actualizadas",
-    "updateFailed": "No se pudieron guardar los cambios",
-    "expired": "Este enlace ha caducado"
+    "updateFailed": "No se pudieron guardar los cambios"
   },
   "chat": {
     "emptyState": "Describa cambios en su mapa usando lenguaje natural.",
@@ -173,27 +154,16 @@
     "errorForbidden": "No tiene permiso para usar el chat de IA.",
     "errorAiUnavailable": "El servicio de IA no está disponible temporalmente.",
     "retry": "Reintentar",
-    "experimental": "Experimental",
     "stillWorking": "Aún procesando...",
     "takingLonger": "Esto está tardando más de lo habitual...",
     "suggestions": {
       "searchDatasets": "Buscar conjuntos de datos para agregar a este mapa",
-      "addDataset": "Agregar otro conjunto de datos a este mapa",
-      "heatmap": "Crear un mapa de calor de {{name}}",
-      "colorByAttribute": "Colorear {{name}} por un atributo",
-      "areaLabels": "Mostrar etiquetas de área en {{name}}",
-      "adjustOpacity": "Ajustar opacidad de {{name}}"
-    },
-    "commands": {
-      "style": "Cambiar apariencia de capa",
-      "filter": "Filtrar entidades",
-      "label": "Agregar o cambiar etiquetas",
-      "query": "Hacer preguntas sobre datos",
-      "add": "Agregar un conjunto de datos"
-    },
-    "mentionHint": "Escriba @ para mencionar una capa, / para comandos",
-    "layersDropdown": "Capas",
-    "commandsDropdown": "Comandos"
+      "colorByAttribute": "Colorear \"{{name}}\" usando un campo",
+      "addLabels": "Agregar etiquetas para \"{{name}}\"",
+      "filterByAttribute": "Filtrar \"{{name}}\" usando un campo",
+      "styleAllLayers": "Aplicar un tema de color a todas las capas",
+      "addDataset": "Agregar otro conjunto de datos a este mapa"
+    }
   },
   "basemap": {
     "title": "Mapa base",
@@ -221,24 +191,17 @@
     "layers": "Capas",
     "forkedFrom": "Bifurcado de",
     "deletedMap": "mapa eliminado",
-    "unknown": "Desconocido",
-    "dialogDescription": "Detalles y metadatos sobre este mapa."
+    "unknown": "Desconocido"
   },
   "tooltips": {
-    "aiChat": "Chat IA (Experimental)",
+    "aiChat": "Chat de IA",
     "share": "Compartir",
     "mapInfo": "Info del mapa",
     "downloadPng": "Descargar PNG",
     "duplicateMap": "Duplicar mapa",
     "save": "Guardar ({{shortcut}})",
     "collapseSidebar": "Contraer barra lateral",
-    "expandSidebar": "Expandir barra lateral",
-    "closeChat": "Cerrar chat",
-    "allSaved": "Todos los cambios guardados",
-    "moreActions": "Más acciones"
-  },
-  "actions": {
-    "save": "Guardar"
+    "expandSidebar": "Expandir barra lateral"
   },
   "toasts": {
     "mapSaved": "Mapa guardado",
@@ -302,12 +265,6 @@
     "featureCount_one": "{{count}} entidad",
     "featureCount_other": "{{count}} entidades",
     "dismiss": "Descartar resultado de consulta"
-  },
-  "leaveWarning": {
-    "title": "Cambios sin guardar",
-    "description": "Los cambios no guardados del mapa se perderán.",
-    "stay": "Quedarse",
-    "leave": "Salir"
   },
   "drawing": {
     "select": "Seleccionar",

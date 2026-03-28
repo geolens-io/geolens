@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Code } from 'lucide-react';
 import type { FilterSpecification } from 'maplibre-gl';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,11 @@ interface OperatorDef {
   labelKey?: string;
   value: string;
 }
+
+// Discriminated union returned by parseFilterExpression
+export type ParseResult =
+  | { kind: 'editable'; combinator: 'all' | 'any'; conditions: FilterCondition[] }
+  | { kind: 'opaque'; raw: FilterSpecification };
 
 function classifyColumnType(pgType: string): ColumnType {
   const t = pgType.toLowerCase();
@@ -77,6 +82,7 @@ function coerceValue(value: string, pgType: string): string | number | boolean {
 export function buildFilterExpression(
   conditions: FilterCondition[],
   columnInfo: { name: string; type: string }[],
+  combinator: 'all' | 'any' = 'all',
 ): FilterSpecification | null {
   const valid = conditions.filter((c) => c.field && c.operator);
   if (valid.length === 0) return null;
@@ -98,11 +104,13 @@ export function buildFilterExpression(
   }
 
   if (expressions.length === 1) return expressions[0] as FilterSpecification;
-  return ['all', ...expressions] as FilterSpecification;
+  return [combinator, ...expressions] as FilterSpecification;
 }
 
-export function parseFilterExpression(expr: FilterSpecification | null): FilterCondition[] {
-  if (!expr || !Array.isArray(expr) || expr.length === 0) return [];
+export function parseFilterExpression(expr: FilterSpecification | null): ParseResult {
+  if (!expr || !Array.isArray(expr) || expr.length === 0) {
+    return { kind: 'editable', combinator: 'all', conditions: [] };
+  }
 
   function parseSingle(e: unknown[]): FilterCondition | null {
     if (!Array.isArray(e) || e.length === 0) return null;
@@ -140,17 +148,29 @@ export function parseFilterExpression(expr: FilterSpecification | null): FilterC
     return null;
   }
 
-  if (expr[0] === 'all') {
+  // Handle "all" or "any" combinator expressions
+  if (expr[0] === 'all' || expr[0] === 'any') {
+    const combinator = expr[0] as 'all' | 'any';
     const results: FilterCondition[] = [];
     for (let i = 1; i < expr.length; i++) {
       const parsed = parseSingle(expr[i] as unknown[]);
-      if (parsed) results.push(parsed);
+      if (parsed === null) {
+        // Any unparseable sub-expression makes the whole thing opaque
+        return { kind: 'opaque', raw: expr };
+      }
+      results.push(parsed);
     }
-    return results;
+    return { kind: 'editable', combinator, conditions: results };
   }
 
+  // Bare single expression
   const single = parseSingle(expr);
-  return single ? [single] : [];
+  if (single) {
+    return { kind: 'editable', combinator: 'all', conditions: [single] };
+  }
+
+  // Unknown top-level expression — opaque
+  return { kind: 'opaque', raw: expr };
 }
 
 export function LayerFilterEditor({
@@ -161,23 +181,42 @@ export function LayerFilterEditor({
   const { t } = useTranslation('builder');
   const initializedRef = useRef(false);
   const [conditions, setConditions] = useState<FilterCondition[]>([]);
+  const [combinator, setCombinator] = useState<'all' | 'any'>('all');
+  const [rawMode, setRawMode] = useState(false);
+  const [rawText, setRawText] = useState('');
+  const [rawError, setRawError] = useState<string | null>(null);
+  const [opaque, setOpaque] = useState(false);
 
   // Sync from filter prop on initial mount only
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
-      setConditions(parseFilterExpression(filter));
+      applyParseResult(parseFilterExpression(filter));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  function applyParseResult(result: ParseResult) {
+    if (result.kind === 'opaque') {
+      setOpaque(true);
+      setRawMode(true);
+      setRawText(JSON.stringify(result.raw, null, 2));
+      setConditions([]);
+    } else {
+      setOpaque(false);
+      setConditions(result.conditions);
+      setCombinator(result.combinator);
+    }
+  }
 
   function getFieldType(fieldName: string): ColumnType {
     const col = columnInfo.find((c) => c.name === fieldName);
     return col ? classifyColumnType(col.type) : 'other';
   }
 
-  function emitChange(updated: FilterCondition[]) {
+  function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
     setConditions(updated);
-    onFilterChange(buildFilterExpression(updated, columnInfo));
+    onFilterChange(buildFilterExpression(updated, columnInfo, combo));
   }
 
   function addCondition() {
@@ -212,78 +251,182 @@ export function LayerFilterEditor({
     emitChange(updated);
   }
 
+  function handleCombinatorChange(value: string) {
+    const combo = value as 'all' | 'any';
+    setCombinator(combo);
+    onFilterChange(buildFilterExpression(conditions, columnInfo, combo));
+  }
+
+  function handleRawModeToggle() {
+    if (!rawMode) {
+      // Entering raw mode: serialize current filter
+      const current = buildFilterExpression(conditions, columnInfo, combinator);
+      setRawText(current ? JSON.stringify(current, null, 2) : '');
+      setRawError(null);
+    } else {
+      // Exiting raw mode: re-parse current filter
+      if (!opaque) {
+        setRawError(null);
+      }
+    }
+    setRawMode((prev) => !prev);
+  }
+
+  function handleRawApply() {
+    try {
+      const parsed = JSON.parse(rawText) as FilterSpecification;
+      onFilterChange(parsed);
+      const result = parseFilterExpression(parsed);
+      applyParseResult(result);
+      setRawError(null);
+    } catch {
+      setRawError(t('filters.rawJsonError'));
+    }
+  }
+
+  function handleEnableRawMode() {
+    setRawMode(true);
+    setRawText(filter ? JSON.stringify(filter, null, 2) : '');
+    setRawError(null);
+  }
+
   return (
     <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
-      <div className="text-xs font-medium">{t('filters.title')}</div>
+      {/* Header row: title + raw toggle */}
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium">{t('filters.title')}</div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-1.5 text-xs text-muted-foreground"
+          onClick={handleRawModeToggle}
+          title={t('filters.rawJson')}
+        >
+          <Code className="h-3 w-3 mr-1" />
+          {t('filters.rawJson')}
+        </Button>
+      </div>
 
-      {conditions.map((cond) => {
-        const colType = getFieldType(cond.field);
-        const ops = OPERATORS_BY_TYPE[colType];
+      {rawMode ? (
+        /* Raw JSON editing mode */
+        <div className="space-y-2">
+          <textarea
+            className="w-full rounded border border-input bg-background p-2 text-xs font-mono resize-y min-h-[100px] outline-none focus:ring-1 focus:ring-ring"
+            value={rawText}
+            onChange={(e) => {
+              setRawText(e.target.value);
+              setRawError(null);
+            }}
+            spellCheck={false}
+          />
+          {rawError && (
+            <div className="text-xs text-destructive">{rawError}</div>
+          )}
+          <Button size="sm" className="h-7 text-xs" onClick={handleRawApply}>
+            {t('filters.rawJsonApply')}
+          </Button>
+        </div>
+      ) : opaque ? (
+        /* Opaque banner — cannot edit visually */
+        <div className="rounded bg-muted p-2 text-xs text-muted-foreground space-y-2">
+          <p>{t('filters.opaqueWarning')}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleEnableRawMode}
+          >
+            <Code className="h-3 w-3 mr-1" />
+            {t('filters.rawJson')}
+          </Button>
+        </div>
+      ) : (
+        /* Visual editing mode */
+        <>
+          {/* Combinator select */}
+          <Select value={combinator} onValueChange={handleCombinatorChange}>
+            <SelectTrigger className="h-7 text-xs w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">
+                {t('filters.matchAll')}
+              </SelectItem>
+              <SelectItem value="any" className="text-xs">
+                {t('filters.matchAny')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
 
-        return (
-          <div key={cond.id} className="flex items-center gap-1.5">
-            {/* Field select */}
-            <Select
-              value={cond.field}
-              onValueChange={(val) => updateCondition(cond.id, { field: val })}
-            >
-              <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
-                <SelectValue placeholder={t('filters.field')} />
-              </SelectTrigger>
-              <SelectContent>
-                {columnInfo.map((col) => (
-                  <SelectItem key={col.name} value={col.name} className="text-xs">
-                    {col.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {conditions.map((cond) => {
+            const colType = getFieldType(cond.field);
+            const ops = OPERATORS_BY_TYPE[colType];
 
-            {/* Operator select */}
-            <Select
-              value={cond.operator}
-              onValueChange={(val) => updateCondition(cond.id, { operator: val })}
-            >
-              <SelectTrigger className="h-7 text-xs w-24 shrink-0">
-                <SelectValue placeholder={t('filters.op')} />
-              </SelectTrigger>
-              <SelectContent>
-                {ops.map((op) => (
-                  <SelectItem key={op.value} value={op.value} className="text-xs">
-                    {op.labelKey ? t(op.labelKey) : op.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            return (
+              <div key={cond.id} className="flex items-center gap-1.5">
+                {/* Field select */}
+                <Select
+                  value={cond.field}
+                  onValueChange={(val) => updateCondition(cond.id, { field: val })}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
+                    <SelectValue placeholder={t('filters.field')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {columnInfo.map((col) => (
+                      <SelectItem key={col.name} value={col.name} className="text-xs">
+                        {col.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-            {/* Value input (hidden for is_null) */}
-            {cond.operator !== 'is_null' && (
-              <Input
-                className="h-7 text-xs flex-1 min-w-0"
-                placeholder={t('filters.value')}
-                value={cond.value}
-                onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
-              />
-            )}
+                {/* Operator select */}
+                <Select
+                  value={cond.operator}
+                  onValueChange={(val) => updateCondition(cond.id, { operator: val })}
+                >
+                  <SelectTrigger className="h-7 text-xs w-24 shrink-0">
+                    <SelectValue placeholder={t('filters.op')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ops.map((op) => (
+                      <SelectItem key={op.value} value={op.value} className="text-xs">
+                        {op.labelKey ? t(op.labelKey) : op.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-            {/* Remove button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 shrink-0"
-              onClick={() => removeCondition(cond.id)}
-              aria-label={t('filters.removeFilter')}
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-        );
-      })}
+                {/* Value input (hidden for is_null) */}
+                {cond.operator !== 'is_null' && (
+                  <Input
+                    className="h-7 text-xs flex-1 min-w-0"
+                    placeholder={t('filters.value')}
+                    value={cond.value}
+                    onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
+                  />
+                )}
 
-      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={addCondition}>
-        <Plus className="h-3 w-3 mr-1" />
-        {t('filters.addFilter')}
-      </Button>
+                {/* Remove button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0"
+                  onClick={() => removeCondition(cond.id)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            );
+          })}
+
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={addCondition}>
+            <Plus className="h-3 w-3 mr-1" />
+            {t('filters.addFilter')}
+          </Button>
+        </>
+      )}
     </div>
   );
 }
