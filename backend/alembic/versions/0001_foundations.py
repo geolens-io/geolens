@@ -20,6 +20,16 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # Schema created by env.py (required before Alembic version table)
 
+    # Verify required extensions exist (created by init-db.sh / conftest.py)
+    for ext in ("postgis", "pg_trgm", "vector"):
+        op.execute(
+            f"DO $$ BEGIN "
+            f"IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = '{ext}') THEN "
+            f"RAISE EXCEPTION 'Required extension \"{ext}\" is not installed. "
+            f"Run scripts/init-db.sh or CREATE EXTENSION {ext} first.'; "
+            f"END IF; END $$"
+        )
+
     # --- Immutable text-processing functions (used in search_vector) ---
 
     op.execute("""
