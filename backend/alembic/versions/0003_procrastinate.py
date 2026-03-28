@@ -745,6 +745,9 @@ CREATE TRIGGER procrastinate_trigger_status_events_insert_v1 AFTER INSERT ON cat
 CREATE TRIGGER procrastinate_trigger_status_events_update_v1 AFTER UPDATE OF status ON catalog.procrastinate_jobs FOR EACH ROW EXECUTE FUNCTION catalog.procrastinate_trigger_function_status_events_update_v1();
 """)
 
+    # Reset search_path so it doesn't leak into future migrations
+    op.execute("RESET search_path")
+
 
 def downgrade() -> None:
     # --- Drop triggers ---
