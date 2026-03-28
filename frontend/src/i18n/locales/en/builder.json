@@ -23,15 +23,7 @@
     "openDataset": "Open dataset detail",
     "rename": "Rename",
     "zoomToLayer": "Zoom to layer",
-    "columns": "Columns",
-    "moreActions": "More actions",
-    "expandOptions": "Expand layer options",
-    "collapseOptions": "Collapse layer options",
-    "styleTab": "Style",
-    "filterTab": "Filter",
-    "labelsTab": "Labels",
-    "filterActive": "Filter active",
-    "labelsActive": "Labels enabled"
+    "columns": "Columns"
   },
   "style": {
     "fill": "Fill",
@@ -43,24 +35,20 @@
     "color": "Color",
     "width": "Width",
     "radius": "Radius",
-    "styledBy": "Styled by: {{column}}",
-    "pattern": "Pattern",
-    "dash": {
-      "solid": "Solid",
-      "dashed": "Dashed",
-      "dotted": "Dotted",
-      "dashDot": "Dash-dot"
-    },
-    "toggleFill": "Toggle fill visibility",
-    "toggleStroke": "Toggle stroke visibility"
+    "styledBy": "Styled by: {{column}}"
   },
   "filters": {
     "title": "Filters",
     "addFilter": "Add filter",
-    "removeFilter": "Remove filter",
     "field": "Field",
     "op": "Op",
     "value": "Value",
+    "matchAll": "Match all (AND)",
+    "matchAny": "Match any (OR)",
+    "rawJson": "JSON",
+    "rawJsonApply": "Apply",
+    "rawJsonError": "Invalid JSON",
+    "opaqueWarning": "This filter uses advanced expressions. Use JSON mode to edit.",
     "operators": {
       "equals": "equals",
       "notEquals": "not equals",
@@ -75,10 +63,7 @@
     "textColor": "Text color",
     "haloColor": "Halo color",
     "haloWidth": "Halo width",
-    "selectColumn": "Select column",
-    "zoomRange": "Zoom Range",
-    "minZoom": "Min zoom",
-    "maxZoom": "Max zoom"
+    "selectColumn": "Select column"
   },
   "dataDriven": {
     "title": "Data-Driven Color",
@@ -95,17 +80,14 @@
     "equalInterval": "Equal Interval",
     "quantile": "Quantile",
     "classes": "Classes",
-    "colors": "Colors",
-    "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
-    "customColors": "Custom colors applied"
+    "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values."
   },
   "search": {
     "title": "Add Dataset",
     "placeholder": "Search datasets...",
     "noResults": "No datasets found",
     "added": "(added)",
-    "addToMap": "Add to map",
-    "dialogDescription": "Search and add datasets to your map."
+    "addToMap": "Add to map"
   },
   "share": {
     "title": "Share",
@@ -131,7 +113,7 @@
     "copyShareLink": "Copy share link",
     "copyEmbedCode": "Copy embed code",
     "cannotPublish": "Cannot publish: datasets {{datasets}} are not public",
-    "embedTokenInfo": "This map includes restricted layers. Access is granted automatically when shared or embedded.",
+    "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
     "expirationLabel": "Expiration",
     "expirationPlaceholder": "No expiration",
     "expirationHint": "Leave blank for a link that never expires",
@@ -153,8 +135,7 @@
     "summaryUnrestricted": "Unrestricted",
     "expirationUpdated": "Expiration updated",
     "domainsUpdated": "Domain restrictions updated",
-    "updateFailed": "Failed to save changes",
-    "expired": "This share link has expired"
+    "updateFailed": "Failed to save changes"
   },
   "chat": {
     "emptyState": "Describe changes to your map using natural language.",
@@ -172,28 +153,17 @@
     "errorForbidden": "You don't have permission to use AI chat.",
     "errorAiUnavailable": "AI service is temporarily unavailable.",
     "retry": "Retry",
-    "experimental": "Experimental",
     "stillWorking": "Still working...",
     "takingLonger": "This is taking longer than usual...",
     "almostThere": "Almost there, hang tight...",
     "suggestions": {
       "searchDatasets": "Find datasets to add to this map",
-      "addDataset": "Add another dataset to this map",
-      "heatmap": "Create a heatmap of {{name}}",
-      "colorByAttribute": "Color {{name}} by an attribute",
-      "areaLabels": "Show area labels on {{name}}",
-      "adjustOpacity": "Adjust {{name}} opacity"
-    },
-    "commands": {
-      "style": "Change layer appearance",
-      "filter": "Filter features",
-      "label": "Add or change labels",
-      "query": "Ask data questions",
-      "add": "Add a dataset"
-    },
-    "mentionHint": "Type @ to mention a layer, / for commands",
-    "layersDropdown": "Layers",
-    "commandsDropdown": "Commands"
+      "colorByAttribute": "Color \"{{name}}\" using a field",
+      "addLabels": "Add labels for \"{{name}}\"",
+      "filterByAttribute": "Filter \"{{name}}\" using a field",
+      "styleAllLayers": "Apply a color theme across all layers",
+      "addDataset": "Add another dataset to this map"
+    }
   },
   "basemap": {
     "title": "Basemap",
@@ -221,24 +191,17 @@
     "layers": "Layers",
     "forkedFrom": "Forked from",
     "deletedMap": "deleted map",
-    "unknown": "Unknown",
-    "dialogDescription": "Details and metadata about this map."
+    "unknown": "Unknown"
   },
   "tooltips": {
-    "aiChat": "AI Chat (Experimental)",
+    "aiChat": "AI Chat",
     "share": "Share",
     "mapInfo": "Map info",
     "downloadPng": "Download PNG",
     "duplicateMap": "Duplicate map",
     "save": "Save ({{shortcut}})",
     "collapseSidebar": "Collapse sidebar",
-    "expandSidebar": "Expand sidebar",
-    "closeChat": "Close chat",
-    "allSaved": "All changes saved",
-    "moreActions": "More actions"
-  },
-  "actions": {
-    "save": "Save"
+    "expandSidebar": "Expand sidebar"
   },
   "toasts": {
     "mapSaved": "Map saved",
@@ -302,12 +265,6 @@
     "featureCount_one": "{{count}} feature",
     "featureCount_other": "{{count}} features",
     "dismiss": "Dismiss query result"
-  },
-  "leaveWarning": {
-    "title": "Unsaved changes",
-    "description": "You have unsaved map changes that will be lost.",
-    "stay": "Stay",
-    "leave": "Leave"
   },
   "drawing": {
     "select": "Select",

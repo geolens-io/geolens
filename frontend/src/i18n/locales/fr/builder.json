@@ -11,13 +11,6 @@
     "addData": "Ajouter des données"
   },
   "layerItem": {
-    "expandOptions": "Développer les options de couche",
-    "collapseOptions": "Réduire les options de couche",
-    "styleTab": "Style",
-    "filterTab": "Filtre",
-    "labelsTab": "Étiquettes",
-    "filterActive": "Filtre actif",
-    "labelsActive": "Étiquettes activées",
     "hideLayer": "Masquer la couche",
     "showLayer": "Afficher la couche",
     "renameHint": "Double-cliquez pour renommer",
@@ -30,8 +23,7 @@
     "openDataset": "Ouvrir le détail du jeu de données",
     "columns": "Colonnes",
     "rename": "Renommer",
-    "zoomToLayer": "Zoomer sur la couche",
-    "moreActions": "Plus d'actions"
+    "zoomToLayer": "Zoomer sur la couche"
   },
   "style": {
     "fill": "Remplissage",
@@ -43,24 +35,20 @@
     "color": "Couleur",
     "width": "Largeur",
     "radius": "Rayon",
-    "styledBy": "Stylisé par : {{column}}",
-    "pattern": "Motif",
-    "dash": {
-      "solid": "Continu",
-      "dashed": "Tirets",
-      "dotted": "Pointillés",
-      "dashDot": "Tiret-point"
-    },
-    "toggleFill": "Basculer la visibilité du remplissage",
-    "toggleStroke": "Basculer la visibilité du contour"
+    "styledBy": "Stylisé par : {{column}}"
   },
   "filters": {
     "title": "Filtres",
     "addFilter": "Ajouter un filtre",
-    "removeFilter": "Supprimer le filtre",
     "field": "Champ",
     "op": "Op",
     "value": "Valeur",
+    "matchAll": "Tout correspondre (ET)",
+    "matchAny": "N'importe lequel (OU)",
+    "rawJson": "JSON",
+    "rawJsonApply": "Appliquer",
+    "rawJsonError": "JSON invalide",
+    "opaqueWarning": "Ce filtre utilise des expressions avancées. Utilisez le mode JSON pour modifier.",
     "operators": {
       "equals": "égal à",
       "notEquals": "différent de",
@@ -75,10 +63,7 @@
     "textColor": "Couleur du texte",
     "haloColor": "Couleur du halo",
     "haloWidth": "Largeur du halo",
-    "selectColumn": "Sélectionner une colonne",
-    "zoomRange": "Plage de zoom",
-    "minZoom": "Zoom min",
-    "maxZoom": "Zoom max"
+    "selectColumn": "Sélectionner une colonne"
   },
   "dataDriven": {
     "title": "Couleur pilotée par les données",
@@ -95,17 +80,14 @@
     "equalInterval": "Intervalles égaux",
     "quantile": "Quantile",
     "classes": "Classes",
-    "colors": "Couleurs",
-    "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs.",
-    "customColors": "Couleurs personnalisées appliquées"
+    "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs."
   },
   "search": {
     "title": "Ajouter un jeu de données",
     "placeholder": "Rechercher des jeux de données...",
     "noResults": "Aucun jeu de données trouvé",
     "added": "(ajouté)",
-    "addToMap": "Ajouter à la carte",
-    "dialogDescription": "Rechercher et ajouter des jeux de données à votre carte."
+    "addToMap": "Ajouter à la carte"
   },
   "share": {
     "title": "Partager",
@@ -131,7 +113,7 @@
     "copyShareLink": "Copier le lien de partage",
     "copyEmbedCode": "Copier le code d'intégration",
     "cannotPublish": "Impossible de publier : les jeux de données {{datasets}} ne sont pas publics",
-    "embedTokenInfo": "Cette carte contient des couches restreintes. L'accès est accordé automatiquement lors du partage ou de l'intégration.",
+    "embedTokenInfo": "Des couches non publiques sont incluses. Un jeton d'intégration gère l'accès automatiquement.",
     "expirationLabel": "Expiration",
     "expirationPlaceholder": "Pas d'expiration",
     "expirationHint": "Laisser vide pour un lien sans expiration",
@@ -153,8 +135,7 @@
     "summaryUnrestricted": "Sans restriction",
     "expirationUpdated": "Expiration mise à jour",
     "domainsUpdated": "Restrictions de domaine mises à jour",
-    "updateFailed": "Échec de la sauvegarde",
-    "expired": "Ce lien de partage a expir\u00e9"
+    "updateFailed": "Échec de la sauvegarde"
   },
   "chat": {
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
@@ -173,27 +154,16 @@
     "errorForbidden": "Vous n'avez pas la permission d'utiliser le chat IA.",
     "errorAiUnavailable": "Le service IA est temporairement indisponible.",
     "retry": "Réessayer",
-    "experimental": "Expérimental",
     "stillWorking": "Traitement en cours...",
     "takingLonger": "Cela prend plus de temps que d'habitude...",
     "suggestions": {
       "searchDatasets": "Rechercher des jeux de données à ajouter à cette carte",
-      "addDataset": "Ajouter un autre jeu de données à cette carte",
-      "heatmap": "Créer une carte thermique de {{name}}",
-      "colorByAttribute": "Colorer {{name}} par un attribut",
-      "areaLabels": "Afficher les étiquettes de surface sur {{name}}",
-      "adjustOpacity": "Ajuster l'opacité de {{name}}"
-    },
-    "commands": {
-      "style": "Modifier l'apparence de la couche",
-      "filter": "Filtrer les entités",
-      "label": "Ajouter ou modifier les étiquettes",
-      "query": "Poser des questions sur les données",
-      "add": "Ajouter un jeu de données"
-    },
-    "mentionHint": "Tapez @ pour mentionner une couche, / pour les commandes",
-    "layersDropdown": "Couches",
-    "commandsDropdown": "Commandes"
+      "colorByAttribute": "Colorer « {{name}} » à l'aide d'un champ",
+      "addLabels": "Ajouter des libellés pour « {{name}} »",
+      "filterByAttribute": "Filtrer « {{name}} » à l'aide d'un champ",
+      "styleAllLayers": "Appliquer un thème de couleurs à toutes les couches",
+      "addDataset": "Ajouter un autre jeu de données à cette carte"
+    }
   },
   "basemap": {
     "title": "Fond de carte",
@@ -221,24 +191,17 @@
     "layers": "Couches",
     "forkedFrom": "Dérivé de",
     "deletedMap": "carte supprimée",
-    "unknown": "Inconnu",
-    "dialogDescription": "Détails et métadonnées de cette carte."
+    "unknown": "Inconnu"
   },
   "tooltips": {
-    "aiChat": "Chat IA (Experimental)",
+    "aiChat": "Chat IA",
     "share": "Partager",
     "mapInfo": "Info carte",
     "downloadPng": "Télécharger PNG",
     "duplicateMap": "Dupliquer la carte",
     "save": "Enregistrer ({{shortcut}})",
     "collapseSidebar": "Réduire le panneau latéral",
-    "expandSidebar": "Développer le panneau latéral",
-    "closeChat": "Fermer le chat",
-    "allSaved": "Toutes les modifications enregistrées",
-    "moreActions": "Plus d'actions"
-  },
-  "actions": {
-    "save": "Enregistrer"
+    "expandSidebar": "Développer le panneau latéral"
   },
   "toasts": {
     "mapSaved": "Carte enregistrée",
@@ -302,12 +265,6 @@
     "featureCount_one": "{{count}} entité",
     "featureCount_other": "{{count}} entités",
     "dismiss": "Fermer le résultat de requête"
-  },
-  "leaveWarning": {
-    "title": "Modifications non enregistrées",
-    "description": "Les modifications non enregistrées de la carte seront perdues.",
-    "stay": "Rester",
-    "leave": "Quitter"
   },
   "drawing": {
     "select": "Sélectionner",

@@ -11,13 +11,6 @@
     "addData": "Daten hinzufügen"
   },
   "layerItem": {
-    "expandOptions": "Layer-Optionen erweitern",
-    "collapseOptions": "Layer-Optionen einklappen",
-    "styleTab": "Stil",
-    "filterTab": "Filter",
-    "labelsTab": "Beschriftungen",
-    "filterActive": "Filter aktiv",
-    "labelsActive": "Beschriftungen aktiviert",
     "hideLayer": "Layer ausblenden",
     "showLayer": "Layer einblenden",
     "renameHint": "Doppelklick zum Umbenennen",
@@ -30,8 +23,7 @@
     "openDataset": "Datensatzdetails öffnen",
     "columns": "Spalten",
     "rename": "Umbenennen",
-    "zoomToLayer": "Auf Layer zoomen",
-    "moreActions": "Weitere Aktionen"
+    "zoomToLayer": "Auf Layer zoomen"
   },
   "style": {
     "fill": "Füllung",
@@ -43,24 +35,20 @@
     "color": "Farbe",
     "width": "Breite",
     "radius": "Radius",
-    "styledBy": "Stilisiert nach: {{column}}",
-    "pattern": "Muster",
-    "dash": {
-      "solid": "Durchgehend",
-      "dashed": "Gestrichelt",
-      "dotted": "Gepunktet",
-      "dashDot": "Strich-Punkt"
-    },
-    "toggleFill": "Füllsichtbarkeit umschalten",
-    "toggleStroke": "Kontursichtbarkeit umschalten"
+    "styledBy": "Stilisiert nach: {{column}}"
   },
   "filters": {
     "title": "Filter",
     "addFilter": "Filter hinzufügen",
-    "removeFilter": "Filter entfernen",
     "field": "Feld",
     "op": "Op",
     "value": "Wert",
+    "matchAll": "Alle übereinstimmen (UND)",
+    "matchAny": "Beliebige übereinstimmen (ODER)",
+    "rawJson": "JSON",
+    "rawJsonApply": "Anwenden",
+    "rawJsonError": "Ungültiges JSON",
+    "opaqueWarning": "Dieser Filter verwendet erweiterte Ausdrücke. Verwenden Sie den JSON-Modus zum Bearbeiten.",
     "operators": {
       "equals": "gleich",
       "notEquals": "ungleich",
@@ -75,10 +63,7 @@
     "textColor": "Textfarbe",
     "haloColor": "Halofarbe",
     "haloWidth": "Halobreite",
-    "selectColumn": "Spalte auswählen",
-    "zoomRange": "Zoombereich",
-    "minZoom": "Min Zoom",
-    "maxZoom": "Max Zoom"
+    "selectColumn": "Spalte auswählen"
   },
   "dataDriven": {
     "title": "Datengesteuerte Farbe",
@@ -95,17 +80,14 @@
     "equalInterval": "Gleiche Intervalle",
     "quantile": "Quantil",
     "classes": "Klassen",
-    "colors": "Farben",
-    "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte.",
-    "customColors": "Benutzerdefinierte Farben angewendet"
+    "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte."
   },
   "search": {
     "title": "Datensatz hinzufügen",
     "placeholder": "Datensätze suchen...",
     "noResults": "Keine Datensätze gefunden",
     "added": "(hinzugefügt)",
-    "addToMap": "Zur Karte hinzufügen",
-    "dialogDescription": "Datensätze suchen und zur Karte hinzufügen."
+    "addToMap": "Zur Karte hinzufügen"
   },
   "share": {
     "title": "Teilen",
@@ -131,7 +113,7 @@
     "copyShareLink": "Freigabelink kopieren",
     "copyEmbedCode": "Einbettungscode kopieren",
     "cannotPublish": "Veröffentlichung nicht möglich: Datensätze {{datasets}} sind nicht öffentlich",
-    "embedTokenInfo": "Diese Karte enthält eingeschränkte Layer. Der Zugriff wird beim Teilen oder Einbetten automatisch gewährt.",
+    "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
     "expirationLabel": "Ablaufdatum",
     "expirationPlaceholder": "Kein Ablaufdatum",
     "expirationHint": "Leer lassen für einen Link ohne Ablaufdatum",
@@ -153,8 +135,7 @@
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
     "domainsUpdated": "Domain-Einschränkungen aktualisiert",
-    "updateFailed": "Änderungen konnten nicht gespeichert werden",
-    "expired": "Dieser Link ist abgelaufen"
+    "updateFailed": "Änderungen konnten nicht gespeichert werden"
   },
   "chat": {
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
@@ -173,27 +154,16 @@
     "errorForbidden": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
     "errorAiUnavailable": "Der KI-Dienst ist vorübergehend nicht verfügbar.",
     "retry": "Erneut versuchen",
-    "experimental": "Experimentell",
     "stillWorking": "Noch in Bearbeitung...",
     "takingLonger": "Dies dauert länger als gewöhnlich...",
     "suggestions": {
-      "searchDatasets": "Datensätze finden, die zu dieser Karte hinzugefügt werden können",
-      "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
-      "heatmap": "Heatmap von {{name}} erstellen",
-      "colorByAttribute": "{{name}} nach einem Attribut einfärben",
-      "areaLabels": "Flächenbeschriftungen auf {{name}} anzeigen",
-      "adjustOpacity": "Deckkraft von {{name}} anpassen"
-    },
-    "commands": {
-      "style": "Layer-Aussehen ändern",
-      "filter": "Features filtern",
-      "label": "Beschriftungen hinzufügen oder ändern",
-      "query": "Datenfragen stellen",
-      "add": "Datensatz hinzufügen"
-    },
-    "mentionHint": "@ zum Erwähnen eines Layers, / für Befehle",
-    "layersDropdown": "Ebenen",
-    "commandsDropdown": "Befehle"
+      "searchDatasets": "Datasätze finden, die zu dieser Karte hinzugefügt werden können",
+      "colorByAttribute": "„{{name}}“ mithilfe eines Feldes einfärben",
+      "addLabels": "Beschriftungen für „{{name}}“ hinzufügen",
+      "filterByAttribute": "„{{name}}“ mithilfe eines Feldes filtern",
+      "styleAllLayers": "Ein Farbschema auf alle Ebenen anwenden",
+      "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen"
+    }
   },
   "basemap": {
     "title": "Basiskarte",
@@ -221,24 +191,17 @@
     "layers": "Layer",
     "forkedFrom": "Abgeleitet von",
     "deletedMap": "gelöschte Karte",
-    "unknown": "Unbekannt",
-    "dialogDescription": "Details und Metadaten zu dieser Karte."
+    "unknown": "Unbekannt"
   },
   "tooltips": {
-    "aiChat": "KI-Chat (Experimentell)",
+    "aiChat": "KI-Chat",
     "share": "Teilen",
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
     "duplicateMap": "Karte duplizieren",
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
-    "expandSidebar": "Seitenleiste ausklappen",
-    "closeChat": "Chat schließen",
-    "allSaved": "Alle Änderungen gespeichert",
-    "moreActions": "Weitere Aktionen"
-  },
-  "actions": {
-    "save": "Speichern"
+    "expandSidebar": "Seitenleiste ausklappen"
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
@@ -302,12 +265,6 @@
     "featureCount_one": "{{count}} Feature",
     "featureCount_other": "{{count}} Features",
     "dismiss": "Abfrageergebnis verwerfen"
-  },
-  "leaveWarning": {
-    "title": "Nicht gespeicherte Änderungen",
-    "description": "Nicht gespeicherte Kartenänderungen gehen verloren.",
-    "stay": "Bleiben",
-    "leave": "Verlassen"
   },
   "drawing": {
     "select": "Auswählen",
