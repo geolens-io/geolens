@@ -2,6 +2,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
+import sqlalchemy as sa
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -9,11 +10,16 @@ from app.config import settings
 from app.database import Base
 
 import app.auth.models  # noqa: F401 -- register models for autogenerate
+import app.auth.oauth.models  # noqa: F401
+import app.audit.models  # noqa: F401
 import app.datasets.models  # noqa: F401
+import app.embed_tokens.models  # noqa: F401
 import app.jobs.models  # noqa: F401
 import app.collections.models  # noqa: F401
-import app.search.saved  # noqa: F401
 import app.maps.models  # noqa: F401
+import app.raster.models  # noqa: F401
+import app.search.saved  # noqa: F401
+import app.settings.models  # noqa: F401
 import app.embeddings.models  # noqa: F401
 
 config = context.config
@@ -57,6 +63,9 @@ def include_name(name, type_, parent_names):
 
 
 def do_run_migrations(connection):
+    # Ensure catalog schema exists before Alembic creates its version table
+    connection.execute(sa.text("CREATE SCHEMA IF NOT EXISTS catalog"))
+    connection.execute(sa.text("COMMIT"))
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

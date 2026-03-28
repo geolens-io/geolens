@@ -171,42 +171,47 @@ class TestMigrationStructure:
     """Initial schema includes vrt_generations table."""
 
     def test_initial_schema_contains_vrt_generations(self):
-        """Verify the consolidated initial schema SQL creates vrt_generations."""
+        """Verify the initial tables migration creates vrt_generations."""
         import os
 
-        sql_path = os.path.join(
+        migration_path = os.path.join(
             os.path.dirname(__file__),
             "..",
             "alembic",
             "versions",
-            "initial_schema.sql",
+            "0002_initial_tables.py",
         )
-        with open(sql_path) as f:
-            sql = f.read()
+        with open(migration_path) as f:
+            content = f.read()
 
-        assert "vrt_generations" in sql
-        assert "vrt_dataset_id" in sql
+        assert "vrt_generations" in content
+        assert "vrt_dataset_id" in content
 
     def test_initial_migration_importable(self):
-        """Initial migration file has upgrade/downgrade functions."""
+        """Initial migration files have upgrade/downgrade functions."""
         import importlib.util
         import os
 
-        path = os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "alembic",
-            "versions",
-            "0001_initial_schema.py",
-        )
-        spec = importlib.util.spec_from_file_location("migration_0001", path)
-        assert spec is not None
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        for filename in (
+            "0001_foundations.py",
+            "0002_initial_tables.py",
+            "0003_procrastinate.py",
+        ):
+            path = os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "alembic",
+                "versions",
+                filename,
+            )
+            spec = importlib.util.spec_from_file_location(f"migration_{filename}", path)
+            assert spec is not None, f"{filename} not found"
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
 
-        assert hasattr(mod, "upgrade")
-        assert hasattr(mod, "downgrade")
-        assert hasattr(mod, "revision")
+            assert hasattr(mod, "upgrade"), f"{filename} missing upgrade()"
+            assert hasattr(mod, "downgrade"), f"{filename} missing downgrade()"
+            assert hasattr(mod, "revision"), f"{filename} missing revision"
 
 
 # ---------------------------------------------------------------------------
