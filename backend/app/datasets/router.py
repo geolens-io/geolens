@@ -33,6 +33,9 @@ from app.datasets.helpers import (
     _load_actor_identities,
 )
 from app.datasets.schemas import (
+    BulkDeleteRequest,
+    BulkDeleteResponse,
+    BulkDeleteResultItem,
     CreateEmptyDatasetRequest,
     DatasetDeleteRequest,
     DatasetListResponse,
@@ -383,6 +386,52 @@ async def update_dataset_metadata(
         [dataset.record.created_by, dataset.record.updated_by],
     )
     return _dataset_to_response(dataset, actors_by_id=actors_by_id, base_url=await get_dataset_service_url(db, request=request))
+
+
+@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_datasets_endpoint(
+    body: BulkDeleteRequest,
+    request: Request,
+    user: User = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> BulkDeleteResponse:
+    """Delete multiple datasets in one request. Returns per-item results."""
+    results: list[BulkDeleteResultItem] = []
+    deleted = 0
+
+    for item in body.datasets:
+        try:
+            table_name = await delete_dataset(db, item.dataset_id, item.confirm_title)
+            await log_action(
+                db,
+                user_id=user.id,
+                action="dataset.delete",
+                resource_type="dataset",
+                resource_id=item.dataset_id,
+                details={"title": item.confirm_title, "table_name": table_name},
+                ip_address=request.client.host if request.client else None,
+            )
+            results.append(BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted"))
+            deleted += 1
+        except DependentVrtError as exc:
+            results.append(BulkDeleteResultItem(
+                dataset_id=item.dataset_id,
+                status="error",
+                detail=str(exc),
+            ))
+        except ValueError as exc:
+            results.append(BulkDeleteResultItem(
+                dataset_id=item.dataset_id,
+                status="error",
+                detail=str(exc),
+            ))
+
+    await db.commit()
+
+    if deleted > 0:
+        await invalidate_catalog_cache()
+
+    return BulkDeleteResponse(deleted=deleted, errors=len(results) - deleted, results=results)
 
 
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)

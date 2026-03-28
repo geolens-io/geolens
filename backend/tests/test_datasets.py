@@ -533,3 +533,98 @@ class TestDatasetSubRouterRouting:
                 assert "not found" in resp.json().get("detail", "").lower(), (
                     f"{method} {path}: 404 but no 'not found' detail — route may not be registered"
                 )
+
+
+class TestBulkDeleteDatasets:
+    """Tests for POST /datasets/bulk-delete."""
+
+    async def test_bulk_delete_requires_auth(self, client: AsyncClient):
+        resp = await client.post("/datasets/bulk-delete", json={"datasets": []})
+        assert resp.status_code == 401
+
+    async def test_bulk_delete_empty_list_rejected(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Empty datasets list fails validation (min_length=1)."""
+        resp = await client.post(
+            "/datasets/bulk-delete",
+            json={"datasets": []},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+
+    async def test_bulk_delete_success(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Successfully delete multiple datasets in one request."""
+        user_id = await _get_user_id(test_db_session, "admin")
+        ds1 = await _create_dataset(test_db_session, created_by=user_id, name="Bulk Del 1")
+        ds2 = await _create_dataset(test_db_session, created_by=user_id, name="Bulk Del 2")
+
+        resp = await client.post(
+            "/datasets/bulk-delete",
+            json={
+                "datasets": [
+                    {"dataset_id": str(ds1.id), "confirm_title": "Bulk Del 1"},
+                    {"dataset_id": str(ds2.id), "confirm_title": "Bulk Del 2"},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] == 2
+        assert data["errors"] == 0
+        assert len(data["results"]) == 2
+        assert all(r["status"] == "deleted" for r in data["results"])
+
+        # Verify datasets are gone
+        resp = await client.get(f"/datasets/{ds1.id}", headers=admin_auth_header)
+        assert resp.status_code == 404
+
+    async def test_bulk_delete_mixed_success_and_errors(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Some items succeed, some fail — returns partial results."""
+        user_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(test_db_session, created_by=user_id, name="Bulk Mix")
+
+        resp = await client.post(
+            "/datasets/bulk-delete",
+            json={
+                "datasets": [
+                    {"dataset_id": str(ds.id), "confirm_title": "Bulk Mix"},
+                    {"dataset_id": str(uuid.uuid4()), "confirm_title": "Nonexistent"},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] == 1
+        assert data["errors"] == 1
+
+        statuses = {r["dataset_id"]: r["status"] for r in data["results"]}
+        assert statuses[str(ds.id)] == "deleted"
+
+    async def test_bulk_delete_wrong_title(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Wrong confirm_title returns error for that item."""
+        user_id = await _get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(test_db_session, created_by=user_id, name="Title Check")
+
+        resp = await client.post(
+            "/datasets/bulk-delete",
+            json={
+                "datasets": [
+                    {"dataset_id": str(ds.id), "confirm_title": "Wrong Title"},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] == 0
+        assert data["errors"] == 1
+        assert "does not match" in data["results"][0]["detail"]

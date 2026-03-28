@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 SEMANTIC_ROLES = Literal[
@@ -152,6 +152,27 @@ class StatusUpdate(BaseModel):
 
 class DatasetDeleteRequest(BaseModel):
     confirm_title: str
+
+
+class BulkDeleteItem(BaseModel):
+    dataset_id: uuid.UUID
+    confirm_title: str
+
+
+class BulkDeleteRequest(BaseModel):
+    datasets: list[BulkDeleteItem] = Field(..., min_length=1, max_length=100)
+
+
+class BulkDeleteResultItem(BaseModel):
+    dataset_id: uuid.UUID
+    status: str  # "deleted" | "error"
+    detail: str | None = None
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: int
+    errors: int
+    results: list[BulkDeleteResultItem]
 
 
 class DatasetMeta(BaseModel):
