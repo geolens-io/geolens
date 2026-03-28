@@ -9,7 +9,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
-import { useWidgetStore } from '@/stores/widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 
 /** Crop and resize the map canvas to a 400x250 JPEG, then upload it. */
 function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {

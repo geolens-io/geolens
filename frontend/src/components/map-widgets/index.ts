@@ -5,3 +5,4 @@ export type { WidgetSlot, WidgetContext, WidgetDefinition } from './types';
 export { registerWidget, getWidgets, getWidget } from './registry';
 export { WidgetHost } from './WidgetHost';
 export { WidgetPanel } from './WidgetPanel';
+export { WidgetToolbar } from './WidgetToolbar';

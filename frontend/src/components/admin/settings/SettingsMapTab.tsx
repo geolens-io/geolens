@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
+import { getWidgets } from '@/components/map-widgets';
 import type { SettingItem, BasemapEntry } from '@/api/settings';
 
 interface MapDefaultsValue {
@@ -33,9 +34,68 @@ function isValidTileUrl(url: string): boolean {
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
 }
 
+interface WidgetTogglesProps {
+  settings: SettingItem[];
+  enabledWidgets: string[];
+  onChangeEnabled: (ids: string[]) => void;
+  onReset: (key: string) => void;
+  envOnly: boolean;
+}
+
+function WidgetToggles({ settings, enabledWidgets, onChangeEnabled, onReset, envOnly }: WidgetTogglesProps) {
+  const { t } = useTranslation('admin');
+  const registeredWidgets = getWidgets();
+  if (registeredWidgets.length === 0) return null;
+
+  // enabledWidgets is already coerced: [] from server → full ID list
+  function handleToggle(id: string, checked: boolean) {
+    onChangeEnabled(
+      checked
+        ? [...enabledWidgets.filter((wid) => wid !== id), id]
+        : enabledWidgets.filter((wid) => wid !== id),
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <h3 className="text-base font-medium">{t('settings.widgets.title')}</h3>
+        <SettingSourceBadge source={findSetting(settings, 'enabled_widgets')?.source ?? 'default'} settingKey="enabled_widgets" onReset={onReset} />
+      </div>
+      <p className="text-sm text-muted-foreground">{t('settings.widgets.description')}</p>
+
+      <div className="space-y-3 max-w-md">
+        {registeredWidgets.map((w) => {
+          const Icon = w.icon;
+          return (
+            <div key={w.id} className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icon className="h-4 w-4 text-muted-foreground" />
+                <Label>{w.label}</Label>
+              </div>
+              <Switch
+                checked={enabledWidgets.includes(w.id)}
+                onCheckedChange={(checked) => handleToggle(w.id, checked)}
+                disabled={envOnly}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Coerce server null (never configured) to full list; [] means explicitly none
+function coerceEnabledWidgets(v: unknown): string[] {
+  if (v == null) return getWidgets().map((w) => w.id);
+  return Array.isArray(v) ? v as string[] : [];
+}
+
 const MAP_FIELDS = [
   { key: 'basemaps', defaultValue: [] as BasemapEntry[], compare: 'json' as const },
   { key: 'map_defaults', defaultValue: { center_lat: 20, center_lng: 0, zoom: 2 } as MapDefaultsValue, compare: 'json' as const },
+  { key: 'enabled_widgets', defaultValue: [] as string[], compare: 'json' as const, coerce: coerceEnabledWidgets },
 ] as const;
 
 export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
@@ -263,6 +323,14 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
           </div>
         </div>
       </div>
+
+      <WidgetToggles
+        settings={settings}
+        enabledWidgets={values.enabled_widgets as string[]}
+        onChangeEnabled={setters.enabled_widgets}
+        onReset={onReset}
+        envOnly={envOnly}
+      />
 
       <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
     </div>
