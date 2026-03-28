@@ -624,6 +624,12 @@ export interface StyleConfig {
   categories?: { value: string; color: string }[];
   breaks?: number[];
   colors?: string[];
+  /** Styling target — defaults to 'color' when absent for backward compatibility */
+  target?: 'color' | 'radius' | 'width';
+  /** Per-class size values for graduated size mode (parallel to colors) */
+  sizes?: number[];
+  /** [min, max] size range selected by the user (for UI state restoration) */
+  sizeRange?: [number, number];
 }
 
 export interface ColumnValuesResponse {

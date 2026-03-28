@@ -35,7 +35,9 @@
     "color": "Color",
     "width": "Width",
     "radius": "Radius",
-    "styledBy": "Styled by: {{column}}"
+    "styledBy": "Styled by: {{column}}",
+    "radiusByColumn": "Radius by: {{column}}",
+    "widthByColumn": "Width by: {{column}}"
   },
   "filters": {
     "title": "Filters",
@@ -66,7 +68,7 @@
     "selectColumn": "Select column"
   },
   "dataDriven": {
-    "title": "Data-Driven Color",
+    "title": "Data-Driven Style",
     "clearTitle": "Clear data-driven style",
     "mode": "Mode",
     "categorical": "Categorical",
@@ -80,7 +82,13 @@
     "equalInterval": "Equal Interval",
     "quantile": "Quantile",
     "classes": "Classes",
-    "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values."
+    "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
+    "target": "Target",
+    "targetColor": "Color",
+    "targetRadius": "Radius",
+    "targetWidth": "Width",
+    "sizeMin": "Min size",
+    "sizeMax": "Max size"
   },
   "search": {
     "title": "Add Dataset",

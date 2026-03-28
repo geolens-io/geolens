@@ -98,3 +98,45 @@ export function getColorProperty(geometryType: string | null): string {
   if (gt.includes('point')) return 'circle-color';
   return 'fill-color';
 }
+
+/**
+ * Build a MapLibre graduated (step) expression for numeric size properties.
+ * Identical shape to buildGraduatedExpression but with numeric sizes instead of color strings.
+ * Returns: ['step', ['get', column], sizes[0], breaks[0], sizes[1], ..., breaks[n-1], sizes[n]]
+ * Requires sizes.length === breaks.length + 1
+ */
+export function buildGraduatedSizeExpression(
+  column: string,
+  breaks: number[],
+  sizes: number[],
+): unknown[] {
+  if (sizes.length !== breaks.length + 1) {
+    throw new Error(
+      `sizes.length (${sizes.length}) must equal breaks.length + 1 (${breaks.length + 1})`,
+    );
+  }
+
+  const expr: unknown[] = ['step', ['get', column], sizes[0]];
+  for (let i = 0; i < breaks.length; i++) {
+    expr.push(breaks[i], sizes[i + 1]);
+  }
+  return expr;
+}
+
+/**
+ * Return the MapLibre paint property name for size-based styling, or null if not applicable.
+ * Point + radius -> 'circle-radius'
+ * Line + width -> 'line-width'
+ * Everything else -> null (polygons have no size property; 'color' target returns null)
+ */
+export function getSizeProperty(
+  geometryType: string | null,
+  target: 'color' | 'radius' | 'width',
+): string | null {
+  if (!geometryType || target === 'color') return null;
+
+  const gt = geometryType.toLowerCase().replace('multi', '');
+  if (target === 'radius' && gt.includes('point')) return 'circle-radius';
+  if (target === 'width' && (gt.includes('line') || gt.includes('linestring'))) return 'line-width';
+  return null;
+}

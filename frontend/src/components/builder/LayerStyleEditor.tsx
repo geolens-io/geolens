@@ -182,7 +182,9 @@ export function LayerStyleEditor({
             <div className="text-xs font-medium">{t('style.line')}</div>
             {isDataDriven ? (
               <div className="text-xs text-muted-foreground italic">
-                {t('style.styledBy', { column: layer.style_config!.column })}
+                {layer.style_config!.target === 'width'
+                  ? t('style.widthByColumn', { column: layer.style_config!.column })
+                  : t('style.styledBy', { column: layer.style_config!.column })}
               </div>
             ) : (
               <StyleColorPicker
@@ -246,7 +248,9 @@ export function LayerStyleEditor({
             <div className="text-xs font-medium">{t('style.point')}</div>
             {isDataDriven ? (
               <div className="text-xs text-muted-foreground italic">
-                {t('style.styledBy', { column: layer.style_config!.column })}
+                {layer.style_config!.target === 'radius'
+                  ? t('style.radiusByColumn', { column: layer.style_config!.column })
+                  : t('style.styledBy', { column: layer.style_config!.column })}
               </div>
             ) : (
               <StyleColorPicker

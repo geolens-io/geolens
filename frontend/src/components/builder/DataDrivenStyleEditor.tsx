@@ -23,8 +23,11 @@ import {
   getRampColors,
   buildCategoricalExpression,
   buildGraduatedExpression,
+  buildGraduatedSizeExpression,
   getColorProperty,
+  getSizeProperty,
 } from '@/lib/color-ramps';
+import { getLayerType } from '@/components/builder/map-sync';
 import { equalIntervalBreaks, quantileBreaks } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -54,6 +57,22 @@ function isNumericColumn(type: string): boolean {
   return NUMERIC_TYPES.some((nt) => t.includes(nt));
 }
 
+/** Linearly interpolate classCount values between sizeRange[0] and sizeRange[1]. */
+function computeSizes(sizeRange: [number, number], classCount: number): number[] {
+  if (classCount < 2) return [sizeRange[0]];
+  const sizes: number[] = [];
+  for (let i = 0; i < classCount; i++) {
+    const t = i / (classCount - 1);
+    sizes.push(Math.round((sizeRange[0] + t * (sizeRange[1] - sizeRange[0])) * 10) / 10);
+  }
+  return sizes;
+}
+
+function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
+  if (tgt === 'width') return [1, 10];
+  return [2, 20]; // radius default
+}
+
 export function DataDrivenStyleEditor({
   layer,
   onStyleConfigChange,
@@ -72,6 +91,21 @@ export function DataDrivenStyleEditor({
   const [method, setMethod] = useState<'equal_interval' | 'quantile'>(
     existingConfig?.method ?? 'equal_interval',
   );
+  const [target, setTarget] = useState<'color' | 'radius' | 'width'>(
+    existingConfig?.target ?? 'color',
+  );
+  const [sizeRange, setSizeRange] = useState<[number, number]>(
+    existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
+  );
+
+  // Determine available targets for this layer's geometry type
+  const layerType = getLayerType(layer.dataset_geometry_type);
+  const availableTargets: ('color' | 'radius' | 'width')[] =
+    layerType === 'circle'
+      ? ['color', 'radius']
+      : layerType === 'line'
+        ? ['color', 'width']
+        : ['color'];
 
   const columns = layer.dataset_column_info ?? [];
   const textColumns = columns.filter((c) => isTextColumn(c.type));
@@ -125,24 +159,6 @@ export function DataDrivenStyleEditor({
     }
 
     if (mode === 'graduated' && statsData && statsData.min !== null && statsData.max !== null) {
-      // Preserve existing graduated colors when config hasn't changed
-      const ec = layer.style_config;
-      if (
-        ec?.mode === 'graduated' &&
-        ec.column === column &&
-        ec.ramp === ramp &&
-        ec.method === method &&
-        ec.classCount === classCount &&
-        ec.colors &&
-        ec.breaks
-      ) {
-        return;
-      }
-
-      // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
-      const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
-      if (ramp === 'custom') setRamp(effectiveRamp);
-
       let breaks: number[];
       if (method === 'quantile' && statsData.quantiles.length > 0) {
         breaks = quantileBreaks(statsData.quantiles);
@@ -151,29 +167,98 @@ export function DataDrivenStyleEditor({
       }
 
       const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
-      const colors = getRampColors(effectiveRamp, effectiveClassCount);
-      const colorProp = getColorProperty(layer.dataset_geometry_type);
-      const expression = buildGraduatedExpression(column, breaks, colors);
 
-      const config: StyleConfig = {
-        mode: 'graduated',
-        column,
-        ramp: effectiveRamp,
-        classCount: effectiveClassCount,
-        method,
-        breaks,
-        colors,
-      };
-      const paint = { ...layer.paint, [colorProp]: expression };
-      onStyleConfigChange(layer.id, config, paint);
+      if (target === 'color' || !target) {
+        // Preserve existing graduated colors when config hasn't changed
+        const ec = layer.style_config;
+        if (
+          ec?.mode === 'graduated' &&
+          ec.column === column &&
+          ec.ramp === ramp &&
+          ec.method === method &&
+          ec.classCount === classCount &&
+          ec.colors &&
+          ec.breaks &&
+          (!ec.target || ec.target === 'color')
+        ) {
+          return;
+        }
+
+        // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
+        const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
+        if (ramp === 'custom') setRamp(effectiveRamp);
+
+        const colors = getRampColors(effectiveRamp, effectiveClassCount);
+        const colorProp = getColorProperty(layer.dataset_geometry_type);
+        const expression = buildGraduatedExpression(column, breaks, colors);
+
+        const config: StyleConfig = {
+          mode: 'graduated',
+          column,
+          ramp: effectiveRamp,
+          classCount: effectiveClassCount,
+          method,
+          breaks,
+          colors,
+          target: 'color',
+        };
+        const paint = { ...layer.paint, [colorProp]: expression };
+        onStyleConfigChange(layer.id, config, paint);
+      } else {
+        // Size target (radius or width)
+        const ec = layer.style_config;
+        // Guard: skip if existing config already matches
+        if (
+          ec?.target === target &&
+          ec.column === column &&
+          ec.method === method &&
+          ec.classCount === effectiveClassCount &&
+          ec.sizes &&
+          ec.sizeRange &&
+          ec.sizeRange[0] === sizeRange[0] &&
+          ec.sizeRange[1] === sizeRange[1]
+        ) {
+          return;
+        }
+
+        const sizeProp = getSizeProperty(layer.dataset_geometry_type, target);
+        if (!sizeProp) return;
+
+        const sizes = computeSizes(sizeRange, effectiveClassCount);
+        const sizeExpression = buildGraduatedSizeExpression(column, breaks, sizes);
+
+        const config: StyleConfig = {
+          mode: 'graduated',
+          column,
+          ramp,
+          classCount: effectiveClassCount,
+          method,
+          breaks,
+          target,
+          sizes,
+          sizeRange,
+        };
+        // Keep existing color expression + add size expression
+        const paint = { ...layer.paint, [sizeProp]: sizeExpression };
+        onStyleConfigChange(layer.id, config, paint);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [column, mode, ramp, classCount, method, valuesData, statsData]);
+  }, [column, mode, ramp, classCount, method, target, sizeRange, valuesData, statsData]);
 
   function handleClear() {
     setColumn('');
+    setTarget('color');
     const colorProp = getColorProperty(layer.dataset_geometry_type);
-    const resetPaint = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
+    const resetPaint: Record<string, unknown> = {
+      ...layer.paint,
+      [colorProp]: MAP_COLORS.default.fill,
+    };
+    // Reset size paint properties to scalar defaults
+    const radiusProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
+    if (radiusProp) resetPaint[radiusProp] = 5;
+    const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
+    if (widthProp) resetPaint[widthProp] = 2;
     onStyleConfigChange(layer.id, null, resetPaint);
   }
 
@@ -181,6 +266,24 @@ export function DataDrivenStyleEditor({
     setMode(newMode);
     setColumn('');
     setRamp(newMode === 'categorical' ? 'Set2' : 'YlOrRd');
+    if (newMode === 'categorical') {
+      // Categorical does not support size targets — force back to color
+      setTarget('color');
+      // Reset any size paint property to scalar default
+      const radiusProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
+      const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
+      if (radiusProp || widthProp) {
+        const resetPaint: Record<string, unknown> = { ...layer.paint };
+        if (radiusProp) resetPaint[radiusProp] = 5;
+        if (widthProp) resetPaint[widthProp] = 2;
+        onStyleConfigChange(layer.id, layer.style_config ?? null, resetPaint);
+      }
+    }
+  }
+
+  function handleTargetChange(newTarget: 'color' | 'radius' | 'width') {
+    setTarget(newTarget);
+    setSizeRange(defaultSizeRange(newTarget));
   }
 
   const handleCategoryColorChange = useCallback(
@@ -226,6 +329,9 @@ export function DataDrivenStyleEditor({
   const hasTooManyCategories =
     mode === 'categorical' && valuesData && valuesData.values.length > 20;
 
+  const showTargetSelector = availableTargets.length > 1 && mode === 'graduated';
+  const isSizeTarget = target !== 'color' && mode === 'graduated';
+
   return (
     <div className="space-y-2.5 p-3 bg-muted/30 rounded-md border">
       <div className="flex items-center justify-between">
@@ -261,6 +367,32 @@ export function DataDrivenStyleEditor({
         </Select>
       </div>
 
+      {/* Target selector — only for point and line layers in graduated mode */}
+      {showTargetSelector && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground w-20">{t('dataDriven.target')}</span>
+          <Select
+            value={target}
+            onValueChange={(v) => handleTargetChange(v as 'color' | 'radius' | 'width')}
+          >
+            <SelectTrigger className="h-7 text-xs flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableTargets.map((tgt) => (
+                <SelectItem key={tgt} value={tgt} className="text-xs">
+                  {tgt === 'color'
+                    ? t('dataDriven.targetColor')
+                    : tgt === 'radius'
+                      ? t('dataDriven.targetRadius')
+                      : t('dataDriven.targetWidth')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{t('dataDriven.column')}</span>
         <Select value={column} onValueChange={setColumn}>
@@ -283,10 +415,41 @@ export function DataDrivenStyleEditor({
         </Select>
       </div>
 
-      {column && (
+      {/* Color ramp — only shown for color target */}
+      {column && !isSizeTarget && (
         <>
           <div className="text-xs text-muted-foreground">{t('dataDriven.colorRamp')}</div>
           <ColorRampPicker rampName={ramp} onChange={setRamp} mode={mode} />
+        </>
+      )}
+
+      {/* Size range controls — shown when target is radius or width */}
+      {column && isSizeTarget && (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-20">{t('dataDriven.sizeMin')}</span>
+            <Slider
+              value={[sizeRange[0]]}
+              min={1}
+              max={target === 'width' ? 20 : 30}
+              step={target === 'width' ? 0.5 : 1}
+              onValueChange={([v]) => setSizeRange([v, Math.max(v, sizeRange[1])])}
+              className="flex-1"
+            />
+            <span className="text-xs text-muted-foreground w-10 text-right">{sizeRange[0]}px</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-20">{t('dataDriven.sizeMax')}</span>
+            <Slider
+              value={[sizeRange[1]]}
+              min={1}
+              max={target === 'width' ? 20 : 30}
+              step={target === 'width' ? 0.5 : 1}
+              onValueChange={([v]) => setSizeRange([Math.min(sizeRange[0], v), v])}
+              className="flex-1"
+            />
+            <span className="text-xs text-muted-foreground w-10 text-right">{sizeRange[1]}px</span>
+          </div>
         </>
       )}
 
@@ -329,8 +492,8 @@ export function DataDrivenStyleEditor({
         </div>
       )}
 
-      {/* Per-class color editing for graduated */}
-      {column && mode === 'graduated' && layer.style_config?.colors && layer.style_config?.breaks && (
+      {/* Per-class color editing for graduated color mode */}
+      {column && mode === 'graduated' && !isSizeTarget && layer.style_config?.colors && layer.style_config?.breaks && (
         <div className="space-y-1">
           <div className="text-xs text-muted-foreground">{t('dataDriven.colors')}</div>
           <div className="max-h-36 overflow-y-auto space-y-0.5">
