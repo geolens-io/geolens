@@ -1,0 +1,33 @@
+import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { FilterSpecification } from 'maplibre-gl';
+import type { LabelConfig } from '@/types/api';
+
+export interface AdapterLayerInput {
+  id: string;
+  dataset_table_name: string;
+  dataset_geometry_type: string | null;
+  opacity: number;
+  visible: boolean;
+  paint: Record<string, unknown>;
+  layout: Record<string, unknown>;
+  filter: FilterSpecification | null;
+  label_config?: LabelConfig | null;
+  // Computed IDs (caller provides these)
+  sourceId: string;
+  layerId: string;
+  sourceLayer: string;
+  // Raster-specific (from TileToken)
+  tileUrl: string;
+  tileSize?: number;
+  minzoom?: number;
+  maxzoom?: number;
+}
+
+export interface LayerAdapter {
+  type: 'fill' | 'line' | 'circle' | 'raster';
+  addLayers(map: MaplibreMap, input: AdapterLayerInput): void;
+  syncPaint(map: MaplibreMap, input: AdapterLayerInput): void;
+  syncOpacity(map: MaplibreMap, input: AdapterLayerInput): void;
+  syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void;
+  getLayerIds(layerId: string): string[];
+}

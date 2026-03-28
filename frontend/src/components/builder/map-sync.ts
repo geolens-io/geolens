@@ -3,6 +3,8 @@ import type { MapLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { getAdapter } from './layer-adapters/registry';
+import type { AdapterLayerInput } from './layer-adapters/types';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
  *  These are read separately and applied to the outline line layer for polygons. */
@@ -12,6 +14,11 @@ export const CUSTOM_PAINT_PROPS = new Set([
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
 ]);
+
+// Re-export shared utilities for backward compatibility with existing consumers
+// (BuilderMap.unit.test.ts imports simplifyPaint; use-builder-layers.ts imports
+//  getCompoundOpacity; ViewerMap.tsx imports stripCustomProps)
+export { simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
@@ -55,80 +62,6 @@ export function getLayerType(geometryType: string | null): 'circle' | 'line' | '
   return 'fill';
 }
 
-/**
- * Simplify paint properties by stripping expression arrays.
- * Falls back to the first concrete color/number in expressions like
- * ["match", ...] or ["step", ...] so the layer renders with a flat color
- * instead of erroring out.
- */
-export function simplifyPaint(paint: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(paint)) {
-    if (Array.isArray(value) && value.length >= 3) {
-      // For "step" and "match" expressions, the default/fallback color is at
-      // index 2: ["step", ["get", col], defaultColor, ...] or
-      //          ["match", ["get", col], val1, color1, ..., fallbackColor]
-      const op = value[0];
-      const fallback = op === 'match' ? value[value.length - 1] : value[2];
-      result[key] = typeof fallback === 'string' || typeof fallback === 'number'
-        ? fallback
-        : undefined;
-    } else if (Array.isArray(value)) {
-      result[key] = undefined;
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-const OPACITY_DEFAULTS: Record<string, number> = {
-  fill: 0.3,
-  line: 1,
-  circle: 1,
-};
-
-export function getCompoundOpacity(
-  paint: Record<string, unknown>,
-  geomType: 'fill' | 'line' | 'circle',
-  masterOpacity: number,
-): number {
-  const propKey = `${geomType}-opacity`;
-  const propOpacity = (paint[propKey] as number) ?? OPACITY_DEFAULTS[geomType];
-  return propOpacity * masterOpacity;
-}
-
-/** Strip custom paint properties that are not valid MapLibre paint props. */
-export function stripCustomProps(paint: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(paint).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k)));
-}
-
-/** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
-function replayExpressions(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
-  for (const [prop, val] of Object.entries(rawPaint)) {
-    if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
-      try { map.setPaintProperty(layerId, prop, val); }
-      catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
-    }
-  }
-}
-
-/** Apply expression replay, compound opacity, and filter after addLayer. */
-function finalizeLayer(
-  map: MaplibreMap,
-  layerId: string,
-  rawPaint: Record<string, unknown>,
-  geomType: 'fill' | 'line' | 'circle',
-  layer: MapLayerResponse,
-  hasExpressions: boolean,
-) {
-  if (hasExpressions) replayExpressions(map, layerId, rawPaint);
-  map.setPaintProperty(layerId, `${geomType}-opacity`, getCompoundOpacity(rawPaint, geomType, layer.opacity ?? 1));
-  if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-    map.setFilter(layerId, layer.filter);
-  }
-}
-
 /** Imperatively add all data layers to the map. Safe to call repeatedly. */
 export function syncLayersToMap(
   map: MaplibreMap,
@@ -144,230 +77,58 @@ export function syncLayersToMap(
   for (const layer of layers) {
     const sourceId = getSourceId(layer.id);
     const layerId = getLayerId(layer.id);
-    const outlineId = getOutlineLayerId(layer.id);
     const sourceLayer = `data.${layer.dataset_table_name}`;
     const token = tokenMap.get(layer.dataset_id) ?? null;
 
+    // Build a base adapter input (tileUrl filled in per-branch below)
+    const adapterInput: AdapterLayerInput = {
+      id: layer.id,
+      dataset_table_name: layer.dataset_table_name,
+      dataset_geometry_type: layer.dataset_geometry_type,
+      opacity: layer.opacity ?? 1,
+      visible: layer.visible,
+      paint: (layer.paint as Record<string, unknown>) ?? {},
+      layout: (layer.layout as Record<string, unknown>) ?? {},
+      filter: layer.filter,
+      label_config: layer.label_config,
+      sourceId,
+      layerId,
+      sourceLayer,
+      tileUrl: '', // set below per branch
+    };
+
     // --- Raster layer branch ---
     if (token?.kind === 'raster') {
+      adapterInput.tileUrl = token.tile_url;
+      adapterInput.tileSize = token.tile_size ?? 256;
+      adapterInput.minzoom = token.minzoom ?? 0;
+      adapterInput.maxzoom = token.maxzoom ?? 18;
+      const adapter = getAdapter('raster');
       if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, {
-          type: 'raster',
-          tiles: [`${window.location.origin}${token.tile_url}`],
-          tileSize: token.tile_size ?? 256,
-          minzoom: token.minzoom ?? 0,
-          maxzoom: token.maxzoom ?? 18,
-        });
-        map.addLayer({
-          id: layerId,
-          type: 'raster',
-          source: sourceId,
-          paint: { 'raster-opacity': layer.opacity ?? 1 },
-        });
-        if (!layer.visible) {
-          map.setLayoutProperty(layerId, 'visibility', 'none');
-        }
+        adapter.addLayers(map, adapterInput);
       } else {
-        // Sync opacity and visibility
-        if (map.getLayer(layerId)) {
-          const currentOpacity = map.getPaintProperty(layerId, 'raster-opacity');
-          if (currentOpacity !== (layer.opacity ?? 1)) {
-            map.setPaintProperty(layerId, 'raster-opacity', layer.opacity ?? 1);
-          }
-          const vis = layer.visible ? 'visible' : 'none';
-          if (map.getLayoutProperty(layerId, 'visibility') !== vis) {
-            map.setLayoutProperty(layerId, 'visibility', vis);
-          }
-        }
+        adapter.syncPaint(map, adapterInput);
       }
       desiredSources.add(sourceId);
       continue; // skip vector logic for this layer
     }
 
-    const tileUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
-
+    adapterInput.tileUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
     desiredSources.add(sourceId);
 
-    // Add source + layer if not on map
+    const type = getLayerType(layer.dataset_geometry_type);
+    const adapter = getAdapter(type);
+
     if (!map.getSource(sourceId)) {
       map.addSource(sourceId, {
         type: 'vector',
-        tiles: [tileUrl],
+        tiles: [adapterInput.tileUrl],
         minzoom: 1,
         maxzoom: 22,
       });
-
-      const type = getLayerType(layer.dataset_geometry_type);
-      const rawPaint = (layer.paint as Record<string, unknown>) ?? {};
-
-      // Check if paint has expression arrays (data-driven styles from AI).
-      // addLayer with expressions can fail on some maplibre versions, so we
-      // add the layer with scalar defaults then apply expressions via
-      // setPaintProperty (which the chat panel already uses successfully).
-      const hasExpressions = Object.values(rawPaint).some(Array.isArray);
-
-      if (type === 'circle') {
-        try {
-          const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-          const circlePaint = stripCustomProps(basePaint);
-          map.addLayer({
-            id: layerId,
-            type: 'circle',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: Object.keys(circlePaint).length ? circlePaint : {
-              'circle-radius': 5,
-              'circle-color': MAP_COLORS.default.fill,
-              'circle-stroke-color': MAP_COLORS.default.stroke,
-              'circle-stroke-width': 1,
-            },
-            layout: (layer.layout as Record<string, unknown>) ?? {},
-          });
-          finalizeLayer(map, layerId, rawPaint, 'circle', layer, hasExpressions);
-        } catch (e) {
-          console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
-        }
-      } else if (type === 'line') {
-        try {
-          const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-          // line-dasharray is stored in layout JSON but is a MapLibre paint property
-          const storedLayout = (layer.layout as Record<string, unknown>) ?? {};
-          const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
-          const linePaint = stripCustomProps(basePaint);
-          if (Object.keys(linePaint).length === 0) {
-            linePaint['line-color'] = MAP_COLORS.default.fill;
-            linePaint['line-width'] = 2;
-          }
-          if (dasharray) {
-            linePaint['line-dasharray'] = dasharray;
-          }
-          map.addLayer({
-            id: layerId,
-            type: 'line',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: linePaint,
-            layout: {
-              'line-cap': 'round',
-              'line-join': 'round',
-              ...restLayout,
-            },
-          });
-          finalizeLayer(map, layerId, rawPaint, 'line', layer, hasExpressions);
-        } catch (e) {
-          console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
-        }
-      } else {
-        try {
-          const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-          const fillPaint = stripCustomProps(basePaint);
-          const strokeDisabled = !!(layer.paint as Record<string, unknown>)?.['_stroke-disabled'];
-          const effectiveFillPaint = Object.keys(fillPaint).length ? { ...fillPaint } : {
-            'fill-color': MAP_COLORS.default.fill,
-            'fill-opacity': MAP_COLORS.default.fillOpacity,
-          };
-          // Suppress native 1px fill outline when stroke is disabled
-          if (strokeDisabled) {
-            effectiveFillPaint['fill-outline-color'] = 'transparent';
-          }
-          map.addLayer({
-            id: layerId,
-            type: 'fill',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: effectiveFillPaint,
-            layout: (layer.layout as Record<string, unknown>) ?? {},
-          });
-          finalizeLayer(map, layerId, rawPaint, 'fill', layer, hasExpressions);
-          // Custom paint properties: '_outline-color' and '_outline-width' are stored
-          // in the layer's paint JSON but are NOT standard MapLibre fill paint properties.
-          // They are read here and applied to a separate 'line' layer that acts as the
-          // polygon outline, because MapLibre's native fill-outline-color is fixed at 1px.
-          const outlineColor =
-            (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined
-            ?? (layer.paint as Record<string, unknown>)?.['outline-color'] as string | undefined;
-          const outlineWidth =
-            (layer.paint as Record<string, unknown>)?.['_outline-width'] as number | undefined
-            ?? (layer.paint as Record<string, unknown>)?.['outline-width'] as number | undefined;
-          map.addLayer({
-            id: outlineId,
-            type: 'line',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            paint: {
-              'line-color': (typeof outlineColor === 'string' ? outlineColor : null) ?? MAP_COLORS.default.stroke,
-              'line-width': outlineWidth ?? 1,
-            },
-          });
-          map.setPaintProperty(outlineId, 'line-opacity', layer.opacity ?? 1);
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-            map.setFilter(outlineId, layer.filter);
-          }
-        } catch (e) {
-          console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
-        }
-      }
-
+      adapter.addLayers(map, adapterInput);
     } else {
-      // Source already exists — sync paint properties that may have changed
-      // (e.g., data-driven style expressions applied via AI chat)
-      const rawPaint = (layer.paint as Record<string, unknown>) ?? {};
-      const mapLayerId = getLayerId(layer.id);
-      if (map.getLayer(mapLayerId)) {
-        for (const [prop, val] of Object.entries(rawPaint)) {
-          if (CUSTOM_PAINT_PROPS.has(prop)) continue;
-          try {
-            const current = map.getPaintProperty(mapLayerId, prop);
-            if (JSON.stringify(current) !== JSON.stringify(val)) {
-              map.setPaintProperty(mapLayerId, prop, val);
-            }
-          } catch (e) {
-            if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${mapLayerId}:`, e);
-          }
-        }
-        // Sync compound opacity (per-property opacity * master layer opacity)
-        const geomType = getLayerType(layer.dataset_geometry_type);
-        const opacityProp = `${geomType}-opacity`;
-        map.setPaintProperty(mapLayerId, opacityProp, getCompoundOpacity(rawPaint, geomType, layer.opacity ?? 1));
-        // Sync filter
-        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-          map.setFilter(mapLayerId, layer.filter);
-        } else {
-          map.setFilter(mapLayerId, null);
-        }
-      }
-      // Sync outline layer paint for fill layers
-      const outId = getOutlineLayerId(layer.id);
-      const strokeDisabledSync = !!rawPaint['_stroke-disabled'];
-      // Suppress/restore native 1px fill outline based on stroke toggle
-      if (map.getLayer(mapLayerId)) {
-        try {
-          map.setPaintProperty(mapLayerId, 'fill-outline-color', strokeDisabledSync ? 'transparent' : undefined);
-        } catch { /* fill-outline-color may not be supported on all styles */ }
-      }
-      if (map.getLayer(outId)) {
-        const outlineColor = rawPaint['_outline-color'] ?? rawPaint['outline-color'];
-        const outlineWidth = rawPaint['_outline-width'] ?? rawPaint['outline-width'];
-        if (typeof outlineColor === 'string') {
-          try {
-            const cur = map.getPaintProperty(outId, 'line-color');
-            if (cur !== outlineColor) map.setPaintProperty(outId, 'line-color', outlineColor);
-          } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-color on ${outId}:`, e); }
-        }
-        if (typeof outlineWidth === 'number') {
-          try {
-            const cur = map.getPaintProperty(outId, 'line-width');
-            if (cur !== outlineWidth) map.setPaintProperty(outId, 'line-width', outlineWidth);
-          } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-width on ${outId}:`, e); }
-        }
-        map.setPaintProperty(outId, 'line-opacity', layer.opacity ?? 1);
-        // Sync outline filter
-        if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-          map.setFilter(outId, layer.filter);
-        } else {
-          map.setFilter(outId, null);
-        }
-      }
+      adapter.syncPaint(map, adapterInput);
     }
 
     // Sync label layer for existing sources (add/update/remove)
@@ -425,15 +186,13 @@ export function syncLayersToMap(
       }
     }
 
-    // Update visibility
-    const vis = layer.visible ? 'visible' : 'none';
-    if (map.getLayer(layerId)) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
-    if (map.getLayer(outlineId)) {
-      map.setLayoutProperty(outlineId, 'visibility', vis);
-    }
+    // Update visibility via adapter (handles main + companion layers)
+    const allType = type;
+    const visAdapter = getAdapter(allType);
+    visAdapter.syncVisibility(map, adapterInput);
+    // Also sync label visibility
     if (map.getLayer(labelId)) {
+      const vis = layer.visible ? 'visible' : 'none';
       map.setLayoutProperty(labelId, 'visibility', vis);
     }
   }
