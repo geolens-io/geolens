@@ -258,10 +258,11 @@ Progress: [░░░░░░░░░░] 0%
 | 260328-os6 | Map builder Step 2: ViewerMap adapter adoption | 2026-03-28 | f93f54c0 | Verified | [260328-os6-map-builder-step-2-adopt-layer-adapters-](./quick/260328-os6-map-builder-step-2-adopt-layer-adapters-/) |
 | 260328-p38 | Map builder Step 3: filter editor resilience | 2026-03-28 | 5f930cfe | Needs Review | [260328-p38-map-builder-step-3-filter-editor-resilie](./quick/260328-p38-map-builder-step-3-filter-editor-resilie/) |
 | 260328-pax | Map builder Step 4: measurement + legend widgets | 2026-03-28 | 910f281b | Needs Review | [260328-pax-map-builder-step-4-measurement-and-legen](./quick/260328-pax-map-builder-step-4-measurement-and-legen/) |
+| 260328-pjx | Map builder Step 5: data-driven styling generalization | 2026-03-28 | 565f845d | Needs Review | [260328-pjx-map-builder-step-5-data-driven-styling-g](./quick/260328-pjx-map-builder-step-5-data-driven-styling-g/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-28 - Completed quick task 260328-pax: Map builder Step 4: measurement + legend widgets
+Last activity: 2026-03-28 - Completed quick task 260328-pjx: Map builder Step 5: data-driven styling generalization
 Last session: 2026-03-27T00:44:54.743Z
 Stopped at: Completed 210-02-PLAN.md
 Resume file: None
