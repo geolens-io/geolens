@@ -1,6 +1,26 @@
 import { create } from 'zustand';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 
+/** Valid keys for setFilter — excludes methods and non-filter state fields. */
+export type SearchFilterKey =
+  | 'q'
+  | 'bbox'
+  | 'keywords'
+  | 'geometry_type'
+  | 'srid'
+  | 'source_organization'
+  | 'record_type'
+  | 'collection_id'
+  | 'datetime'
+  | 'date_from'
+  | 'date_to'
+  | 'vintage_start'
+  | 'vintage_end'
+  | 'sort_by'
+  | 'exclude_synthetic'
+  | 'geometry'
+  | 'spatial_predicate';
+
 interface SearchState {
   q: string;
   bbox: string;
@@ -23,7 +43,7 @@ interface SearchState {
   spatial_predicate: string;
   spatialPanelOpen: boolean;
   setQuery: (q: string) => void;
-  setFilter: (key: string, value: string | string[] | boolean) => void;
+  setFilter: (key: SearchFilterKey, value: string | string[] | boolean) => void;
   resetFilters: () => void;
   setPage: (offset: number) => void;
   setSortBy: (sort_by: string) => void;
