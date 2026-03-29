@@ -23,7 +23,13 @@
     "openDataset": "Ouvrir le détail du jeu de données",
     "columns": "Colonnes",
     "rename": "Renommer",
-    "zoomToLayer": "Zoomer sur la couche"
+    "zoomToLayer": "Zoomer sur la couche",
+    "filterTab": "Filtre",
+    "labelsTab": "Étiquettes",
+    "styleTab": "Style",
+    "collapseOptions": "Réduire les options",
+    "moreActions": "Plus d'actions",
+    "expandOptions": "Développer les options"
   },
   "style": {
     "fill": "Remplissage",
@@ -37,7 +43,8 @@
     "radius": "Rayon",
     "styledBy": "Stylisé par : {{column}}",
     "radiusByColumn": "Rayon par : {{column}}",
-    "widthByColumn": "Largeur par : {{column}}"
+    "widthByColumn": "Largeur par : {{column}}",
+    "toggleStroke": "Activer/désactiver le contour"
   },
   "filters": {
     "title": "Filtres",
@@ -88,7 +95,8 @@
     "targetRadius": "Rayon",
     "targetWidth": "Largeur",
     "sizeMin": "Taille min",
-    "sizeMax": "Taille max"
+    "sizeMax": "Taille max",
+    "colors": "Couleurs"
   },
   "search": {
     "title": "Ajouter un jeu de données",
@@ -210,7 +218,8 @@
     "save": "Enregistrer ({{shortcut}})",
     "collapseSidebar": "Réduire le panneau latéral",
     "expandSidebar": "Développer le panneau latéral",
-    "widgets": "Widgets"
+    "widgets": "Widgets",
+    "moreActions": "Plus d'actions"
   },
   "toasts": {
     "mapSaved": "Carte enregistrée",
@@ -306,5 +315,8 @@
     "cancelEditing": "Annuler la modification",
     "editAttributes": "Modifier les attributs",
     "deleteFeature": "Supprimer l'entité"
+  },
+  "actions": {
+    "save": "Enregistrer"
   }
 }

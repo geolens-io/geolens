@@ -23,7 +23,13 @@
     "openDataset": "Abrir detalle del conjunto de datos",
     "columns": "Columnas",
     "rename": "Renombrar",
-    "zoomToLayer": "Zoom a la capa"
+    "zoomToLayer": "Zoom a la capa",
+    "filterTab": "Filtro",
+    "labelsTab": "Etiquetas",
+    "styleTab": "Estilo",
+    "collapseOptions": "Contraer opciones",
+    "moreActions": "Más acciones",
+    "expandOptions": "Expandir opciones"
   },
   "style": {
     "fill": "Relleno",
@@ -37,7 +43,8 @@
     "radius": "Radio",
     "styledBy": "Estilizado por: {{column}}",
     "radiusByColumn": "Radio por: {{column}}",
-    "widthByColumn": "Ancho por: {{column}}"
+    "widthByColumn": "Ancho por: {{column}}",
+    "toggleStroke": "Alternar trazo"
   },
   "filters": {
     "title": "Filtros",
@@ -88,7 +95,8 @@
     "targetRadius": "Radio",
     "targetWidth": "Ancho",
     "sizeMin": "Tamano min",
-    "sizeMax": "Tamano max"
+    "sizeMax": "Tamano max",
+    "colors": "Colores"
   },
   "search": {
     "title": "Agregar conjunto de datos",
@@ -210,7 +218,8 @@
     "save": "Guardar ({{shortcut}})",
     "collapseSidebar": "Contraer barra lateral",
     "expandSidebar": "Expandir barra lateral",
-    "widgets": "Widgets"
+    "widgets": "Widgets",
+    "moreActions": "Más acciones"
   },
   "toasts": {
     "mapSaved": "Mapa guardado",
@@ -306,5 +315,8 @@
     "cancelEditing": "Cancelar edición",
     "editAttributes": "Editar atributos",
     "deleteFeature": "Eliminar entidad"
+  },
+  "actions": {
+    "save": "Guardar"
   }
 }
