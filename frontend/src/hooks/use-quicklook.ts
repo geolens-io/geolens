@@ -5,12 +5,12 @@ import { queryKeys } from '@/lib/query-keys';
 interface UseQuicklookResult {
   src: string | null;
   isLoading: boolean;
-  isError: boolean;
 }
 
 /**
  * Fetches a quicklook thumbnail for a dataset as a data URL.
- * Returns null immediately for null datasetId (e.g., collections).
+ * Returns null immediately for null datasetId (e.g., collections,
+ * tables, or datasets without stored quicklooks).
  *
  * Uses TanStack Query so the result is cached. Auth token is read from the
  * zustand store directly (outside React render) since apiFetch assumes JSON.
@@ -19,7 +19,7 @@ interface UseQuicklookResult {
  * conditions with React concurrent rendering.
  */
 export function useQuicklook(datasetId: string | null): UseQuicklookResult {
-  const { data: src = null, isLoading, isError } = useQuery({
+  const { data: src = null, isLoading } = useQuery({
     queryKey: queryKeys.datasets.quicklook(datasetId!),
     queryFn: async () => {
       const token = useAuthStore.getState().token;
@@ -41,5 +41,5 @@ export function useQuicklook(datasetId: string | null): UseQuicklookResult {
     meta: { skipGlobalError: true },
   });
 
-  return { src, isLoading, isError };
+  return { src, isLoading };
 }

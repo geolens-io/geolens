@@ -418,6 +418,92 @@ describe('SearchResultCard', () => {
     });
   });
 
+  // Collection layout tests
+  describe('Collection card layout', () => {
+    it('does not render specs row for collections', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'Test Collection',
+              description: 'A collection',
+              record_type: 'collection',
+              dataset_count: 10,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-layout', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByTestId('dataset-card-specs')).not.toBeInTheDocument();
+    });
+
+    it('does not render tags for collections', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'Tagged Collection',
+              description: null,
+              record_type: 'collection',
+              dataset_count: 3,
+              keywords: ['should', 'not', 'appear'],
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-tags', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByText('should')).not.toBeInTheDocument();
+      expect(screen.queryByText('not')).not.toBeInTheDocument();
+      expect(screen.queryByText('appear')).not.toBeInTheDocument();
+    });
+
+    it('does not render source organization for collections', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'Org Collection',
+              description: null,
+              record_type: 'collection',
+              dataset_count: 1,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: 'Should Not Show',
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-org', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByTestId('dataset-card-source')).not.toBeInTheDocument();
+    });
+  });
+
   // Spec styling tests
   describe('Spec styling', () => {
     it('renders specs as icon+plain-text without pill background', () => {
