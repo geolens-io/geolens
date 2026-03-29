@@ -190,9 +190,8 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                 <div className="hidden md:block">
                   <div className="h-[80px] w-[80px] overflow-hidden rounded-lg border border-border/40">
                     {isTable ? (
-                      <div className="flex h-[80px] w-[80px] flex-col items-center justify-center gap-1 bg-muted/20 text-muted-foreground">
+                      <div className="flex h-[80px] w-[80px] items-center justify-center bg-muted/20 text-muted-foreground">
                         <ImageOff className="h-5 w-5 opacity-45" />
-                        <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
                       </div>
                     ) : quicklookSrc ? (
                       <img
@@ -209,7 +208,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                         <ImageOff className="h-5 w-5 opacity-50" />
                       </div>
                     ) : (
-                      <BBoxPreview bbox={bbox} />
+                      <BBoxPreview bbox={bbox} className="h-[80px] w-[80px] rounded-md bg-muted" />
                     )}
                   </div>
                 </div>
@@ -233,9 +232,9 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
             {/* Band 3 — Tags */}
             {!isCollection && displayKeywords.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {displayKeywords.slice(0, 3).map((tag) => (
+                {displayKeywords.slice(0, 3).map((tag, index) => (
                   <span
-                    key={tag}
+                    key={`${tag}-${index}`}
                     className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
                   >
                     {tag}
