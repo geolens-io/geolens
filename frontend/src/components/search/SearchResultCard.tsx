@@ -132,7 +132,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
 
   // Quicklook: only fetch when the backend confirms a quicklook exists.
   const quicklookId = !isCollection && !isTable && properties.has_quicklook ? (feature.id as string) : null;
-  const { src: quicklookSrc, isLoading: qlLoading, isError: qlError } = useQuicklook(quicklookId);
+  const { src: quicklookSrc, isLoading: qlLoading } = useQuicklook(quicklookId);
 
   // Provenance (for non-collection types)
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });
