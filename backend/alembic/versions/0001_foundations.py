@@ -7,6 +7,7 @@ Revision ID: 0001_fdn
 Revises:
 Create Date: 2026-03-28
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -25,7 +26,7 @@ def upgrade() -> None:
         op.execute(
             f"DO $$ BEGIN "
             f"IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = '{ext}') THEN "
-            f"RAISE EXCEPTION 'Required extension \"{ext}\" is not installed. "
+            f'RAISE EXCEPTION \'Required extension "{ext}" is not installed. '
             f"Run scripts/init-db.sh or CREATE EXTENSION {ext} first.'; "
             f"END IF; END $$"
         )
@@ -100,9 +101,19 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS catalog.set_updated_at() CASCADE")
-    op.execute("DROP FUNCTION IF EXISTS catalog.immutable_jsonb_sample_values(jsonb) CASCADE")
-    op.execute("DROP FUNCTION IF EXISTS catalog.immutable_jsonb_column_names(jsonb) CASCADE")
-    op.execute("DROP FUNCTION IF EXISTS catalog.immutable_array_to_string(text[], text) CASCADE")
-    op.execute("DROP FUNCTION IF EXISTS catalog.immutable_array_camel_to_spaced(text[], text) CASCADE")
-    op.execute("DROP FUNCTION IF EXISTS catalog.immutable_camel_to_spaced(text) CASCADE")
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.immutable_jsonb_sample_values(jsonb) CASCADE"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.immutable_jsonb_column_names(jsonb) CASCADE"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.immutable_array_to_string(text[], text) CASCADE"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.immutable_array_camel_to_spaced(text[], text) CASCADE"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.immutable_camel_to_spaced(text) CASCADE"
+    )
     op.execute("DROP SCHEMA IF EXISTS catalog CASCADE")

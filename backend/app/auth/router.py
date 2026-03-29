@@ -232,7 +232,9 @@ async def list_my_api_keys(
 ) -> ApiKeyListResponse:
     """List the current user's API keys."""
     base_stmt = select(ApiKey).where(ApiKey.user_id == current_user.id)
-    total = (await db.execute(select(func.count()).select_from(base_stmt.subquery()))).scalar_one()
+    total = (
+        await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+    ).scalar_one()
     result = await db.execute(base_stmt.offset(skip).limit(limit))
     keys = result.scalars().all()
     return ApiKeyListResponse(

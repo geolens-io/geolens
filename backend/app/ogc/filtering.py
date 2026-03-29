@@ -138,7 +138,9 @@ def apply_cql2_filter(stmt, filter_expr: str, filter_lang: str = "cql2-text"):
 def build_queryables_response(public_api_url: str) -> dict:
     """Build a JSON Schema describing queryable properties (OGC Part 3)."""
     schema = DatasetQueryables.model_json_schema()
-    schema["$id"] = build_url("/collections/datasets/queryables", base_url=public_api_url)
+    schema["$id"] = build_url(
+        "/collections/datasets/queryables", base_url=public_api_url
+    )
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["type"] = "object"
     schema["additionalProperties"] = True

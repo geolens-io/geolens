@@ -37,7 +37,7 @@ describe('RelatedRecordsPanel', () => {
 
   it('returns null when no relationships exist', async () => {
     vi.mocked(listRelationships).mockResolvedValue([]);
-    const { container } = render(
+    render(
       <div data-testid="container">
         <RelatedRecordsPanel datasetId="ds-1" featureGid={1} />
       </div>,

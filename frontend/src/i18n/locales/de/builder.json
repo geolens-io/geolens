@@ -44,7 +44,15 @@
     "styledBy": "Stilisiert nach: {{column}}",
     "radiusByColumn": "Radius nach: {{column}}",
     "widthByColumn": "Breite nach: {{column}}",
-    "toggleStroke": "Kontur umschalten"
+    "toggleFill": "Füllung umschalten",
+    "toggleStroke": "Kontur umschalten",
+    "pattern": "Muster",
+    "dash": {
+      "solid": "Durchgezogen",
+      "dashed": "Gestrichelt",
+      "dotted": "Gepunktet",
+      "dashDot": "Strich-Punkt"
+    }
   },
   "filters": {
     "title": "Filter",

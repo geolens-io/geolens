@@ -1,7 +1,6 @@
 """Integration tests for /search/facets endpoint and facet counting."""
 
 import uuid
-from datetime import date
 
 import pytest
 from httpx import AsyncClient

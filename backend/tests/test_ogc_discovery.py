@@ -14,7 +14,10 @@ def test_build_url_generates_absolute_urls():
 def test_build_url_avoids_double_slashes(monkeypatch):
     """build_url() normalizes trailing slash on base URL."""
     # Patch in both the source module and the importing module
-    monkeypatch.setattr("app.ogc.utils.get_env_public_api_url", lambda request=None: "http://example.com/")
+    monkeypatch.setattr(
+        "app.ogc.utils.get_env_public_api_url",
+        lambda request=None: "http://example.com/",
+    )
     result = build_url("/conformance")
     assert "//conformance" not in result
     assert result == "http://example.com/conformance"
@@ -167,8 +170,14 @@ async def test_ogc_record_includes_conforms_to(client, admin_auth_header):
     if data["features"]:
         record = data["features"][0]
         assert "conformsTo" in record, "Record missing conformsTo"
-        assert "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core" in record["conformsTo"]
-        assert "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json" in record["conformsTo"]
+        assert (
+            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core"
+            in record["conformsTo"]
+        )
+        assert (
+            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json"
+            in record["conformsTo"]
+        )
 
 
 # --- Regression test ---

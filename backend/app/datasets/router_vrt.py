@@ -46,7 +46,9 @@ async def list_vrt_sources(
     """Return ordered list of COG sources for a VRT dataset."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     await check_dataset_access(db, dataset, dataset_id, user)
     rows = await db.execute(
         text("""
@@ -68,6 +70,7 @@ async def list_vrt_sources(
         if row.extent_wkt:
             try:
                 from shapely import wkt as shapely_wkt
+
                 extent_bbox = list(shapely_wkt.loads(row.extent_wkt).bounds)
             except Exception:
                 pass
@@ -126,7 +129,9 @@ async def get_vrt_status(
 
     # Source count
     count_result = await db.execute(
-        text("SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+        text(
+            "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+        ),
         {"id": str(dataset_id)},
     )
     source_count = count_result.scalar() or 0
@@ -145,7 +150,9 @@ async def get_vrt_status(
         )
         active_gen = active_result.scalar_one_or_none()
         if active_gen and active_gen.started_at:
-            elapsed = (datetime.now(timezone.utc) - active_gen.started_at).total_seconds()
+            elapsed = (
+                datetime.now(timezone.utc) - active_gen.started_at
+            ).total_seconds()
             active_generation = VrtActiveGeneration(
                 generation_id=active_gen.id,
                 started_at=active_gen.started_at,
@@ -310,7 +317,9 @@ async def regenerate_vrt_endpoint(
 
     # Count sources
     count_result = await db.execute(
-        text("SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+        text(
+            "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+        ),
         {"id": str(dataset_id)},
     )
     src_count = count_result.scalar() or 0

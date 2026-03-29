@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Double, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Double,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -74,11 +85,15 @@ class RasterAsset(Base):
     # -- VRT tracking columns --
     vrt_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     resolution_strategy: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ready")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="ready"
+    )
     # NOTE: Not a FK — router code sets this to uuid.uuid4() as a placeholder before
     # the VRT regeneration task creates the actual VrtGeneration row.
     current_generation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
-    last_regenerated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_regenerated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     def to_stac_properties(self) -> dict:
         """Extract STAC-compatible properties from raster metadata."""
@@ -159,14 +174,18 @@ class VrtSourceLink(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     vrt_dataset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False,
+        ForeignKey("catalog.datasets.id", ondelete="CASCADE"),
+        nullable=False,
         index=True,
     )
     source_dataset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.datasets.id", ondelete="RESTRICT"), nullable=False,
+        ForeignKey("catalog.datasets.id", ondelete="RESTRICT"),
+        nullable=False,
         index=True,
     )
-    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

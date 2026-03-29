@@ -84,8 +84,12 @@ async def query_audit_logs(
     Returns (logs, total_count) ordered by created_at descending.
     """
     filter_kwargs = dict(
-        user_id=user_id, action=action, resource_type=resource_type,
-        resource_id=resource_id, date_from=date_from, date_to=date_to,
+        user_id=user_id,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        date_from=date_from,
+        date_to=date_to,
         search=search,
     )
 

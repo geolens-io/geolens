@@ -44,7 +44,15 @@
     "styledBy": "Stylisé par : {{column}}",
     "radiusByColumn": "Rayon par : {{column}}",
     "widthByColumn": "Largeur par : {{column}}",
-    "toggleStroke": "Activer/désactiver le contour"
+    "toggleFill": "Activer/désactiver le remplissage",
+    "toggleStroke": "Activer/désactiver le contour",
+    "pattern": "Motif",
+    "dash": {
+      "solid": "Plein",
+      "dashed": "Tirets",
+      "dotted": "Pointillés",
+      "dashDot": "Tiret-point"
+    }
   },
   "filters": {
     "title": "Filtres",

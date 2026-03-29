@@ -136,7 +136,9 @@ class TestRasterMetadataVrtFields:
             status="ready",
         )
 
-        result = _build_raster_metadata(dataset, asset, is_admin=False, source_count=None)
+        result = _build_raster_metadata(
+            dataset, asset, is_admin=False, source_count=None
+        )
 
         assert result is not None
         assert result.vrt_type is None
@@ -157,7 +159,9 @@ class TestRasterMetadataVrtFields:
         from app.datasets.helpers import _build_raster_metadata
 
         dataset = _make_mock_dataset("vrt_dataset")
-        asset = _make_mock_raster_asset(vrt_type="band_stack", resolution_strategy="first")
+        asset = _make_mock_raster_asset(
+            vrt_type="band_stack", resolution_strategy="first"
+        )
 
         result = _build_raster_metadata(dataset, asset, source_count=2)
 
@@ -250,7 +254,6 @@ class TestQuicklookVrt:
     @pytest.mark.asyncio
     async def test_quicklook_accepts_vrt_dataset(self):
         """get_quicklook passes the guard when record_type is vrt_dataset."""
-        from fastapi import HTTPException
         from app.datasets.router import get_quicklook
 
         dataset_id = uuid.uuid4()
@@ -276,9 +279,12 @@ class TestQuicklookVrt:
             "app.datasets.router.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch(
-                "app.datasets.router.check_dataset_access_or_anonymous", AsyncMock(return_value=None)
+                "app.datasets.router.check_dataset_access_or_anonymous",
+                AsyncMock(return_value=None),
             ):
-                with patch("app.datasets.router.get_storage", return_value=mock_storage):
+                with patch(
+                    "app.datasets.router.get_storage", return_value=mock_storage
+                ):
                     # Should not raise HTTPException 400 — guard passes for vrt_dataset
                     response = await get_quicklook(
                         dataset_id=dataset_id,
@@ -306,7 +312,8 @@ class TestQuicklookVrt:
             "app.datasets.router.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch(
-                "app.datasets.router.check_dataset_access_or_anonymous", AsyncMock(return_value=None)
+                "app.datasets.router.check_dataset_access_or_anonymous",
+                AsyncMock(return_value=None),
             ):
                 with pytest.raises(HTTPException) as exc_info:
                     await get_quicklook(
@@ -394,7 +401,8 @@ class TestVrtSourcesEndpoint:
             "app.datasets.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch(
-                "app.datasets.router_vrt.check_dataset_access", AsyncMock(return_value=None)
+                "app.datasets.router_vrt.check_dataset_access",
+                AsyncMock(return_value=None),
             ):
                 response = await list_vrt_sources(
                     dataset_id=dataset_id,
@@ -509,7 +517,8 @@ class TestVrtSourcesEndpoint:
             "app.datasets.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch(
-                "app.datasets.router_vrt.check_dataset_access", AsyncMock(return_value=None)
+                "app.datasets.router_vrt.check_dataset_access",
+                AsyncMock(return_value=None),
             ):
                 response = await list_vrt_sources(
                     dataset_id=dataset_id,
@@ -558,7 +567,8 @@ class TestVrtSourcesEndpoint:
             "app.datasets.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch(
-                "app.datasets.router_vrt.check_dataset_access", AsyncMock(return_value=None)
+                "app.datasets.router_vrt.check_dataset_access",
+                AsyncMock(return_value=None),
             ):
                 response = await list_vrt_sources(
                     dataset_id=dataset_id,
@@ -610,8 +620,10 @@ class TestTileTokenVrt:
         source = inspect.getsource(tiles_module.raster_auth_check)
 
         # Find the guard line that checks record_type
-        lines = [l.strip() for l in source.splitlines() if "vrt_dataset" in l]
-        assert len(lines) >= 1, "vrt_dataset must appear in at least one meaningful line"
+        lines = [ln.strip() for ln in source.splitlines() if "vrt_dataset" in ln]
+        assert len(lines) >= 1, (
+            "vrt_dataset must appear in at least one meaningful line"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -644,9 +656,7 @@ class TestSearchEnrichmentVrt:
 
         # The assignment branch must also check vrt_dataset
         lines_with_vrt = [
-            l.strip()
-            for l in source.splitlines()
-            if "vrt_dataset" in l
+            ln.strip() for ln in source.splitlines() if "vrt_dataset" in ln
         ]
         assert len(lines_with_vrt) >= 2, (
             "vrt_dataset must appear in both the raster_ids filter AND the feature assignment loop"

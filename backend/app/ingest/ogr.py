@@ -148,11 +148,11 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
                 if len(layers) > 1 and not layer_name:
                     all_layers = [
                         {
-                            "name": l.get("name", ""),
-                            "feature_count": l.get("featureCount", 0),
-                            "field_count": len(l.get("fields", [])),
+                            "name": lyr.get("name", ""),
+                            "feature_count": lyr.get("featureCount", 0),
+                            "field_count": len(lyr.get("fields", [])),
                         }
-                        for l in layers
+                        for lyr in layers
                     ]
 
                 return {
@@ -225,9 +225,9 @@ async def run_ogrinfo_preview(
                 # Find the target layer
                 target_layer = layers[0]
                 if layer_name:
-                    for l in layers:
-                        if l.get("name") == layer_name:
-                            target_layer = l
+                    for lyr in layers:
+                        if lyr.get("name") == layer_name:
+                            target_layer = lyr
                             break
 
                 # Extract columns from layer fields
@@ -255,11 +255,11 @@ async def run_ogrinfo_preview(
                 if len(layers) > 1 and not layer_name:
                     all_layers = [
                         {
-                            "name": l.get("name", ""),
-                            "feature_count": l.get("featureCount", 0),
-                            "field_count": len(l.get("fields", [])),
+                            "name": lyr.get("name", ""),
+                            "feature_count": lyr.get("featureCount", 0),
+                            "field_count": len(lyr.get("fields", [])),
                         }
-                        for l in layers
+                        for lyr in layers
                     ]
 
                 return {
@@ -335,7 +335,16 @@ async def run_ogr2ogr(
     ]
 
     if not is_non_spatial:
-        cmd.extend(["-nlt", "PROMOTE_TO_MULTI", "-lco", "GEOMETRY_NAME=geom", "-lco", "SPATIAL_INDEX=GIST"])
+        cmd.extend(
+            [
+                "-nlt",
+                "PROMOTE_TO_MULTI",
+                "-lco",
+                "GEOMETRY_NAME=geom",
+                "-lco",
+                "SPATIAL_INDEX=GIST",
+            ]
+        )
 
     if is_csv and not is_non_spatial:
         cmd.extend(

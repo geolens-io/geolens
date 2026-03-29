@@ -11,7 +11,6 @@ Requirements:
 
 import uuid
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -115,7 +114,9 @@ async def _create_vector_dataset(
 
 
 async def _get_auth_header(client: AsyncClient, username: str, password: str) -> dict:
-    resp = await client.post("/auth/login/", data={"username": username, "password": password})
+    resp = await client.post(
+        "/auth/login/", data={"username": username, "password": password}
+    )
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 

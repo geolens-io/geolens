@@ -242,7 +242,9 @@ async def get_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Get a single map with its layers."""
-    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(db, map_id)
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
+        db, map_id
+    )
     if map_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -335,7 +337,9 @@ async def update_map_endpoint(
     await db.commit()
 
     # Re-fetch with layers for full response
-    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(db, map_id)
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
+        db, map_id
+    )
     layers = [
         _build_layer_response(
             layer,
@@ -424,7 +428,9 @@ async def duplicate_map_endpoint(
     await db.commit()
 
     # Re-fetch with layers for full response
-    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(db, new_map.id)
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
+        db, new_map.id
+    )
     layers = [
         _build_layer_response(
             layer,

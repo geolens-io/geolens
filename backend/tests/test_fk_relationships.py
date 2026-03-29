@@ -13,8 +13,6 @@ from sqlalchemy import select
 from app.auth.models import User
 from app.datasets.models import Dataset, Record
 
-from tests.conftest import get_auth_header, _create_test_user
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,8 +75,12 @@ class TestFKRelationships:
     ):
         """POST creates a relationship between two datasets, returns 201."""
         admin_id = await _get_user_id(test_db_session, "admin")
-        source = await _create_dataset(test_db_session, created_by=admin_id, name="Source DS")
-        target = await _create_dataset(test_db_session, created_by=admin_id, name="Target DS")
+        source = await _create_dataset(
+            test_db_session, created_by=admin_id, name="Source DS"
+        )
+        target = await _create_dataset(
+            test_db_session, created_by=admin_id, name="Target DS"
+        )
 
         resp = await client.post(
             f"/datasets/{source.id}/relationships/",
@@ -105,8 +107,12 @@ class TestFKRelationships:
     ):
         """GET returns array of relationships for a dataset."""
         admin_id = await _get_user_id(test_db_session, "admin")
-        source = await _create_dataset(test_db_session, created_by=admin_id, name="List Source")
-        target = await _create_dataset(test_db_session, created_by=admin_id, name="List Target")
+        source = await _create_dataset(
+            test_db_session, created_by=admin_id, name="List Source"
+        )
+        target = await _create_dataset(
+            test_db_session, created_by=admin_id, name="List Target"
+        )
 
         # Create a relationship first
         create_resp = await client.post(
@@ -138,8 +144,12 @@ class TestFKRelationships:
     ):
         """DELETE removes a relationship, returns 204."""
         admin_id = await _get_user_id(test_db_session, "admin")
-        source = await _create_dataset(test_db_session, created_by=admin_id, name="Del Source")
-        target = await _create_dataset(test_db_session, created_by=admin_id, name="Del Target")
+        source = await _create_dataset(
+            test_db_session, created_by=admin_id, name="Del Source"
+        )
+        target = await _create_dataset(
+            test_db_session, created_by=admin_id, name="Del Target"
+        )
 
         create_resp = await client.post(
             f"/datasets/{source.id}/relationships/",
@@ -184,8 +194,12 @@ class TestFKRelationships:
     ):
         """Unauthenticated POST returns 401/403."""
         admin_id = await _get_user_id(test_db_session, "admin")
-        source = await _create_dataset(test_db_session, created_by=admin_id, name="Auth Source")
-        target = await _create_dataset(test_db_session, created_by=admin_id, name="Auth Target")
+        source = await _create_dataset(
+            test_db_session, created_by=admin_id, name="Auth Source"
+        )
+        target = await _create_dataset(
+            test_db_session, created_by=admin_id, name="Auth Target"
+        )
 
         resp = await client.post(
             f"/datasets/{source.id}/relationships/",

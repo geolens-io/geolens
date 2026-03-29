@@ -14,7 +14,11 @@ from app.cache.tiles import invalidate_catalog_cache
 from app.auth.dependencies import get_optional_user, require_permission
 from app.auth.models import User
 from app.auth.visibility import get_user_roles
-from app.services.provenance import UNKNOWN_ACTOR_LABEL, derive_last_edited, resolve_actor
+from app.services.provenance import (
+    UNKNOWN_ACTOR_LABEL,
+    derive_last_edited,
+    resolve_actor,
+)
 from app.collections.schemas import (
     AddDatasetsResponse,
     CollectionAddDatasetsRequest,
@@ -197,7 +201,9 @@ async def list_collections_endpoint(
     count_map = await batch_collection_dataset_counts(db, coll_ids, user, user_roles)
     default_extent = {"extent_bbox": None, "temporal_start": None, "temporal_end": None}
     responses = [
-        _collection_to_response(coll, count_map.get(coll.id, 0), extent_map.get(coll.id, default_extent))
+        _collection_to_response(
+            coll, count_map.get(coll.id, 0), extent_map.get(coll.id, default_extent)
+        )
         for coll in collections
     ]
 

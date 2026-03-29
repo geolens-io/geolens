@@ -491,8 +491,11 @@ class TestAnonymousAccess:
         assert resp.status_code == 401
 
         # Import (editor-only)
-        resp = await client.post("/ingest/upload/")
-        assert resp.status_code in (401, 422)  # 422 if missing body, but auth checked first
+        resp = await client.post("/ingest/upload")
+        assert resp.status_code in (
+            401,
+            422,
+        )  # 422 if missing body, but auth checked first
 
         # Admin users
         resp = await client.get("/admin/users/")
@@ -528,7 +531,9 @@ class TestDatasetSubRouterRouting:
             resp = await client.request(method, path, headers=admin_auth_header)
             # 404 with "not found" detail = dataset doesn't exist (route resolved correctly)
             # 404 without detail = route not registered (would be a regression)
-            assert resp.status_code in (200, 404), f"{method} {path} returned {resp.status_code}"
+            assert resp.status_code in (200, 404), (
+                f"{method} {path} returned {resp.status_code}"
+            )
             if resp.status_code == 404:
                 assert "not found" in resp.json().get("detail", "").lower(), (
                     f"{method} {path}: 404 but no 'not found' detail — route may not be registered"
@@ -558,8 +563,12 @@ class TestBulkDeleteDatasets:
     ):
         """Successfully delete multiple datasets in one request."""
         user_id = await _get_user_id(test_db_session, "admin")
-        ds1 = await _create_dataset(test_db_session, created_by=user_id, name="Bulk Del 1")
-        ds2 = await _create_dataset(test_db_session, created_by=user_id, name="Bulk Del 2")
+        ds1 = await _create_dataset(
+            test_db_session, created_by=user_id, name="Bulk Del 1"
+        )
+        ds2 = await _create_dataset(
+            test_db_session, created_by=user_id, name="Bulk Del 2"
+        )
 
         resp = await client.post(
             "/datasets/bulk-delete",
@@ -612,7 +621,9 @@ class TestBulkDeleteDatasets:
     ):
         """Wrong confirm_title returns error for that item."""
         user_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=user_id, name="Title Check")
+        ds = await _create_dataset(
+            test_db_session, created_by=user_id, name="Title Check"
+        )
 
         resp = await client.post(
             "/datasets/bulk-delete",

@@ -160,8 +160,8 @@ class AdminService:
         count_query = select(func.count()).select_from(User)
         list_query = select(User).order_by(User.created_at)
 
-        if status == 'deactivated':
-            deactivated = (User.status == 'active') & (User.is_active == False)  # noqa: E712
+        if status == "deactivated":
+            deactivated = (User.status == "active") & (User.is_active == False)  # noqa: E712
             count_query = count_query.where(deactivated)
             list_query = list_query.where(deactivated)
         elif status is not None:

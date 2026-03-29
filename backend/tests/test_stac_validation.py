@@ -6,7 +6,10 @@ Uses the same _make_ogc_record helper pattern as test_stac_serializer.py.
 
 import pystac
 
-from app.stac.serializer import ogc_collection_to_stac_collection, ogc_record_to_stac_item
+from app.stac.serializer import (
+    ogc_collection_to_stac_collection,
+    ogc_record_to_stac_item,
+)
 
 STAC_API_URL = "http://localhost:8080/api/stac"
 
@@ -55,7 +58,11 @@ def _make_ogc_record(
         "id": record_id,
         "properties": props,
         "links": [
-            {"rel": "self", "href": "/collections/datasets/items/1", "type": "application/geo+json"},
+            {
+                "rel": "self",
+                "href": "/collections/datasets/items/1",
+                "type": "application/geo+json",
+            },
         ],
         "assets": {},
     }
@@ -73,7 +80,9 @@ def _make_ogc_record(
     if has_geometry:
         record["geometry"] = {
             "type": "Polygon",
-            "coordinates": [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]],
+            "coordinates": [
+                [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]
+            ],
         }
         record["bbox"] = [-180, -90, 180, 90]
     else:
@@ -163,7 +172,15 @@ class TestStacStructureValidation:
         ogc = _make_ogc_record()
         item = ogc_record_to_stac_item(ogc, stac_api_url=STAC_API_URL)
 
-        required_keys = {"type", "stac_version", "id", "geometry", "properties", "links", "assets"}
+        required_keys = {
+            "type",
+            "stac_version",
+            "id",
+            "geometry",
+            "properties",
+            "links",
+            "assets",
+        }
         assert required_keys.issubset(item.keys())
         assert "datetime" in item["properties"]
 

@@ -12,9 +12,7 @@ All tests are pure unit tests -- no DB, no real files, no network.
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
-from typing import Optional
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -74,6 +72,7 @@ class TestAddSourceSchemas:
 
     def test_add_source_request_rejects_non_uuid(self):
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError):
             VrtAddSourceRequest(source_dataset_id="not-a-uuid")
 
@@ -83,11 +82,15 @@ class TestAddSourceSchemas:
 
     def test_mutation_response_accepts_job_id(self):
         job_id = uuid.uuid4()
-        resp = VrtMutationResponse(job_id=job_id, message="Source added, VRT regeneration started")
+        resp = VrtMutationResponse(
+            job_id=job_id, message="Source added, VRT regeneration started"
+        )
         assert resp.job_id == job_id
 
     def test_mutation_response_has_message(self):
-        resp = VrtMutationResponse(job_id=uuid.uuid4(), message="Source removed, VRT regeneration started")
+        resp = VrtMutationResponse(
+            job_id=uuid.uuid4(), message="Source removed, VRT regeneration started"
+        )
         assert "removed" in resp.message
 
 
@@ -105,6 +108,7 @@ class TestAddSource:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -128,6 +132,7 @@ class TestAddSource:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -149,6 +154,7 @@ class TestAddSource:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -171,6 +177,7 @@ class TestAddSource:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             source_id = uuid.uuid4()
             mock_request = MagicMock()
             mock_request.source_dataset_id = source_id
@@ -195,6 +202,7 @@ class TestAddSource:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -205,7 +213,10 @@ class TestAddSource:
 
             # Simulate validate_sources returning an error
             mock_error = MagicMock(spec=SourceValidationError)
-            mock_error.model_dump.return_value = {"code": "CRS_MISMATCH", "message": "CRS mismatch"}
+            mock_error.model_dump.return_value = {
+                "code": "CRS_MISMATCH",
+                "message": "CRS mismatch",
+            }
 
             with patch("app.ingest.router.validate_sources", return_value=[mock_error]):
                 with pytest.raises(HTTPException) as exc_info:
@@ -217,8 +228,10 @@ class TestAddSource:
 
     def test_returns_202_with_job_id_on_success(self):
         """Returns 202 Accepted with job_id on valid add."""
+
         async def _check():
             from app.ingest.router import add_vrt_source
+
             source_id = uuid.uuid4()
             mock_request = MagicMock()
             mock_request.source_dataset_id = source_id
@@ -227,12 +240,18 @@ class TestAddSource:
             dataset_id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id = _build_mock_db_success_add(mock_asset, dataset_id)
+            mock_db, expected_job_id = _build_mock_db_success_add(
+                mock_asset, dataset_id
+            )
 
-            with patch("app.ingest.router.validate_sources", return_value=[]), \
-                 patch("app.ingest.router.regenerate_vrt") as mock_task:
+            with (
+                patch("app.ingest.router.validate_sources", return_value=[]),
+                patch("app.ingest.router.regenerate_vrt") as mock_task,
+            ):
                 mock_task.defer_async = AsyncMock()
-                result = await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
+                result = await add_vrt_source(
+                    dataset_id, mock_request, mock_user, mock_db
+                )
 
             assert result.job_id == expected_job_id
             assert result.status == "accepted"
@@ -254,6 +273,7 @@ class TestRemoveSource:
 
         async def _check():
             from app.ingest.router import remove_vrt_source
+
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -262,7 +282,9 @@ class TestRemoveSource:
             mock_db = _build_mock_db_for_vrt(mock_asset)
 
             with pytest.raises(HTTPException) as exc_info:
-                await remove_vrt_source(dataset_id, source_dataset_id, mock_user, mock_db)
+                await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
 
             assert exc_info.value.status_code == 409
             assert "regenerating" in str(exc_info.value.detail).lower()
@@ -275,6 +297,7 @@ class TestRemoveSource:
 
         async def _check():
             from app.ingest.router import remove_vrt_source
+
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -282,7 +305,9 @@ class TestRemoveSource:
             mock_db = _build_mock_db_no_vrt()
 
             with pytest.raises(HTTPException) as exc_info:
-                await remove_vrt_source(dataset_id, source_dataset_id, mock_user, mock_db)
+                await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
 
             assert exc_info.value.status_code == 404
 
@@ -294,6 +319,7 @@ class TestRemoveSource:
 
         async def _check():
             from app.ingest.router import remove_vrt_source
+
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -303,7 +329,9 @@ class TestRemoveSource:
             mock_db = _build_mock_db_remove_min_guard(mock_asset, source_count=2)
 
             with pytest.raises(HTTPException) as exc_info:
-                await remove_vrt_source(dataset_id, source_dataset_id, mock_user, mock_db)
+                await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
 
             assert exc_info.value.status_code == 422
             assert "2" in str(exc_info.value.detail)
@@ -316,15 +344,20 @@ class TestRemoveSource:
 
         async def _check():
             from app.ingest.router import remove_vrt_source
+
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db = _build_mock_db_remove_source_not_linked(mock_asset, source_count=3)
+            mock_db = _build_mock_db_remove_source_not_linked(
+                mock_asset, source_count=3
+            )
 
             with pytest.raises(HTTPException) as exc_info:
-                await remove_vrt_source(dataset_id, source_dataset_id, mock_user, mock_db)
+                await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
 
             assert exc_info.value.status_code == 404
             assert "not linked" in str(exc_info.value.detail).lower()
@@ -333,19 +366,25 @@ class TestRemoveSource:
 
     def test_returns_202_with_job_id_on_success(self):
         """Returns 202 Accepted with job_id on valid remove."""
+
         async def _check():
             from app.ingest.router import remove_vrt_source
+
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
             mock_user.id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id = _build_mock_db_success_remove(mock_asset, dataset_id, source_count=3)
+            mock_db, expected_job_id = _build_mock_db_success_remove(
+                mock_asset, dataset_id, source_count=3
+            )
 
             with patch("app.ingest.router.regenerate_vrt") as mock_task:
                 mock_task.defer_async = AsyncMock()
-                result = await remove_vrt_source(dataset_id, source_dataset_id, mock_user, mock_db)
+                result = await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
 
             assert result.job_id == expected_job_id
             assert result.status == "accepted"
@@ -367,6 +406,7 @@ class TestMutationSerialization:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -387,6 +427,7 @@ class TestMutationSerialization:
 
         async def _check():
             from app.ingest.router import remove_vrt_source
+
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -395,17 +436,19 @@ class TestMutationSerialization:
             mock_db = _build_mock_db_for_vrt(mock_asset)
 
             with pytest.raises(HTTPException) as exc_info:
-                await remove_vrt_source(dataset_id, source_dataset_id, mock_user, mock_db)
+                await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
             assert exc_info.value.status_code == 409
 
         asyncio.run(_check())
 
     def test_add_allows_ready_status(self):
         """Add endpoint proceeds when status is 'ready'."""
-        from fastapi import HTTPException
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -415,11 +458,15 @@ class TestMutationSerialization:
             mock_asset = _make_mock_asset(status="ready")
             mock_db, _ = _build_mock_db_success_add(mock_asset, dataset_id)
 
-            with patch("app.ingest.router.validate_sources", return_value=[]), \
-                 patch("app.ingest.router.regenerate_vrt") as mock_task:
+            with (
+                patch("app.ingest.router.validate_sources", return_value=[]),
+                patch("app.ingest.router.regenerate_vrt") as mock_task,
+            ):
                 mock_task.defer_async = AsyncMock()
                 # Should not raise 409
-                result = await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
+                result = await add_vrt_source(
+                    dataset_id, mock_request, mock_user, mock_db
+                )
             assert result.status == "accepted"
 
         asyncio.run(_check())
@@ -430,6 +477,7 @@ class TestMutationSerialization:
 
         async def _check():
             from app.ingest.router import add_vrt_source
+
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -457,18 +505,25 @@ class TestRegenerateVrtTask:
     def test_task_exists_and_is_importable(self):
         """regenerate_vrt task can be imported from app.ingest.tasks."""
         from app.ingest.tasks import regenerate_vrt
+
         assert regenerate_vrt is not None
 
     def test_task_is_on_raster_queue(self):
         """regenerate_vrt must be on the 'raster' queue."""
         from app.ingest.tasks import regenerate_vrt
+
         # Procrastinate tasks store queue in task.queue or task.task_kwargs
-        assert hasattr(regenerate_vrt, "queue") or hasattr(regenerate_vrt, "task_kwargs")
-        queue = getattr(regenerate_vrt, "queue", None) or regenerate_vrt.task_kwargs.get("queue")
+        assert hasattr(regenerate_vrt, "queue") or hasattr(
+            regenerate_vrt, "task_kwargs"
+        )
+        queue = getattr(
+            regenerate_vrt, "queue", None
+        ) or regenerate_vrt.task_kwargs.get("queue")
         assert queue == "raster"
 
     def test_task_sets_status_to_failed_on_exception(self):
         """On exception, task sets asset.status = 'failed' and job.status = 'failed'."""
+
         async def _check():
             from app.ingest.tasks import regenerate_vrt
 
@@ -501,12 +556,19 @@ class TestRegenerateVrtTask:
 
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
-            with patch("app.ingest.tasks.async_session") as mock_async_session, \
-                 patch("app.ingest.tasks.build_vrt", side_effect=RuntimeError("gdalbuildvrt failed")):
+            with (
+                patch("app.ingest.tasks.async_session") as mock_async_session,
+                patch(
+                    "app.ingest.tasks.build_vrt",
+                    side_effect=RuntimeError("gdalbuildvrt failed"),
+                ),
+            ):
                 mock_async_session.return_value = mock_session
 
                 try:
-                    await regenerate_vrt.func(job_id=job_id, vrt_dataset_id=vrt_dataset_id)
+                    await regenerate_vrt.func(
+                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                    )
                 except (RuntimeError, Exception):
                     pass
 
@@ -518,6 +580,7 @@ class TestRegenerateVrtTask:
 
     def test_task_clears_current_generation_id_on_failure(self):
         """On failure, current_generation_id is cleared (set to None)."""
+
         async def _check():
             from app.ingest.tasks import regenerate_vrt
 
@@ -551,11 +614,15 @@ class TestRegenerateVrtTask:
 
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
-            with patch("app.ingest.tasks.async_session") as mock_async_session, \
-                 patch("app.ingest.tasks.build_vrt", side_effect=RuntimeError("fail")):
+            with (
+                patch("app.ingest.tasks.async_session") as mock_async_session,
+                patch("app.ingest.tasks.build_vrt", side_effect=RuntimeError("fail")),
+            ):
                 mock_async_session.return_value = mock_session
                 try:
-                    await regenerate_vrt.func(job_id=job_id, vrt_dataset_id=vrt_dataset_id)
+                    await regenerate_vrt.func(
+                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                    )
                 except Exception:
                     pass
 
@@ -565,6 +632,7 @@ class TestRegenerateVrtTask:
 
     def test_task_sets_status_to_ready_on_success(self):
         """On success, asset.status is set to 'ready' and last_regenerated_at is updated."""
+
         async def _check():
             from app.ingest.tasks import regenerate_vrt
 
@@ -615,7 +683,10 @@ class TestRegenerateVrtTask:
                     result_mock.fetchall.return_value = mock_rows
                 elif n == 4:
                     # source RasterAssets
-                    result_mock.scalars.return_value.all.return_value = [mock_source_asset1, mock_source_asset2]
+                    result_mock.scalars.return_value.all.return_value = [
+                        mock_source_asset1,
+                        mock_source_asset2,
+                    ]
                 elif n == 5:
                     # dataset record for footprint
                     result_mock.scalar_one_or_none.return_value = mock_dataset
@@ -624,7 +695,7 @@ class TestRegenerateVrtTask:
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
             mock_meta = {
-                "crs_wkt": "GEOGCS[\"WGS 84\"]",
+                "crs_wkt": 'GEOGCS["WGS 84"]',
                 "epsg": 4326,
                 "res_x": 0.001,
                 "res_y": 0.001,
@@ -637,25 +708,46 @@ class TestRegenerateVrtTask:
                 "band_info": [],
             }
 
-            with patch("app.ingest.tasks.async_session") as mock_async_session, \
-                 patch("app.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"), \
-                 patch("app.ingest.tasks.resolve_vrt_source_path", return_value="/path/to/source.cog.tif"), \
-                 patch("app.ingest.tasks.extract_raster_metadata", return_value=mock_meta), \
-                 patch("app.ingest.tasks.sha256_file", return_value="newhash"), \
-                 patch("app.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"), \
-                 patch("app.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock), \
-                 patch("builtins.open", MagicMock(return_value=MagicMock(__enter__=MagicMock(return_value=MagicMock()), __exit__=MagicMock()))), \
-                 patch("os.path.getsize", return_value=1024), \
-                 patch("tempfile.mkdtemp", return_value="/tmp/regen_test"), \
-                 patch("shutil.rmtree"), \
-                 patch("asyncio.to_thread", new=_fake_to_thread):
+            with (
+                patch("app.ingest.tasks.async_session") as mock_async_session,
+                patch("app.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
+                patch(
+                    "app.ingest.tasks.resolve_vrt_source_path",
+                    return_value="/path/to/source.cog.tif",
+                ),
+                patch(
+                    "app.ingest.tasks.extract_raster_metadata", return_value=mock_meta
+                ),
+                patch("app.ingest.tasks.sha256_file", return_value="newhash"),
+                patch("app.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
+                patch(
+                    "app.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
+                ),
+                patch(
+                    "builtins.open",
+                    MagicMock(
+                        return_value=MagicMock(
+                            __enter__=MagicMock(return_value=MagicMock()),
+                            __exit__=MagicMock(),
+                        )
+                    ),
+                ),
+                patch("os.path.getsize", return_value=1024),
+                patch("tempfile.mkdtemp", return_value="/tmp/regen_test"),
+                patch("shutil.rmtree"),
+                patch("asyncio.to_thread", new=_fake_to_thread),
+            ):
                 mock_async_session.return_value = mock_session
 
                 mock_storage = AsyncMock()
                 mock_storage.put = AsyncMock()
-                with patch("app.ingest.tasks.get_storage", return_value=mock_storage), \
-                     patch("app.ingest.tasks.defer_embedding", new_callable=AsyncMock):
-                    await regenerate_vrt.func(job_id=job_id, vrt_dataset_id=vrt_dataset_id)
+                with (
+                    patch("app.ingest.tasks.get_storage", return_value=mock_storage),
+                    patch("app.ingest.tasks.defer_embedding", new_callable=AsyncMock),
+                ):
+                    await regenerate_vrt.func(
+                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                    )
 
             assert mock_vrt_asset.status == "ready"
             assert mock_vrt_asset.last_regenerated_at is not None
@@ -665,6 +757,7 @@ class TestRegenerateVrtTask:
 
     def test_task_overwrites_same_storage_key(self):
         """Task must overwrite existing asset_uri key, not create a new one."""
+
         # The asset_uri should remain UNCHANGED after successful regeneration.
         # Atomic swap = overwrite same key, asset_uri stays the same.
         async def _check():
@@ -678,7 +771,9 @@ class TestRegenerateVrtTask:
             mock_job = MagicMock()
             mock_job.id = uuid.UUID(job_id)
 
-            mock_vrt_asset = _make_mock_asset(status="regenerating", asset_uri=original_uri)
+            mock_vrt_asset = _make_mock_asset(
+                status="regenerating", asset_uri=original_uri
+            )
             mock_vrt_asset.dataset_id = mock_vrt_asset_id
 
             source_ids = [uuid.uuid4(), uuid.uuid4()]
@@ -711,7 +806,9 @@ class TestRegenerateVrtTask:
                 elif n == 3:
                     result_mock.fetchall.return_value = mock_rows
                 elif n == 4:
-                    result_mock.scalars.return_value.all.return_value = mock_source_assets
+                    result_mock.scalars.return_value.all.return_value = (
+                        mock_source_assets
+                    )
                 elif n == 5:
                     result_mock.scalar_one_or_none.return_value = mock_dataset
                 return result_mock
@@ -719,11 +816,15 @@ class TestRegenerateVrtTask:
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
             mock_meta = {
-                "crs_wkt": "GEOGCS[\"WGS 84\"]",
+                "crs_wkt": 'GEOGCS["WGS 84"]',
                 "epsg": 4326,
-                "res_x": 0.001, "res_y": 0.001,
-                "band_count": 1, "nodata": None, "compression": None,
-                "width": 100, "height": 100,
+                "res_x": 0.001,
+                "res_y": 0.001,
+                "band_count": 1,
+                "nodata": None,
+                "compression": None,
+                "width": 100,
+                "height": 100,
                 "bounds": [0.0, 0.0, 1.0, 1.0],
                 "band_info": [],
             }
@@ -733,28 +834,51 @@ class TestRegenerateVrtTask:
             async def mock_put(key, data):
                 put_calls.append(key)
 
-            with patch("app.ingest.tasks.async_session") as mock_async_session, \
-                 patch("app.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"), \
-                 patch("app.ingest.tasks.resolve_vrt_source_path", return_value="/path/to/source.cog.tif"), \
-                 patch("app.ingest.tasks.extract_raster_metadata", return_value=mock_meta), \
-                 patch("app.ingest.tasks.sha256_file", return_value="newhash"), \
-                 patch("app.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"), \
-                 patch("app.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock), \
-                 patch("builtins.open", MagicMock(return_value=MagicMock(__enter__=MagicMock(return_value=MagicMock()), __exit__=MagicMock()))), \
-                 patch("os.path.getsize", return_value=1024), \
-                 patch("tempfile.mkdtemp", return_value="/tmp/regen_test"), \
-                 patch("shutil.rmtree"), \
-                 patch("asyncio.to_thread", new=_fake_to_thread):
+            with (
+                patch("app.ingest.tasks.async_session") as mock_async_session,
+                patch("app.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
+                patch(
+                    "app.ingest.tasks.resolve_vrt_source_path",
+                    return_value="/path/to/source.cog.tif",
+                ),
+                patch(
+                    "app.ingest.tasks.extract_raster_metadata", return_value=mock_meta
+                ),
+                patch("app.ingest.tasks.sha256_file", return_value="newhash"),
+                patch("app.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
+                patch(
+                    "app.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
+                ),
+                patch(
+                    "builtins.open",
+                    MagicMock(
+                        return_value=MagicMock(
+                            __enter__=MagicMock(return_value=MagicMock()),
+                            __exit__=MagicMock(),
+                        )
+                    ),
+                ),
+                patch("os.path.getsize", return_value=1024),
+                patch("tempfile.mkdtemp", return_value="/tmp/regen_test"),
+                patch("shutil.rmtree"),
+                patch("asyncio.to_thread", new=_fake_to_thread),
+            ):
                 mock_async_session.return_value = mock_session
 
                 mock_storage = AsyncMock()
                 mock_storage.put = mock_put
-                with patch("app.ingest.tasks.get_storage", return_value=mock_storage), \
-                     patch("app.ingest.tasks.defer_embedding", new_callable=AsyncMock):
-                    await regenerate_vrt.func(job_id=job_id, vrt_dataset_id=vrt_dataset_id)
+                with (
+                    patch("app.ingest.tasks.get_storage", return_value=mock_storage),
+                    patch("app.ingest.tasks.defer_embedding", new_callable=AsyncMock),
+                ):
+                    await regenerate_vrt.func(
+                        job_id=job_id, vrt_dataset_id=vrt_dataset_id
+                    )
 
             # The VRT file should be written to the ORIGINAL key
-            assert original_uri in put_calls, f"Expected {original_uri} in put_calls={put_calls}"
+            assert original_uri in put_calls, (
+                f"Expected {original_uri} in put_calls={put_calls}"
+            )
             # asset_uri should not have changed
             assert mock_vrt_asset.asset_uri == original_uri
 
@@ -853,6 +977,7 @@ class TestStatusField:
     def test_build_raster_metadata_returns_none_for_none_asset(self):
         """_build_raster_metadata returns None when raster_asset is None."""
         from app.datasets.helpers import _build_raster_metadata
+
         assert _build_raster_metadata(MagicMock(), None) is None
 
 
@@ -951,7 +1076,9 @@ def _build_mock_db_for_validation_failure(mock_asset: MagicMock) -> AsyncMock:
             result_mock.fetchone.return_value = None
         elif n == 4:
             # Existing sources fetch
-            result_mock.fetchall.return_value = [MagicMock(source_dataset_id=uuid.uuid4())]
+            result_mock.fetchall.return_value = [
+                MagicMock(source_dataset_id=uuid.uuid4())
+            ]
         elif n == 5:
             # Load existing source assets
             result_mock.scalars.return_value.all.return_value = [existing_source]
@@ -980,7 +1107,6 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
     mock_job.dataset_id = None
 
     # We patch create_ingest_job separately in the test
-    from unittest.mock import patch as _patch
 
     def execute_side_effect(query, params=None):
         call_count[0] += 1
@@ -995,7 +1121,9 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
             result_mock.fetchone.return_value = None
         elif n == 4:
             # Existing source links
-            result_mock.fetchall.return_value = [MagicMock(source_dataset_id=uuid.uuid4())]
+            result_mock.fetchall.return_value = [
+                MagicMock(source_dataset_id=uuid.uuid4())
+            ]
         elif n == 5:
             # Load existing source assets
             result_mock.scalars.return_value.all.return_value = [existing_source]
@@ -1009,7 +1137,6 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
 
     # Patch create_ingest_job to return our mock job
     import app.ingest.router as _router
-    original_create = getattr(_router, "create_ingest_job", None)
 
     async def mock_create_ingest_job(db, *args, **kwargs):
         return mock_job
@@ -1019,7 +1146,9 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
     return mock_db, job_id
 
 
-def _build_mock_db_remove_min_guard(mock_asset: MagicMock, source_count: int) -> AsyncMock:
+def _build_mock_db_remove_min_guard(
+    mock_asset: MagicMock, source_count: int
+) -> AsyncMock:
     """DB: VRT found (ready), source count check returns <= 2."""
     mock_db = AsyncMock()
     call_count = [0]
@@ -1040,7 +1169,9 @@ def _build_mock_db_remove_min_guard(mock_asset: MagicMock, source_count: int) ->
     return mock_db
 
 
-def _build_mock_db_remove_source_not_linked(mock_asset: MagicMock, source_count: int) -> AsyncMock:
+def _build_mock_db_remove_source_not_linked(
+    mock_asset: MagicMock, source_count: int
+) -> AsyncMock:
     """DB: VRT found, source count > 2, but source link not found."""
     mock_db = AsyncMock()
     call_count = [0]
@@ -1064,7 +1195,9 @@ def _build_mock_db_remove_source_not_linked(mock_asset: MagicMock, source_count:
     return mock_db
 
 
-def _build_mock_db_success_remove(mock_asset: MagicMock, dataset_id: uuid.UUID, source_count: int):
+def _build_mock_db_success_remove(
+    mock_asset: MagicMock, dataset_id: uuid.UUID, source_count: int
+):
     """DB: Full success path for remove_vrt_source.
 
     Returns (mock_db, expected_job_id).

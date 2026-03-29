@@ -15,12 +15,10 @@ Requirements:
 import uuid
 from datetime import date
 
-import pytest
 from sqlalchemy import select
 
 from app.auth.models import User
 from app.datasets.models import Dataset, Record
-from app.raster.models import DatasetAsset
 from app.search.service import (
     _build_stac_assets,
     dataset_to_ogc_record,
@@ -66,7 +64,9 @@ async def _create_record_and_dataset(
     await session.flush()
     await session.flush()
     # Eager-load relationships needed by dataset_to_ogc_record
-    await session.refresh(record, attribute_names=["keywords", "contacts", "distributions"])
+    await session.refresh(
+        record, attribute_names=["keywords", "contacts", "distributions"]
+    )
     await session.refresh(dataset, attribute_names=["record"])
     return dataset
 
@@ -74,7 +74,9 @@ async def _create_record_and_dataset(
 async def _prepare_for_sync(session, dataset):
     """Refresh all attributes so dataset_to_ogc_record can run synchronously."""
     record = dataset.record
-    await session.refresh(record, attribute_names=["keywords", "contacts", "distributions"])
+    await session.refresh(
+        record, attribute_names=["keywords", "contacts", "distributions"]
+    )
     await session.refresh(dataset, attribute_names=["record"])
 
 
@@ -87,9 +89,7 @@ class TestNoStacBleedthrough:
     async def test_ogc_record_no_stac_version(self, client, test_db_session):
         """OGC record dict must NOT have stac_version (STAC-specific)."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
         assert "stac_version" not in result
@@ -116,9 +116,7 @@ class TestStacDatetime:
     async def test_datetime_null_when_no_temporal(self, client, test_db_session):
         """Record with no temporal_start has properties.datetime = null."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
         assert result["properties"]["datetime"] is None
@@ -149,9 +147,7 @@ class TestStacAssetsRemoved:
     async def test_stac_assets_not_in_ogc_record(self, client, test_db_session):
         """OGC record must NOT have stac_assets (STAC-specific). assets key is fine."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         stac_asset_rows = [
             {
@@ -206,7 +202,9 @@ class TestBuildStacAssets:
         """_build_stac_assets with only href produces minimal entry."""
         rows = [{"key": "raw", "href": "/storage/raw.dat"}]
         result = _build_stac_assets(rows, public_api_url="http://localhost:8080/api")
-        assert result == {"raw": {"href": "http://localhost:8080/api/assets/storage/raw.dat"}}
+        assert result == {
+            "raw": {"href": "http://localhost:8080/api/assets/storage/raw.dat"}
+        }
 
     def test_build_stac_assets_empty(self):
         """_build_stac_assets with None returns empty dict."""
@@ -226,9 +224,7 @@ class TestStacExtensionsRemoved:
     async def test_raster_record_no_stac_extensions(self, client, test_db_session):
         """Raster records must NOT have stac_extensions in OGC Records output."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
         await _prepare_for_sync(test_db_session, dataset)
@@ -258,9 +254,7 @@ class TestStacExtensionsRemoved:
     async def test_vector_record_no_stac_extensions(self, client, test_db_session):
         """Vector records should not have stac_extensions."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
         assert "stac_extensions" not in result
@@ -268,9 +262,7 @@ class TestStacExtensionsRemoved:
     async def test_raster_record_proj_properties(self, client, test_db_session):
         """Raster record should have proj:* properties in properties dict."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
         await _prepare_for_sync(test_db_session, dataset)
@@ -306,14 +298,10 @@ class TestStacExtensionsRemoved:
         assert props["bands"][0]["name"] == "Red"
         assert props["bands"][0]["data_type"] == "uint16"
 
-    async def test_no_bands_without_band_info(
-        self, client, test_db_session
-    ):
+    async def test_no_bands_without_band_info(self, client, test_db_session):
         """No bands array when band_info is None."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
         dataset.record.record_type = "raster_dataset"
         await test_db_session.flush()
         await _prepare_for_sync(test_db_session, dataset)

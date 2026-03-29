@@ -20,7 +20,13 @@ from app.dependencies import get_db
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
 from app.search.service import _build_assets, dataset_to_ogc_record
-from app.stac.schemas import StacCatalog, StacCollectionListResponse, StacConformance, StacItemCollection, StacLink
+from app.stac.schemas import (
+    StacCatalog,
+    StacCollectionListResponse,
+    StacConformance,
+    StacItemCollection,
+    StacLink,
+)
 from app.stac.serializer import (
     STAC_CONFORMANCE,
     ogc_collection_to_stac_collection,
@@ -46,7 +52,8 @@ async def _resolve_stac_api_url(db: AsyncSession, request: Request) -> str:
 
 
 async def _fetch_dataset_asset_rows(
-    db: AsyncSession, dataset_ids: list[uuid.UUID],
+    db: AsyncSession,
+    dataset_ids: list[uuid.UUID],
 ) -> dict[str, list[dict]]:
     """Bulk-fetch DatasetAsset rows grouped by dataset ID."""
     if not dataset_ids:
@@ -56,19 +63,22 @@ async def _fetch_dataset_asset_rows(
     by_dataset: dict[str, list[dict]] = {}
     for da in da_result.scalars().all():
         ds_key = str(da.dataset_id)
-        by_dataset.setdefault(ds_key, []).append({
-            "key": da.key,
-            "href": da.href,
-            "media_type": da.media_type,
-            "roles": da.roles,
-            "title": da.title,
-            "description": da.description,
-        })
+        by_dataset.setdefault(ds_key, []).append(
+            {
+                "key": da.key,
+                "href": da.href,
+                "media_type": da.media_type,
+                "roles": da.roles,
+                "title": da.title,
+                "description": da.description,
+            }
+        )
     return by_dataset
 
 
 async def _fetch_raster_meta(
-    db: AsyncSession, dataset_ids: list[uuid.UUID],
+    db: AsyncSession,
+    dataset_ids: list[uuid.UUID],
 ) -> dict[str, dict]:
     """Bulk-fetch raster metadata for a set of dataset IDs."""
     if not dataset_ids:
@@ -141,9 +151,9 @@ async def _dataset_to_stac_item(
     # Look up collection membership if not provided
     if collection_id is None:
         cd_result = await db.execute(
-            select(CollectionDataset.collection_id).where(
-                CollectionDataset.dataset_id == dataset.id
-            ).limit(1)
+            select(CollectionDataset.collection_id)
+            .where(CollectionDataset.dataset_id == dataset.id)
+            .limit(1)
         )
         cd_row = cd_result.scalar_one_or_none()
         if cd_row is not None:
@@ -193,9 +203,20 @@ async def landing_page(
         links=[
             StacLink(rel="self", href=f"{stac_api_url}/", type="application/json"),
             StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
-            StacLink(rel="data", href=f"{stac_api_url}/collections", type="application/json"),
-            StacLink(rel="conformance", href=f"{stac_api_url}/conformance", type="application/json"),
-            StacLink(rel="search", href=f"{stac_api_url}/search", type="application/json", method="GET"),
+            StacLink(
+                rel="data", href=f"{stac_api_url}/collections", type="application/json"
+            ),
+            StacLink(
+                rel="conformance",
+                href=f"{stac_api_url}/conformance",
+                type="application/json",
+            ),
+            StacLink(
+                rel="search",
+                href=f"{stac_api_url}/search",
+                type="application/json",
+                method="GET",
+            ),
         ],
     )
 
@@ -250,7 +271,12 @@ async def get_collections(
         spatial_extent = None
         temporal_extent = None
         if ext_row and ext_row[0] is not None:
-            spatial_extent = [float(ext_row[0]), float(ext_row[1]), float(ext_row[2]), float(ext_row[3])]
+            spatial_extent = [
+                float(ext_row[0]),
+                float(ext_row[1]),
+                float(ext_row[2]),
+                float(ext_row[3]),
+            ]
         if ext_row and (ext_row[4] is not None or ext_row[5] is not None):
             t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
             t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
@@ -269,7 +295,9 @@ async def get_collections(
     return StacCollectionListResponse(
         collections=stac_collections,
         links=[
-            StacLink(rel="self", href=f"{stac_api_url}/collections", type="application/json"),
+            StacLink(
+                rel="self", href=f"{stac_api_url}/collections", type="application/json"
+            ),
             StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
         ],
     )
@@ -289,7 +317,9 @@ async def get_collection(
     )
     coll = coll_result.scalar_one_or_none()
     if coll is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
+        )
 
     # Compute extent
     extent_stmt = text("""
@@ -313,7 +343,12 @@ async def get_collection(
     spatial_extent = None
     temporal_extent = None
     if ext_row and ext_row[0] is not None:
-        spatial_extent = [float(ext_row[0]), float(ext_row[1]), float(ext_row[2]), float(ext_row[3])]
+        spatial_extent = [
+            float(ext_row[0]),
+            float(ext_row[1]),
+            float(ext_row[2]),
+            float(ext_row[3]),
+        ]
     if ext_row and (ext_row[4] is not None or ext_row[5] is not None):
         t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
         t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
@@ -368,7 +403,9 @@ async def search(
     request: Request,
     db: AsyncSession = Depends(get_db),
     bbox: str | None = Query(None, description="Bounding box: west,south,east,north"),
-    datetime: str | None = Query(None, alias="datetime", description="OGC datetime interval"),
+    datetime: str | None = Query(
+        None, alias="datetime", description="OGC datetime interval"
+    ),
     collections: str | None = Query(None, description="Comma-separated collection IDs"),
     ids: str | None = Query(None, description="Comma-separated item IDs"),
     limit: int = Query(10, ge=1, le=100),
@@ -397,8 +434,14 @@ async def search(
             return StacItemCollection(
                 features=[],
                 links=[
-                    StacLink(rel="self", href=f"{stac_api_url}/search", type="application/json"),
-                    StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
+                    StacLink(
+                        rel="self",
+                        href=f"{stac_api_url}/search",
+                        type="application/json",
+                    ),
+                    StacLink(
+                        rel="root", href=f"{stac_api_url}/", type="application/json"
+                    ),
                 ],
                 numberMatched=0,
                 numberReturned=0,
@@ -486,12 +529,14 @@ async def search(
         StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
     ]
     if offset + limit < total:
-        links.append(StacLink(
-            rel="next",
-            href=f"{stac_api_url}/search?offset={offset + limit}&limit={limit}",
-            type="application/json",
-            method="GET",
-        ))
+        links.append(
+            StacLink(
+                rel="next",
+                href=f"{stac_api_url}/search?offset={offset + limit}&limit={limit}",
+                type="application/json",
+                method="GET",
+            )
+        )
 
     return StacItemCollection(
         features=features,

@@ -1,11 +1,16 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AdminSidebar } from '../AdminSidebar';
 
 vi.mock('@/hooks/use-admin', () => ({
   usePendingCount: () => ({ data: 0 }),
   useFailedJobCount: () => ({ data: 0 }),
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({ isEnterprise: false, edition: 'community', isLoading: false }),
 }));
 
 // i18n returns the key by default in tests, so we match on i18n keys' last segment
@@ -54,13 +59,19 @@ beforeAll(() => {
   });
 });
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
 function renderSidebar(path = '/admin/overview') {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <SidebarProvider>
-        <AdminSidebar />
-      </SidebarProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[path]}>
+        <SidebarProvider>
+          <AdminSidebar />
+        </SidebarProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

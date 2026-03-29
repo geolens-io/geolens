@@ -31,6 +31,7 @@ export function MentionDropdown({ id, items, selectedIndex, onSelect, type, labe
           id={`${id}-option-${index}`}
           role="option"
           aria-selected={index === selectedIndex}
+          tabIndex={-1}
           className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${
             index === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
           }`}

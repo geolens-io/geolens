@@ -288,7 +288,9 @@ class TestAdminUserNames:
         await _create_user_via_admin(
             client, admin_headers, username=f"viewer_{unique}", role="viewer"
         )
-        viewer_headers = await get_auth_header(client, f"viewer_{unique}", "testpass123")
+        viewer_headers = await get_auth_header(
+            client, f"viewer_{unique}", "testpass123"
+        )
         resp = await client.get("/admin/users/names/", headers=viewer_headers)
         assert resp.status_code == 403
 

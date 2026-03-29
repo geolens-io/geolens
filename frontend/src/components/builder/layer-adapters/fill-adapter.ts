@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint, CUSTOM_PAINT_PROPS } from './shared';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const fillAdapter: LayerAdapter = {

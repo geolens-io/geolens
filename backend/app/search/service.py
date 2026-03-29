@@ -11,7 +11,17 @@ if TYPE_CHECKING:
     from app.storage.provider import StorageProvider
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import String as SAString, case, collate, exists, func, literal, or_, select, text
+from sqlalchemy import (
+    String as SAString,
+    case,
+    collate,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload
 
@@ -259,11 +269,15 @@ async def get_facet_counts(
     # Spatial filter
     if geometry_geojson:
         geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
-        spatial_fn = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        spatial_fn = (
+            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
         envelope = func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)
-        spatial_fn = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        spatial_fn = (
+            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, envelope))
 
     # Faceted filters (excluding record_type)
@@ -349,33 +363,45 @@ async def get_facet_counts(
             func.lower(Record.title).like(_ql),
             func.lower(func.coalesce(Record.summary, "")).like(_ql),
             exists(
-                select(_RKA.id).where(
+                select(_RKA.id)
+                .where(
                     _RKA.record_id == Record.id,
                     func.to_tsvector("english", _RKA.keyword).bool_op("@@")(_tsq),
-                ).correlate(Record)
+                )
+                .correlate(Record)
             ),
             exists(
-                select(_RKA.id).where(
+                select(_RKA.id)
+                .where(
                     _RKA.record_id == Record.id,
                     func.lower(_RKA.keyword).like(_ql),
-                ).correlate(Record)
+                )
+                .correlate(Record)
             ),
             exists(
-                select(RecordContact.id).where(
+                select(RecordContact.id)
+                .where(
                     RecordContact.record_id == Record.id,
                     func.to_tsvector(
                         "english",
-                        func.coalesce(RecordContact.name, "") + " " + func.coalesce(RecordContact.organization, ""),
+                        func.coalesce(RecordContact.name, "")
+                        + " "
+                        + func.coalesce(RecordContact.organization, ""),
                     ).bool_op("@@")(_tsq),
-                ).correlate(Record)
+                )
+                .correlate(Record)
             ),
             exists(
-                select(RecordContact.id).where(
+                select(RecordContact.id)
+                .where(
                     RecordContact.record_id == Record.id,
                     func.lower(
-                        func.coalesce(RecordContact.name, "") + " " + func.coalesce(RecordContact.organization, ""),
+                        func.coalesce(RecordContact.name, "")
+                        + " "
+                        + func.coalesce(RecordContact.organization, ""),
                     ).like(_ql),
-                ).correlate(Record)
+                )
+                .correlate(Record)
             ),
         )
 
@@ -394,27 +420,40 @@ async def get_facet_counts(
             _RKS = aliased(RecordKeyword)
             fstmt = fstmt.where(
                 ~exists(
-                    select(_RKS.id).where(
+                    select(_RKS.id)
+                    .where(
                         _RKS.record_id == Record.id,
                         func.lower(_RKS.keyword) == "synthetic",
-                    ).correlate(Record)
+                    )
+                    .correlate(Record)
                 )
             )
         if _facet_text_filter is not None:
             fstmt = fstmt.where(_facet_text_filter)
         if geometry_geojson:
             geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
-            spatial_fn = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+            spatial_fn = (
+                func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+            )
             fstmt = fstmt.where(spatial_fn(Record.spatial_extent, geom))
         elif bbox and len(bbox) == 4:
             envelope = func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)
-            spatial_fn = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+            spatial_fn = (
+                func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+            )
             fstmt = fstmt.where(spatial_fn(Record.spatial_extent, envelope))
         if keywords:
             _RKF = aliased(RecordKeyword)
             for kw in keywords:
                 fstmt = fstmt.where(
-                    exists(select(_RKF.id).where(_RKF.record_id == Record.id, func.lower(_RKF.keyword) == kw.lower()).correlate(Record))
+                    exists(
+                        select(_RKF.id)
+                        .where(
+                            _RKF.record_id == Record.id,
+                            func.lower(_RKF.keyword) == kw.lower(),
+                        )
+                        .correlate(Record)
+                    )
                 )
         if geometry_type:
             fstmt = fstmt.where(Dataset.geometry_type == geometry_type)
@@ -425,9 +464,13 @@ async def get_facet_counts(
         if datetime_param:
             _ds, _de = parse_ogc_datetime(datetime_param)
             if _ds is not None:
-                fstmt = fstmt.where(or_(Record.temporal_end >= _ds, Record.temporal_end.is_(None)))
+                fstmt = fstmt.where(
+                    or_(Record.temporal_end >= _ds, Record.temporal_end.is_(None))
+                )
             if _de is not None:
-                fstmt = fstmt.where(or_(Record.temporal_start <= _de, Record.temporal_start.is_(None)))
+                fstmt = fstmt.where(
+                    or_(Record.temporal_start <= _de, Record.temporal_start.is_(None))
+                )
         return fstmt
 
     # --- Keyword facets (top 20) ---
@@ -439,9 +482,13 @@ async def get_facet_counts(
     )
     kw_stmt = apply_visibility_filter(kw_stmt, user, user_roles, Record, DatasetGrant)
     kw_stmt = _apply_facet_filters(kw_stmt)
-    kw_stmt = kw_stmt.group_by(RecordKeyword.keyword).order_by(func.count().desc()).limit(20)
+    kw_stmt = (
+        kw_stmt.group_by(RecordKeyword.keyword).order_by(func.count().desc()).limit(20)
+    )
     kw_result = await session.execute(kw_stmt)
-    keyword_facets = [{"value": row.keyword, "count": row.count} for row in kw_result.all()]
+    keyword_facets = [
+        {"value": row.keyword, "count": row.count} for row in kw_result.all()
+    ]
 
     # --- Source organization facets ---
     org_stmt = (
@@ -452,22 +499,34 @@ async def get_facet_counts(
     )
     org_stmt = apply_visibility_filter(org_stmt, user, user_roles, Record, DatasetGrant)
     org_stmt = _apply_facet_filters(org_stmt)
-    org_stmt = org_stmt.group_by(Record.source_organization).order_by(func.count().desc())
+    org_stmt = org_stmt.group_by(Record.source_organization).order_by(
+        func.count().desc()
+    )
     org_result = await session.execute(org_stmt)
-    org_facets = [{"value": row.source_organization, "count": row.count} for row in org_result.all()]
+    org_facets = [
+        {"value": row.source_organization, "count": row.count}
+        for row in org_result.all()
+    ]
 
     # --- SRID facets ---
     srid_stmt = (
-        select(func.cast(Dataset.srid, SAString).label("srid_str"), func.count().label("count"))
+        select(
+            func.cast(Dataset.srid, SAString).label("srid_str"),
+            func.count().label("count"),
+        )
         .select_from(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .where(Dataset.srid.isnot(None))
     )
-    srid_stmt = apply_visibility_filter(srid_stmt, user, user_roles, Record, DatasetGrant)
+    srid_stmt = apply_visibility_filter(
+        srid_stmt, user, user_roles, Record, DatasetGrant
+    )
     srid_stmt = _apply_facet_filters(srid_stmt)
     srid_stmt = srid_stmt.group_by(Dataset.srid).order_by(func.count().desc())
     srid_result = await session.execute(srid_stmt)
-    srid_facets = [{"value": row.srid_str, "count": row.count} for row in srid_result.all()]
+    srid_facets = [
+        {"value": row.srid_str, "count": row.count} for row in srid_result.all()
+    ]
 
     # --- Collections facet (lightweight: id, name, visible member count) ---
     coll_facet_stmt = (
@@ -700,11 +759,15 @@ async def search_datasets(
     # 3. Spatial filter (spatial_extent now on Record)
     if geometry_geojson:
         geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
-        spatial_fn = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        spatial_fn = (
+            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
         envelope = func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)
-        spatial_fn = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        spatial_fn = (
+            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, envelope))
 
     # 4. Faceted filters
@@ -855,7 +918,9 @@ async def search_datasets(
         )
     elif sort_by == "date_added":
         _desc = sort_desc if sort_desc is not None else True
-        stmt = stmt.order_by(Record.created_at.desc() if _desc else Record.created_at.asc())
+        stmt = stmt.order_by(
+            Record.created_at.desc() if _desc else Record.created_at.asc()
+        )
     elif sort_by in {"title", "name"}:
         _desc = sort_desc if sort_desc is not None else False
         if _desc:
@@ -871,7 +936,9 @@ async def search_datasets(
             )
     elif sort_by == "last_updated":
         _desc = sort_desc if sort_desc is not None else True
-        stmt = stmt.order_by(Record.updated_at.desc() if _desc else Record.updated_at.asc())
+        stmt = stmt.order_by(
+            Record.updated_at.desc() if _desc else Record.updated_at.asc()
+        )
     else:
         stmt = stmt.order_by(Record.created_at.desc())
 
@@ -901,7 +968,9 @@ def _build_assets(
     storage_provider: "StorageProvider | None" = None,
 ) -> dict:
     """Build a modality-aware unified assets dict for a dataset."""
-    record_type = getattr(dataset.record, "record_type", "vector_dataset") or "vector_dataset"
+    record_type = (
+        getattr(dataset.record, "record_type", "vector_dataset") or "vector_dataset"
+    )
 
     if record_type == "collection":
         return {}
@@ -1121,7 +1190,9 @@ def dataset_to_ogc_record(
             # Enriched OGC properties (Phase 10-02)
             "formats": (
                 list(_RASTER_FORMAT_MEDIA.values())
-                if (getattr(record, "record_type", "vector_dataset") or "vector_dataset")
+                if (
+                    getattr(record, "record_type", "vector_dataset") or "vector_dataset"
+                )
                 in ("raster_dataset", "vrt_dataset")
                 else list(_FORMAT_MEDIA.values())
             ),
@@ -1129,19 +1200,30 @@ def dataset_to_ogc_record(
             "themes": _build_themes(record.theme_category, record.keywords),
             "rights": record.license,
             "contacts": [
-                {k: v for k, v in {
-                    "name": c.name,
-                    "organization": c.organization,
-                    "role": c.role,
-                    "email": c.email,
-                    "phone": c.phone,
-                }.items() if v is not None}
+                {
+                    k: v
+                    for k, v in {
+                        "name": c.name,
+                        "organization": c.organization,
+                        "role": c.role,
+                        "email": c.email,
+                        "phone": c.phone,
+                    }.items()
+                    if v is not None
+                }
                 for c in record.contacts
             ]
             if record.contacts
             else None,
             "datetime": stac_datetime,
-            **({"start_datetime": stac_start_datetime, "end_datetime": stac_end_datetime} if stac_start_datetime else {}),
+            **(
+                {
+                    "start_datetime": stac_start_datetime,
+                    "end_datetime": stac_end_datetime,
+                }
+                if stac_start_datetime
+                else {}
+            ),
             "time": _build_time(dataset),
             # ISO governance fields (API-01)
             "lineage": record.lineage_summary,
@@ -1205,9 +1287,17 @@ def dataset_to_ogc_record(
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:epsg"] = raster_meta["epsg"]
         if raster_meta.get("width") and raster_meta.get("height"):
-            ogc_record["properties"]["proj:shape"] = [raster_meta["height"], raster_meta["width"]]
-        if raster_meta.get("res_x") is not None and raster_meta.get("res_y") is not None:
-            ogc_record["properties"]["gsd"] = min(abs(raster_meta["res_x"]), abs(raster_meta["res_y"]))
+            ogc_record["properties"]["proj:shape"] = [
+                raster_meta["height"],
+                raster_meta["width"],
+            ]
+        if (
+            raster_meta.get("res_x") is not None
+            and raster_meta.get("res_y") is not None
+        ):
+            ogc_record["properties"]["gsd"] = min(
+                abs(raster_meta["res_x"]), abs(raster_meta["res_y"])
+            )
         if raster_meta.get("band_count"):
             ogc_record["properties"]["band_count"] = raster_meta["band_count"]
 

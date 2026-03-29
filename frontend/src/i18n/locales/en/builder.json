@@ -44,7 +44,15 @@
     "styledBy": "Styled by: {{column}}",
     "radiusByColumn": "Radius by: {{column}}",
     "widthByColumn": "Width by: {{column}}",
-    "toggleStroke": "Toggle stroke"
+    "toggleFill": "Toggle fill visibility",
+    "toggleStroke": "Toggle stroke visibility",
+    "pattern": "Pattern",
+    "dash": {
+      "solid": "Solid",
+      "dashed": "Dashed",
+      "dotted": "Dotted",
+      "dashDot": "Dash-dot"
+    }
   },
   "filters": {
     "title": "Filters",

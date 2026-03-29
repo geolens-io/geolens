@@ -16,6 +16,7 @@ Called by:
 - Phase 173: VRT creation endpoint
 - Phase 174: add-source endpoint
 """
+
 from __future__ import annotations
 
 import uuid
@@ -42,6 +43,7 @@ class SourceValidationError(BaseModel):
 # ---------------------------------------------------------------------------
 # Private helpers — each returns list[SourceValidationError]
 # ---------------------------------------------------------------------------
+
 
 def _check_crs(sources: list[Any]) -> list[SourceValidationError]:
     """VAL-01: All sources must share the same CRS.
@@ -218,6 +220,7 @@ def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def validate_sources(vrt_type: str, sources: list[Any]) -> list[SourceValidationError]:
     """Validate candidate sources for VRT creation.

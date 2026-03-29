@@ -29,9 +29,7 @@ def _discover_migration_paths() -> list[str]:
 
 def test_discover_migration_paths_empty():
     """Returns empty list when no geolens.migrations entry points exist."""
-    with patch(
-        "tests.test_migration_discovery.iter_entry_points", return_value=[]
-    ):
+    with patch("tests.test_migration_discovery.iter_entry_points", return_value=[]):
         result = _discover_migration_paths()
     assert result == []
 

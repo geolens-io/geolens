@@ -856,14 +856,22 @@ class TestDistributions:
 
         # First generation
         created1 = await generate_distributions(
-            test_db_session, ds.id, ds.record_id, ds.table_name, geometry_type="MultiPolygon"
+            test_db_session,
+            ds.id,
+            ds.record_id,
+            ds.table_name,
+            geometry_type="MultiPolygon",
         )
         await test_db_session.commit()
         assert len(created1) == 6
 
         # Second generation (idempotent)
         created2 = await generate_distributions(
-            test_db_session, ds.id, ds.record_id, ds.table_name, geometry_type="MultiPolygon"
+            test_db_session,
+            ds.id,
+            ds.record_id,
+            ds.table_name,
+            geometry_type="MultiPolygon",
         )
         await test_db_session.commit()
         assert len(created2) == 0  # No new rows

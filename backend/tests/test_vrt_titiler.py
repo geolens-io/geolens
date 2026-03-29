@@ -73,14 +73,26 @@ def _create_test_cog(cog_path: str) -> None:
     subprocess.run(
         [
             "gdal_create",
-            "-ot", "Byte",
-            "-outsize", "64", "64",
-            "-bands", "3",
-            "-burn", "128",
-            "-of", "GTiff",
-            "-co", "TILED=YES",
-            "-a_srs", "EPSG:4326",
-            "-a_ullr", "-10", "10", "10", "-10",
+            "-ot",
+            "Byte",
+            "-outsize",
+            "64",
+            "64",
+            "-bands",
+            "3",
+            "-burn",
+            "128",
+            "-of",
+            "GTiff",
+            "-co",
+            "TILED=YES",
+            "-a_srs",
+            "EPSG:4326",
+            "-a_ullr",
+            "-10",
+            "10",
+            "10",
+            "-10",
             cog_path,
         ],
         check=True,
@@ -220,6 +232,7 @@ class TestVrtTitilerProxy:
             # Clean up test files from shared staging volume
             try:
                 import shutil
+
                 parent_dir = f"{_REAL_STAGING_DIR}/rasters/{dataset.id}"
                 if os.path.exists(parent_dir):
                     shutil.rmtree(parent_dir)

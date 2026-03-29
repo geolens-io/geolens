@@ -115,9 +115,7 @@ async def list_user_names(
     db: AsyncSession = Depends(get_db),
 ) -> list[UserNameItem]:
     """Return lightweight id+username list for all users (for filter dropdowns)."""
-    result = await db.execute(
-        select(User.id, User.username).order_by(User.username)
-    )
+    result = await db.execute(select(User.id, User.username).order_by(User.username))
     return [UserNameItem(id=row.id, username=row.username) for row in result.all()]
 
 
@@ -411,7 +409,9 @@ async def list_api_keys(
     stmt = select(ApiKey)
     if user_id is not None:
         stmt = stmt.where(ApiKey.user_id == user_id)
-    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    total = (
+        await db.execute(select(func.count()).select_from(stmt.subquery()))
+    ).scalar_one()
     result = await db.execute(stmt.offset(skip).limit(limit))
     keys = result.scalars().all()
     return AdminApiKeyListResponse(
@@ -638,7 +638,9 @@ async def list_share_tokens_endpoint(
     """List all share tokens with map info (admin only)."""
     from app.maps.service import list_share_tokens
 
-    tokens, total = await list_share_tokens(db, skip, limit, search=search, status_filter=status)
+    tokens, total = await list_share_tokens(
+        db, skip, limit, search=search, status_filter=status
+    )
     return AdminShareTokenListResponse(
         tokens=[AdminShareTokenResponse(**t) for t in tokens],
         total=total,

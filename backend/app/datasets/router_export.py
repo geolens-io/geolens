@@ -180,7 +180,9 @@ async def download_cog(
     storage = get_storage()
 
     if raster_asset.storage_backend == "s3":
-        url = storage.generate_presigned_get_url(raster_asset.asset_uri, expiration=3600)
+        url = storage.generate_presigned_get_url(
+            raster_asset.asset_uri, expiration=3600
+        )
         return RedirectResponse(url=url, status_code=302)
 
     # Local storage: stream bytes

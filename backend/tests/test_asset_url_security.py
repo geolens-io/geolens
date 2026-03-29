@@ -13,7 +13,6 @@ Verifies:
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.assets.urls import resolve_asset_url, _extract_storage_key
 
@@ -55,7 +54,9 @@ class TestResolveAssetUrl:
 
     def test_s3_published_data_signed(self):
         mock_provider = MagicMock()
-        mock_provider.generate_presigned_get_url.return_value = "https://s3.example.com/signed"
+        mock_provider.generate_presigned_get_url.return_value = (
+            "https://s3.example.com/signed"
+        )
         url = resolve_asset_url(
             "/uploads/test.tif",
             storage_backend="s3",
@@ -109,7 +110,9 @@ class TestExtractStorageKey:
         assert _extract_storage_key("/uploads/test.tif") == "uploads/test.tif"
 
     def test_s3_uri_extracted(self):
-        assert _extract_storage_key("s3://bucket/path/to/file.tif") == "path/to/file.tif"
+        assert (
+            _extract_storage_key("s3://bucket/path/to/file.tif") == "path/to/file.tif"
+        )
 
     def test_no_leading_slash(self):
         assert _extract_storage_key("uploads/test.tif") == "uploads/test.tif"

@@ -261,6 +261,20 @@
       "description": "Descargue la configuración actual como archivo JSON. Incluye configuraciones y proveedores OAuth.",
       "button": "Exportar JSON"
     },
+    "validateFailed": "La validación de conectividad falló",
+    "validate": {
+      "title": "Validar conectividad",
+      "description": "Probar la conectividad al almacenamiento, caché y proveedores OIDC.",
+      "button": "Ejecutar validación",
+      "serviceHeader": "Servicio",
+      "statusHeader": "Estado",
+      "latencyHeader": "Latencia",
+      "errorHeader": "Error",
+      "statusOk": "Conectado",
+      "statusError": "Fallido",
+      "latency": "{{ms}}ms",
+      "noOidc": "No hay proveedores OIDC configurados"
+    },
     "import": {
       "title": "Importar configuración",
       "description": "Suba un archivo JSON de configuración. Previsualice los cambios antes de aplicarlos.",

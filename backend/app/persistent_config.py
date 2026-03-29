@@ -479,6 +479,15 @@ MAP_DEFAULTS = PersistentConfig[dict](
 )
 
 
+# -- Widgets --
+ENABLED_WIDGETS = PersistentConfig[list](
+    key="enabled_widgets",
+    env_default=None,
+    tab="map",
+    label="Enabled Widgets",
+)
+
+
 # -- Permissions tab --
 # Import DEFAULT_ROLE_PERMISSIONS lazily to avoid circular imports
 def _default_role_permissions() -> dict:

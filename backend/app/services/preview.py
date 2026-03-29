@@ -30,9 +30,7 @@ def build_gdal_source(
     elif service_type.startswith("ArcGIS"):
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
-        query_url = (
-            f"{base_url}/{layer_id}/query?f=json&where=1%3D1&orderByFields={order_field}+ASC"
-        )
+        query_url = f"{base_url}/{layer_id}/query?f=json&where=1%3D1&orderByFields={order_field}+ASC"
         if token:
             query_url += f"&token={token}"
         return (f"ESRIJSON:{query_url}", "")

@@ -5,6 +5,7 @@ Revises: f994a5f8866e
 Create Date: 2026-03-29
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -20,7 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column(
         "maps",
-        sa.Column("show_basemap_labels", sa.Boolean(), server_default="true", nullable=False),
+        sa.Column(
+            "show_basemap_labels", sa.Boolean(), server_default="true", nullable=False
+        ),
         schema="catalog",
     )
 

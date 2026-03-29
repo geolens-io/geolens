@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -83,11 +83,20 @@ async def export_audit_logs(
     filename = f"audit-export-{timestamp}.{format}"
 
     if format == "csv":
+
         async def csv_generator():
             buf = io.StringIO()
             writer = csv.writer(buf)
             writer.writerow(
-                ["timestamp", "username", "action", "resource_type", "resource_id", "ip_address", "details"]
+                [
+                    "timestamp",
+                    "username",
+                    "action",
+                    "resource_type",
+                    "resource_id",
+                    "ip_address",
+                    "details",
+                ]
             )
             yield buf.getvalue()
             buf.seek(0)
@@ -104,15 +113,17 @@ async def export_audit_logs(
             ):
                 if row_count >= max_rows:
                     break
-                writer.writerow([
-                    log.created_at.isoformat() if log.created_at else "",
-                    log.user.username if log.user else "",
-                    log.action,
-                    log.resource_type,
-                    str(log.resource_id) if log.resource_id else "",
-                    log.ip_address or "",
-                    json.dumps(log.details) if log.details else "",
-                ])
+                writer.writerow(
+                    [
+                        log.created_at.isoformat() if log.created_at else "",
+                        log.user.username if log.user else "",
+                        log.action,
+                        log.resource_type,
+                        str(log.resource_id) if log.resource_id else "",
+                        log.ip_address or "",
+                        json.dumps(log.details) if log.details else "",
+                    ]
+                )
                 yield buf.getvalue()
                 buf.seek(0)
                 buf.truncate(0)

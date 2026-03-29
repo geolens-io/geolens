@@ -41,7 +41,9 @@ class TestStacCatalog:
             description="A test catalog",
             conformsTo=STAC_CONFORMANCE,
             links=[
-                StacLink(rel="self", href="http://localhost/stac/", type="application/json"),
+                StacLink(
+                    rel="self", href="http://localhost/stac/", type="application/json"
+                ),
             ],
         )
         assert catalog.id == "test-catalog"
@@ -116,7 +118,13 @@ class TestStacItemCollection:
         """StacItemCollection can be created with required fields."""
         ic = StacItemCollection(
             features=[],
-            links=[StacLink(rel="self", href="http://localhost/stac/search", type="application/json")],
+            links=[
+                StacLink(
+                    rel="self",
+                    href="http://localhost/stac/search",
+                    type="application/json",
+                )
+            ],
             numberMatched=0,
             numberReturned=0,
             context={"limit": 10, "returned": 0, "matched": 0},

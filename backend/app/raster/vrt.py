@@ -67,6 +67,8 @@ def build_vrt(
 ) -> str:
     """Build a VRT file. Dispatches to mosaic or band-stack based on vrt_type."""
     return _build_vrt(
-        source_paths, output_path, resolution_strategy,
+        source_paths,
+        output_path,
+        resolution_strategy,
         separate=(vrt_type == "band_stack"),
     )

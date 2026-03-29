@@ -111,11 +111,17 @@ async def list_all_datasets(
             raster_assets_by_dataset_id[ra.dataset_id] = ra
 
     # Batch source_count query for VRT datasets
-    vrt_ids = [d.id for d in datasets if getattr(d.record, "record_type", None) == "vrt_dataset"]
+    vrt_ids = [
+        d.id
+        for d in datasets
+        if getattr(d.record, "record_type", None) == "vrt_dataset"
+    ]
     source_counts: dict = {}
     if vrt_ids:
         sc_result = await db.execute(
-            text("SELECT vrt_dataset_id, COUNT(*) AS cnt FROM catalog.vrt_source_links WHERE vrt_dataset_id = ANY(:ids) GROUP BY vrt_dataset_id"),
+            text(
+                "SELECT vrt_dataset_id, COUNT(*) AS cnt FROM catalog.vrt_source_links WHERE vrt_dataset_id = ANY(:ids) GROUP BY vrt_dataset_id"
+            ),
             {"ids": [str(v) for v in vrt_ids]},
         )
         for row in sc_result.all():
@@ -172,7 +178,11 @@ async def create_empty_dataset_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     actors_by_id = await _load_actor_identities(db, [dataset.record.created_by])
-    return _dataset_to_response(dataset, actors_by_id=actors_by_id, base_url=await get_dataset_service_url(db, request=request))
+    return _dataset_to_response(
+        dataset,
+        actors_by_id=actors_by_id,
+        base_url=await get_dataset_service_url(db, request=request),
+    )
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)
@@ -219,7 +229,10 @@ async def get_single_dataset(
 
     raster_asset = None
     source_count = None
-    if getattr(dataset.record, "record_type", None) in ("raster_dataset", "vrt_dataset"):
+    if getattr(dataset.record, "record_type", None) in (
+        "raster_dataset",
+        "vrt_dataset",
+    ):
         ra_result = await db.execute(
             select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
         )
@@ -227,7 +240,9 @@ async def get_single_dataset(
 
     if getattr(dataset.record, "record_type", None) == "vrt_dataset":
         sc_result = await db.execute(
-            text("SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"),
+            text(
+                "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+            ),
             {"id": str(dataset.id)},
         )
         source_count = sc_result.scalar()
@@ -297,7 +312,11 @@ async def get_quicklook(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Raster asset not found",
             )
-        uri = raster_asset.quicklook_256_uri if size <= 256 else raster_asset.quicklook_512_uri
+        uri = (
+            raster_asset.quicklook_256_uri
+            if size <= 256
+            else raster_asset.quicklook_512_uri
+        )
 
     elif record_type == "vector_dataset":
         uri = dataset.quicklook_256_uri
@@ -385,7 +404,11 @@ async def update_dataset_metadata(
         db,
         [dataset.record.created_by, dataset.record.updated_by],
     )
-    return _dataset_to_response(dataset, actors_by_id=actors_by_id, base_url=await get_dataset_service_url(db, request=request))
+    return _dataset_to_response(
+        dataset,
+        actors_by_id=actors_by_id,
+        base_url=await get_dataset_service_url(db, request=request),
+    )
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)
@@ -411,27 +434,35 @@ async def bulk_delete_datasets_endpoint(
                 details={"title": item.confirm_title, "table_name": table_name},
                 ip_address=request.client.host if request.client else None,
             )
-            results.append(BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted"))
+            results.append(
+                BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
+            )
             deleted += 1
         except DependentVrtError as exc:
-            results.append(BulkDeleteResultItem(
-                dataset_id=item.dataset_id,
-                status="error",
-                detail=str(exc),
-            ))
+            results.append(
+                BulkDeleteResultItem(
+                    dataset_id=item.dataset_id,
+                    status="error",
+                    detail=str(exc),
+                )
+            )
         except ValueError as exc:
-            results.append(BulkDeleteResultItem(
-                dataset_id=item.dataset_id,
-                status="error",
-                detail=str(exc),
-            ))
+            results.append(
+                BulkDeleteResultItem(
+                    dataset_id=item.dataset_id,
+                    status="error",
+                    detail=str(exc),
+                )
+            )
 
     await db.commit()
 
     if deleted > 0:
         await invalidate_catalog_cache()
 
-    return BulkDeleteResponse(deleted=deleted, errors=len(results) - deleted, results=results)
+    return BulkDeleteResponse(
+        deleted=deleted, errors=len(results) - deleted, results=results
+    )
 
 
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)

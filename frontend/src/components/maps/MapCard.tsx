@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Trash2, Map as MapIcon, Globe, Lock, Users, User, Layers, Calendar } from 'lucide-react';
+import { Trash2, Map as MapIcon, User, Layers, Calendar } from 'lucide-react';
 import { API_BASE } from '@/lib/constants';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,16 +15,11 @@ import {
 import { formatDate } from '@/lib/format';
 import { getVisibilityLabel } from '@/i18n/labels';
 import type { MapSummaryResponse } from '@/types/api';
+import { VisibilityIcon } from './VisibilityIcon';
 
 export interface MapCardProps {
   map: MapSummaryResponse;
   onDelete: (id: string) => void;
-}
-
-function VisibilityIcon({ visibility }: { visibility: string }) {
-  if (visibility === 'public') return <Globe className="h-3.5 w-3.5 text-success" />;
-  if (visibility === 'internal') return <Users className="h-3.5 w-3.5 text-amber-500" />;
-  return <Lock className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
 export function MapCard({ map, onDelete }: MapCardProps) {

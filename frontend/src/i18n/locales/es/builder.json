@@ -44,7 +44,15 @@
     "styledBy": "Estilizado por: {{column}}",
     "radiusByColumn": "Radio por: {{column}}",
     "widthByColumn": "Ancho por: {{column}}",
-    "toggleStroke": "Alternar trazo"
+    "toggleFill": "Alternar relleno",
+    "toggleStroke": "Alternar trazo",
+    "pattern": "Patrón",
+    "dash": {
+      "solid": "Sólido",
+      "dashed": "Discontinuo",
+      "dotted": "Punteado",
+      "dashDot": "Guión-punto"
+    }
   },
   "filters": {
     "title": "Filtros",

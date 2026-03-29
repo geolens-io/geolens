@@ -7,7 +7,7 @@ import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 
 // Import shared utilities used locally
-import { CUSTOM_PAINT_PROPS, getLayerType } from './layer-adapters/shared';
+import { getLayerType } from './layer-adapters/shared';
 // Re-export for backward compatibility with existing consumers
 export { CUSTOM_PAINT_PROPS, getLayerType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
 

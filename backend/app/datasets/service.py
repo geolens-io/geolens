@@ -44,6 +44,8 @@ class DependentVrtError(Exception):
             f"Cannot delete: this dataset is used as a source in "
             f"{len(dependents)} virtual raster(s): {names}"
         )
+
+
 _RESERVED_COLUMNS = {"gid", "geom", "geom_4326"}
 
 _TYPE_MAP = {
@@ -208,7 +210,9 @@ async def create_dataset(
     # record.id is the Record PK (used as FK in record_distributions).
     from app.records.service import generate_distributions
 
-    await generate_distributions(session, dataset.id, record.id, table_name, geometry_type=geometry_type)
+    await generate_distributions(
+        session, dataset.id, record.id, table_name, geometry_type=geometry_type
+    )
 
     # Auto-generate attribute metadata from column_info
     if column_info:
@@ -224,9 +228,7 @@ async def create_dataset(
 
     # Auto-detect FK relationships based on column name matching
     if column_info:
-        await auto_detect_relationships(
-            session, dataset.id, record.id, column_info
-        )
+        await auto_detect_relationships(session, dataset.id, record.id, column_info)
 
     return dataset
 
@@ -343,7 +345,9 @@ async def delete_dataset(
                 await storage.delete(key)
     else:
         # Vector datasets: drop the PostGIS data table
-        await session.execute(text(f"DROP TABLE IF EXISTS {_safe_table_ref(table_name)}"))
+        await session.execute(
+            text(f"DROP TABLE IF EXISTS {_safe_table_ref(table_name)}")
+        )
 
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,7 +25,7 @@ def _clean_registry():
 class TestLoadExtensions:
     def test_load_extensions_empty(self):
         """load_extensions() with no enterprise package populates empty registry."""
-        from app.extensions import _extensions, _loaded, load_extensions
+        from app.extensions import _extensions, load_extensions
 
         load_extensions()
 

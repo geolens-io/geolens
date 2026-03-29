@@ -59,7 +59,7 @@ class TestUpload:
     async def test_upload_requires_auth(self, client: AsyncClient):
         """POST /ingest/upload without token returns 401."""
         resp = await client.post(
-            "/ingest/upload/",
+            "/ingest/upload",
             files={
                 "file": (
                     "test.geojson",
@@ -75,7 +75,7 @@ class TestUpload:
     ):
         """POST /ingest/upload with viewer token returns 403."""
         resp = await client.post(
-            "/ingest/upload/",
+            "/ingest/upload",
             files={
                 "file": (
                     "test.geojson",
@@ -92,7 +92,7 @@ class TestUpload:
     ):
         """POST /ingest/upload with a .txt file returns 400."""
         resp = await client.post(
-            "/ingest/upload/",
+            "/ingest/upload",
             files={"file": ("data.txt", b"some text content", "text/plain")},
             headers=admin_auth_header,
         )
@@ -110,7 +110,7 @@ class TestUpload:
         """POST /ingest/upload with valid file returns 201 with job_id."""
         geojson = b'{"type":"FeatureCollection","features":[]}'
         resp = await client.post(
-            "/ingest/upload/",
+            "/ingest/upload",
             files={"file": ("test.geojson", geojson, "application/json")},
             headers=admin_auth_header,
         )
@@ -146,7 +146,7 @@ class TestCsvUpload:
         """POST /ingest/upload with a valid CSV file returns 201 with job_id."""
         csv_content = b"id,name,value\n1,Alice,100\n2,Bob,200\n"
         resp = await client.post(
-            "/ingest/upload/",
+            "/ingest/upload",
             files={"file": ("data.csv", csv_content, "text/csv")},
             headers=admin_auth_header,
         )
@@ -544,13 +544,20 @@ class TestCsvNonSpatialPipeline:
 
         return dataset_id, record_id
 
-    @pytest.mark.parametrize("table_name,title", [
-        ("test_csv_nonspatial_dists", "Test CSV Dists"),
-        ("test_xlsx_nonspatial", "Test XLSX Table"),
-    ])
+    @pytest.mark.parametrize(
+        "table_name,title",
+        [
+            ("test_csv_nonspatial_dists", "Test CSV Dists"),
+            ("test_xlsx_nonspatial", "Test XLSX Table"),
+        ],
+    )
     async def test_non_spatial_distributions(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session,
-        table_name: str, title: str,
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        table_name: str,
+        title: str,
     ):
         """Non-spatial tables should produce only csv download + ogc_features distributions."""
         from sqlalchemy import text
@@ -567,10 +574,14 @@ class TestCsvNonSpatialPipeline:
             assert resp.status_code == 200
             distributions = resp.json()["distributions"]
 
-            dist_types = [(d["distribution_type"], d.get("format")) for d in distributions]
+            dist_types = [
+                (d["distribution_type"], d.get("format")) for d in distributions
+            ]
             assert ("download", "csv") in dist_types
             assert ("ogc_features", "geojson") in dist_types
-            assert len(distributions) == 2, f"Expected 2 distributions, got {len(distributions)}: {dist_types}"
+            assert len(distributions) == 2, (
+                f"Expected 2 distributions, got {len(distributions)}: {dist_types}"
+            )
             assert ("download", "gpkg") not in dist_types
             assert ("download", "geojson") not in dist_types
             assert ("download", "shp") not in dist_types
@@ -592,7 +603,11 @@ class TestCsvNonSpatialPipeline:
 
         try:
             dataset_id, _ = await self._register_nonspatial_table(
-                client, admin_auth_header, test_db_session, table_name, "Test OGC NonSpatial"
+                client,
+                admin_auth_header,
+                test_db_session,
+                table_name,
+                "Test OGC NonSpatial",
             )
 
             resp = await client.get(

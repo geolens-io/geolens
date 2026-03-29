@@ -8,7 +8,7 @@ All tests are pure unit tests -- no DB, no real files, no network.
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -105,7 +105,9 @@ class TestDeleteGuard:
             "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with patch("app.storage.provider.get_storage", return_value=mock_storage):
-                result = await delete_dataset(mock_session, dataset_id, "Standalone COG")
+                result = await delete_dataset(
+                    mock_session, dataset_id, "Standalone COG"
+                )
 
         assert result == "test_table"
         mock_session.delete.assert_called_once_with(mock_dataset.record)
@@ -149,16 +151,14 @@ class TestDeleteGuard:
 
     def test_router_returns_409_for_dependent_vrt_error(self):
         """Router converts DependentVrtError to HTTP 409 with dependent VRT details."""
-        import asyncio
-        from fastapi.testclient import TestClient
-        from fastapi import FastAPI
-        from app.datasets.router import router as datasets_router
-        from app.datasets.service import DependentVrtError
 
         # Minimal check: DependentVrtError is imported correctly in router
         # Full endpoint testing would require full app setup; check import path only
         import app.datasets.router as router_module
-        assert hasattr(router_module, "DependentVrtError") or True  # import exists via service
+
+        assert (
+            hasattr(router_module, "DependentVrtError") or True
+        )  # import exists via service
 
 
 # ---------------------------------------------------------------------------

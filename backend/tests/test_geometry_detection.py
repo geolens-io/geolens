@@ -148,9 +148,7 @@ class TestConstructPointGeometry:
             )
             await test_db_session.commit()
 
-            count = await construct_point_geometry(
-                test_db_session, table, "lng", "lat"
-            )
+            count = await construct_point_geometry(test_db_session, table, "lng", "lat")
             assert count == 2
 
             # Verify geometry was created
@@ -193,9 +191,7 @@ class TestConstructPointGeometry:
             )
             await test_db_session.commit()
 
-            count = await construct_point_geometry(
-                test_db_session, table, "lng", "lat"
-            )
+            count = await construct_point_geometry(test_db_session, table, "lng", "lat")
             assert count == 1  # Only first row has both coords
 
         finally:
@@ -288,10 +284,7 @@ class TestConstructWktGeometry:
                 )
             )
             await test_db_session.execute(
-                text(
-                    f"INSERT INTO data.{table} (wkt) VALUES "
-                    "('POINT(0 0)'), (NULL)"
-                )
+                text(f"INSERT INTO data.{table} (wkt) VALUES ('POINT(0 0)'), (NULL)")
             )
             await test_db_session.commit()
 

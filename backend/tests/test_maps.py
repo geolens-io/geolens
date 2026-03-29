@@ -342,7 +342,10 @@ class TestUpdateMap:
         # ProblemDetail handler serializes dict detail as a JSON string
         detail = json.loads(raw_detail) if isinstance(raw_detail, str) else raw_detail
         assert "Restricted DS" in detail["datasets"]
-        assert detail["message"] == "Cannot set visibility to public: map contains non-public datasets"
+        assert (
+            detail["message"]
+            == "Cannot set visibility to public: map contains non-public datasets"
+        )
 
     async def test_update_map_allows_public_with_all_public_datasets(
         self,
@@ -805,6 +808,57 @@ class TestDuplicateMap:
         assert resp.status_code == 201
         assert resp.json()["thumbnail_url"] is None
 
+    async def test_duplicate_preserves_widgets(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Duplicate copies the source map's widget list."""
+        created = await _create_map(client, admin_auth_header, "Widget Map")
+        map_id = created["id"]
+
+        # Set widgets on source
+        widget_ids = ["scale-bar", "coordinates"]
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"widgets": widget_ids},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["widgets"] == widget_ids
+
+        # Duplicate
+        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        assert resp.status_code == 201
+        assert resp.json()["widgets"] == widget_ids
+
+    async def test_update_map_widgets(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """PUT /maps/{id} can set and clear the widgets list."""
+        created = await _create_map(client, admin_auth_header, "Widgets Test")
+        map_id = created["id"]
+
+        # Initially null
+        resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert resp.json()["widgets"] is None
+
+        # Set widgets
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"widgets": ["scale-bar"]},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["widgets"] == ["scale-bar"]
+
+        # Clear widgets
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"widgets": []},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["widgets"] == []
+
 
 # ---------------------------------------------------------------------------
 # Share token create/revoke
@@ -949,9 +1003,7 @@ class TestShareToken:
             "/admin/share-tokens/?limit=50", headers=admin_auth_header
         )
         share_token_id = next(
-            t["id"]
-            for t in admin_list.json()["tokens"]
-            if t["map_id"] == map_id
+            t["id"] for t in admin_list.json()["tokens"] if t["map_id"] == map_id
         )
 
         # Create an embed token for the map (requires layers for dataset scope).
@@ -965,9 +1017,13 @@ class TestShareToken:
             visibility="public",
             record_status="published",
             theme_category=["test"],
-            created_by=(await test_db_session.execute(
-                select(User).where(User.username == "admin")
-            )).scalar_one().id,
+            created_by=(
+                await test_db_session.execute(
+                    select(User).where(User.username == "admin")
+                )
+            )
+            .scalar_one()
+            .id,
         )
         test_db_session.add(record)
         await test_db_session.flush()
@@ -1674,9 +1730,7 @@ class TestAdminShareTokenListing:
         self, client: AsyncClient, viewer_auth_header: dict
     ):
         """GET /admin/share-tokens as viewer returns 403."""
-        resp = await client.get(
-            "/admin/share-tokens/", headers=viewer_auth_header
-        )
+        resp = await client.get("/admin/share-tokens/", headers=viewer_auth_header)
         assert resp.status_code == 403
 
 
@@ -2027,9 +2081,7 @@ class TestLayerTypeRoundTrip:
         )
         assert resp.status_code == 200
         layers = resp.json()["layers"]
-        layer_types = {
-            layer["dataset_id"]: layer["layer_type"] for layer in layers
-        }
+        layer_types = {layer["dataset_id"]: layer["layer_type"] for layer in layers}
         assert layer_types[str(raster_ds.id)] == "raster_geolens"
         assert layer_types[str(vector_ds.id)] == "vector_geolens"
 
@@ -2104,7 +2156,11 @@ class TestShowInLegendRoundTrip:
             f"/maps/{map_id}",
             json={
                 "layers": [
-                    {"dataset_id": str(ds.id), "sort_order": 0, "show_in_legend": False},
+                    {
+                        "dataset_id": str(ds.id),
+                        "sort_order": 0,
+                        "show_in_legend": False,
+                    },
                 ]
             },
             headers=admin_auth_header,

@@ -241,7 +241,6 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                 placeholder={t('vrt.addSourcePlaceholder', { defaultValue: 'Search for a COG dataset...' })}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus
               />
               {isSearchFetching && (
                 <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />

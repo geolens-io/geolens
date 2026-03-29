@@ -123,6 +123,7 @@ describe('ChatPanel', () => {
       resolve = r;
     });
 
+    // eslint-disable-next-line require-yield
     mockStreamChat.mockImplementation(async function* () {
       await hang;
     });
@@ -234,6 +235,7 @@ describe('ChatPanel', () => {
 
   it('shows specific error when stream returns ApiError without fallback', async () => {
     // Stream fails with a 403 ApiError — should show permission error directly
+    // eslint-disable-next-line require-yield
     mockStreamChat.mockImplementation(async function* () {
       throw new ApiError('Forbidden', 403);
     });
@@ -291,6 +293,7 @@ describe('ChatPanel', () => {
     'shows specific error for ApiError status $status via fallback',
     async ({ status, expected }) => {
       // Stream fails with generic error, then fallback also fails with ApiError
+      // eslint-disable-next-line require-yield
       mockStreamChat.mockImplementation(async function* () {
         throw new Error('stream failed');
       });

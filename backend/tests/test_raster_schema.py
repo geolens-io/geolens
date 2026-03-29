@@ -128,9 +128,7 @@ class TestRasterAssets:
     async def test_raster_asset_insert(self, client, test_db_session):
         """raster_assets table accepts inserts with valid dataset FK."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         asset = RasterAsset(
             dataset_id=dataset.id,
@@ -150,9 +148,7 @@ class TestRasterAssets:
     async def test_raster_asset_cascade_delete(self, client, test_db_session):
         """Deleting a dataset cascades to delete its raster_asset row."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         asset = RasterAsset(
             dataset_id=dataset.id,
@@ -174,9 +170,7 @@ class TestRasterAssets:
     async def test_raster_asset_unique_constraint(self, client, test_db_session):
         """raster_assets unique constraint prevents two assets for the same dataset."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         asset1 = RasterAsset(
             dataset_id=dataset.id,
@@ -205,9 +199,7 @@ class TestMapLayerType:
     ):
         """Creating a MapLayer without explicit layer_type defaults to 'vector_geolens'."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         map_obj = Map(
             name=f"Test Map {uuid.uuid4().hex[:6]}",
@@ -226,14 +218,10 @@ class TestMapLayerType:
 
         assert layer.layer_type == "vector_geolens"
 
-    async def test_map_layer_type_accepts_raster_geolens(
-        self, client, test_db_session
-    ):
+    async def test_map_layer_type_accepts_raster_geolens(self, client, test_db_session):
         """layer_type accepts 'raster_geolens' value."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         map_obj = Map(
             name=f"Raster Map {uuid.uuid4().hex[:6]}",

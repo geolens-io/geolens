@@ -60,9 +60,7 @@ async def _create_dataset(
     return dataset
 
 
-async def _create_map(
-    session, *, created_by: uuid.UUID, name: str = "Test Map"
-) -> Map:
+async def _create_map(session, *, created_by: uuid.UUID, name: str = "Test Map") -> Map:
     """Create a minimal Map."""
     map_obj = Map(name=name, created_by=created_by)
     session.add(map_obj)
@@ -146,9 +144,7 @@ async def test_validate_overwrites_client_table_name(
     )
 
     layer = _make_chat_layer(dataset, table_name_override="fake_injected_table")
-    validated = await _validate_chat_layers(
-        session, admin, str(map_obj.id), [layer]
-    )
+    validated = await _validate_chat_layers(session, admin, str(map_obj.id), [layer])
 
     assert len(validated) == 1
     assert validated[0].dataset_table_name == dataset.table_name
@@ -181,9 +177,7 @@ async def test_validate_filters_inaccessible_dataset(
     await session.commit()
     await session.refresh(viewer)
 
-    viewer_map = await _create_map(
-        session, created_by=viewer.id, name="Viewer Map"
-    )
+    viewer_map = await _create_map(session, created_by=viewer.id, name="Viewer Map")
 
     layer = _make_chat_layer(private_ds)
     validated = await _validate_chat_layers(

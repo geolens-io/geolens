@@ -87,7 +87,9 @@ def resolve_public_api_url(
     request: Request | None = None,
 ) -> str:
     """Resolve the externally reachable API base URL."""
-    normalized_api = normalize_public_url(api_url) or normalize_public_url(legacy_api_url)
+    normalized_api = normalize_public_url(api_url) or normalize_public_url(
+        legacy_api_url
+    )
     if normalized_api:
         return normalized_api
 
@@ -127,7 +129,9 @@ def resolve_public_app_url(
     if normalized_app:
         return normalized_app
 
-    normalized_api = normalize_public_url(api_url) or normalize_public_url(legacy_api_url)
+    normalized_api = normalize_public_url(api_url) or normalize_public_url(
+        legacy_api_url
+    )
     if normalized_api:
         stripped = strip_api_suffix(normalized_api)
         if stripped != normalized_api:
