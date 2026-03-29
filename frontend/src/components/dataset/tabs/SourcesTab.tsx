@@ -9,7 +9,7 @@ import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
-import { vrtGenerationColors } from '@/lib/status-colors';
+import { vrtGenerationColors, healthDotColors } from '@/lib/status-colors';
 import type { VrtSourceHealth } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -163,8 +163,8 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
       <div className="space-y-4">
         {/* Regeneration status banner */}
         {isRegenerating && (
-          <div className="flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
-            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+          <div className="flex items-center gap-2 rounded-md border border-info/30 bg-info/5 px-4 py-3 text-sm text-foreground">
+            <Loader2 className="h-4 w-4 animate-spin shrink-0 text-info" />
             <span>{t('vrt.regeneratingBanner', { defaultValue: 'VRT is regenerating. Source changes are disabled until complete.' })}</span>
           </div>
         )}
@@ -318,17 +318,17 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                   <TableRow key={s.dataset_id}>
                     <TableCell className="w-8">
                       {healthMap.get(s.dataset_id) === 'healthy' ? (
-                        <span className="inline-block h-2 w-2 rounded-full bg-green-500" title={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} />
+                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.healthy}`} title={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} />
                       ) : healthMap.get(s.dataset_id) === 'missing' ? (
                         <Tooltip><TooltipTrigger asChild>
-                          <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} />
                         </TooltipTrigger><TooltipContent>{t('vrt.healthMissing', { defaultValue: 'Source dataset deleted' })}</TooltipContent></Tooltip>
                       ) : healthMap.get(s.dataset_id) === 'inaccessible' ? (
                         <Tooltip><TooltipTrigger asChild>
-                          <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
+                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} />
                         </TooltipTrigger><TooltipContent>{t('vrt.healthInaccessible', { defaultValue: 'Source file inaccessible' })}</TooltipContent></Tooltip>
                       ) : (
-                        <span className="inline-block h-2 w-2 rounded-full bg-gray-300" />
+                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unknown}`} />
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">

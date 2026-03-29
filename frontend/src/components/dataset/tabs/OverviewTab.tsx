@@ -41,6 +41,7 @@ import { RelatedDatasets } from '@/components/dataset/RelatedDatasets';
 import { UsedInMaps } from '@/components/dataset/UsedInMaps';
 import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
 import { getGeometryTypeLabel, getRecordStatusLabel, getSourceFormatLabel } from '@/i18n/labels';
+import { vrtRasterStatusColors } from '@/lib/status-colors';
 
 
 interface OverviewTabProps {
@@ -162,7 +163,7 @@ export function OverviewTab({
           </Button>
         </div>
       ) : validationData ? (
-        <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm text-green-600 dark:text-green-400">
+        <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm text-success">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>All checks passed</span>
         </div>
@@ -222,13 +223,9 @@ export function OverviewTab({
                 <Badge
                   variant="outline"
                   className={
-                    dataset.raster.status === 'ready'
-                      ? 'border-green-500 text-green-600 dark:text-green-400'
-                      : dataset.raster.status === 'regenerating'
-                        ? 'border-yellow-500 text-yellow-600 dark:text-yellow-400'
-                        : dataset.raster.status === 'failed'
-                          ? 'border-red-500 text-red-600 dark:text-red-400'
-                          : ''
+                    dataset.raster.status
+                      ? (vrtRasterStatusColors[dataset.raster.status] ?? '')
+                      : ''
                   }
                 >
                   {dataset.raster.status

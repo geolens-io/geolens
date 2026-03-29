@@ -130,7 +130,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
               <TabsTrigger value="ai">
                 <Sparkles className="mr-1 size-3.5" />
                 {t('mapCreate.tabAI')}
-                <Badge variant="outline" className="ml-1.5 border-amber-500/50 px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                <Badge variant="outline" className="ml-1.5 border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning">
                   {t('chat.experimental')}
                 </Badge>
               </TabsTrigger>

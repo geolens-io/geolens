@@ -50,3 +50,36 @@ export const activeDotColor = {
   true:  'bg-success',
   false: 'bg-destructive',
 } as const;
+
+export const recordTypeColors: Record<string, string> = {
+  collection: semanticBadgeColors.warning,
+  vector_dataset: semanticBadgeColors.info,
+  raster_dataset: semanticBadgeColors.success,
+  vrt_dataset: 'border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200',
+  table: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200',
+  unknown: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200',
+} as const;
+
+export const ingestionStatusColors: Record<string, string> = {
+  draft: semanticBadgeColors.warning,
+  ready: semanticBadgeColors.info,
+  internal: 'border-border bg-muted text-muted-foreground',
+} as const;
+
+export const validationLevelColors = {
+  error: 'text-destructive',
+  warning: 'text-warning',
+  success: 'text-success',
+} as const;
+
+export const healthDotColors = {
+  healthy: 'bg-success',
+  unhealthy: 'bg-destructive',
+  unknown: 'bg-muted-foreground',
+} as const;
+
+export const vrtRasterStatusColors: Record<string, string> = {
+  ready: 'border-success/50 text-success',
+  regenerating: 'border-warning/50 text-warning',
+  failed: 'border-destructive/50 text-destructive',
+} as const;

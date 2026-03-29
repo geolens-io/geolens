@@ -148,7 +148,7 @@ export function FeaturePopup({
                         <ValueDisplay value={value} formatValue={formatValue} />
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
                           {copiedKey === key ? (
-                            <Check className="h-3 w-3 text-green-500" />
+                            <Check className="h-3 w-3 text-success" />
                           ) : (
                             <Copy className="h-3 w-3 text-muted-foreground" />
                           )}

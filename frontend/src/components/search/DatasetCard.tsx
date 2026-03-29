@@ -10,6 +10,7 @@ import { formatProvenanceTime, resolveProvenanceIdentity } from '@/lib/provenanc
 import { extractBbox } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { useAuthStore } from '@/stores/auth-store';
+import { ingestionStatusColors } from '@/lib/status-colors';
 import type { OGCRecordResponse } from '@/types/api';
 
 export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
@@ -105,9 +106,9 @@ export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             {recordStatus && recordStatus !== 'published' && (() => {
               const statusStyles: Record<string, string> = {
-                draft: 'text-xs border-amber-500/50 text-amber-600 dark:text-amber-400',
-                ready: 'text-xs border-blue-500/50 text-blue-600 dark:text-blue-400',
-                internal: 'text-xs border-slate-500/50 text-slate-600 dark:text-slate-400',
+                draft: `text-xs ${ingestionStatusColors.draft}`,
+                ready: `text-xs ${ingestionStatusColors.ready}`,
+                internal: `text-xs ${ingestionStatusColors.internal}`,
                 archived: 'text-xs',
                 deprecated: 'text-xs text-muted-foreground',
               };
@@ -131,7 +132,7 @@ export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
               );
             })()}
             {properties.keywords?.includes('synthetic') && (
-              <Badge variant="outline" className="text-xs border-purple-500/50 text-purple-600 dark:text-purple-400">
+              <Badge variant="outline" className="text-xs border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200">
                 {t('card.testData', { defaultValue: 'Test Data' })}
               </Badge>
             )}
