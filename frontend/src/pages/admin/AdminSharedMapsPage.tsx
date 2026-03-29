@@ -76,7 +76,7 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
   const bulkRevoke = useBulkRevokeEmbedTokens();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const tokens = data?.tokens ?? [];
+  const tokens = useMemo(() => data?.tokens ?? [], [data?.tokens]);
 
   const allSelected = useMemo(
     () => tokens.length > 0 && tokens.every((tk) => selectedIds.has(tk.id)),

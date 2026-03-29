@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
@@ -126,7 +126,7 @@ export function SourceQualityTab({
     return children;
   };
 
-  const selectedCategories = dataset.theme_category ?? [];
+  const selectedCategories = useMemo(() => dataset.theme_category ?? [], [dataset.theme_category]);
 
   const handleFrequencyChange = useCallback(
     (value: string) => {

@@ -180,7 +180,7 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
         // Map style may already be destroyed during teardown
       }
     };
-  }, [map]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [map]);
 
   // Update overlay when mode changes (recompute result from existing points)
   useEffect(() => {

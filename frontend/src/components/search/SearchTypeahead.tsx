@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type RefObject } from 'react';
+import { useState, useEffect, useCallback, useMemo, type RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -35,7 +35,7 @@ export function SearchTypeahead({
     staleTime: 10_000,
   });
 
-  const results = data?.features ?? [];
+  const results = useMemo(() => data?.features ?? [], [data?.features]);
 
   // Reset active index when results change
   useEffect(() => {
