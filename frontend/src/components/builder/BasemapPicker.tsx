@@ -3,16 +3,32 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
 import { cn } from '@/lib/utils';
+import positronThumb from '@/assets/basemaps/positron.png';
+import darkThumb from '@/assets/basemaps/dark.png';
+import osmThumb from '@/assets/basemaps/osm.png';
+import brightThumb from '@/assets/basemaps/bright.png';
+
+const BUILTIN_THUMBNAILS: Record<string, string> = {
+  'openfreemap-positron': positronThumb,
+  'openfreemap-dark': darkThumb,
+  'openstreetmap': osmThumb,
+  'osm-standard': osmThumb,
+  'openfreemap-bright': brightThumb,
+};
+
+const FALLBACK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">' +
+  '<rect fill="#e5e7eb" width="160" height="160" rx="8"/>' +
+  '<circle cx="80" cy="72" r="36" fill="none" stroke="#9ca3af" stroke-width="2"/>' +
+  '<ellipse cx="80" cy="72" rx="16" ry="36" fill="none" stroke="#9ca3af" stroke-width="1.5"/>' +
+  '<line x1="44" y1="72" x2="116" y2="72" stroke="#9ca3af" stroke-width="1.5"/>' +
+  '<line x1="80" y1="36" x2="80" y2="108" stroke="#9ca3af" stroke-width="1.5"/>' +
+  '<text x="80" y="136" text-anchor="middle" font-size="12" fill="#9ca3af" font-family="system-ui,sans-serif">Map</text>' +
+  '</svg>'
+)}`;
 
 function basemapThumbnail(id: string): string {
-  const thumbnails: Record<string, string> = {
-    'openfreemap-positron': `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect fill="#e8e8e8" width="160" height="160"/><g stroke="#fff" stroke-width="0.5" opacity="0.6"><line x1="0" y1="40" x2="160" y2="40"/><line x1="0" y1="80" x2="160" y2="80"/><line x1="0" y1="120" x2="160" y2="120"/><line x1="40" y1="0" x2="40" y2="160"/><line x1="80" y1="0" x2="80" y2="160"/><line x1="120" y1="0" x2="120" y2="160"/></g></svg>')}`,
-    'openfreemap-dark': `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect fill="#1a1a2e" width="160" height="160"/><g stroke="#333" stroke-width="0.5" opacity="0.5"><line x1="0" y1="40" x2="160" y2="40"/><line x1="0" y1="80" x2="160" y2="80"/><line x1="0" y1="120" x2="160" y2="120"/><line x1="40" y1="0" x2="40" y2="160"/><line x1="80" y1="0" x2="80" y2="160"/><line x1="120" y1="0" x2="120" y2="160"/></g></svg>')}`,
-    'openfreemap-bright': `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect fill="#f5f0e8" width="160" height="160"/><g stroke="#ddd" stroke-width="0.5"><line x1="0" y1="40" x2="160" y2="40"/><line x1="0" y1="80" x2="160" y2="80"/><line x1="0" y1="120" x2="160" y2="120"/><line x1="40" y1="0" x2="40" y2="160"/><line x1="80" y1="0" x2="80" y2="160"/><line x1="120" y1="0" x2="120" y2="160"/></g><rect fill="#b8d4a0" x="20" y="60" width="50" height="40" rx="3" opacity="0.4"/><rect fill="#a0c8e0" x="90" y="30" width="40" height="60" rx="3" opacity="0.3"/></svg>')}`,
-    'osm-standard': `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect fill="#f0ede8" width="160" height="160"/><rect fill="#aad3a2" x="10" y="50" width="60" height="50" rx="4" opacity="0.5"/><rect fill="#a8cce8" x="80" y="20" width="70" height="30" rx="4" opacity="0.4"/><g stroke="#ccc" stroke-width="0.5"><line x1="0" y1="40" x2="160" y2="40"/><line x1="0" y1="80" x2="160" y2="80"/><line x1="0" y1="120" x2="160" y2="120"/><line x1="40" y1="0" x2="40" y2="160"/><line x1="80" y1="0" x2="80" y2="160"/><line x1="120" y1="0" x2="120" y2="160"/></g></svg>')}`,
-  };
-  const defaultSvg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect fill="#d0d0d0" width="160" height="160"/><g stroke="#bbb" stroke-width="0.5"><line x1="0" y1="40" x2="160" y2="40"/><line x1="0" y1="80" x2="160" y2="80"/><line x1="0" y1="120" x2="160" y2="120"/><line x1="40" y1="0" x2="40" y2="160"/><line x1="80" y1="0" x2="80" y2="160"/><line x1="120" y1="0" x2="120" y2="160"/></g></svg>')}`;
-  return thumbnails[id] ?? defaultSvg;
+  return BUILTIN_THUMBNAILS[id] ?? FALLBACK_THUMBNAIL;
 }
 
 interface BasemapPickerProps {
@@ -39,7 +55,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
         <img
           src={basemapThumbnail(value)}
           alt={current?.label ?? t('basemap.title')}
-          className="w-6 h-6 rounded border"
+          className="w-8 h-8 rounded border"
         />
         <span className="text-sm flex-1 text-left truncate">
           {current?.label ?? t('basemap.title')}
@@ -54,7 +70,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
 
       {/* Expanded: grid of options */}
       {open && (
-        <div className="grid grid-cols-4 gap-1.5 pt-2">
+        <div className="grid grid-cols-4 gap-2 pt-2">
           {enabled.map((b) => (
             <button
               key={b.id}
