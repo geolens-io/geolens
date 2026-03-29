@@ -48,14 +48,15 @@ const LAND_PATHS = [
 
 interface BBoxPreviewProps {
   bbox: [number, number, number, number] | null;
+  className?: string;
 }
 
-export function BBoxPreview({ bbox }: BBoxPreviewProps) {
+export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
   const { t } = useTranslation('search');
 
   if (!bbox) {
     return (
-      <div className="flex items-center justify-center h-[120px] w-full bg-muted/30 rounded-md text-xs text-muted-foreground">
+      <div className={className ?? 'flex items-center justify-center h-[120px] w-full bg-muted/30 rounded-md text-xs text-muted-foreground'}>
         {t('bbox.noExtent')}
       </div>
     );
@@ -92,7 +93,7 @@ export function BBoxPreview({ bbox }: BBoxPreviewProps) {
   return (
     <svg
       viewBox={viewBox}
-      className="h-[120px] w-full rounded-md bg-muted"
+      className={className ?? 'h-[120px] w-full rounded-md bg-muted'}
       preserveAspectRatio="xMidYMid meet"
     >
       {/* World outline */}
