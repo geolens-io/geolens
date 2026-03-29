@@ -352,6 +352,92 @@ describe('SearchResultCard', () => {
     });
   });
 
+  // Description tests
+  describe('Description display', () => {
+    it('renders real description when provided', () => {
+      render(<SearchResultCard feature={makeFeature({ description: 'A real description' })} />);
+
+      expect(screen.getByTestId('dataset-card-description')).toHaveTextContent('A real description');
+    });
+
+    it('renders auto-description when description is null', () => {
+      render(<SearchResultCard feature={makeFeature({ description: null })} />);
+
+      const desc = screen.getByTestId('dataset-card-description');
+      expect(desc).toBeInTheDocument();
+      // Auto-generated for vector: "Polygon dataset with 195 features in EPSG:4326"
+      expect(desc).toHaveTextContent('Polygon');
+      expect(desc).toHaveTextContent('195');
+      expect(desc).toHaveTextContent('EPSG:4326');
+    });
+
+    it('renders auto-description for raster records', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            description: null,
+            record_type: 'raster_dataset',
+            band_count: 4,
+            gsd: 10,
+            crs: 'EPSG:6527',
+          })}
+        />,
+      );
+
+      const desc = screen.getByTestId('dataset-card-description');
+      expect(desc).toBeInTheDocument();
+      expect(desc).toHaveTextContent('4 bands');
+      expect(desc).toHaveTextContent('10 m');
+    });
+
+    it('does not render description testid for collection records', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              description: null,
+              record_type: 'collection',
+              dataset_count: 5,
+              keywords: null,
+              geometry_type: null,
+              feature_count: null,
+              crs: null,
+              source_organization: null,
+              quality_detail: null,
+              updated_by_display: null,
+              never_edited: true,
+            },
+            { id: 'coll-desc', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByTestId('dataset-card-description')).not.toBeInTheDocument();
+    });
+  });
+
+  // Spec styling tests
+  describe('Spec styling', () => {
+    it('renders specs as icon+plain-text without pill background', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      const specs = screen.getByTestId('dataset-card-specs');
+      // Specs should not contain rounded-full pill elements
+      const pillElements = specs.querySelectorAll('.rounded-full');
+      expect(pillElements).toHaveLength(0);
+    });
+
+    it('renders spec text without bg-muted pill backgrounds', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      const specs = screen.getByTestId('dataset-card-specs');
+      const bgMutedElements = specs.querySelectorAll('[class*="bg-muted"]');
+      expect(bgMutedElements).toHaveLength(0);
+    });
+  });
+
   // Status badge tests
   describe('Status badges', () => {
     it('renders draft badge for non-published datasets', () => {
