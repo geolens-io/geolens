@@ -85,6 +85,15 @@
     "vrt": "Virtuelles Raster",
     "collection": "Sammlung",
     "table": "Tabelle",
+    "sourceCount_one": "{{count}} Quelle",
+    "sourceCount_other": "{{count}} Quellen",
+    "autoDesc": {
+      "vector": "{{geometryType}}-Datensatz mit {{count}} Features in {{crs}}",
+      "raster": "Rasterdatensatz, {{bands}} Bänder, {{gsd}} Auflösung",
+      "vrt": "{{vrtType}} virtuelles Raster mit {{count}} Quellen",
+      "table": "Tabelle mit {{count}} Zeilen",
+      "fallback": "Geodatensatz"
+    },
     "moretags": "+{{count}} weitere",
     "updatedFallback": "Aktualisiert vor {{time}}",
     "noUpdateMetadata": "Keine Aktualisierungsmetadaten",
