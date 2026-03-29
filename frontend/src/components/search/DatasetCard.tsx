@@ -10,7 +10,7 @@ import { formatProvenanceTime, resolveProvenanceIdentity } from '@/lib/provenanc
 import { extractBbox } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { useAuthStore } from '@/stores/auth-store';
-import { ingestionStatusColors } from '@/lib/status-colors';
+import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import type { OGCRecordResponse } from '@/types/api';
 
 export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
@@ -132,7 +132,7 @@ export function DatasetCard({ feature }: { feature: OGCRecordResponse }) {
               );
             })()}
             {properties.keywords?.includes('synthetic') && (
-              <Badge variant="outline" className="text-xs border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200">
+              <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
                 {t('card.testData', { defaultValue: 'Test Data' })}
               </Badge>
             )}

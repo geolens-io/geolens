@@ -10,7 +10,7 @@ import { formatProvenanceTime, resolveProvenanceIdentity } from '@/lib/provenanc
 import { extractBbox } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { useQuicklook } from '@/hooks/use-quicklook';
-import { ingestionStatusColors } from '@/lib/status-colors';
+import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import type { OGCRecordResponse } from '@/types/api';
 
 function formatGsd(gsd: number, crs?: string | null): string {
@@ -164,7 +164,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                   );
                 })()}
                 {!isCollection && properties.keywords?.includes('synthetic') && (
-                  <Badge variant="outline" className="text-xs border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200">
+                  <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
                     {t('card.testData', { defaultValue: 'Test Data' })}
                   </Badge>
                 )}

@@ -261,10 +261,11 @@ Progress: [░░░░░░░░░░] 0%
 | 260328-pjx | Map builder Step 5: data-driven styling generalization | 2026-03-28 | 565f845d | Needs Review | [260328-pjx-map-builder-step-5-data-driven-styling-g](./quick/260328-pjx-map-builder-step-5-data-driven-styling-g/) |
 | 260328-t60 | Run all tests and CI checks then push changes to remote | 2026-03-28 | 3b4b82fc | Verified | [260328-t60-run-all-tests-and-ci-checks-then-push-ch](./quick/260328-t60-run-all-tests-and-ci-checks-then-push-ch/) |
 | 260329-bn7 | Review DESIGN-GUIDE.md audit findings and update guide | 2026-03-29 | 0ec2a422 | Verified | [260329-bn7-review-design-guide-md-audit-findings-an](./quick/260329-bn7-review-design-guide-md-audit-findings-an/) |
+| 260329-cg7 | Review docs/DESIGN-GUIDE.md and update all components to adhere to it | 2026-03-29 | 8743a2ab | Verified | [260329-cg7-review-the-docs-design-guide-md-and-syst](./quick/260329-cg7-review-the-docs-design-guide-md-and-syst/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-29 - Completed quick task 260329-bn7: review DESIGN-GUIDE.md audit findings and update guide
+Last activity: 2026-03-29 - Completed quick task 260329-cg7: design guide compliance — semantic tokens, transition-all removal, status-colors centralization
 Last session: 2026-03-29T12:29:00.489Z
 Stopped at: Completed 260329-bn7-PLAN.md
 Resume file: None

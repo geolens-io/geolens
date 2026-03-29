@@ -11,6 +11,7 @@ import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
 import { ShareDialog } from '@/components/builder/SharePanel';
 import { ChatPanel } from '@/components/builder/ChatPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
+import { experimentalBadgeColor } from '@/lib/status-colors';
 import {
   Dialog,
   DialogContent,
@@ -422,7 +423,7 @@ export function MapBuilderPage() {
             <div className="p-3 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium">{t('aiChat')}</h3>
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600 dark:text-amber-400">
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
                   {t('chat.experimental')}
                 </Badge>
               </div>
@@ -453,7 +454,7 @@ export function MapBuilderPage() {
           <div className="p-3 border-b flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-medium">{t('aiChat')}</h3>
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600 dark:text-amber-400">
+              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
                 {t('chat.experimental')}
               </Badge>
             </div>
