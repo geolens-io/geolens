@@ -1,12 +1,18 @@
 import {
   qualityScoreClasses,
   semanticBadgeColors,
+  jobStatusColors,
+  userStatusColors,
+  visibilityColors,
+  vrtGenerationColors,
+  activeDotColor,
   recordTypeColors,
   ingestionStatusColors,
   validationLevelColors,
   healthDotColors,
-  vrtRasterStatusColors,
+  experimentalBadgeColor,
   syntheticBadgeColor,
+  vrtRasterStatusColors,
 } from '@/lib/status-colors';
 
 describe('qualityScoreClasses', () => {
@@ -34,6 +40,58 @@ describe('qualityScoreClasses', () => {
   it('returns rose styling for score 55 (just below 60)', () => {
     const result = qualityScoreClasses(55);
     expect(result).toContain('rose');
+  });
+
+  it('returns emerald styling for exact boundary 80', () => {
+    expect(qualityScoreClasses(80)).toContain('emerald');
+  });
+
+  it('returns neutral styling for exact boundary 60', () => {
+    expect(qualityScoreClasses(60)).toContain('bg-secondary');
+  });
+
+  it('returns rose styling for score 59 (just below 60)', () => {
+    expect(qualityScoreClasses(59)).toContain('rose');
+  });
+});
+
+describe('jobStatusColors', () => {
+  it('maps all expected statuses to semantic tokens', () => {
+    expect(jobStatusColors.pending).toBe(semanticBadgeColors.warning);
+    expect(jobStatusColors.running).toBe(semanticBadgeColors.info);
+    expect(jobStatusColors.complete).toBe(semanticBadgeColors.success);
+    expect(jobStatusColors.failed).toBe(semanticBadgeColors.destructive);
+  });
+});
+
+describe('userStatusColors', () => {
+  it('maps all expected statuses', () => {
+    expect(userStatusColors.pending).toBe(semanticBadgeColors.warning);
+    expect(userStatusColors.active).toBe(semanticBadgeColors.success);
+    expect(userStatusColors.deactivated).toContain('bg-muted');
+  });
+});
+
+describe('visibilityColors', () => {
+  it('maps all expected levels', () => {
+    expect(visibilityColors.public).toBe(semanticBadgeColors.success);
+    expect(visibilityColors.restricted).toBe(semanticBadgeColors.warning);
+    expect(visibilityColors.private).toBe(semanticBadgeColors.destructive);
+  });
+});
+
+describe('vrtGenerationColors', () => {
+  it('maps all expected statuses', () => {
+    expect(vrtGenerationColors.completed).toBe(semanticBadgeColors.success);
+    expect(vrtGenerationColors.running).toBe(semanticBadgeColors.info);
+    expect(vrtGenerationColors.failed).toBe(semanticBadgeColors.destructive);
+  });
+});
+
+describe('activeDotColor', () => {
+  it('maps boolean states to semantic tokens', () => {
+    expect(activeDotColor.true).toBe('bg-success');
+    expect(activeDotColor.false).toBe('bg-destructive');
   });
 });
 
@@ -98,6 +156,13 @@ describe('vrtRasterStatusColors', () => {
   it('uses semantic border/text tokens', () => {
     expect(vrtRasterStatusColors.ready).toContain('text-success');
     expect(vrtRasterStatusColors.failed).toContain('text-destructive');
+  });
+});
+
+describe('experimentalBadgeColor', () => {
+  it('uses amber palette with dark mode variant', () => {
+    expect(experimentalBadgeColor).toContain('amber');
+    expect(experimentalBadgeColor).toContain('dark:');
   });
 });
 
