@@ -40,8 +40,10 @@ class MapUpdate(BaseModel):
     bearing: float | None = None
     pitch: float | None = None
     basemap_style: str | None = None
+    show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = None
     layers: list[MapLayerInput] | None = None
+    widgets: list[str] | None = None
 
 
 class MapLayerResponse(BaseModel):
@@ -80,6 +82,7 @@ class MapResponse(BaseModel):
     bearing: float
     pitch: float
     basemap_style: str
+    show_basemap_labels: bool
     visibility: str
     thumbnail_url: str | None = None
     forked_from_id: uuid.UUID | None = None
@@ -90,6 +93,7 @@ class MapResponse(BaseModel):
     updated_at: datetime
     layers: list[MapLayerResponse]
     layer_count: int
+    widgets: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -147,6 +151,7 @@ class SharedMapResponse(BaseModel):
     bearing: float
     pitch: float
     basemap_style: str
+    show_basemap_labels: bool = True
     has_non_public_layers: bool = False
     layers: list[SharedLayerResponse]
 

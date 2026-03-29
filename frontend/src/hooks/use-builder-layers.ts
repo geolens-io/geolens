@@ -47,6 +47,7 @@ export function useBuilderLayers(
     if (mapData && !initializedRef.current) {
       setLocalLayers(mapData.layers);
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
+      setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       initializedRef.current = true;
     }
   }, [mapData]);

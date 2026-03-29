@@ -682,6 +682,7 @@ export interface MapResponse {
   bearing: number;
   pitch: number;
   basemap_style: string;
+  show_basemap_labels: boolean;
   visibility: string;
   thumbnail_url: string | null;
   created_by: string | null;
@@ -739,6 +740,7 @@ export interface MapUpdateRequest {
   bearing?: number | null;
   pitch?: number | null;
   basemap_style?: string | null;
+  show_basemap_labels?: boolean | null;
   visibility?: string | null;
   layers?: MapLayerInput[];
   widgets?: string[] | null;

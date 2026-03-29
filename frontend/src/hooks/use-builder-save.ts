@@ -79,6 +79,7 @@ interface SaveState {
   mapId: string | undefined;
   localLayers: MapLayerResponse[];
   localBasemap: string;
+  showBasemapLabels: boolean;
   localName: string;
   localDescription: string;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
@@ -95,7 +96,7 @@ export function useBuilderSave(state: SaveState) {
   const duplicateMutation = useDuplicateMap();
 
   function handleSave() {
-    const { mapId: id, mapInstanceRef, localName, localDescription, localBasemap, localLayers } = state;
+    const { mapId: id, mapInstanceRef, localName, localDescription, localBasemap, localLayers, showBasemapLabels } = state;
     if (!id) return;
     const map = mapInstanceRef.current;
     const center = map?.getCenter();
@@ -110,6 +111,7 @@ export function useBuilderSave(state: SaveState) {
           name: localName || undefined,
           description: localDescription.trim() || null,
           basemap_style: localBasemap,
+          show_basemap_labels: showBasemapLabels,
           center_lng: center?.lng ?? null,
           center_lat: center?.lat ?? null,
           zoom: zoom ?? null,
