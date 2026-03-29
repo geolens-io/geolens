@@ -1,13 +1,13 @@
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { ImageOff, Loader2 } from 'lucide-react';
+import { Combine, FolderOpen, Globe, Hash, ImageOff, Layers, Loader2, Ruler, Shapes, type LucideIcon } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
 import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
-import { extractBbox } from '@/lib/geo-utils';
+import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { useQuicklook } from '@/hooks/use-quicklook';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
@@ -30,50 +30,95 @@ function capitalizeVrtType(vrtType: string): string {
     .join(' ');
 }
 
+interface CardSpec {
+  icon: LucideIcon;
+  label: string;
+}
+
 function buildCardSpecs(
   properties: OGCRecordResponse['properties'],
   t: TFunction<'search'>,
-): string[] {
+): CardSpec[] {
   const recordType = properties.record_type ?? 'vector_dataset';
   const isRaster = recordType === 'raster_dataset';
   const isVrt = recordType === 'vrt_dataset';
-  const specs: string[] = [];
+  const specs: CardSpec[] = [];
 
   if (!isRaster && !isVrt && properties.geometry_type) {
-    specs.push(getGeometryTypeLabel(t, properties.geometry_type));
+    const icon = geometryIcon(properties.geometry_type) ?? Shapes;
+    specs.push({ icon, label: getGeometryTypeLabel(t, properties.geometry_type) });
   }
 
   if (isRaster && properties.band_count != null) {
-    specs.push(t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' }));
+    specs.push({ icon: Layers, label: t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' }) });
   }
 
   if (isRaster && properties.gsd != null) {
     const label = formatGsd(properties.gsd, properties.crs);
-    if (label) specs.push(label);
+    if (label) specs.push({ icon: Ruler, label });
   }
 
   if (isVrt && properties.vrt_type) {
-    specs.push(capitalizeVrtType(properties.vrt_type));
+    specs.push({ icon: Combine, label: capitalizeVrtType(properties.vrt_type) });
   }
 
   if (isVrt && properties.source_count != null) {
-    specs.push(t('card.sourceCount', { count: properties.source_count, defaultValue: '{{count}} sources' }));
+    specs.push({ icon: FolderOpen, label: t('card.sourceCount', { count: properties.source_count, defaultValue: '{{count}} sources' }) });
   }
 
   if (isVrt && properties.band_count != null) {
-    specs.push(t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' }));
+    specs.push({ icon: Layers, label: t('card.bandCount', { count: properties.band_count, defaultValue: '{{count}} bands' }) });
   }
 
   if (!isRaster && !isVrt && properties.feature_count != null) {
     const isTable = recordType === 'table';
-    specs.push(isTable
-      ? t('card.rowCount', { count: properties.feature_count })
-      : t('card.featureCount', { count: properties.feature_count }));
+    specs.push({
+      icon: Hash,
+      label: isTable
+        ? t('card.rowCount', { count: properties.feature_count })
+        : t('card.featureCount', { count: properties.feature_count }),
+    });
   }
 
-  if (properties.crs) specs.push(properties.crs);
+  if (properties.crs) specs.push({ icon: Globe, label: properties.crs });
 
   return specs;
+}
+
+function buildAutoDescription(
+  properties: OGCRecordResponse['properties'],
+  t: TFunction<'search'>,
+): string {
+  if (properties.description && properties.description.trim() !== '') {
+    return properties.description;
+  }
+  const recordType = properties.record_type ?? 'vector_dataset';
+  switch (recordType) {
+    case 'vector_dataset':
+      if (properties.geometry_type) {
+        return t('card.autoDesc.vector', {
+          geometryType: getGeometryTypeLabel(t, properties.geometry_type),
+          count: properties.feature_count ?? 0,
+          crs: properties.crs ?? '',
+        });
+      }
+      break;
+    case 'raster_dataset':
+      return t('card.autoDesc.raster', {
+        bands: properties.band_count ?? 0,
+        gsd: properties.gsd != null ? formatGsd(properties.gsd, properties.crs) : '',
+      });
+    case 'vrt_dataset':
+      return t('card.autoDesc.vrt', {
+        vrtType: properties.vrt_type ? capitalizeVrtType(properties.vrt_type) : '',
+        count: properties.source_count ?? 0,
+      });
+    case 'table':
+      return t('card.autoDesc.table', { count: properties.feature_count ?? 0 });
+    default:
+      break;
+  }
+  return t('card.autoDesc.fallback');
 }
 
 export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
@@ -142,10 +187,10 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
     <Link to={linkPath} className="group block" data-testid="search-result-card">
       <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
         <div className="p-4 sm:p-5">
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
 
             {/* Band 1 — Header */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_80px]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_120px]">
               {/* Left: badges, title, source */}
               <div className="min-w-0 flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -183,32 +228,41 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                     {properties.description}
                   </p>
                 )}
+
+                {!isCollection && (
+                  <p
+                    className="max-w-3xl text-[13px] leading-5 text-muted-foreground/80 line-clamp-2"
+                    data-testid="dataset-card-description"
+                  >
+                    {buildAutoDescription(properties, t)}
+                  </p>
+                )}
               </div>
 
-              {/* Right: 80x80 preview, hidden on mobile, hidden for collections */}
+              {/* Right: 120x120 preview, hidden on mobile, hidden for collections */}
               {!isCollection && (
                 <div className="hidden md:block">
-                  <div className="h-[80px] w-[80px] overflow-hidden rounded-lg border border-border/40">
+                  <div className="h-[120px] w-[120px] overflow-hidden rounded-lg border border-border/40">
                     {isTable ? (
-                      <div className="flex h-[80px] w-[80px] items-center justify-center bg-muted/20 text-muted-foreground">
+                      <div className="flex h-[120px] w-[120px] items-center justify-center bg-muted/20 text-muted-foreground">
                         <ImageOff className="h-5 w-5 opacity-45" />
                       </div>
                     ) : quicklookSrc ? (
                       <img
                         src={quicklookSrc}
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
-                        className="h-[80px] w-[80px] object-cover"
+                        className="h-[120px] w-[120px] object-cover"
                       />
                     ) : qlLoading ? (
-                      <div className="flex h-[80px] w-[80px] items-center justify-center bg-muted/25">
+                      <div className="flex h-[120px] w-[120px] items-center justify-center bg-muted/25">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       </div>
                     ) : qlError ? (
-                      <div className="flex h-[80px] w-[80px] flex-col items-center justify-center gap-1 bg-muted/25 text-muted-foreground">
+                      <div className="flex h-[120px] w-[120px] flex-col items-center justify-center gap-1 bg-muted/25 text-muted-foreground">
                         <ImageOff className="h-5 w-5 opacity-50" />
                       </div>
                     ) : (
-                      <BBoxPreview bbox={bbox} className="h-[80px] w-[80px] rounded-md bg-muted" />
+                      <BBoxPreview bbox={bbox} className="h-[120px] w-[120px] rounded-md bg-muted" />
                     )}
                   </div>
                 </div>
@@ -217,13 +271,14 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
 
             {/* Band 2 — Facts (specs row) */}
             {!isCollection && cardSpecs.length > 0 && (
-              <div className="flex flex-wrap gap-1.5" data-testid="dataset-card-specs">
-                {cardSpecs.map((item) => (
-                  <span
-                    key={item}
-                    className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
-                  >
-                    {item}
+              <div className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dataset-card-specs">
+                {cardSpecs.map((item, index) => (
+                  <span key={item.label} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    {index > 0 && (
+                      <span className="mr-1 text-muted-foreground/40">&middot;</span>
+                    )}
+                    <item.icon className="size-3 shrink-0" />
+                    {item.label}
                   </span>
                 ))}
               </div>
