@@ -151,7 +151,7 @@ export function MapBuilderPage() {
   const handleMapRef = useCallback((map: MaplibreMap | null) => {
     layers.handleMapRef(map);
     if (map) save.maybeAutoCaptureThumbnail(map);
-  }, [layers.handleMapRef, save.maybeAutoCaptureThumbnail]);
+  }, [layers, save]);
 
   if (isLoading) {
     return (

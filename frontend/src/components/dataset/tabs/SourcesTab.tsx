@@ -54,7 +54,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
   const addVrtSource = useAddVrtSource(datasetId);
   const removeVrtSource = useRemoveVrtSource(datasetId);
 
-  const sources = sourcesData?.sources ?? [];
+  const sources = useMemo(() => sourcesData?.sources ?? [], [sourcesData?.sources]);
   const status = dataset.raster?.status ?? null;
   const isRegenerating = status === 'regenerating';
   const isFailed = status === 'failed';

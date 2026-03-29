@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Map as MapGL, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
@@ -138,13 +138,17 @@ export function ViewerMap({
   const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
 
   // Fetch tile tokens for all layers using API key auth
+  const layerDatasetIds = useMemo(
+    () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
+    [layers],
+  );
   useEffect(() => {
-    if (embedToken || !apiKey || layers.length === 0) return;
+    if (embedToken || !apiKey || layerDatasetIds.length === 0) return;
 
     let cancelled = false;
 
     async function fetchTokens() {
-      const uniqueIds = [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))];
+      const uniqueIds = layerDatasetIds;
       if (uniqueIds.length === 0) return;
 
       try {
@@ -184,7 +188,7 @@ export function ViewerMap({
         refreshTimerRef.current = null;
       }
     };
-  }, [embedToken, apiKey, layers.map((l) => l.dataset_id).join(',')]);
+  }, [embedToken, apiKey, layerDatasetIds]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -247,7 +251,7 @@ export function ViewerMap({
     return () => {
       map.off('click', handleClick);
     };
-  }, [layers, visibleLayers, mapReady]);
+  }, [layers, visibleLayers, mapReady, t]);
 
   // Mousemove: pointer cursor on interactive features
   useEffect(() => {
@@ -396,7 +400,7 @@ export function ViewerMap({
 
     // Keep basemap labels above data layers
     reorderBasemapLabels(map, showBasemapLabels);
-  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels]);
+  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels]);
 
   // Update tile URLs in-place when tokens refresh
   useEffect(() => {

@@ -187,15 +187,6 @@ export function LayerFilterEditor({
   const [rawError, setRawError] = useState<string | null>(null);
   const [opaque, setOpaque] = useState(false);
 
-  // Sync from filter prop on initial mount only
-  useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      applyParseResult(parseFilterExpression(filter));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
-
   function applyParseResult(result: ParseResult) {
     if (result.kind === 'opaque') {
       setOpaque(true);
@@ -208,6 +199,14 @@ export function LayerFilterEditor({
       setCombinator(result.combinator);
     }
   }
+
+  // Sync from filter prop on initial mount only
+  useEffect(() => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      applyParseResult(parseFilterExpression(filter));
+    }
+  }, [filter]);
 
   function getFieldType(fieldName: string): ColumnType {
     const col = columnInfo.find((c) => c.name === fieldName);

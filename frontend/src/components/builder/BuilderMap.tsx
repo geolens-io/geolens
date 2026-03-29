@@ -218,6 +218,7 @@ export function BuilderMap({
   // Clear popup when layer visibility changes
   useEffect(() => {
     setPopupInfo(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- derived string key intentional
   }, [layers.map((l) => l.visible).join(',')]);
 
   // Sync layers to map (initial + when layers/tokens change)
@@ -267,6 +268,7 @@ export function BuilderMap({
   const prevLayerCountRef = useRef(layers.length);
 
   // Auto-fit to visible layers (skip on initial load if saved view exists)
+  const layerVisibilityKey = layers.map((l) => `${l.id}:${l.visible}`).join(',');
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -311,7 +313,8 @@ export function BuilderMap({
     if (map.getZoom() < 2) {
       map.setZoom(2);
     }
-  }, [layers.length, layers.map((l) => `${l.id}:${l.visible}`).join(','), mapReady]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hasSavedView/layers read from refs, not reactive deps
+  }, [layers.length, layerVisibilityKey, mapReady]);
 
   // Cleanup on unmount
   useEffect(() => {
