@@ -65,6 +65,7 @@ export function MapBuilderPage() {
   const { isCompact } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
+  const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Resizable sidebar state (persisted to localStorage)
@@ -150,6 +151,7 @@ export function MapBuilderPage() {
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {
     layers.handleMapRef(map);
+    setMapInstance(map);
     if (map) save.maybeAutoCaptureThumbnail(map);
   }, [layers, save]);
 
@@ -409,7 +411,7 @@ export function MapBuilderPage() {
           />
         )}
         <WidgetToolbar />
-        <WidgetHost ctx={{ mapInstance: mapInstanceRef.current, layers: layers.localLayers, mapId: id! }} />
+        <WidgetHost ctx={{ mapInstance, layers: layers.localLayers, mapId: id! }} />
       </div>
 
       {/* Chat panel - compact: Sheet overlay, wide: inline rail */}
