@@ -111,7 +111,7 @@ export function SearchPage() {
               <SearchControls
                 compact
                 showFilters={showStickyFilters}
-                totalResults={data?.numberMatched}
+                totalResults={data ? Math.max(data.numberMatched, data.features.length) : undefined}
               />
             </div>
           </div>
@@ -129,7 +129,7 @@ export function SearchPage() {
               </div>
               <SearchControls
                 showFilters
-                totalResults={data?.numberMatched}
+                totalResults={data ? Math.max(data.numberMatched, data.features.length) : undefined}
                 searchClassName="max-w-4xl"
               >
                 {token ? <SavedSearches className="justify-center" /> : null}
@@ -160,8 +160,8 @@ export function SearchPage() {
           <ErrorState message={t('error.message', { message: error.message })} />
         )}
 
-        {/* Empty state */}
-        {data && data.numberMatched === 0 && (
+        {/* Empty state — only when there are truly no features to show */}
+        {data && data.features.length === 0 && (
           <EmptyState
             icon={SearchX}
             title={t('empty.title')}
@@ -189,9 +189,9 @@ export function SearchPage() {
         )}
 
         {/* Pagination */}
-        {data && data.numberMatched > 0 && (
+        {data && Math.max(data.numberMatched, data.features.length) > 0 && (
           <Pagination
-            total={data.numberMatched}
+            total={Math.max(data.numberMatched, data.features.length)}
             offset={offset}
             limit={limit}
             onPageChange={(newOffset) => useSearchStore.getState().setPage(newOffset)}

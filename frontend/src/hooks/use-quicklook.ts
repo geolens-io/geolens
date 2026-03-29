@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { queryKeys } from '@/lib/query-keys';
@@ -10,19 +9,16 @@ interface UseQuicklookResult {
 }
 
 /**
- * Fetches a quicklook thumbnail for a dataset and manages blob URL lifecycle.
+ * Fetches a quicklook thumbnail for a dataset as a data URL.
  * Returns null immediately for null datasetId (e.g., collections).
  *
- * Uses TanStack Query so the result is cached and benefits from React Query's
- * lifecycle. Auth token is read from the zustand store directly (outside React
- * render) since apiFetch assumes JSON responses and cannot handle blobs.
+ * Uses TanStack Query so the result is cached. Auth token is read from the
+ * zustand store directly (outside React render) since apiFetch assumes JSON.
  *
- * Blob URLs are revoked when the component unmounts or the URL changes to
- * prevent memory leaks.
+ * Uses base64 data URLs instead of blob URLs to avoid revocation race
+ * conditions with React concurrent rendering.
  */
 export function useQuicklook(datasetId: string | null): UseQuicklookResult {
-  const prevUrlRef = useRef<string | null>(null);
-
   const { data: src = null, isLoading, isError } = useQuery({
     queryKey: queryKeys.datasets.quicklook(datasetId!),
     queryFn: async () => {
@@ -32,26 +28,18 @@ export function useQuicklook(datasetId: string | null): UseQuicklookResult {
       const r = await fetch(`/api/datasets/${datasetId}/quicklook?size=256`, { headers });
       if (!r.ok) throw new Error(String(r.status));
       const blob = await r.blob();
-      return URL.createObjectURL(blob);
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
     },
     enabled: !!datasetId,
     staleTime: 5 * 60 * 1000,
     retry: false,
     meta: { skipGlobalError: true },
   });
-
-  // Revoke previous blob URL when it changes or on unmount
-  useEffect(() => {
-    if (prevUrlRef.current && prevUrlRef.current !== src) {
-      URL.revokeObjectURL(prevUrlRef.current);
-    }
-    prevUrlRef.current = src;
-    return () => {
-      if (prevUrlRef.current) {
-        URL.revokeObjectURL(prevUrlRef.current);
-      }
-    };
-  }, [src]);
 
   return { src, isLoading, isError };
 }

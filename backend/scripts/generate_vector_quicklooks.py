@@ -2,13 +2,15 @@
 
 Usage:
     docker compose exec api uv run python scripts/generate_vector_quicklooks.py
+    docker compose exec api uv run python scripts/generate_vector_quicklooks.py --force
 
-Generates quicklooks for all vector datasets that don't already have one.
-Uses timeout protection to skip datasets that take too long.
+Without --force: only generates for datasets missing quicklooks.
+With --force: regenerates all vector quicklooks (e.g., after renderer changes).
 """
 
 import asyncio
 import io
+import sys
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -20,6 +22,7 @@ async def main() -> None:
     from app.storage import get_storage, init_storage
     from app.vector.quicklook import generate_vector_quicklook_with_timeout
 
+    force = "--force" in sys.argv
     init_storage()
 
     engine = create_async_engine(settings.database_url, pool_size=2)
@@ -27,14 +30,19 @@ async def main() -> None:
 
     async with async_session() as db:
         # Raw SQL to avoid ORM relationship issues
+        where_clause = (
+            ""
+            if force
+            else "  AND d.quicklook_256_uri IS NULL"
+        )
         result = await db.execute(
             text(
                 "SELECT d.id, d.table_name, d.geometry_type "
                 "FROM catalog.datasets d "
                 "JOIN catalog.records r ON d.record_id = r.id "
                 "WHERE r.record_type = 'vector_dataset' "
-                "  AND d.table_name IS NOT NULL "
-                "  AND d.quicklook_256_uri IS NULL"
+                "  AND d.table_name IS NOT NULL"
+                + where_clause
             )
         )
         rows = result.fetchall()
@@ -43,7 +51,8 @@ async def main() -> None:
             print("No vector datasets need quicklook generation.")
             return
 
-        print(f"Found {len(rows)} vector datasets without quicklooks.")
+        label = "to regenerate" if force else "without quicklooks"
+        print(f"Found {len(rows)} vector datasets {label}.")
         storage = get_storage()
         success = 0
         skipped = 0
