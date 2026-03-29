@@ -10,6 +10,13 @@
     "emptyState": "Add datasets from the catalog to get started",
     "addData": "Add Data"
   },
+  "inspector": {
+    "title": "Layer Inspector",
+    "close": "Close inspector",
+    "toggleAdvanced": "Toggle advanced mode",
+    "basicMode": "Switch to basic mode",
+    "advancedMode": "Switch to advanced mode"
+  },
   "layerItem": {
     "hideLayer": "Hide layer",
     "showLayer": "Show layer",
@@ -29,7 +36,9 @@
     "styleTab": "Style",
     "collapseOptions": "Collapse options",
     "moreActions": "More actions",
-    "expandOptions": "Expand options"
+    "expandOptions": "Expand options",
+    "searchColumns": "Search columns...",
+    "noColumnsMatch": "No columns match"
   },
   "style": {
     "fill": "Fill",
@@ -52,7 +61,16 @@
       "dashed": "Dashed",
       "dotted": "Dotted",
       "dashDot": "Dash-dot"
-    }
+    },
+    "advancedJson": "Advanced JSON",
+    "paintJson": "Paint",
+    "layoutJson": "Layout",
+    "jsonApply": "Apply",
+    "jsonError": "Invalid JSON",
+    "jsonCancel": "Cancel",
+    "zoomRange": "Zoom Range",
+    "minZoom": "Min zoom",
+    "maxZoom": "Max zoom"
   },
   "filters": {
     "title": "Filters",
@@ -80,7 +98,23 @@
     "textColor": "Text color",
     "haloColor": "Halo color",
     "haloWidth": "Halo width",
-    "selectColumn": "Select column"
+    "selectColumn": "Select column",
+    "placement": "Placement",
+    "placementPoint": "Point",
+    "placementLine": "Line",
+    "placementLineCenter": "Center",
+    "anchor": "Anchor",
+    "anchorCenter": "Center",
+    "anchorTop": "Top",
+    "anchorBottom": "Bottom",
+    "anchorLeft": "Left",
+    "anchorRight": "Right",
+    "offsetX": "Offset X",
+    "offsetY": "Offset Y",
+    "allowOverlap": "Allow overlap",
+    "zoomRange": "Zoom Range",
+    "minZoom": "Min zoom",
+    "maxZoom": "Max zoom"
   },
   "dataDriven": {
     "title": "Data-Driven Style",

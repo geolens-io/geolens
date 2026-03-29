@@ -5,6 +5,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
+import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 
 // Import shared utilities used locally
 import { getLayerType } from './layer-adapters/shared';
@@ -115,6 +116,19 @@ export function syncLayersToMap(
       adapter.syncPaint(map, adapterInput);
     }
 
+    // Apply per-layer zoom range from custom layout props (main + outline companion)
+    const layerLayout = (layer.layout ?? {}) as Record<string, unknown>;
+    const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
+    const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
+    const mapLayerId = `layer-${layer.id}`;
+    if (map.getLayer(mapLayerId)) {
+      map.setLayerZoomRange(mapLayerId, layerMinzoom, layerMaxzoom);
+    }
+    const outlineLayerId = `${mapLayerId}-outline`;
+    if (map.getLayer(outlineLayerId)) {
+      map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
+    }
+
     // Sync label layer for existing sources (add/update/remove)
     const labelId = getLabelLayerId(layer.id);
     if (map.getSource(sourceId)) {
@@ -123,41 +137,12 @@ export function syncLayersToMap(
         const geomType = getLayerType(layer.dataset_geometry_type);
 
         if (!map.getLayer(labelId)) {
-          // Add label layer
-          map.addLayer({
-            id: labelId,
-            type: 'symbol',
-            source: sourceId,
-            'source-layer': sourceLayer,
-            minzoom: lc.minZoom ?? 0,
-            maxzoom: lc.maxZoom ?? 22,
-            layout: {
-              'text-field': ['get', lc.column],
-              'text-size': lc.fontSize ?? 12,
-              'symbol-placement': geomType === 'line' ? 'line' : 'point',
-              'text-allow-overlap': false,
-              'text-font': ['Noto Sans Regular'],
-              'text-max-width': 10,
-              ...(geomType === 'circle' ? { 'text-offset': [0, -1.5] as [number, number] } : {}),
-            },
-            paint: {
-              'text-color': lc.textColor ?? MAP_COLORS.label.color,
-              'text-halo-color': lc.haloColor ?? MAP_COLORS.label.halo,
-              'text-halo-width': lc.haloWidth ?? 1.5,
-            },
-          });
+          map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType }));
           if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
             map.setFilter(labelId, layer.filter);
           }
         } else {
-          // Update existing label layer properties
-          map.setLayoutProperty(labelId, 'text-field', ['get', lc.column]);
-          map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
-          map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
-          map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
-          map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
-          map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
-          // Sync filter on existing label layer
+          syncLabelLayer(map, labelId, lc, geomType);
           if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
             map.setFilter(labelId, layer.filter);
           } else {

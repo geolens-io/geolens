@@ -18,11 +18,11 @@ import { getEnvConfig } from '@/lib/env';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import type { MapLibreEvent, MapMouseEvent, StyleSpecification } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { MAP_COLORS } from '@/lib/map-colors';
 import type { SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { getLayerType } from '@/components/builder/map-sync';
+import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface ViewerMapProps {
@@ -318,50 +318,35 @@ export function ViewerMap({
         adapter.syncPaint(map, adapterInput);
       }
 
+      // Apply per-layer zoom range from custom layout props (main + outline companion)
+      const layerLayout = (layer.layout ?? {}) as Record<string, unknown>;
+      const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
+      const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
+      const mainLayerId = getLayerId(layer.sort_order);
+      if (map.getLayer(mainLayerId)) {
+        map.setLayerZoomRange(mainLayerId, layerMinzoom, layerMaxzoom);
+      }
+      const outlineLayerId = `${mainLayerId}-outline`;
+      if (map.getLayer(outlineLayerId)) {
+        map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
+      }
+
       // Label layer management (adapters do not handle labels)
       const labelId = getLabelLayerId(layer.sort_order);
       if (map.getSource(sourceId)) {
-        if (layer.label_config && (layer.label_config as { column?: string }).column) {
-          const lc = layer.label_config as { column: string; fontSize?: number; textColor?: string; haloColor?: string; haloWidth?: number; minZoom?: number; maxZoom?: number };
+        if (layer.label_config?.column) {
+          const lc = layer.label_config;
           const geomType = getLayerType(layer.geometry_type);
           const sl = `data.${layer.table_name}`;
           const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
 
           if (!map.getLayer(labelId)) {
-            map.addLayer({
-              id: labelId,
-              type: 'symbol',
-              source: sourceId,
-              'source-layer': sl,
-              layout: {
-                'text-field': ['get', lc.column],
-                'text-size': lc.fontSize ?? 12,
-                'symbol-placement': geomType === 'line' ? 'line' : 'point',
-                'text-allow-overlap': false,
-                'text-font': ['Noto Sans Regular'],
-                'text-max-width': 10,
-                visibility: vis,
-                ...(geomType === 'circle' ? { 'text-offset': [0, -1.5] as [number, number] } : {}),
-              },
-              paint: {
-                'text-color': lc.textColor ?? MAP_COLORS.label.color,
-                'text-halo-color': lc.haloColor ?? MAP_COLORS.label.halo,
-                'text-halo-width': lc.haloWidth ?? 1.5,
-              },
-            });
+            map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer: sl, lc, geomType, visibility: vis }));
             if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
               map.setFilter(labelId, layer.filter);
             }
           } else {
-            // Update existing label layer properties
-            map.setLayoutProperty(labelId, 'text-field', ['get', lc.column]);
-            map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
-            map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
-            map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
-            map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
-            if (lc.minZoom != null || lc.maxZoom != null) {
-              map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
-            }
+            syncLabelLayer(map, labelId, lc, geomType);
             if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
               map.setFilter(labelId, layer.filter);
             }

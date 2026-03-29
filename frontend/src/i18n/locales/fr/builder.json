@@ -10,6 +10,13 @@
     "emptyState": "Ajoutez des jeux de données du catalogue pour commencer",
     "addData": "Ajouter des données"
   },
+  "inspector": {
+    "title": "Inspecteur de couche",
+    "close": "Fermer l'inspecteur",
+    "toggleAdvanced": "Basculer le mode avancé",
+    "basicMode": "Passer en mode simple",
+    "advancedMode": "Passer en mode avancé"
+  },
   "layerItem": {
     "hideLayer": "Masquer la couche",
     "showLayer": "Afficher la couche",
@@ -29,7 +36,9 @@
     "styleTab": "Style",
     "collapseOptions": "Réduire les options",
     "moreActions": "Plus d'actions",
-    "expandOptions": "Développer les options"
+    "expandOptions": "Développer les options",
+    "searchColumns": "Rechercher des colonnes...",
+    "noColumnsMatch": "Aucune colonne correspondante"
   },
   "style": {
     "fill": "Remplissage",
@@ -52,7 +61,16 @@
       "dashed": "Tirets",
       "dotted": "Pointillés",
       "dashDot": "Tiret-point"
-    }
+    },
+    "advancedJson": "JSON avancé",
+    "paintJson": "Paint",
+    "layoutJson": "Layout",
+    "jsonApply": "Appliquer",
+    "jsonError": "JSON invalide",
+    "jsonCancel": "Annuler",
+    "zoomRange": "Plage de zoom",
+    "minZoom": "Zoom min",
+    "maxZoom": "Zoom max"
   },
   "filters": {
     "title": "Filtres",
@@ -80,7 +98,23 @@
     "textColor": "Couleur du texte",
     "haloColor": "Couleur du halo",
     "haloWidth": "Largeur du halo",
-    "selectColumn": "Sélectionner une colonne"
+    "selectColumn": "Sélectionner une colonne",
+    "placement": "Placement",
+    "placementPoint": "Point",
+    "placementLine": "Ligne",
+    "placementLineCenter": "Centre",
+    "anchor": "Ancrage",
+    "anchorCenter": "Centre",
+    "anchorTop": "Haut",
+    "anchorBottom": "Bas",
+    "anchorLeft": "Gauche",
+    "anchorRight": "Droite",
+    "offsetX": "Décalage X",
+    "offsetY": "Décalage Y",
+    "allowOverlap": "Autoriser le chevauchement",
+    "zoomRange": "Plage de zoom",
+    "minZoom": "Zoom min",
+    "maxZoom": "Zoom max"
   },
   "dataDriven": {
     "title": "Style base sur les donnees",

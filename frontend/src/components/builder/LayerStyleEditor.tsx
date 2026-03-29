@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
 import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
 import { getLayerType } from '@/components/builder/map-sync';
@@ -14,6 +17,7 @@ interface LayerStyleEditorProps {
   onOpacityChange: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  showAdvanced?: boolean;
 }
 
 const LINE_DASH_PRESETS = [
@@ -56,10 +60,12 @@ export function LayerStyleEditor({
   onOpacityChange,
   onStyleConfigChange,
   onLayoutChange,
+  showAdvanced,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
   const paint = layer.paint;
+  const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
   const isDataDriven = !!layer.style_config?.column;
 
   const fillEnabled = !paint['_fill-disabled'];
@@ -318,6 +324,142 @@ export function LayerStyleEditor({
           format="percent"
           onChange={(val) => onOpacityChange(layer.id, val)}
         />
+
+        {/* Layer zoom range */}
+        <div className="text-xs font-medium mt-2 pt-2 border-t">{t('style.zoomRange')}</div>
+        <SliderRow
+          label={t('style.minZoom')}
+          value={layoutObj['_minzoom'] as number ?? 0}
+          min={0}
+          max={(layoutObj['_maxzoom'] as number ?? 22) - 1}
+          step={1}
+          format="zoom"
+          onChange={(val) => onLayoutChange(layer.id, { ...layoutObj, '_minzoom': val })}
+        />
+        <SliderRow
+          label={t('style.maxZoom')}
+          value={layoutObj['_maxzoom'] as number ?? 22}
+          min={(layoutObj['_minzoom'] as number ?? 0) + 1}
+          max={22}
+          step={1}
+          format="zoom"
+          onChange={(val) => onLayoutChange(layer.id, { ...layoutObj, '_maxzoom': val })}
+        />
+      </div>
+
+      {/* Advanced JSON editor — hidden when showAdvanced is explicitly false */}
+      {showAdvanced !== false && (
+        <AdvancedJsonEditor
+          paint={paint}
+          layout={(layer.layout as Record<string, unknown>) ?? {}}
+          onPaintChange={(p) => onPaintChange(layer.id, p)}
+          onLayoutChange={(l) => onLayoutChange(layer.id, l)}
+          defaultOpen={showAdvanced === true}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------- Advanced JSON editor ---------- */
+
+interface AdvancedJsonEditorProps {
+  paint: Record<string, unknown>;
+  layout: Record<string, unknown>;
+  onPaintChange: (paint: Record<string, unknown>) => void;
+  onLayoutChange: (layout: Record<string, unknown>) => void;
+  defaultOpen?: boolean;
+}
+
+function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defaultOpen = false }: AdvancedJsonEditorProps) {
+  const { t } = useTranslation('builder');
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border-t pt-2">
+      <button
+        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        <Code className="h-3 w-3" />
+        {t('style.advancedJson')}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-3">
+          <JsonBlock
+            label={t('style.paintJson')}
+            value={paint}
+            onApply={onPaintChange}
+          />
+          <JsonBlock
+            label={t('style.layoutJson')}
+            value={layout}
+            onApply={onLayoutChange}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JsonBlock({ label, value, onApply }: { label: string; value: Record<string, unknown>; onApply: (v: Record<string, unknown>) => void }) {
+  const { t } = useTranslation('builder');
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  function handleOpen() {
+    setText(JSON.stringify(value, null, 2));
+    setError(null);
+    setEditing(true);
+  }
+
+  function handleApply() {
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        setError(t('style.jsonError'));
+        return;
+      }
+      onApply(parsed);
+      setError(null);
+      setEditing(false);
+    } catch {
+      setError(t('style.jsonError'));
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div>
+        <button
+          className="text-xs text-muted-foreground hover:text-foreground underline"
+          onClick={handleOpen}
+        >
+          {label}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <textarea
+        className="w-full rounded border border-input bg-background p-2 text-xs font-mono resize-y min-h-[80px] outline-none focus:ring-1 focus:ring-ring"
+        value={text}
+        onChange={(e) => { setText(e.target.value); setError(null); }}
+        spellCheck={false}
+      />
+      {error && <div className="text-xs text-destructive">{error}</div>}
+      <div className="flex gap-1.5">
+        <Button size="sm" className="h-6 text-xs px-2" onClick={handleApply}>
+          {t('style.jsonApply')}
+        </Button>
+        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => setEditing(false)}>
+          {t('style.jsonCancel')}
+        </Button>
       </div>
     </div>
   );
@@ -330,7 +472,7 @@ interface SliderRowProps {
   min: number;
   max: number;
   step: number;
-  format: 'percent' | 'px';
+  format: 'percent' | 'px' | 'zoom';
   onChange: (val: number) => void;
 }
 
@@ -338,7 +480,9 @@ function SliderRow({ label, value, min, max, step, format, onChange }: SliderRow
   const display =
     format === 'percent'
       ? `${Math.round(value * 100)}%`
-      : `${value}px`;
+      : format === 'zoom'
+        ? `${value}`
+        : `${value}px`;
 
   return (
     <div className="flex items-center gap-2">

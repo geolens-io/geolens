@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, Globe, Users, Lock, MoreHorizontal } from 'lucide-react';
@@ -6,6 +6,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { BuilderMap } from '@/components/builder/BuilderMap';
 import { LayerPanel } from '@/components/builder/LayerPanel';
+import { LayerInspector } from '@/components/builder/LayerInspector';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
 import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
 import { ShareDialog } from '@/components/builder/SharePanel';
@@ -52,6 +53,54 @@ import { useWidgetStore } from '@/stores/map-widget-store';
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 600;
+
+function VisibilityIcon({ visibility }: { visibility: string }) {
+  if (visibility === 'public') return <Globe className="h-3 w-3 text-success" />;
+  if (visibility === 'internal') return <Users className="h-3 w-3 text-warning" />;
+  return <Lock className="h-3 w-3 text-muted-foreground" />;
+}
+
+function ChatPanelContent({
+  mapId,
+  layers,
+  dialogs,
+}: {
+  mapId: string;
+  layers: ReturnType<typeof useBuilderLayers>;
+  dialogs: ReturnType<typeof useBuilderDialogs>;
+}) {
+  const { t } = useTranslation('builder');
+  return (
+    <>
+      <div className="p-3 border-b flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-medium">{t('aiChat')}</h3>
+          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
+            {t('chat.experimental')}
+          </Badge>
+        </div>
+        <Button variant="ghost" size="icon-xs" onClick={() => dialogs.setShowChat(false)} aria-label={t('tooltips.closeChat')}>
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        <ChatPanel
+          mapId={mapId}
+          layers={layers.localLayers}
+          onFilterChange={layers.handleFilterChange}
+          onPaintChange={layers.handlePaintChange}
+          onStyleConfigChange={layers.handleStyleConfigChange}
+          onLabelChange={layers.handleLabelChange}
+          onToggleVisibility={layers.handleToggleVisibility}
+          onAddDataset={layers.handleAddDataset}
+          onRemove={layers.handleAiRemoveLayer}
+          onQueryResult={layers.handleQueryResult}
+          onOpacityChange={layers.handleOpacityChange}
+        />
+      </div>
+    </>
+  );
+}
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -150,10 +199,15 @@ export function MapBuilderPage() {
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {
-    layers.handleMapRef(map);
+    (mapInstanceRef as React.MutableRefObject<MaplibreMap | null>).current = map;
     setMapInstance(map);
     if (map) save.maybeAutoCaptureThumbnail(map);
-  }, [layers, save]);
+  }, [save.maybeAutoCaptureThumbnail]);
+
+  const widgetCtx = useMemo(
+    () => ({ mapInstance, layers: layers.localLayers, mapId: id! }),
+    [mapInstance, layers.localLayers, id],
+  );
 
   if (isLoading) {
     return (
@@ -179,13 +233,11 @@ export function MapBuilderPage() {
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
   const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
 
-  function VisibilityIcon({ visibility }: { visibility: string }) {
-    if (visibility === 'public') return <Globe className="h-3 w-3 text-success" />;
-    if (visibility === 'internal') return <Users className="h-3 w-3 text-warning" />;
-    return <Lock className="h-3 w-3 text-muted-foreground" />;
-  }
-
   const existingDatasetIds = layers.localLayers.map((l) => l.dataset_id);
+  const useInspector = !isCompact;
+  const selectedLayer = useInspector && layers.expandedLayerId
+    ? layers.localLayers.find((l) => l.id === layers.expandedLayerId) ?? null
+    : null;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
@@ -364,6 +416,7 @@ export function MapBuilderPage() {
             onZoomToLayer={layers.handleZoomToLayer}
             onToggleLegend={layers.handleToggleLegend}
             onAddDataClick={() => dialogs.setShowAddData(true)}
+            inspectorMode={useInspector}
           />
 
           <div className="border-t pt-3 px-2">
@@ -382,6 +435,24 @@ export function MapBuilderPage() {
 
         </div>
       </div>
+
+      {/* Layer Inspector panel (wide screens only) */}
+      {selectedLayer && (
+        <div className="w-72 border-r bg-background flex flex-col shrink-0 overflow-hidden">
+          <LayerInspector
+            layer={selectedLayer}
+            activeTab={layers.activeEditorTab}
+            onTabChange={layers.handleTabChange}
+            onPaintChange={layers.handlePaintChange}
+            onOpacityChange={layers.handleOpacityChange}
+            onFilterChange={layers.handleFilterChange}
+            onLabelChange={layers.handleLabelChange}
+            onStyleConfigChange={layers.handleStyleConfigChange}
+            onLayoutChange={layers.handleLayoutChange}
+            onClose={() => layers.handleToggleExpand('')}
+          />
+        </div>
+      )}
 
       {/* Map */}
       <div className="flex-1 relative">
@@ -411,7 +482,7 @@ export function MapBuilderPage() {
           />
         )}
         <WidgetToolbar />
-        <WidgetHost ctx={{ mapInstance, layers: layers.localLayers, mapId: id! }} />
+        <WidgetHost ctx={widgetCtx} />
       </div>
 
       {/* Chat panel - compact: Sheet overlay, wide: inline rail */}
@@ -422,63 +493,13 @@ export function MapBuilderPage() {
               <SheetTitle>{t('aiChat')}</SheetTitle>
               <SheetDescription>{t('tooltips.aiChat')}</SheetDescription>
             </SheetHeader>
-            <div className="p-3 border-b flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium">{t('aiChat')}</h3>
-                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
-                  {t('chat.experimental')}
-                </Badge>
-              </div>
-              <Button variant="ghost" size="icon-xs" onClick={() => dialogs.setShowChat(false)} aria-label={t('tooltips.closeChat')}>
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <ChatPanel
-                mapId={id}
-                layers={layers.localLayers}
-                onFilterChange={layers.handleFilterChange}
-                onPaintChange={layers.handlePaintChange}
-                onStyleConfigChange={layers.handleStyleConfigChange}
-                onLabelChange={layers.handleLabelChange}
-                onToggleVisibility={layers.handleToggleVisibility}
-                onAddDataset={layers.handleAiAddDataset}
-                onRemove={layers.handleAiRemoveLayer}
-                onQueryResult={layers.handleQueryResult}
-                onOpacityChange={layers.handleOpacityChange}
-              />
-            </div>
+            <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
           </SheetContent>
         </Sheet>
       )}
       {!isCompact && dialogs.showChat && id && (
         <div className="w-80 border-l bg-background flex flex-col shrink-0 overflow-hidden">
-          <div className="p-3 border-b flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-medium">{t('aiChat')}</h3>
-              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
-                {t('chat.experimental')}
-              </Badge>
-            </div>
-            <Button variant="ghost" size="icon-xs" onClick={() => dialogs.setShowChat(false)} aria-label={t('tooltips.closeChat')}>
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <ChatPanel
-              mapId={id}
-              layers={layers.localLayers}
-              onFilterChange={layers.handleFilterChange}
-              onPaintChange={layers.handlePaintChange}
-              onStyleConfigChange={layers.handleStyleConfigChange}
-              onLabelChange={layers.handleLabelChange}
-              onToggleVisibility={layers.handleToggleVisibility}
-              onAddDataset={layers.handleAiAddDataset}
-              onRemove={layers.handleAiRemoveLayer}
-              onQueryResult={layers.handleQueryResult}
-              onOpacityChange={layers.handleOpacityChange}
-            />
-          </div>
+          <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
         </div>
       )}
 

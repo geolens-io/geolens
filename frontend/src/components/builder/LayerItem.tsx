@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Filter,
   Type,
+  Paintbrush,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -35,11 +36,37 @@ import { LayerStyleEditor } from './LayerStyleEditor';
 import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
 import { RasterLayerControls } from './RasterLayerControls';
+import { ColumnsReference } from './ColumnsReference';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+
+/* ---------- Style summary badge helpers ---------- */
+
+function getStyleSummary(layer: MapLayerResponse, t: (key: string, opts?: Record<string, unknown>) => string): string | null {
+  const sc = layer.style_config;
+  if (!sc?.column) return null;
+  if (sc.target === 'radius') return t('style.radiusByColumn', { column: sc.column });
+  if (sc.target === 'width') return t('style.widthByColumn', { column: sc.column });
+  return t('style.styledBy', { column: sc.column });
+}
+
+function getFilterSummary(layer: MapLayerResponse): string | null {
+  const f = layer.filter;
+  if (!f || !Array.isArray(f) || f.length === 0) return null;
+  if (typeof f[0] === 'string' && (f[0] === 'all' || f[0] === 'any')) {
+    return `${f[0]} (${f.length - 1})`;
+  }
+  return '1 rule';
+}
+
+function getLabelSummary(layer: MapLayerResponse): string | null {
+  const lc = layer.label_config;
+  if (!lc?.column) return null;
+  return lc.column;
+}
 
 interface LayerItemProps {
   layer: MapLayerResponse;
@@ -62,6 +89,7 @@ interface LayerItemProps {
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
+  inspectorMode?: boolean;
 }
 
 export function LayerItem({
@@ -85,6 +113,7 @@ export function LayerItem({
   onRemove,
   onZoomToLayer,
   onToggleLegend,
+  inspectorMode,
 }: LayerItemProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -122,6 +151,9 @@ export function LayerItem({
     layer.opacity,
   );
   const hasActiveFilter = layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0;
+  const styleSummary = getStyleSummary(layer, t);
+  const filterSummary = hasActiveFilter ? getFilterSummary(layer) : null;
+  const labelSummary = getLabelSummary(layer);
   const caps = getLayerCapabilities(layer);
   const isRaster = caps.kind !== 'vector';
 
@@ -180,23 +212,33 @@ export function LayerItem({
             title={t('layerItem.renameHint')}
           >
             <span className="truncate">{layer.display_name ?? layer.dataset_name}</span>
+            {styleSummary && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Paintbrush className="h-3 w-3 shrink-0 text-primary" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {styleSummary}
+                </TooltipContent>
+              </Tooltip>
+            )}
             {hasActiveFilter && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Filter className="h-3 w-3 shrink-0 text-primary" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
-                  {t('layerItem.filterActive')}
+                  {filterSummary}
                 </TooltipContent>
               </Tooltip>
             )}
-            {layer.label_config && (
+            {labelSummary && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Type className="h-3 w-3 shrink-0 text-primary" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
-                  {t('layerItem.labelsActive')}
+                  {labelSummary}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -280,7 +322,7 @@ export function LayerItem({
         </DropdownMenu>
       </div>
 
-      {isExpanded && isRaster && (
+      {isExpanded && !inspectorMode && isRaster && (
         <div className="px-2 pb-2">
           <RasterLayerControls
             opacity={layer.opacity ?? 1}
@@ -289,7 +331,7 @@ export function LayerItem({
         </div>
       )}
 
-      {isExpanded && !isRaster && (
+      {isExpanded && !inspectorMode && !isRaster && (
         <div className="px-2 pb-2">
           <div className="flex gap-1 mb-2 border-b">
             {(['style', 'filter', 'labels'] as const).map((tab) => (
@@ -317,17 +359,7 @@ export function LayerItem({
             />
           )}
           {activeTab === 'style' && columns.length > 0 && (
-            <div className="mt-2 pt-2 border-t">
-              <h4 className="text-xs font-medium text-muted-foreground mb-1">{t('layerItem.columns')}</h4>
-              <div className="space-y-0.5 max-h-32 overflow-y-auto">
-                {columns.map((col) => (
-                  <div key={col.name} className="text-xs text-muted-foreground">
-                    {col.name}{' '}
-                    <span className="text-muted-foreground/60">({col.type})</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <ColumnsReference columns={columns} />
           )}
           {activeTab === 'filter' && (
             <LayerFilterEditor
@@ -341,6 +373,7 @@ export function LayerItem({
               columns={columns}
               labelConfig={layer.label_config ?? null}
               onLabelChange={(config) => onLabelChange(layer.id, config)}
+              geometryType={layer.dataset_geometry_type}
             />
           )}
         </div>

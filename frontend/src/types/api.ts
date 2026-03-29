@@ -613,6 +613,10 @@ export interface LabelConfig {
   haloWidth?: number;
   minZoom?: number;
   maxZoom?: number;
+  placement?: 'point' | 'line' | 'line-center';
+  textAnchor?: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  textOffset?: [number, number];
+  allowOverlap?: boolean;
 }
 
 // Data-driven styling

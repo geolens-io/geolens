@@ -41,6 +41,7 @@ interface LayerPanelProps {
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
   onAddDataClick?: () => void;
+  inspectorMode?: boolean;
 }
 
 export function LayerPanel({
@@ -64,6 +65,7 @@ export function LayerPanel({
   onZoomToLayer,
   onToggleLegend,
   onAddDataClick,
+  inspectorMode,
 }: LayerPanelProps) {
   const { t } = useTranslation('builder');
   const sensors = useSensors(
@@ -140,6 +142,7 @@ export function LayerPanel({
                   onRemove={onRemove}
                   onZoomToLayer={onZoomToLayer}
                   onToggleLegend={onToggleLegend}
+                  inspectorMode={inspectorMode}
                 />
               ))}
             </div>
