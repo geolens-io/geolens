@@ -318,7 +318,7 @@ export function ViewerMap({
       const labelId = getLabelLayerId(layer.sort_order);
       if (map.getSource(sourceId)) {
         if (layer.label_config && (layer.label_config as { column?: string }).column) {
-          const lc = layer.label_config as { column: string; fontSize?: number; textColor?: string; haloColor?: string; haloWidth?: number };
+          const lc = layer.label_config as { column: string; fontSize?: number; textColor?: string; haloColor?: string; haloWidth?: number; minZoom?: number; maxZoom?: number };
           const geomType = getLayerType(layer.geometry_type);
           const sl = `data.${layer.table_name}`;
           const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
@@ -356,7 +356,7 @@ export function ViewerMap({
             map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
             map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
             if (lc.minZoom != null || lc.maxZoom != null) {
-              map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 24);
+              map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
             }
             if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
               map.setFilter(labelId, layer.filter);

@@ -148,6 +148,7 @@ export function PublicViewerPage() {
       <ViewerMap
         layers={data.layers}
         basemapStyle={data.basemap_style}
+        showBasemapLabels={data.show_basemap_labels ?? true}
         initialViewState={viewState}
         visibleLayers={effectiveVisibleLayers}
         apiKey={apiKey}

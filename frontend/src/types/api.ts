@@ -789,6 +789,7 @@ export interface SharedMapResponse {
   bearing: number;
   pitch: number;
   basemap_style: string;
+  show_basemap_labels?: boolean;
   has_non_public_layers: boolean;
   layers: SharedLayerResponse[];
 }
