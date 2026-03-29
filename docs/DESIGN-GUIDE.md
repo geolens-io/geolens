@@ -6,6 +6,8 @@ This document is the single reference for visual consistency across GeoLens. Eve
 
 GeoLens targets a clean, professional, data-focused aesthetic. The interface prioritizes content density without feeling cramped.
 
+**Target platforms:** Desktop and tablet first. Mobile viewports are supported (responsive layouts, touch targets) but not optimized -- complex workflows like the map builder and data tables assume a wider viewport.
+
 **Key principles:**
 
 - **Generous whitespace** -- let content breathe with consistent spacing between sections and cards.
@@ -442,13 +444,15 @@ All status-related colors are centralized in `frontend/src/lib/status-colors.ts`
 
 | Export | Type | Keys |
 |--------|------|------|
+| `semanticBadgeColors` | `Record<string, string>` | `warning`, `info`, `success`, `destructive` |
 | `jobStatusColors` | `Record<string, string>` | `pending`, `running`, `complete`, `failed` |
-| `userStatusColors` | `Record<string, string>` | `pending`, `active` |
+| `userStatusColors` | `Record<string, string>` | `pending`, `active`, `deactivated` |
 | `visibilityColors` | `Record<string, string>` | `public`, `restricted`, `private` |
+| `vrtGenerationColors` | `Record<string, string>` | `completed`, `running`, `failed` |
 | `qualityScoreClasses(score)` | `(number) => string` | >=80 success, >=60 warning, <60 destructive |
 | `activeDotColor` | `Record<string, string>` | `true` (success), `false` (destructive) |
 
-**Pattern:** Each map returns Tailwind classes combining tinted background, vivid text, and soft border (e.g., `'bg-warning/10 text-warning border-warning/30'`). Apply to a `<span>` or `<Badge>`.
+**Pattern:** `semanticBadgeColors` is the base layer -- domain maps (`jobStatusColors`, `visibilityColors`, etc.) reference it. Each entry returns explicit Tailwind palette classes with light and dark variants for maximum contrast on tinted backgrounds (e.g., `'border-teal-300 bg-teal-100 text-teal-950 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-200'`). Apply to a `<Badge>` via `className`. The palette classes are intentional here -- semantic tokens with opacity modifiers (`bg-info/10`) do not provide sufficient text contrast on tinted backgrounds.
 
 ### Focus Ring Standard
 
