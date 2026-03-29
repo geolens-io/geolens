@@ -6,19 +6,10 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 
-/** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
- *  These are read separately and applied to the outline line layer for polygons. */
-export const CUSTOM_PAINT_PROPS = new Set([
-  '_outline-width', '_outline-color',
-  'outline-width', 'outline-color',
-  '_fill-disabled', '_stroke-disabled',
-  '_fill-opacity-saved', '_outline-width-saved',
-]);
-
-// Re-export shared utilities for backward compatibility with existing consumers
-// (BuilderMap.unit.test.ts imports simplifyPaint; use-builder-layers.ts imports
-//  getCompoundOpacity; ViewerMap.tsx imports stripCustomProps)
-export { simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
+// Import shared utilities used locally
+import { CUSTOM_PAINT_PROPS, getLayerType } from './layer-adapters/shared';
+// Re-export for backward compatibility with existing consumers
+export { CUSTOM_PAINT_PROPS, getLayerType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
@@ -53,13 +44,6 @@ export function getOutlineLayerId(layerId: string) {
 
 export function getLabelLayerId(layerId: string) {
   return `layer-${layerId}-label`;
-}
-
-export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
-  const gt = (geometryType ?? '').toUpperCase();
-  if (gt.includes('POINT')) return 'circle';
-  if (gt.includes('LINE')) return 'line';
-  return 'fill';
 }
 
 /** Imperatively add all data layers to the map. Safe to call repeatedly. */
@@ -187,9 +171,7 @@ export function syncLayersToMap(
     }
 
     // Update visibility via adapter (handles main + companion layers)
-    const allType = type;
-    const visAdapter = getAdapter(allType);
-    visAdapter.syncVisibility(map, adapterInput);
+    getAdapter(type).syncVisibility(map, adapterInput);
     // Also sync label visibility
     if (map.getLayer(labelId)) {
       const vis = layer.visible ? 'visible' : 'none';

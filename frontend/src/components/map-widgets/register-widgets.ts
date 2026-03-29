@@ -5,7 +5,7 @@ import { LegendWidget } from './builtin/LegendWidget';
 
 registerWidget({
   id: 'measurement',
-  label: 'Measure',
+  labelKey: 'widgets.measurement.label',
   icon: Ruler,
   slot: 'top-left',
   component: MeasurementWidget,
@@ -14,7 +14,7 @@ registerWidget({
 
 registerWidget({
   id: 'legend',
-  label: 'Legend',
+  labelKey: 'widgets.legend.label',
   icon: Layers,
   slot: 'bottom-left',
   component: LegendWidget,

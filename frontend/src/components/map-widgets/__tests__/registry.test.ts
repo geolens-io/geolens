@@ -8,7 +8,7 @@ import { registerWidget, getWidgets, getWidget } from '../registry';
 describe('widget registry', () => {
   const testWidget = {
     id: `test-widget-${Date.now()}`,
-    label: 'Test Widget',
+    labelKey: 'Test Widget',
     icon: LayoutGrid,
     slot: 'top-right' as const,
     component: () => null,
@@ -23,7 +23,7 @@ describe('widget registry', () => {
   it('getWidget returns a registered widget by ID', () => {
     const found = getWidget(testWidget.id);
     expect(found).toBeDefined();
-    expect(found?.label).toBe('Test Widget');
+    expect(found?.labelKey).toBe('Test Widget');
   });
 
   it('getWidget returns undefined for unknown ID', () => {
@@ -38,11 +38,11 @@ describe('widget registry', () => {
 
   it('duplicate registration warns and overwrites', () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const updated = { ...testWidget, label: 'Updated Widget' };
+    const updated = { ...testWidget, labelKey: 'Updated Widget' };
     registerWidget(updated);
 
     expect(spy).toHaveBeenCalledWith(expect.stringContaining(testWidget.id));
-    expect(getWidget(testWidget.id)?.label).toBe('Updated Widget');
+    expect(getWidget(testWidget.id)?.labelKey).toBe('Updated Widget');
     spy.mockRestore();
   });
 });

@@ -1,7 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity } from './shared';
-import { CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const circleAdapter: LayerAdapter = {
@@ -35,29 +34,13 @@ export const circleAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
-    for (const [prop, val] of Object.entries(rawPaint)) {
-      if (CUSTOM_PAINT_PROPS.has(prop)) continue;
-      try {
-        const current = map.getPaintProperty(layerId, prop);
-        if (JSON.stringify(current) !== JSON.stringify(val)) {
-          map.setPaintProperty(layerId, prop, val);
-        }
-      } catch (e) {
-        if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);
-      }
-    }
+    syncVectorPaint(map, layerId, rawPaint);
     map.setPaintProperty(layerId, 'circle-opacity', getCompoundOpacity(rawPaint, 'circle', opacity ?? 1));
     if (filter && Array.isArray(filter) && filter.length > 0) {
       map.setFilter(layerId, filter);
     } else {
       map.setFilter(layerId, null);
     }
-  },
-
-  syncOpacity(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, paint: rawPaint, opacity } = input;
-    if (!map.getLayer(layerId)) return;
-    map.setPaintProperty(layerId, 'circle-opacity', getCompoundOpacity(rawPaint, 'circle', opacity ?? 1));
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {

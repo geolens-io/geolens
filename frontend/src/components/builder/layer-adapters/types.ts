@@ -27,7 +27,6 @@ export interface LayerAdapter {
   type: 'fill' | 'line' | 'circle' | 'raster';
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void;
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void;
-  syncOpacity(map: MaplibreMap, input: AdapterLayerInput): void;
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void;
   getLayerIds(layerId: string): string[];
 }

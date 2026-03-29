@@ -21,7 +21,8 @@ export interface WidgetContext {
 /** A registered widget */
 export interface WidgetDefinition {
   id: string;
-  label: string;
+  /** i18n key under the 'builder' namespace, e.g. 'widgets.measurement.label' */
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   slot: WidgetSlot;
   component: React.ComponentType<{ ctx: WidgetContext }>;
