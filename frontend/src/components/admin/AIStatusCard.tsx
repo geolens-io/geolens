@@ -71,7 +71,7 @@ export function AIStatusCard() {
                 </div>
                 <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-primary transition-all"
+                    className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
                     style={{ width: `${embeddingStats.coverage_percent}%` }}
                   />
                 </div>

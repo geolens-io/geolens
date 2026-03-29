@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { getGeometryTypeLabel } from '@/i18n/labels';
+import { semanticBadgeColors } from '@/lib/status-colors';
 
 interface DatasetSearchPanelProps {
   onAddDataset: (datasetId: string) => void;
@@ -91,7 +92,7 @@ export function DatasetSearchPanel({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate">{record.properties.title}</p>
                   {record.properties.record_type === 'raster_dataset' ? (
-                    <Badge variant="outline" className="text-[10px] mt-0.5 text-emerald-600 border-emerald-400 dark:text-emerald-400">
+                    <Badge variant="outline" className={`text-[10px] mt-0.5 ${semanticBadgeColors.success}`}>
                       {t('search.raster', { defaultValue: 'Raster' })}
                     </Badge>
                   ) : record.properties.geometry_type ? (

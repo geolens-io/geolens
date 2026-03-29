@@ -35,7 +35,7 @@ function StatusDot({ status }: { status: string }) {
       role="img"
       aria-label={status === 'ok' ? 'Healthy' : 'Degraded'}
       className={`inline-block h-2.5 w-2.5 rounded-full ${
-        status === 'ok' ? 'bg-emerald-500' : 'bg-destructive'
+        status === 'ok' ? 'bg-success' : 'bg-destructive'
       }`}
     />
   );
@@ -116,7 +116,7 @@ function SystemHealthCard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {overallHealthy ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              <CheckCircle2 className="h-5 w-5 text-success" />
             ) : (
               <XCircle className="h-5 w-5 text-destructive" />
             )}

@@ -177,8 +177,8 @@ export function MapBuilderPage() {
   const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
 
   function VisibilityIcon({ visibility }: { visibility: string }) {
-    if (visibility === 'public') return <Globe className="h-3 w-3 text-emerald-500" />;
-    if (visibility === 'internal') return <Users className="h-3 w-3 text-amber-500" />;
+    if (visibility === 'public') return <Globe className="h-3 w-3 text-success" />;
+    if (visibility === 'internal') return <Users className="h-3 w-3 text-warning" />;
     return <Lock className="h-3 w-3 text-muted-foreground" />;
   }
 
@@ -190,8 +190,8 @@ export function MapBuilderPage() {
       <div
         className={cn(
           "relative border-r bg-background flex flex-col shrink-0 overflow-hidden",
-          dialogs.sidebarCollapsed ? "w-0 border-r-0 transition-all duration-200" : "",
-          !dialogs.sidebarCollapsed && !isDraggingRef.current ? "transition-all duration-200" : ""
+          dialogs.sidebarCollapsed ? "w-0 border-r-0 transition-[width,border-width] duration-200 ease-out" : "",
+          !dialogs.sidebarCollapsed && !isDraggingRef.current ? "transition-[width,border-width] duration-200 ease-out" : ""
         )}
         style={dialogs.sidebarCollapsed ? undefined : { width: sidebarWidth }}
         onTransitionEnd={() => { mapInstanceRef.current?.resize(); }}
@@ -323,7 +323,7 @@ export function MapBuilderPage() {
                       )}
                       {t('actions.save')}
                       {layers.hasUnsavedChanges && (
-                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500" />
+                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
                       )}
                     </Button>
                   </TooltipTrigger>

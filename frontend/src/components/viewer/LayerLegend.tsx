@@ -53,7 +53,7 @@ export function LayerLegend({
 
       {/* Legend panel — shown when open */}
       <div
-        className={`absolute left-3 top-14 z-10 w-56 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50 transition-all duration-200 ${
+        className={`absolute left-3 top-14 z-10 w-56 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50 transition-[opacity,transform] duration-200 ease-out ${
           isOpen
             ? 'opacity-100 translate-y-0'
             : 'opacity-0 -translate-y-2 pointer-events-none'

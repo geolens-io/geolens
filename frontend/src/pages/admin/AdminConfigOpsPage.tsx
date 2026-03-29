@@ -110,7 +110,7 @@ function ServiceRow({ name, probe }: { name: string; probe: ServiceProbeResult }
     <TableRow>
       <TableCell className="font-medium">{name}</TableCell>
       <TableCell>
-        <span className={`flex items-center gap-1 ${isOk ? 'text-green-600' : 'text-destructive'}`}>
+        <span className={`flex items-center gap-1 ${isOk ? 'text-success' : 'text-destructive'}`}>
           {isOk ? (
             <CheckCircle2 className="h-4 w-4" />
           ) : (
@@ -460,8 +460,8 @@ function ImportSection() {
 
         {/* Import result summary */}
         {importMutation.isSuccess && importMutation.data && (
-          <div className="flex items-start gap-2 rounded-md border border-green-500/50 bg-green-500/10 p-3 text-sm">
-            <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600 flex-shrink-0" />
+          <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/5 p-3 text-sm">
+            <CheckCircle2 className="h-4 w-4 mt-0.5 text-success flex-shrink-0" />
             <span>
               {t('configOps.import.success')}{' '}
               {t('configOps.import.successDetail', {
