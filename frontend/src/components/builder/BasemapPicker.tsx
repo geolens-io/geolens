@@ -64,7 +64,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
                 setOpen(false);
               }}
               className={cn(
-                'flex flex-col items-center gap-0.5 rounded-md p-1 transition-all',
+                'flex flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out',
                 value === b.id
                   ? 'ring-2 ring-primary bg-accent'
                   : 'hover:bg-accent/50',

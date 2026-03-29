@@ -33,6 +33,7 @@ import {
 import { DataTablePagination } from '@/components/admin/DataTablePagination';
 import { DataTableSearch } from '@/components/admin/DataTableSearch';
 import { DataTableSkeleton } from '@/components/admin/DataTableSkeleton';
+import { semanticBadgeColors } from '@/lib/status-colors';
 import { Link } from 'react-router';
 import { Link2Off, ChevronDown, ChevronRight, Key, ShieldOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -107,11 +108,11 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
     const s = getEmbedStatus(token);
     switch (s) {
       case 'active':
-        return <Badge variant="default" className="bg-green-600 text-white">{t('embedTokens.active')}</Badge>;
+        return <Badge variant="outline" className={semanticBadgeColors.success}>{t('embedTokens.active')}</Badge>;
       case 'expiring_soon': {
         const days = getDaysLeft(token.expires_at); // reuses already-computed logic
         return (
-          <Badge className="bg-amber-500 text-white">
+          <Badge variant="outline" className={semanticBadgeColors.warning}>
             {days <= 0 ? t('embedTokens.expiresToday') : t('embedTokens.expiringSoon', { days })}
           </Badge>
         );
@@ -234,7 +235,7 @@ export function AdminSharedMapsPage() {
   const { totalPages, rangeStart, rangeEnd } = paginationRange(total, page, PAGE_SIZE);
 
   function shareStatusBadge(s: 'active' | 'revoked' | 'expired') {
-    if (s === 'active') return <Badge variant="default" className="bg-green-600 text-white">{t('shareTokens.active')}</Badge>;
+    if (s === 'active') return <Badge variant="outline" className={semanticBadgeColors.success}>{t('shareTokens.active')}</Badge>;
     if (s === 'expired') return <Badge variant="secondary">{t('shareTokens.expired')}</Badge>;
     return <Badge variant="secondary">{t('shareTokens.revoked')}</Badge>;
   }

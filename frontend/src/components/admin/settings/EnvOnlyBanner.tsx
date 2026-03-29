@@ -9,13 +9,13 @@ export function EnvOnlyBanner() {
   if (!data?.env_only) return null;
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/50">
-      <Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />
-      <div className="text-sm text-blue-800 dark:text-blue-200">
+    <div className="flex items-start gap-3 rounded-lg border border-info/30 bg-info/5 p-4">
+      <Info className="mt-0.5 h-5 w-5 shrink-0 text-info" />
+      <div className="text-sm text-foreground">
         <p className="font-medium">{t('settings.envOnly.title')}</p>
-        <p className="mt-1 text-blue-700 dark:text-blue-300">
+        <p className="mt-1 text-muted-foreground">
           {t('settings.envOnly.descriptionPrefix')}{' '}
-          <code className="rounded bg-blue-100 px-1 py-0.5 text-xs font-mono dark:bg-blue-900">ENV_ONLY_CONFIG=false</code>{' '}
+          <code className="rounded bg-info/10 px-1 py-0.5 text-xs font-mono">ENV_ONLY_CONFIG=false</code>{' '}
           {t('settings.envOnly.descriptionSuffix')}
         </p>
       </div>

@@ -30,7 +30,7 @@ function MapErrorFallback({
           {t('errorBoundary.mapMessage')}
         </p>
         {hasUnsavedChanges && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+          <p className="text-xs text-warning font-medium">
             {t('errorBoundary.builderUnsavedWarning')}
           </p>
         )}

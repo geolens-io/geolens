@@ -291,9 +291,9 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             {embeddingStats && embeddingStats.embedded_records > 0 &&
               findSetting(settings, 'embedding_dims') &&
               String(embeddingDims) !== String(findSetting(settings, 'embedding_dims')!.value) && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
-                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-amber-700 dark:text-amber-400">
+              <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
+                <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-foreground">
                   {t('ai.dimsChangeWarning', {
                     count: embeddingStats.embedded_records,
                     defaultValue: 'Changing dimensions will make {{count}} existing embedding(s) incompatible. You will need to regenerate all embeddings after saving.',
@@ -305,9 +305,9 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
 
           {/* OpenAI key warning */}
           {openaiKeyMissing && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 max-w-md">
-              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-amber-700 dark:text-amber-400">
+            <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">
+              <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-foreground">
                 {t('ai.openaiKeyRequired')}
               </p>
             </div>
@@ -324,7 +324,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
               </div>
               <div className="h-2 rounded-full bg-muted overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-primary transition-all"
+                  className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
                   style={{ width: `${embeddingStats.coverage_percent}%` }}
                 />
               </div>
@@ -391,7 +391,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm">
               {keyStatus.anthropic_configured ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <CheckCircle2 className="h-4 w-4 text-success" />
               ) : (
                 <XCircle className="h-4 w-4 text-muted-foreground" />
               )}
@@ -404,7 +404,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             </div>
             <div className="flex items-center gap-2 text-sm">
               {keyStatus.openai_configured ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <CheckCircle2 className="h-4 w-4 text-success" />
               ) : (
                 <XCircle className="h-4 w-4 text-muted-foreground" />
               )}

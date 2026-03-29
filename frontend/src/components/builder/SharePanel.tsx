@@ -45,7 +45,7 @@ const VISIBILITY_OPTIONS: Array<{
   {
     value: 'internal',
     icon: Users,
-    iconClass: 'text-amber-500',
+    iconClass: 'text-warning',
     titleKey: 'share.internalTitle',
     descKey: 'share.internalDescription',
   },
@@ -503,9 +503,9 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     </Button>
                   </div>
                   {hasNonPublic && (
-                    <div className="flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
-                      <Info className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                    <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2">
+                      <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-foreground">
                         {t('share.embedTokenInfo')}
                       </p>
                     </div>
