@@ -72,7 +72,7 @@
   --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.75 0.15 85);
   --warning-foreground: oklch(0.28 0.07 46);
-  --info: oklch(0.55 0.18 250);
+  --info: oklch(0.55 0.15 195);
   --info-foreground: oklch(0.985 0 0);
 
   /* ─ Data visualization categorical palette ─ */
@@ -154,8 +154,8 @@
   --success-foreground: oklch(0.20 0.05 145);
   --warning: oklch(0.80 0.16 85);
   --warning-foreground: oklch(0.28 0.07 46);
-  --info: oklch(0.72 0.17 250);
-  --info-foreground: oklch(0.20 0.05 250);
+  --info: oklch(0.72 0.14 195);
+  --info-foreground: oklch(0.20 0.05 195);
 
   /* ─ Data visualization categorical palette (dark mode) ─ */
   --viz-1: oklch(0.72 0.17 250);   /* blue */
