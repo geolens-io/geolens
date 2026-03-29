@@ -43,9 +43,9 @@ decisions:
   - "RecordTypeBadge switched from variant=secondary to variant=outline to allow full border+bg+text badge coloring via status-colors.ts maps"
   - "vrtRasterStatusColors added to status-colors.ts for VRT status badge in OverviewTab"
 metrics:
-  duration: 20min
+  duration: 25min
   completed_date: "2026-03-29"
-  tasks: 2
+  tasks: 3
   files_modified: 25
 ---
 
@@ -90,6 +90,12 @@ Extended `status-colors.ts` with 5 new exports (`recordTypeColors`, `ingestionSt
 - **AdminConfigOpsPage**: `text-green-600` service status → `text-success`; green import success box → `border-success/30 bg-success/5 text-success`
 - **AdminSharedMapsPage**: Active/expiring embed token badges `bg-green-600/bg-amber-500 text-white` → `semanticBadgeColors.success/warning`; share token active badge → `semanticBadgeColors.success`
 - **Commit**: `27fd1147`
+
+### Task 3: Visual spot-check in browser
+
+- Visual verification approved via Playwright browser automation
+- Confirmed correct rendering across search page, dataset detail, admin dashboard, admin AI settings, and published maps pages
+- Both light and dark mode verified with no contrast regressions
 
 ## Deviations from Plan
 
