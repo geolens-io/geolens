@@ -80,12 +80,12 @@ describe('SearchResultCard', () => {
       expect(screen.getByTestId('dataset-card-source')).toHaveTextContent('Natural Earth');
     });
 
-    it('renders updated-by attribution', () => {
+    it('renders updated time in footer attribution', () => {
       render(<SearchResultCard feature={makeFeature()} />);
 
       const attribution = screen.getByTestId('dataset-card-updated-attribution');
-      expect(attribution).toHaveTextContent('Updated by');
-      expect(attribution).toHaveTextContent('editor-user');
+      expect(attribution).toBeInTheDocument();
+      expect(attribution).toHaveTextContent('Updated');
     });
 
     it('does not render the metadata completeness badge on search cards', () => {
@@ -258,7 +258,7 @@ describe('SearchResultCard', () => {
 
   // Tags tests
   describe('Tags', () => {
-    it('renders max 2 tags with overflow indicator', () => {
+    it('renders max 3 tags with overflow indicator', () => {
       render(
         <SearchResultCard
           feature={makeFeature({
@@ -269,8 +269,9 @@ describe('SearchResultCard', () => {
 
       expect(screen.getByText('boundaries')).toBeInTheDocument();
       expect(screen.getByText('countries')).toBeInTheDocument();
-      expect(screen.queryByText('political')).not.toBeInTheDocument();
-      expect(screen.getByText(/\+2 more/)).toBeInTheDocument();
+      expect(screen.getByText('political')).toBeInTheDocument();
+      expect(screen.queryByText('world')).not.toBeInTheDocument();
+      expect(screen.getByText(/\+1 more/)).toBeInTheDocument();
     });
 
     it('filters out synthetic and perf-seed keywords', () => {
@@ -361,6 +362,26 @@ describe('SearchResultCard', () => {
       );
 
       expect(screen.getByText('Draft')).toBeInTheDocument();
+    });
+
+    it('renders status badge in footer area', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({ record_status: 'internal' })}
+        />,
+      );
+      expect(screen.getByText('Internal')).toBeInTheDocument();
+    });
+
+    it('does not render status badge for published records', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({ record_status: 'published' })}
+        />,
+      );
+      expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+      expect(screen.queryByText('Internal')).not.toBeInTheDocument();
+      expect(screen.queryByText('Ready')).not.toBeInTheDocument();
     });
 
     it('does not render status badges for collections', () => {
