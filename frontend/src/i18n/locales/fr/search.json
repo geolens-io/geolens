@@ -85,6 +85,15 @@
     "vrt": "Raster virtuel",
     "collection": "Collection",
     "table": "Table",
+    "sourceCount_one": "{{count}} source",
+    "sourceCount_other": "{{count}} sources",
+    "autoDesc": {
+      "vector": "Jeu de données {{geometryType}} avec {{count}} entités en {{crs}}",
+      "raster": "Jeu de données raster, {{bands}} bandes, résolution {{gsd}}",
+      "vrt": "Raster virtuel {{vrtType}} avec {{count}} sources",
+      "table": "Table avec {{count}} lignes",
+      "fallback": "Jeu de données géospatial"
+    },
     "moretags": "+{{count}} de plus",
     "updatedFallback": "Mis à jour il y a {{time}}",
     "noUpdateMetadata": "Pas de métadonnées de mise à jour",

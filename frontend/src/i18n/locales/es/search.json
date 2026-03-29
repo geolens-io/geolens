@@ -85,6 +85,15 @@
     "vrt": "Ráster virtual",
     "collection": "Colección",
     "table": "Tabla",
+    "sourceCount_one": "{{count}} fuente",
+    "sourceCount_other": "{{count}} fuentes",
+    "autoDesc": {
+      "vector": "Conjunto de datos {{geometryType}} con {{count}} entidades en {{crs}}",
+      "raster": "Conjunto de datos ráster, {{bands}} bandas, resolución {{gsd}}",
+      "vrt": "Ráster virtual {{vrtType}} con {{count}} fuentes",
+      "table": "Tabla con {{count}} filas",
+      "fallback": "Conjunto de datos geoespacial"
+    },
     "moretags": "+{{count}} más",
     "updatedFallback": "Actualizado hace {{time}}",
     "noUpdateMetadata": "Sin metadatos de actualización",
