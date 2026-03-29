@@ -5,10 +5,10 @@ export function DatasetCardSkeleton() {
   return (
     <div className="block">
       <Card className="overflow-hidden border-border/60 py-0">
-        <div className="p-4 sm:p-5">
+        <div className="p-4">
           <div className="flex flex-col gap-2">
             {/* Band 1 — Header */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_120px]">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_160px]">
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-2">
                   <Skeleton className="h-6 w-16 rounded-full" />
@@ -17,8 +17,8 @@ export function DatasetCardSkeleton() {
                 <Skeleton className="h-4 w-2/3" />
                 <Skeleton className="h-4 w-full max-w-md" />
               </div>
-              <div className="hidden md:block">
-                <Skeleton className="h-[120px] w-[120px] rounded-lg" />
+              <div className="hidden md:flex md:items-start">
+                <Skeleton className="size-[160px] rounded-lg" />
               </div>
             </div>
             {/* Band 2 — Facts */}

@@ -186,128 +186,153 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   return (
     <Link to={linkPath} className="group block" data-testid="search-result-card">
       <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
-        <div className="p-4 sm:p-5">
+        <div className="p-4">
           <div className="flex flex-col gap-2">
 
             {/* Band 1 — Header */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_120px]">
-              {/* Left: badges, title, source */}
-              <div className="min-w-0 flex flex-col gap-2">
+            {isCollection ? (
+              /* Collection: compact single-column layout */
+              <div className="min-w-0 flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <RecordTypeBadge recordType={recordType} />
-
-                  {isCollection && properties.dataset_count != null && (
+                  {properties.dataset_count != null && (
                     <Badge variant="secondary" className="text-xs">
                       {t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })}
                     </Badge>
                   )}
-
-                  {!isCollection && properties.keywords?.includes('synthetic') && (
-                    <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
-                      {t('card.testData', { defaultValue: 'Test Data' })}
-                    </Badge>
-                  )}
                 </div>
-
-                <span className="block text-lg font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-2">
+                <span className="block text-base font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-1">
                   {properties.title}
                 </span>
-
-                {!isCollection && sourceOrganization && (
-                  <p
-                    className="max-w-3xl text-[13px] leading-5 text-muted-foreground/90 line-clamp-2"
-                    data-testid="dataset-card-source"
-                    title={sourceOrganization}
-                  >
-                    {sourceOrganization}
-                  </p>
-                )}
-
-                {isCollection && properties.description && (
-                  <p className="max-w-3xl text-sm leading-6 text-muted-foreground line-clamp-2">
+                {properties.description && (
+                  <p className="text-[13px] leading-5 text-muted-foreground/80 line-clamp-1">
                     {properties.description}
                   </p>
                 )}
-
-                {!isCollection && (
+              </div>
+            ) : (
+              /* Dataset: grid with fixed square thumbnail */
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_160px]">
+                <div className="min-w-0 flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RecordTypeBadge recordType={recordType} />
+                    {properties.keywords?.includes('synthetic') && (
+                      <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
+                        {t('card.testData', { defaultValue: 'Test Data' })}
+                      </Badge>
+                    )}
+                  </div>
+                  <span className="block text-lg font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-2">
+                    {properties.title}
+                  </span>
+                  {sourceOrganization && (
+                    <p
+                      className="text-[12px] leading-4 text-muted-foreground/70 line-clamp-1"
+                      data-testid="dataset-card-source"
+                      title={sourceOrganization}
+                    >
+                      {sourceOrganization}
+                    </p>
+                  )}
                   <p
-                    className="max-w-3xl text-[13px] leading-5 text-muted-foreground/80 line-clamp-2"
+                    className="text-[13px] leading-5 text-muted-foreground/85 line-clamp-2"
                     data-testid="dataset-card-description"
                   >
                     {buildAutoDescription(properties, t)}
                   </p>
-                )}
-              </div>
 
-              {/* Right: 120x120 preview, hidden on mobile, hidden for collections */}
-              {!isCollection && (
-                <div className="hidden md:block">
-                  <div className="h-[120px] w-[120px] overflow-hidden rounded-lg border border-border/40">
+                  {/* Specs row */}
+                  {cardSpecs.length > 0 && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dataset-card-specs">
+                      {cardSpecs.map((item, index) => (
+                        <span key={item.label} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                          {index > 0 && (
+                            <span className="mr-1 text-muted-foreground/40">&middot;</span>
+                          )}
+                          <item.icon className="size-3 shrink-0" />
+                          {item.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Tags */}
+                  {displayKeywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {displayKeywords.slice(0, 3).map((tag, index) => (
+                        <span
+                          key={`${tag}-${index}`}
+                          className="inline-flex items-center rounded-full border border-border/30 bg-muted/15 px-2.5 py-0.5 text-[11px] text-muted-foreground/70"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {displayKeywords.length > 3 && (
+                        <span className="self-center text-xs text-muted-foreground/80">
+                          {t('card.moretags', { count: displayKeywords.length - 3 })}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Updated time */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {hasMissingProvenance ? (
+                      <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
+                        {properties.created
+                          ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
+                          : noUpdateMetadataLabel}
+                      </span>
+                    ) : (
+                      <span
+                        data-testid="dataset-card-updated-attribution"
+                        title={updatedAbsolute}
+                      >
+                        {t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' })}
+                      </span>
+                    )}
+                    {showStatusBadge && recordStatus && (
+                      <Badge
+                        variant={statusVariants[recordStatus] ?? 'outline'}
+                        className={statusStyles[recordStatus] ?? 'text-xs'}
+                      >
+                        {t(`card.status.${recordStatus}`, {
+                          defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
+                        })}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: 160x160 square preview — hidden on mobile */}
+                <div className="hidden md:flex md:items-start">
+                  <div className="size-[160px] shrink-0 overflow-hidden rounded-lg border border-border/40">
                     {isTable ? (
-                      <div className="flex h-[120px] w-[120px] items-center justify-center bg-muted/20 text-muted-foreground">
+                      <div className="flex size-[160px] items-center justify-center bg-muted/20 text-muted-foreground">
                         <ImageOff className="h-5 w-5 opacity-45" />
                       </div>
                     ) : quicklookSrc ? (
                       <img
                         src={quicklookSrc}
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
-                        className="h-[120px] w-[120px] object-cover"
+                        className="size-[160px] object-cover"
                       />
                     ) : qlLoading ? (
-                      <div className="flex h-[120px] w-[120px] items-center justify-center bg-muted/25">
+                      <div className="flex size-[160px] items-center justify-center bg-muted/25">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       </div>
-                    ) : qlError ? (
-                      <div className="flex h-[120px] w-[120px] flex-col items-center justify-center gap-1 bg-muted/25 text-muted-foreground">
-                        <ImageOff className="h-5 w-5 opacity-50" />
-                      </div>
                     ) : (
-                      <BBoxPreview bbox={bbox} className="h-[120px] w-[120px] rounded-md bg-muted" />
+                      <BBoxPreview bbox={bbox} className="size-[160px] rounded-md bg-muted" />
                     )}
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* Band 2 — Facts (specs row) */}
-            {!isCollection && cardSpecs.length > 0 && (
-              <div className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dataset-card-specs">
-                {cardSpecs.map((item, index) => (
-                  <span key={item.label} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    {index > 0 && (
-                      <span className="mr-1 text-muted-foreground/40">&middot;</span>
-                    )}
-                    <item.icon className="size-3 shrink-0" />
-                    {item.label}
-                  </span>
-                ))}
               </div>
             )}
 
-            {/* Band 3 — Tags */}
-            {!isCollection && displayKeywords.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {displayKeywords.slice(0, 3).map((tag, index) => (
-                  <span
-                    key={`${tag}-${index}`}
-                    className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
-                  >
-                    {tag}
-                  </span>
-                ))}
-                {displayKeywords.length > 3 && (
-                  <span className="self-center text-xs text-muted-foreground/80">
-                    {t('card.moretags', { count: displayKeywords.length - 3 })}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Band 4 — Footer */}
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              {/* Left: updated time */}
-              {isCollection ? (
-                properties.created ? (
+            {/* Collection footer */}
+            {isCollection && (
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                {properties.created ? (
                   <span
                     data-testid="dataset-card-updated-attribution"
                     title={createdTime.absolute}
@@ -316,34 +341,9 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                   </span>
                 ) : (
                   <span />
-                )
-              ) : hasMissingProvenance ? (
-                <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
-                  {properties.created
-                    ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
-                    : noUpdateMetadataLabel}
-                </span>
-              ) : (
-                <span
-                  data-testid="dataset-card-updated-attribution"
-                  title={updatedAbsolute}
-                >
-                  {t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' })}
-                </span>
-              )}
-
-              {/* Right: status badge */}
-              {showStatusBadge && recordStatus && (
-                <Badge
-                  variant={statusVariants[recordStatus] ?? 'outline'}
-                  className={statusStyles[recordStatus] ?? 'text-xs'}
-                >
-                  {t(`card.status.${recordStatus}`, {
-                    defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
-                  })}
-                </Badge>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
           </div>
         </div>
