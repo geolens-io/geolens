@@ -1,12 +1,12 @@
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, ImageOff, Loader2 } from 'lucide-react';
+import { ImageOff, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
 import { RecordTypeBadge } from './RecordTypeBadge';
-import { formatProvenanceTime, resolveProvenanceIdentity } from '@/lib/provenance-attribution';
+import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { extractBbox } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { useQuicklook } from '@/hooks/use-quicklook';
@@ -91,15 +91,8 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
 
   // Provenance (for non-collection types)
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });
-  const updatedByLabel = t('card.updatedBy', { defaultValue: 'Updated by' });
   const noUpdateMetadataLabel = t('card.noUpdateMetadata', { defaultValue: 'No update metadata' });
-  const unknownIdentityLabel = t('card.unknown', { defaultValue: 'Unknown' });
 
-  const updatedByIdentity = resolveProvenanceIdentity(properties.updated_by_display, {
-    unknown: unknownIdentityLabel,
-    restricted: t('card.restricted', { defaultValue: 'Restricted user' }),
-    system: t('card.system', { defaultValue: 'System' }),
-  });
   const updatedTime = formatProvenanceTime(properties.updated, {
     fallbackRelative: neverEditedLabel,
     fallbackAbsolute: neverEditedLabel,
@@ -114,7 +107,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const updatedAbsolute = properties.never_edited ? neverEditedLabel : updatedTime.absolute;
   const hasMissingProvenance =
     properties.never_edited &&
-    (!properties.updated_by_display || updatedByIdentity === unknownIdentityLabel);
+    !properties.updated_by_display;
 
   const recordStatus = properties.record_status;
   const cardSpecs = isCollection ? [] : buildCardSpecs(properties, t);
@@ -128,58 +121,49 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
       .filter((keyword) => keyword !== '' && keyword !== 'synthetic' && keyword !== 'perf-seed') ?? []
     : [];
 
+  // Footer status badge — only for non-collection, non-published records
+  const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
+  const statusStyles: Record<string, string> = {
+    draft: `text-xs ${ingestionStatusColors.draft}`,
+    ready: `text-xs ${ingestionStatusColors.ready}`,
+    internal: `text-xs ${ingestionStatusColors.internal}`,
+    archived: 'text-xs',
+    deprecated: 'text-xs text-muted-foreground',
+  };
+  const statusVariants: Record<string, 'outline' | 'secondary'> = {
+    draft: 'outline',
+    ready: 'outline',
+    internal: 'outline',
+    archived: 'secondary',
+    deprecated: 'outline',
+  };
+
   return (
     <Link to={linkPath} className="group block" data-testid="search-result-card">
       <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
-        <div className="flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_14rem]">
-          <div className="min-w-0 p-4 sm:p-5">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Status badges (non-collection only) */}
-                {!isCollection && recordStatus && recordStatus !== 'published' && (() => {
-                  const statusStyles: Record<string, string> = {
-                    draft: `text-xs ${ingestionStatusColors.draft}`,
-                    ready: `text-xs ${ingestionStatusColors.ready}`,
-                    internal: `text-xs ${ingestionStatusColors.internal}`,
-                    archived: 'text-xs',
-                    deprecated: 'text-xs text-muted-foreground',
-                  };
-                  const statusVariants: Record<string, 'outline' | 'secondary'> = {
-                    draft: 'outline',
-                    ready: 'outline',
-                    internal: 'outline',
-                    archived: 'secondary',
-                    deprecated: 'outline',
-                  };
-                  const label = t(`card.status.${recordStatus}`, {
-                    defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
-                  });
-                  return (
-                    <Badge
-                      variant={statusVariants[recordStatus] ?? 'outline'}
-                      className={statusStyles[recordStatus] ?? 'text-xs'}
-                    >
-                      {label}
+        <div className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3">
+
+            {/* Band 1 — Header */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_80px]">
+              {/* Left: badges, title, source */}
+              <div className="min-w-0 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <RecordTypeBadge recordType={recordType} />
+
+                  {isCollection && properties.dataset_count != null && (
+                    <Badge variant="secondary" className="text-xs">
+                      {t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })}
                     </Badge>
-                  );
-                })()}
-                {!isCollection && properties.keywords?.includes('synthetic') && (
-                  <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
-                    {t('card.testData', { defaultValue: 'Test Data' })}
-                  </Badge>
-                )}
+                  )}
 
-                <RecordTypeBadge recordType={recordType} />
+                  {!isCollection && properties.keywords?.includes('synthetic') && (
+                    <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
+                      {t('card.testData', { defaultValue: 'Test Data' })}
+                    </Badge>
+                  )}
+                </div>
 
-                {isCollection && properties.dataset_count != null && (
-                  <Badge variant="secondary" className="text-xs">
-                    {t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })}
-                  </Badge>
-                )}
-
-              </div>
-
-              <div className="space-y-2">
                 <span className="block text-lg font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-2">
                   {properties.title}
                 </span>
@@ -201,98 +185,112 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                 )}
               </div>
 
-              {!isCollection && cardSpecs.length > 0 && (
-                <div className="flex flex-wrap gap-1.5" data-testid="dataset-card-specs">
-                  {cardSpecs.map((item) => (
-                    <span
-                      key={item}
-                      className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {!isCollection && displayKeywords.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {displayKeywords.slice(0, 2).map((tag) => (
-                    <Badge key={tag} variant="outline" className="border-border/50 bg-background/60 text-xs font-normal text-muted-foreground/85">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {displayKeywords.length > 2 && (
-                    <span className="self-center text-xs text-muted-foreground/80">
-                      {t('card.moretags', { count: displayKeywords.length - 2 })}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {isCollection ? (
-                !properties.description && properties.created ? (
-                  <div className="text-xs text-muted-foreground">
-                    {t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })}
+              {/* Right: 80x80 preview, hidden on mobile, hidden for collections */}
+              {!isCollection && (
+                <div className="hidden md:block">
+                  <div className="h-[80px] w-[80px] overflow-hidden rounded-lg border border-border/40">
+                    {isTable ? (
+                      <div className="flex h-[80px] w-[80px] flex-col items-center justify-center gap-1 bg-muted/20 text-muted-foreground">
+                        <ImageOff className="h-5 w-5 opacity-45" />
+                        <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
+                      </div>
+                    ) : quicklookSrc ? (
+                      <img
+                        src={quicklookSrc}
+                        alt={t('datasetCard.quicklookAlt', { name: properties.title })}
+                        className="h-[80px] w-[80px] object-cover"
+                      />
+                    ) : qlLoading ? (
+                      <div className="flex h-[80px] w-[80px] items-center justify-center bg-muted/25">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : qlError ? (
+                      <div className="flex h-[80px] w-[80px] flex-col items-center justify-center gap-1 bg-muted/25 text-muted-foreground">
+                        <ImageOff className="h-5 w-5 opacity-50" />
+                      </div>
+                    ) : (
+                      <BBoxPreview bbox={bbox} />
+                    )}
                   </div>
-                ) : null
-              ) : (
-                <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-muted-foreground/85">
-                  {hasMissingProvenance ? (
-                    <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
-                      {properties.created
-                        ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
-                        : noUpdateMetadataLabel}
-                    </span>
-                  ) : (
-                    <span
-                      className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5"
-                      data-testid="dataset-card-updated-attribution"
-                    >
-                      <span className="shrink-0">{updatedByLabel}</span>
-                      <span className="max-w-[14rem] truncate" title={updatedByIdentity}>
-                        {updatedByIdentity}
-                      </span>
-                      <span aria-hidden className="shrink-0">&#8226;</span>
-                      <span className="shrink-0" title={updatedAbsolute}>
-                        {updatedRelative}
-                      </span>
-                    </span>
-                  )}
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="hidden border-t border-border/40 bg-muted/15 p-4 md:flex md:min-h-full md:border-l md:border-t-0">
-            <div className="flex w-full items-center justify-center overflow-hidden rounded-[20px] border border-border/40 bg-background/55">
+            {/* Band 2 — Facts (specs row) */}
+            {!isCollection && cardSpecs.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" data-testid="dataset-card-specs">
+                {cardSpecs.map((item) => (
+                  <span
+                    key={item}
+                    className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Band 3 — Tags */}
+            {!isCollection && displayKeywords.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {displayKeywords.slice(0, 3).map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center rounded-full border border-border/50 bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground/90"
+                  >
+                    {tag}
+                  </span>
+                ))}
+                {displayKeywords.length > 3 && (
+                  <span className="self-center text-xs text-muted-foreground/80">
+                    {t('card.moretags', { count: displayKeywords.length - 3 })}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Band 4 — Footer */}
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              {/* Left: updated time */}
               {isCollection ? (
-                <div className="flex h-[140px] w-full items-center justify-center bg-muted/25">
-                  <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
-                </div>
-              ) : isTable ? (
-                <div className="flex h-[140px] w-full flex-col items-center justify-center gap-1 bg-muted/20 text-muted-foreground">
-                  <ImageOff className="h-5 w-5 opacity-45" />
-                  <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
-                </div>
-              ) : quicklookSrc ? (
-                <img
-                  src={quicklookSrc}
-                  alt={t('datasetCard.quicklookAlt', { name: properties.title })}
-                  className="h-[140px] w-full object-cover"
-                />
-              ) : qlLoading ? (
-                <div className="flex h-[140px] w-full items-center justify-center bg-muted/25">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
-              ) : qlError ? (
-                <div className="flex h-[140px] w-full flex-col items-center justify-center gap-1 bg-muted/25 text-muted-foreground">
-                  <ImageOff className="h-5 w-5 opacity-50" />
-                  <span className="text-xs">{t('datasetCard.previewUnavailable')}</span>
-                </div>
+                properties.created ? (
+                  <span
+                    data-testid="dataset-card-updated-attribution"
+                    title={createdTime.absolute}
+                  >
+                    {t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })}
+                  </span>
+                ) : (
+                  <span />
+                )
+              ) : hasMissingProvenance ? (
+                <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
+                  {properties.created
+                    ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
+                    : noUpdateMetadataLabel}
+                </span>
               ) : (
-                <BBoxPreview bbox={bbox} />
+                <span
+                  data-testid="dataset-card-updated-attribution"
+                  title={updatedAbsolute}
+                >
+                  {t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' })}
+                </span>
+              )}
+
+              {/* Right: status badge */}
+              {showStatusBadge && recordStatus && (
+                <Badge
+                  variant={statusVariants[recordStatus] ?? 'outline'}
+                  className={statusStyles[recordStatus] ?? 'text-xs'}
+                >
+                  {t(`card.status.${recordStatus}`, {
+                    defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
+                  })}
+                </Badge>
               )}
             </div>
+
           </div>
         </div>
       </Card>
