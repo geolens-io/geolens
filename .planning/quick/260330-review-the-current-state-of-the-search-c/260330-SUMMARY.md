@@ -74,4 +74,4 @@ None. This remained a docs-only audit from start to finish.
 
 ## Task Commits
 
-Pending this quick-task docs commit.
+1. **Search card audit artifacts** - `b6e97535` (docs)
