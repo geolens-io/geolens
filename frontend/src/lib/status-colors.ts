@@ -78,6 +78,12 @@ export const healthDotColors = {
   unknown: 'bg-muted-foreground',
 } as const;
 
+export const experimentalBadgeColor =
+  'border-amber-500/50 text-amber-600 dark:text-amber-400';
+
+export const syntheticBadgeColor =
+  'border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200';
+
 export const vrtRasterStatusColors: Record<string, string> = {
   ready: 'border-success/50 text-success',
   regenerating: 'border-warning/50 text-warning',

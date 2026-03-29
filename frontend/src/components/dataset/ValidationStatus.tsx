@@ -4,7 +4,7 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-reac
 import { useValidation } from '@/hooks/use-dataset';
 import { useAllSettings } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
-import { semanticBadgeColors } from '@/lib/status-colors';
+import { semanticBadgeColors, validationLevelColors } from '@/lib/status-colors';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,17 +48,17 @@ export function ValidationStatus({
 
   const statusBadge = errorCount > 0 ? (
     <Badge className={`${semanticBadgeColors.destructive} gap-1`}>
-      <AlertCircle className="h-3.5 w-3.5 text-rose-700 dark:text-rose-200" />
+      <AlertCircle className={`h-3.5 w-3.5 ${validationLevelColors.error}`} />
       {t(requireMetadata ? 'validation.issuesBlocking' : 'validation.issuesFound', { count: errorCount })}
     </Badge>
   ) : warningCount > 0 ? (
     <Badge className={`${semanticBadgeColors.warning} gap-1`}>
-      <AlertTriangle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-200" />
+      <AlertTriangle className={`h-3.5 w-3.5 ${validationLevelColors.warning}`} />
       {t('validation.warnings', { count: warningCount })}
     </Badge>
   ) : (
     <Badge className={`${semanticBadgeColors.success} gap-1`}>
-      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
+      <CheckCircle2 className={`h-3.5 w-3.5 ${validationLevelColors.success}`} />
       {t('validation.readyToPublish')}
     </Badge>
   );

@@ -451,6 +451,13 @@ All status-related colors are centralized in `frontend/src/lib/status-colors.ts`
 | `vrtGenerationColors` | `Record<string, string>` | `completed`, `running`, `failed` |
 | `qualityScoreClasses(score)` | `(number) => string` | >=80 success, >=60 warning, <60 destructive |
 | `activeDotColor` | `Record<string, string>` | `true` (success), `false` (destructive) |
+| `recordTypeColors` | `Record<string, string>` | `collection`, `vector_dataset`, `raster_dataset`, `vrt_dataset`, `table`, `unknown` |
+| `ingestionStatusColors` | `Record<string, string>` | `draft`, `ready`, `internal` |
+| `validationLevelColors` | `Record<string, string>` | `error`, `warning`, `success` |
+| `healthDotColors` | `Record<string, string>` | `healthy`, `unhealthy`, `unknown` |
+| `vrtRasterStatusColors` | `Record<string, string>` | `ready`, `regenerating`, `failed` |
+| `experimentalBadgeColor` | `string` | Amber outline for "Experimental" badges |
+| `syntheticBadgeColor` | `string` | Violet palette for "Test Data" badges |
 
 **Pattern:** `semanticBadgeColors` is the base layer -- domain maps (`jobStatusColors`, `visibilityColors`, etc.) reference it. Each entry returns explicit Tailwind palette classes with light and dark variants for maximum contrast on tinted backgrounds (e.g., `'border-teal-300 bg-teal-100 text-teal-950 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-200'`). Apply to a `<Badge>` via `className`. The palette classes are intentional here -- semantic tokens with opacity modifiers (`bg-info/10`) do not provide sufficient text contrast on tinted backgrounds.
 
