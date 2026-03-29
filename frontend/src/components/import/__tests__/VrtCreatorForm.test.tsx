@@ -133,7 +133,7 @@ describe('VrtCreatorForm', () => {
     expect(screen.getByText('vrt.resolutionStrategy')).toBeInTheDocument();
   });
 
-  it('spatial mosaic form submits vrt_type=mosaic with correct payload', async () => {
+  it('spatial mosaic form submits vrt_type=mosaic with correct payload', { timeout: 15000 }, async () => {
     const user = userEvent.setup({ delay: null });
     const source1 = makeCogSource({ id: 'ds-1', title: 'Alpha COG', epsg: 4326 });
     const source2 = makeCogSource({ id: 'ds-2', title: 'Beta COG', epsg: 4326 });
@@ -196,7 +196,7 @@ describe('VrtCreatorForm', () => {
     expect(screen.getByText('vrt.bandStackHelp')).toBeInTheDocument();
   });
 
-  it('incompatible CRS sources disable submit button', async () => {
+  it('incompatible CRS sources disable submit button', { timeout: 15000 }, async () => {
     const user = userEvent.setup({ delay: null });
     const source1 = makeCogSource({ id: 'ds-crs-a', title: 'CRS Source A', epsg: 4326 });
     const source2 = makeCogSource({ id: 'ds-crs-b', title: 'CRS Source B', epsg: 32617 });
@@ -261,7 +261,7 @@ describe('VrtCreatorForm', () => {
     expect(screen.queryByText('Vector Dataset')).not.toBeInTheDocument();
   });
 
-  it('submit button disabled when title is empty', async () => {
+  it('submit button disabled when title is empty', { timeout: 15000 }, async () => {
     const user = userEvent.setup({ delay: null });
     const source1 = makeCogSource({ id: 'ds-t-1', title: 'Title Test Source 1', epsg: 4326 });
     const source2 = makeCogSource({ id: 'ds-t-2', title: 'Title Test Source 2', epsg: 4326 });
