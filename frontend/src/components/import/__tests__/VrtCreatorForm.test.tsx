@@ -100,6 +100,9 @@ async function selectSource(
   title: string,
 ) {
   await user.clear(searchInput);
+  // Wait for the onBlur 150ms timeout to settle before re-typing
+  await new Promise((r) => setTimeout(r, 200));
+  await user.click(searchInput);
   await user.type(searchInput, 'cog');
   await waitFor(
     () => {
