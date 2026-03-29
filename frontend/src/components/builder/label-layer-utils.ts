@@ -1,0 +1,75 @@
+import { MAP_COLORS } from '@/lib/map-colors';
+import type { LabelConfig } from '@/types/api';
+import type { AddLayerObject } from 'maplibre-gl';
+
+/**
+ * Build a MapLibre addLayer spec for a symbol/label layer.
+ * Shared across map-sync.ts, use-builder-layers.ts, and ViewerMap.tsx
+ * to eliminate duplication of label layer construction.
+ */
+export function buildLabelLayerSpec(opts: {
+  labelId: string;
+  sourceId: string;
+  sourceLayer: string;
+  lc: LabelConfig;
+  geomType: string;
+  visibility?: 'visible' | 'none';
+}): AddLayerObject {
+  const { labelId, sourceId, sourceLayer, lc, geomType, visibility } = opts;
+  const placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+
+  return {
+    id: labelId,
+    type: 'symbol',
+    source: sourceId,
+    'source-layer': sourceLayer,
+    minzoom: lc.minZoom ?? 0,
+    maxzoom: lc.maxZoom ?? 22,
+    layout: {
+      'text-field': ['get', lc.column],
+      'text-size': lc.fontSize ?? 12,
+      'symbol-placement': placement,
+      'text-allow-overlap': lc.allowOverlap ?? false,
+      'text-font': ['Noto Sans Regular'],
+      'text-max-width': 10,
+      ...(visibility ? { visibility } : {}),
+      ...(placement === 'point' ? {
+        'text-anchor': lc.textAnchor ?? 'center',
+        'text-offset': lc.textOffset ?? (geomType === 'circle' ? [0, -1.5] : [0, 0]),
+      } : {}),
+    },
+    paint: {
+      'text-color': lc.textColor ?? MAP_COLORS.label.color,
+      'text-halo-color': lc.haloColor ?? MAP_COLORS.label.halo,
+      'text-halo-width': lc.haloWidth ?? 1.5,
+    },
+  } as AddLayerObject;
+}
+
+/**
+ * Apply label layout/paint properties to an existing label layer.
+ * Shared update logic across map-sync.ts, use-builder-layers.ts, and ViewerMap.tsx.
+ */
+export function syncLabelLayer(
+  map: { setLayoutProperty: (id: string, prop: string, val: unknown) => void; setPaintProperty: (id: string, prop: string, val: unknown) => void; setLayerZoomRange: (id: string, min: number, max: number) => void },
+  labelId: string,
+  lc: LabelConfig,
+  geomType: string,
+) {
+  const placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+  map.setLayoutProperty(labelId, 'text-field', ['get', lc.column]);
+  map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
+  map.setLayoutProperty(labelId, 'symbol-placement', placement);
+  map.setLayoutProperty(labelId, 'text-allow-overlap', lc.allowOverlap ?? false);
+  if (placement === 'point') {
+    map.setLayoutProperty(labelId, 'text-anchor', lc.textAnchor ?? 'center');
+    map.setLayoutProperty(labelId, 'text-offset', lc.textOffset ?? [0, 0]);
+  } else {
+    map.setLayoutProperty(labelId, 'text-anchor', undefined);
+    map.setLayoutProperty(labelId, 'text-offset', undefined);
+  }
+  map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
+  map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
+  map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
+  map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
+}

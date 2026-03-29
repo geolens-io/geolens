@@ -10,6 +10,13 @@
     "emptyState": "Agregue conjuntos de datos del catálogo para comenzar",
     "addData": "Agregar datos"
   },
+  "inspector": {
+    "title": "Inspector de capa",
+    "close": "Cerrar inspector",
+    "toggleAdvanced": "Alternar modo avanzado",
+    "basicMode": "Cambiar a modo básico",
+    "advancedMode": "Cambiar a modo avanzado"
+  },
   "layerItem": {
     "hideLayer": "Ocultar capa",
     "showLayer": "Mostrar capa",
@@ -29,7 +36,9 @@
     "styleTab": "Estilo",
     "collapseOptions": "Contraer opciones",
     "moreActions": "Más acciones",
-    "expandOptions": "Expandir opciones"
+    "expandOptions": "Expandir opciones",
+    "searchColumns": "Buscar columnas...",
+    "noColumnsMatch": "No hay columnas coincidentes"
   },
   "style": {
     "fill": "Relleno",
@@ -52,7 +61,16 @@
       "dashed": "Discontinuo",
       "dotted": "Punteado",
       "dashDot": "Guión-punto"
-    }
+    },
+    "advancedJson": "JSON avanzado",
+    "paintJson": "Paint",
+    "layoutJson": "Layout",
+    "jsonApply": "Aplicar",
+    "jsonError": "JSON no válido",
+    "jsonCancel": "Cancelar",
+    "zoomRange": "Rango de zoom",
+    "minZoom": "Zoom mínimo",
+    "maxZoom": "Zoom máximo"
   },
   "filters": {
     "title": "Filtros",
@@ -80,7 +98,23 @@
     "textColor": "Color de texto",
     "haloColor": "Color de halo",
     "haloWidth": "Ancho de halo",
-    "selectColumn": "Seleccionar columna"
+    "selectColumn": "Seleccionar columna",
+    "placement": "Ubicación",
+    "placementPoint": "Punto",
+    "placementLine": "Línea",
+    "placementLineCenter": "Centro",
+    "anchor": "Ancla",
+    "anchorCenter": "Centro",
+    "anchorTop": "Arriba",
+    "anchorBottom": "Abajo",
+    "anchorLeft": "Izquierda",
+    "anchorRight": "Derecha",
+    "offsetX": "Desplazar X",
+    "offsetY": "Desplazar Y",
+    "allowOverlap": "Permitir superposición",
+    "zoomRange": "Rango de zoom",
+    "minZoom": "Zoom mínimo",
+    "maxZoom": "Zoom máximo"
   },
   "dataDriven": {
     "title": "Estilo basado en datos",

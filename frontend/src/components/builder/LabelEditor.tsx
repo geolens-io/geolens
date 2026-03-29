@@ -5,12 +5,14 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { StyleColorPicker } from './StyleColorPicker';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { cn } from '@/lib/utils';
 import type { LabelConfig } from '@/types/api';
 
 interface LabelEditorProps {
   columns: { name: string; type: string }[];
   labelConfig: LabelConfig | null;
   onLabelChange: (config: LabelConfig | null) => void;
+  geometryType?: string | null;
 }
 
 const DEFAULTS: LabelConfig = {
@@ -21,15 +23,31 @@ const DEFAULTS: LabelConfig = {
   haloWidth: 1.5,
 };
 
-export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditorProps) {
+const PLACEMENT_OPTIONS = [
+  { value: 'point', labelKey: 'labels.placementPoint' },
+  { value: 'line', labelKey: 'labels.placementLine' },
+  { value: 'line-center', labelKey: 'labels.placementLineCenter' },
+] as const;
+
+const ANCHOR_OPTIONS = [
+  { value: 'center', labelKey: 'labels.anchorCenter' },
+  { value: 'top', labelKey: 'labels.anchorTop' },
+  { value: 'bottom', labelKey: 'labels.anchorBottom' },
+  { value: 'left', labelKey: 'labels.anchorLeft' },
+  { value: 'right', labelKey: 'labels.anchorRight' },
+] as const;
+
+export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType }: LabelEditorProps) {
   const { t } = useTranslation('builder');
   const isOn = labelConfig !== null;
+  const isLine = (geometryType ?? '').toUpperCase().includes('LINE');
 
   function handleToggle(checked: boolean) {
     if (checked) {
       onLabelChange({
         ...DEFAULTS,
         column: columns[0]?.name ?? '',
+        placement: isLine ? 'line' : 'point',
       });
     } else {
       onLabelChange(null);
@@ -41,6 +59,9 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
     onLabelChange({ ...labelConfig, ...partial });
   }
 
+  const placement = labelConfig?.placement ?? (isLine ? 'line' : 'point');
+  const isPointPlacement = placement === 'point';
+
   return (
     <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
       <div className="flex items-center justify-between">
@@ -50,6 +71,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
 
       {isOn && labelConfig && (
         <>
+          {/* Column selector */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.column')}</span>
             <Select
@@ -69,6 +91,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
             </Select>
           </div>
 
+          {/* Font size */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.fontSize')}</span>
             <Slider
@@ -84,6 +107,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
             </span>
           </div>
 
+          {/* Colors */}
           <StyleColorPicker
             label={t('labels.textColor')}
             color={labelConfig.textColor}
@@ -111,6 +135,93 @@ export function LabelEditor({ columns, labelConfig, onLabelChange }: LabelEditor
             </span>
           </div>
 
+          {/* Placement presets */}
+          <div className="text-xs font-medium mt-2 pt-2 border-t">{t('labels.placement')}</div>
+          <div className="flex gap-1">
+            {PLACEMENT_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={cn(
+                  'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                  placement === opt.value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
+                )}
+                onClick={() => update({ placement: opt.value })}
+              >
+                {t(opt.labelKey, { defaultValue: opt.value })}
+              </button>
+            ))}
+          </div>
+
+          {/* Anchor (only for point placement) */}
+          {isPointPlacement && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground w-20">{t('labels.anchor')}</span>
+              <Select
+                value={labelConfig.textAnchor ?? 'center'}
+                onValueChange={(val) => update({ textAnchor: val as LabelConfig['textAnchor'] })}
+              >
+                <SelectTrigger className="h-7 text-xs flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ANCHOR_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                      {t(opt.labelKey, { defaultValue: opt.value })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Text offset (only for point placement) */}
+          {isPointPlacement && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-20">{t('labels.offsetX')}</span>
+                <Slider
+                  value={[labelConfig.textOffset?.[0] ?? 0]}
+                  min={-3}
+                  max={3}
+                  step={0.1}
+                  onValueChange={([v]) => update({ textOffset: [v, labelConfig.textOffset?.[1] ?? 0] })}
+                  className="flex-1"
+                />
+                <span className="text-xs text-muted-foreground w-10 text-right">
+                  {(labelConfig.textOffset?.[0] ?? 0).toFixed(1)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-20">{t('labels.offsetY')}</span>
+                <Slider
+                  value={[labelConfig.textOffset?.[1] ?? 0]}
+                  min={-3}
+                  max={3}
+                  step={0.1}
+                  onValueChange={([v]) => update({ textOffset: [labelConfig.textOffset?.[0] ?? 0, v] })}
+                  className="flex-1"
+                />
+                <span className="text-xs text-muted-foreground w-10 text-right">
+                  {(labelConfig.textOffset?.[1] ?? 0).toFixed(1)}
+                </span>
+              </div>
+            </>
+          )}
+
+          {/* Allow overlap */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{t('labels.allowOverlap')}</span>
+            <Switch
+              checked={labelConfig.allowOverlap ?? false}
+              onCheckedChange={(v) => update({ allowOverlap: v })}
+              className="scale-75"
+            />
+          </div>
+
+          {/* Zoom range */}
           <div className="text-xs font-medium mt-2 pt-2 border-t">{t('labels.zoomRange')}</div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.minZoom')}</span>

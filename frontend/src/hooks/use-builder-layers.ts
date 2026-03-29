@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
-import { MAP_COLORS } from '@/lib/map-colors';
+import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
@@ -87,10 +87,6 @@ export function useBuilderLayers(
     // Only compute on first load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapData?.id]);
-
-  const handleMapRef = useCallback((map: MaplibreMap | null) => {
-    (mapInstanceRef as React.MutableRefObject<MaplibreMap | null>).current = map;
-  }, [mapInstanceRef]);
 
   // --- Ephemeral layer management ---
 
@@ -277,6 +273,8 @@ export function useBuilderLayers(
     if (!map || !map.isStyleLoaded()) return;
 
     const labelLayerId = `layer-${layerId}-label`;
+    const layer = localLayers.find((l) => l.id === layerId);
+    const geomType = layer ? getLayerType(layer.dataset_geometry_type) : 'fill';
 
     // Remove label layer if config is null or column is empty
     if (!config || !config.column) {
@@ -288,44 +286,18 @@ export function useBuilderLayers(
 
     // Update existing label layer
     if (map.getLayer(labelLayerId)) {
-      map.setLayoutProperty(labelLayerId, 'text-field', ['get', config.column]);
-      map.setLayoutProperty(labelLayerId, 'text-size', config.fontSize ?? 12);
-      map.setPaintProperty(labelLayerId, 'text-color', config.textColor ?? MAP_COLORS.label.color);
-      map.setPaintProperty(labelLayerId, 'text-halo-color', config.haloColor ?? MAP_COLORS.label.halo);
-      map.setPaintProperty(labelLayerId, 'text-halo-width', config.haloWidth ?? 1.5);
+      syncLabelLayer(map, labelLayerId, config, geomType);
       return;
     }
 
     // Add new label layer
-    const layer = localLayers.find((l) => l.id === layerId);
     if (!layer) return;
 
     const sourceId = `source-${layerId}`;
     if (!map.getSource(sourceId)) return;
 
     const sourceLayer = `data.${layer.dataset_table_name}`;
-    const geomType = getLayerType(layer.dataset_geometry_type);
-
-    map.addLayer({
-      id: labelLayerId,
-      type: 'symbol',
-      source: sourceId,
-      'source-layer': sourceLayer,
-      layout: {
-        'text-field': ['get', config.column],
-        'text-size': config.fontSize ?? 12,
-        'symbol-placement': geomType === 'line' ? 'line' : 'point',
-        'text-allow-overlap': false,
-        'text-font': ['Noto Sans Regular'],
-        'text-max-width': 10,
-        ...(geomType === 'circle' ? { 'text-offset': [0, -1.5] as [number, number] } : {}),
-      },
-      paint: {
-        'text-color': config.textColor ?? MAP_COLORS.label.color,
-        'text-halo-color': config.haloColor ?? MAP_COLORS.label.halo,
-        'text-halo-width': config.haloWidth ?? 1.5,
-      },
-    });
+    map.addLayer(buildLabelLayerSpec({ labelId: labelLayerId, sourceId, sourceLayer, lc: config, geomType }));
 
     // Match parent visibility
     const parentLayerId = `layer-${layerId}`;
@@ -532,12 +504,6 @@ export function useBuilderLayers(
     );
   }
 
-  // AI-specific add: adds a pending layer locally (persisted on Save)
-  function handleAiAddDataset(datasetId: string) {
-    if (!mapId) return;
-    handleAddDataset(datasetId);
-  }
-
   // AI-specific remove: removes locally (persisted on Save)
   function handleAiRemoveLayer(layerId: string) {
     setLocalLayers((prev) => prev.filter((l) => l.id !== layerId));
@@ -566,7 +532,18 @@ export function useBuilderLayers(
     const mapLayerId = `layer-${layerId}`;
     if (!map.getLayer(mapLayerId)) return;
 
+    // Apply layer zoom range from custom layout props (main + outline companion)
+    const minzoom = (newLayout['_minzoom'] as number) ?? 0;
+    const maxzoom = (newLayout['_maxzoom'] as number) ?? 22;
+    map.setLayerZoomRange(mapLayerId, minzoom, maxzoom);
+    const outlineLayerId = `${mapLayerId}-outline`;
+    if (map.getLayer(outlineLayerId)) {
+      map.setLayerZoomRange(outlineLayerId, minzoom, maxzoom);
+    }
+
     for (const [prop, value] of Object.entries(newLayout)) {
+      // Skip custom props — not real MapLibre layout properties
+      if (prop.startsWith('_')) continue;
       try {
         // line-dasharray is stored in layout JSON but is a MapLibre paint property
         if (prop === 'line-dasharray') {
@@ -580,6 +557,7 @@ export function useBuilderLayers(
     }
     // Clear removed props (e.g., removing line-dasharray sets solid)
     for (const prop of Object.keys(prevLayout)) {
+      if (prop.startsWith('_')) continue;
       if (!(prop in newLayout)) {
         try {
           if (prop === 'line-dasharray') {
@@ -607,7 +585,6 @@ export function useBuilderLayers(
     showBasemapLabels, setShowBasemapLabels,
     ephemeralResult,
     initialViewState,
-    handleMapRef,
     handleToggleVisibility,
     handleMoveUp,
     handleMoveDown,
@@ -624,12 +601,10 @@ export function useBuilderLayers(
     handleZoomToLayer,
     handleRemove,
     handleAddDataset,
-    handleAiAddDataset,
     handleAiRemoveLayer,
     handleQueryResult,
     handleToggleLegend,
     handleDismissEphemeral,
-    clearEphemeralLayer,
     markDirty,
   };
 }

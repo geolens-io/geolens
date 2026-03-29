@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 Phase: 211
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-03-28
+Last activity: 2026-03-29 - Completed quick task 260329-p4p: basemap thumbnails - static PNGs, globe fallback, larger size
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -218,6 +218,7 @@ Progress: [░░░░░░░░░░] 0%
 | 260323-r43 | Audit sharing/access/embed: hard-block non-public datasets, findings report | 2026-03-23 | 757280ce | Verified | [260323-r43-audit-sharing-access-embed-functionality](./quick/260323-r43-audit-sharing-access-embed-functionality/) |
 | 260324-cn5 | Map chat @mention layers, slash commands, smart suggestions, message enrichment | 2026-03-24 | 06c6ed11 | Verified | [260324-cn5-map-chat-mention-layers-slash-commands-a](./quick/260324-cn5-map-chat-mention-layers-slash-commands-a/) |
 | 260324-jni | Fix seed-ago-data.py 502 errors: nginx proxy timeouts, retry with backoff, configurable timeout | 2026-03-24 | 9995d4c0 | Verified | [260324-jni-investigate-and-fix-seed-ago-data-py-imp](./quick/260324-jni-investigate-and-fix-seed-ago-data-py-imp/) |
+| 260331 | Layer editing UI/UX assessment for the map creator, with Mapbox style-spec extensibility recommendations | 2026-03-29 | local-only | Verified | [260331-what-is-the-best-ui-ux-for-layer-editing](./quick/260331-what-is-the-best-ui-ux-for-layer-editing/) |
 | 260324-kte | Merge layer list item symbology/geometry into single colorized icon | 2026-03-24 | 5bd186a8 | Needs Review | [260324-kte-inspect-the-map-creator-layer-list-item-](./quick/260324-kte-inspect-the-map-creator-layer-list-item-/) |
 | 260324-mo7 | Map builder legend: show all visible layers, per-layer toggle, persist setting | 2026-03-24 | 77b89a83 | Needs Review | [260324-mo7-map-builder-legend-control-show-all-visi](./quick/260324-mo7-map-builder-legend-control-show-all-visi/) |
 | 260324-o6s | Fix Zoom to Layer in map creator and make sidebar expandable from default size | 2026-03-24 | 9de4ff81 | Needs Review | [260324-o6s-fix-zoom-to-layer-in-map-creator-and-mak](./quick/260324-o6s-fix-zoom-to-layer-in-map-creator-and-mak/) |
@@ -267,10 +268,12 @@ Progress: [░░░░░░░░░░] 0%
 | 260330 | Review current search card layout/style and produce optimization guidance with Playwright evidence | 2026-03-29 | b6e97535 | Verified | [260330-review-the-current-state-of-the-search-c](./quick/260330-review-the-current-state-of-the-search-c/) |
 | 260329-lnd | Validate search card review assessment with Playwright | 2026-03-29 | pending | Verified | [260329-lnd-validate-search-card-review-assessment-w](./quick/260329-lnd-validate-search-card-review-assessment-w/) |
 | 260329-onb | Fix private map thumbnail 404s with authenticated fetch | 2026-03-29 | 94ba1f31 | Verified | [260329-onb-use-playwright-mcp-to-investigate-and-re](./quick/260329-onb-use-playwright-mcp-to-investigate-and-re/) |
+| 260329-p4p | Basemap thumbnails: static PNGs, globe fallback, larger size | 2026-03-29 | eb77a79e | Verified | [260329-p4p-in-map-creator-basemap-thumbnails-are-no](./quick/260329-p4p-in-map-creator-basemap-thumbnails-are-no/) |
+| 260329-r8z | Fix measure widget not working in map creator | 2026-03-29 | 0fbc33ce | Verified | [260329-r8z-measure-widget-doesnt-work-in-the-map-cr](./quick/260329-r8z-measure-widget-doesnt-work-in-the-map-cr/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-29 - Completed quick task 260329-onb: Fix private map thumbnail 404s with authenticated fetch
+Last activity: 2026-03-29 - Completed quick task 260329-r8z: Fix measure widget not working in map creator
 Last session: 2026-03-29T12:29:00.489Z
 Stopped at: Completed 260329-bn7-PLAN.md
 Resume file: None

@@ -10,6 +10,13 @@
     "emptyState": "Datensätze aus dem Katalog hinzufügen, um zu beginnen",
     "addData": "Daten hinzufügen"
   },
+  "inspector": {
+    "title": "Layer-Inspektor",
+    "close": "Inspektor schließen",
+    "toggleAdvanced": "Erweiterten Modus umschalten",
+    "basicMode": "Zum einfachen Modus wechseln",
+    "advancedMode": "Zum erweiterten Modus wechseln"
+  },
   "layerItem": {
     "hideLayer": "Layer ausblenden",
     "showLayer": "Layer einblenden",
@@ -29,7 +36,9 @@
     "styleTab": "Stil",
     "collapseOptions": "Optionen einklappen",
     "moreActions": "Weitere Aktionen",
-    "expandOptions": "Optionen ausklappen"
+    "expandOptions": "Optionen ausklappen",
+    "searchColumns": "Spalten suchen...",
+    "noColumnsMatch": "Keine passenden Spalten"
   },
   "style": {
     "fill": "Füllung",
@@ -52,7 +61,16 @@
       "dashed": "Gestrichelt",
       "dotted": "Gepunktet",
       "dashDot": "Strich-Punkt"
-    }
+    },
+    "advancedJson": "Erweitertes JSON",
+    "paintJson": "Paint",
+    "layoutJson": "Layout",
+    "jsonApply": "Anwenden",
+    "jsonError": "Ungültiges JSON",
+    "jsonCancel": "Abbrechen",
+    "zoomRange": "Zoombereich",
+    "minZoom": "Min. Zoom",
+    "maxZoom": "Max. Zoom"
   },
   "filters": {
     "title": "Filter",
@@ -80,7 +98,23 @@
     "textColor": "Textfarbe",
     "haloColor": "Halofarbe",
     "haloWidth": "Halobreite",
-    "selectColumn": "Spalte auswählen"
+    "selectColumn": "Spalte auswählen",
+    "placement": "Platzierung",
+    "placementPoint": "Punkt",
+    "placementLine": "Linie",
+    "placementLineCenter": "Mitte",
+    "anchor": "Anker",
+    "anchorCenter": "Mitte",
+    "anchorTop": "Oben",
+    "anchorBottom": "Unten",
+    "anchorLeft": "Links",
+    "anchorRight": "Rechts",
+    "offsetX": "Versatz X",
+    "offsetY": "Versatz Y",
+    "allowOverlap": "Überlappung erlauben",
+    "zoomRange": "Zoombereich",
+    "minZoom": "Min. Zoom",
+    "maxZoom": "Max. Zoom"
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",
