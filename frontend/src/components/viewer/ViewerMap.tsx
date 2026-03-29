@@ -355,6 +355,12 @@ export function ViewerMap({
             map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
             map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
             map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
+            if (lc.minZoom != null || lc.maxZoom != null) {
+              map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 24);
+            }
+            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+              map.setFilter(labelId, layer.filter);
+            }
           }
         } else if (map.getLayer(labelId)) {
           // Remove label layer when config cleared

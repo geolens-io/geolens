@@ -1,7 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity } from './shared';
-import { CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint, CUSTOM_PAINT_PROPS } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const fillAdapter: LayerAdapter = {
@@ -63,17 +62,7 @@ export const fillAdapter: LayerAdapter = {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
-      for (const [prop, val] of Object.entries(rawPaint)) {
-        if (CUSTOM_PAINT_PROPS.has(prop)) continue;
-        try {
-          const current = map.getPaintProperty(layerId, prop);
-          if (JSON.stringify(current) !== JSON.stringify(val)) {
-            map.setPaintProperty(layerId, prop, val);
-          }
-        } catch (e) {
-          if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);
-        }
-      }
+      syncVectorPaint(map, layerId, rawPaint);
       map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(layerId, filter);
@@ -108,17 +97,6 @@ export const fillAdapter: LayerAdapter = {
       } else {
         map.setFilter(outlineId, null);
       }
-    }
-  },
-
-  syncOpacity(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, paint: rawPaint, opacity } = input;
-    const outlineId = `${input.layerId}-outline`;
-    if (map.getLayer(layerId)) {
-      map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
-    }
-    if (map.getLayer(outlineId)) {
-      map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
     }
   },
 

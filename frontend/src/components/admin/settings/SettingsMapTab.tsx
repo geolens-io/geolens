@@ -44,6 +44,7 @@ interface WidgetTogglesProps {
 
 function WidgetToggles({ settings, enabledWidgets, onChangeEnabled, onReset, envOnly }: WidgetTogglesProps) {
   const { t } = useTranslation('admin');
+  const { t: tBuilder } = useTranslation('builder');
   const registeredWidgets = getWidgets();
   if (registeredWidgets.length === 0) return null;
 
@@ -71,7 +72,7 @@ function WidgetToggles({ settings, enabledWidgets, onChangeEnabled, onReset, env
             <div key={w.id} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Icon className="h-4 w-4 text-muted-foreground" />
-                <Label>{w.label}</Label>
+                <Label>{tBuilder(w.labelKey)}</Label>
               </div>
               <Switch
                 checked={enabledWidgets.includes(w.id)}

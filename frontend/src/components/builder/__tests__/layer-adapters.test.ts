@@ -156,14 +156,6 @@ describe('circleAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c4', 'circle-radius', 8);
   });
 
-  it('syncOpacity sets circle-opacity using getCompoundOpacity', () => {
-    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-c5' });
-    const input = makeInput({ id: 'c5', layerId: 'layer-c5', opacity: 0.5 });
-    circleAdapter.syncOpacity(map, input);
-    // compound opacity: paint circle-opacity default=1 * masterOpacity=0.5 = 0.5
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c5', 'circle-opacity', 0.5);
-  });
-
   it('syncVisibility sets visibility layout property', () => {
     (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-c6' });
     const inputVisible = makeInput({ id: 'c6', layerId: 'layer-c6', visible: false });
@@ -313,17 +305,6 @@ describe('fillAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f5-outline', 'line-width', 4);
   });
 
-  it('syncOpacity sets fill-opacity on main and line-opacity on outline', () => {
-    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
-      if (id === 'layer-f6' || id === 'layer-f6-outline') return { id };
-      return null;
-    });
-    const input = makeInput({ id: 'f6', layerId: 'layer-f6', opacity: 0.5, paint: {} });
-    fillAdapter.syncOpacity(map, input);
-    // fill compound opacity: default 0.3 * 0.5 = 0.15
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f6', 'fill-opacity', 0.15);
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f6-outline', 'line-opacity', 0.5);
-  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

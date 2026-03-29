@@ -55,7 +55,7 @@ export function WidgetToolbar() {
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0" />
-                  <span className="flex-1 truncate">{w.label}</span>
+                  <span className="flex-1 truncate">{t(w.labelKey)}</span>
                   {isActive && (
                     <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                   )}

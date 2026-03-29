@@ -38,12 +38,6 @@ export const rasterAdapter: LayerAdapter = {
     }
   },
 
-  syncOpacity(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, opacity } = input;
-    if (!map.getLayer(layerId)) return;
-    map.setPaintProperty(layerId, 'raster-opacity', opacity ?? 1);
-  },
-
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, visible } = input;
     const vis = visible ? 'visible' : 'none';

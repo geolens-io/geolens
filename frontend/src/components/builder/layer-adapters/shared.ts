@@ -1,5 +1,20 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+
+/** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
+ *  These are read separately and applied to the outline line layer for polygons. */
+export const CUSTOM_PAINT_PROPS = new Set([
+  '_outline-width', '_outline-color',
+  'outline-width', 'outline-color',
+  '_fill-disabled', '_stroke-disabled',
+  '_fill-opacity-saved', '_outline-width-saved',
+]);
+
+export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
+  const gt = (geometryType ?? '').toUpperCase();
+  if (gt.includes('POINT')) return 'circle';
+  if (gt.includes('LINE')) return 'line';
+  return 'fill';
+}
 
 /**
  * Simplify paint properties by stripping expression arrays.
@@ -70,5 +85,20 @@ export function finalizeLayer(
   map.setPaintProperty(layerId, `${geomType}-opacity`, getCompoundOpacity(rawPaint, geomType, masterOpacity));
   if (filter && Array.isArray(filter) && filter.length > 0) {
     map.setFilter(layerId, filter);
+  }
+}
+
+/** Sync paint properties for a vector layer, skipping custom props and using JSON.stringify diff. */
+export function syncVectorPaint(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
+  for (const [prop, val] of Object.entries(rawPaint)) {
+    if (CUSTOM_PAINT_PROPS.has(prop)) continue;
+    try {
+      const current = map.getPaintProperty(layerId, prop);
+      if (JSON.stringify(current) !== JSON.stringify(val)) {
+        map.setPaintProperty(layerId, prop, val);
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);
+    }
   }
 }
