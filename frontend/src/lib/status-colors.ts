@@ -16,19 +16,19 @@ export const jobStatusColors: Record<string, string> = {
   running: semanticBadgeColors.info,
   complete: semanticBadgeColors.success,
   failed: semanticBadgeColors.destructive,
-} as const;
+};
 
 export const userStatusColors: Record<string, string> = {
   pending: semanticBadgeColors.warning,
   active: semanticBadgeColors.success,
   deactivated: 'border-border bg-muted text-muted-foreground',
-} as const;
+};
 
 export const visibilityColors: Record<string, string> = {
   public: semanticBadgeColors.success,
   restricted: semanticBadgeColors.warning,
   private: semanticBadgeColors.destructive,
-} as const;
+};
 
 export function qualityScoreClasses(score: number): string {
   if (score >= 80) {
@@ -44,7 +44,7 @@ export const vrtGenerationColors: Record<string, string> = {
   completed: semanticBadgeColors.success,
   running: semanticBadgeColors.info,
   failed: semanticBadgeColors.destructive,
-} as const;
+};
 
 export const activeDotColor = {
   true:  'bg-success',
@@ -58,13 +58,13 @@ export const recordTypeColors: Record<string, string> = {
   vrt_dataset: 'border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200',
   table: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200',
   unknown: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200',
-} as const;
+};
 
 export const ingestionStatusColors: Record<string, string> = {
   draft: semanticBadgeColors.warning,
   ready: semanticBadgeColors.info,
   internal: 'border-border bg-muted text-muted-foreground',
-} as const;
+};
 
 export const validationLevelColors = {
   error: 'text-destructive',
@@ -88,4 +88,4 @@ export const vrtRasterStatusColors: Record<string, string> = {
   ready: 'border-success/50 text-success',
   regenerating: 'border-warning/50 text-warning',
   failed: 'border-destructive/50 text-destructive',
-} as const;
+};

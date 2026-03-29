@@ -124,6 +124,28 @@ describe('ValidationStatus', () => {
     expect(screen.queryByTestId('validation-troubleshoot-trigger')).not.toBeInTheDocument();
   });
 
+  it('applies semantic color tokens to status icons', () => {
+    mockUseValidation.mockReturnValue(
+      createValidationResult({
+        isValid: false,
+        errors: [{ field: 'title', message: 'Required', severity: 'error' }],
+        warnings: [{ field: 'summary', message: 'Recommended', severity: 'warning' }],
+      }),
+    );
+
+    const { container } = render(<ValidationStatus datasetId="dataset-1" />);
+
+    expect(container.querySelector('.text-destructive')).toBeInTheDocument();
+  });
+
+  it('applies success color token when valid', () => {
+    mockUseValidation.mockReturnValue(createValidationResult({ isValid: true }));
+
+    const { container } = render(<ValidationStatus datasetId="dataset-1" />);
+
+    expect(container.querySelector('.text-success')).toBeInTheDocument();
+  });
+
   it('keeps compact mode concise while still exposing troubleshoot action for warnings', () => {
     mockUseValidation.mockReturnValue(
       createValidationResult({

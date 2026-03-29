@@ -1,5 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import { CollectionSearchCard } from '../CollectionSearchCard';
+import { recordTypeColors } from '@/lib/status-colors';
 
 describe('CollectionSearchCard', () => {
   const defaultProps = {
@@ -26,7 +27,8 @@ describe('CollectionSearchCard', () => {
 
     const badge = screen.getByText('Collection');
     expect(badge).toBeInTheDocument();
-    expect(badge.closest('[data-slot="badge"]')?.className).toMatch(/bg-amber-100/);
+    const classes = badge.closest('[data-slot="badge"]')?.className ?? '';
+    expect(classes).toContain(recordTypeColors.collection.split(' ')[0]);
   });
 
   it('renders the description', () => {
