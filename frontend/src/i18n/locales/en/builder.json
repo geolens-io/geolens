@@ -23,7 +23,13 @@
     "openDataset": "Open dataset detail",
     "rename": "Rename",
     "zoomToLayer": "Zoom to layer",
-    "columns": "Columns"
+    "columns": "Columns",
+    "filterTab": "Filter",
+    "labelsTab": "Labels",
+    "styleTab": "Style",
+    "collapseOptions": "Collapse options",
+    "moreActions": "More actions",
+    "expandOptions": "Expand options"
   },
   "style": {
     "fill": "Fill",
@@ -37,7 +43,8 @@
     "radius": "Radius",
     "styledBy": "Styled by: {{column}}",
     "radiusByColumn": "Radius by: {{column}}",
-    "widthByColumn": "Width by: {{column}}"
+    "widthByColumn": "Width by: {{column}}",
+    "toggleStroke": "Toggle stroke"
   },
   "filters": {
     "title": "Filters",
@@ -88,7 +95,8 @@
     "targetRadius": "Radius",
     "targetWidth": "Width",
     "sizeMin": "Min size",
-    "sizeMax": "Max size"
+    "sizeMax": "Max size",
+    "colors": "Colors"
   },
   "search": {
     "title": "Add Dataset",
@@ -210,7 +218,8 @@
     "save": "Save ({{shortcut}})",
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
-    "widgets": "Widgets"
+    "widgets": "Widgets",
+    "moreActions": "More actions"
   },
   "toasts": {
     "mapSaved": "Map saved",
@@ -306,5 +315,8 @@
     "cancelEditing": "Cancel editing",
     "editAttributes": "Edit attributes",
     "deleteFeature": "Delete feature"
+  },
+  "actions": {
+    "save": "Save"
   }
 }

@@ -23,7 +23,13 @@
     "openDataset": "Datensatzdetails öffnen",
     "columns": "Spalten",
     "rename": "Umbenennen",
-    "zoomToLayer": "Auf Layer zoomen"
+    "zoomToLayer": "Auf Layer zoomen",
+    "filterTab": "Filter",
+    "labelsTab": "Beschriftungen",
+    "styleTab": "Stil",
+    "collapseOptions": "Optionen einklappen",
+    "moreActions": "Weitere Aktionen",
+    "expandOptions": "Optionen ausklappen"
   },
   "style": {
     "fill": "Füllung",
@@ -37,7 +43,8 @@
     "radius": "Radius",
     "styledBy": "Stilisiert nach: {{column}}",
     "radiusByColumn": "Radius nach: {{column}}",
-    "widthByColumn": "Breite nach: {{column}}"
+    "widthByColumn": "Breite nach: {{column}}",
+    "toggleStroke": "Kontur umschalten"
   },
   "filters": {
     "title": "Filter",
@@ -88,7 +95,8 @@
     "targetRadius": "Radius",
     "targetWidth": "Breite",
     "sizeMin": "Min. Groesse",
-    "sizeMax": "Max. Groesse"
+    "sizeMax": "Max. Groesse",
+    "colors": "Farben"
   },
   "search": {
     "title": "Datensatz hinzufügen",
@@ -210,7 +218,8 @@
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
     "expandSidebar": "Seitenleiste ausklappen",
-    "widgets": "Widgets"
+    "widgets": "Widgets",
+    "moreActions": "Weitere Aktionen"
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
@@ -306,5 +315,8 @@
     "cancelEditing": "Bearbeitung abbrechen",
     "editAttributes": "Attribute bearbeiten",
     "deleteFeature": "Feature löschen"
+  },
+  "actions": {
+    "save": "Speichern"
   }
 }
