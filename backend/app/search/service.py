@@ -1187,6 +1187,7 @@ def dataset_to_ogc_record(
             "source_organization": record.source_organization,
             "quality_detail": dataset.quality_detail,
             "record_status": record.record_status,
+            "has_quicklook": dataset.quicklook_256_uri is not None,
             # Enriched OGC properties (Phase 10-02)
             "formats": (
                 list(_RASTER_FORMAT_MEDIA.values())

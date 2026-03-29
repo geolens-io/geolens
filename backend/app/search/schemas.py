@@ -71,6 +71,7 @@ class OGCRecordProperties(BaseModel):
     constraints: dict | None = None
     distributions: list[dict] | None = None
     record_status: str | None = None
+    has_quicklook: bool = False
     gsd: float | None = None
     vrt_type: str | None = None
     source_count: int | None = None
