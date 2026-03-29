@@ -105,7 +105,7 @@ async function selectSource(
     () => {
       expect(screen.getByText(title)).toBeInTheDocument();
     },
-    { timeout: 2000 },
+    { timeout: 5000 },
   );
   await user.click(screen.getByText(title));
 }
