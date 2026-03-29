@@ -138,6 +138,7 @@ export function MapBuilderPage() {
     mapId: id,
     localLayers: layers.localLayers,
     localBasemap: layers.localBasemap,
+    showBasemapLabels: layers.showBasemapLabels,
     localName,
     localDescription,
     mapInstanceRef,
@@ -371,7 +372,7 @@ export function MapBuilderPage() {
                 layers.markDirty();
               }}
               showLabels={layers.showBasemapLabels}
-              onToggleLabels={layers.setShowBasemapLabels}
+              onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
             />
           </div>
 

@@ -35,6 +35,10 @@ class Map(Base):
     basemap_style: Mapped[str] = mapped_column(
         String(30), default="openfreemap-positron", server_default="openfreemap-positron"
     )
+    show_basemap_labels: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+    # Active widget IDs (null = use client defaults, [] = no widgets)
+    widgets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
     # Visibility
     visibility: Mapped[str] = mapped_column(

@@ -114,6 +114,7 @@ def _build_map_response(
         bearing=map_obj.bearing,
         pitch=map_obj.pitch,
         basemap_style=map_obj.basemap_style,
+        show_basemap_labels=map_obj.show_basemap_labels,
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
         forked_from_id=map_obj.forked_from,
@@ -124,6 +125,7 @@ def _build_map_response(
         updated_at=map_obj.updated_at,
         layers=layers,
         layer_count=len(layers),
+        widgets=map_obj.widgets,
     )
 
 
