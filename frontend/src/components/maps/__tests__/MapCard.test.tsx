@@ -1,7 +1,16 @@
 import { fireEvent, render, screen } from '@/test/test-utils';
 import type { MapSummaryResponse } from '@/types/api';
+import { vi } from 'vitest';
 import { MapCard } from '../MapCard';
 import { MapCardGrid } from '../MapCardGrid';
+
+vi.mock('@/hooks/use-map-thumbnail', () => ({
+  useMapThumbnail: vi.fn(),
+}));
+
+import { useMapThumbnail } from '@/hooks/use-map-thumbnail';
+
+const mockUseMapThumbnail = vi.mocked(useMapThumbnail);
 
 function makeMap(overrides: Partial<MapSummaryResponse> = {}): MapSummaryResponse {
   return {
@@ -20,16 +29,19 @@ function makeMap(overrides: Partial<MapSummaryResponse> = {}): MapSummaryRespons
 
 describe('MapCard', () => {
   it('renders img when thumbnail is present and no error', () => {
+    mockUseMapThumbnail.mockReturnValue('blob:http://localhost/fake-thumb');
     render(<MapCard map={makeMap()} onDelete={() => {}} />);
     expect(screen.getByRole('img')).toBeInTheDocument();
   });
 
   it('renders MapIcon placeholder when thumbnail_url is null', () => {
+    mockUseMapThumbnail.mockReturnValue(null);
     render(<MapCard map={makeMap({ thumbnail_url: null })} onDelete={() => {}} />);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('renders MapIcon placeholder when img fires onError (simulating 404)', () => {
+    mockUseMapThumbnail.mockReturnValue('blob:http://localhost/fake-thumb');
     render(<MapCard map={makeMap()} onDelete={() => {}} />);
     const img = screen.getByRole('img');
     fireEvent.error(img);
@@ -39,16 +51,19 @@ describe('MapCard', () => {
 
 describe('MapCardGrid', () => {
   it('renders img when thumbnail is present and no error', () => {
+    mockUseMapThumbnail.mockReturnValue('blob:http://localhost/fake-thumb');
     render(<MapCardGrid map={makeMap()} onDelete={() => {}} />);
     expect(screen.getByRole('img')).toBeInTheDocument();
   });
 
   it('renders MapIcon placeholder when thumbnail_url is null', () => {
+    mockUseMapThumbnail.mockReturnValue(null);
     render(<MapCardGrid map={makeMap({ thumbnail_url: null })} onDelete={() => {}} />);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('renders MapIcon placeholder when img fires onError (simulating 404)', () => {
+    mockUseMapThumbnail.mockReturnValue('blob:http://localhost/fake-thumb');
     render(<MapCardGrid map={makeMap()} onDelete={() => {}} />);
     const img = screen.getByRole('img');
     fireEvent.error(img);

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Map as MapIcon, User, Layers, Calendar } from 'lucide-react';
-import { API_BASE } from '@/lib/constants';
+import { useMapThumbnail } from '@/hooks/use-map-thumbnail';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ export interface MapCardProps {
 export function MapCard({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
+  const thumbnailSrc = useMapThumbnail(map.thumbnail_url);
 
   return (
     <TooltipProvider>
@@ -34,9 +35,9 @@ export function MapCard({ map, onDelete }: MapCardProps) {
           to={`/maps/${map.id}`}
           className="w-44 shrink-0 bg-muted flex items-center justify-center overflow-hidden"
         >
-          {map.thumbnail_url && !imgError ? (
+          {thumbnailSrc && !imgError ? (
             <img
-              src={`${API_BASE}${map.thumbnail_url}`}
+              src={thumbnailSrc}
               alt={t('maps.card.previewAlt', { name: map.name })}
               className="w-full h-full object-cover"
               loading="lazy"
