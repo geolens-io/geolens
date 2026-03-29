@@ -159,9 +159,7 @@ class TestInvalidStatusValue:
 
 
 class TestDatasetNotFound:
-    async def test_nonexistent_dataset_returns_404(
-        self, client, admin_auth_header
-    ):
+    async def test_nonexistent_dataset_returns_404(self, client, admin_auth_header):
         fake_id = uuid.uuid4()
         resp = await client.patch(
             f"/datasets/{fake_id}/status",

@@ -17,6 +17,7 @@ class ArcGISTokenError(Exception):
         self.code = code
         super().__init__(f"ArcGIS token error ({code}): {message}")
 
+
 # Maps esri geometry type strings to simple geometry names
 _ESRI_GEOM_TYPE_MAP = {
     "esriGeometryPoint": "Point",
@@ -108,7 +109,9 @@ async def probe_arcgis_service(
         error_info = data["error"]
         code = error_info.get("code", 0)
         message = error_info.get("message", "Unknown ArcGIS error")
-        logger.warning("ArcGIS error response: url=%s code=%s message=%s", base_url, code, message)
+        logger.warning(
+            "ArcGIS error response: url=%s code=%s message=%s", base_url, code, message
+        )
         if code in (498, 499):  # Invalid/expired token
             raise ArcGISTokenError(code, message)
         return None
@@ -141,7 +144,9 @@ async def probe_arcgis_service(
                 "title": layer.get("title"),
                 "geometry_type": _normalize_esri_geom_type(layer.get("geometryType")),
                 "type": "layer",
-                "object_id_field": layer.get("objectIdField") or service_oid or "OBJECTID",
+                "object_id_field": layer.get("objectIdField")
+                or service_oid
+                or "OBJECTID",
             }
         )
 

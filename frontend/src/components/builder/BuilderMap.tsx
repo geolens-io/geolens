@@ -7,7 +7,7 @@ import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
-import { syncLayersToMap, reorderDataLayers, reorderBasemapLabels, getSourceId, getLayerId, getOutlineLayerId, getLabelLayerId } from './map-sync';
+import { syncLayersToMap, reorderDataLayers, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';

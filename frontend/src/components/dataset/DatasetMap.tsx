@@ -162,7 +162,6 @@ export function DatasetMap({
     handleEditFinish,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
-    reloadTiles,
     cleanupOverlayListener,
   } = useFeatureEditing({
     mapRef,

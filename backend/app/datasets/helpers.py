@@ -34,7 +34,11 @@ async def _load_actor_identities(
 
 
 def _build_raster_metadata(
-    dataset, raster_asset, is_admin: bool = False, source_count: int | None = None, base_url: str | None = None,
+    dataset,
+    raster_asset,
+    is_admin: bool = False,
+    source_count: int | None = None,
+    base_url: str | None = None,
 ) -> RasterMetadata | None:
     """Build RasterMetadata from a RasterAsset ORM object."""
     if raster_asset is None:
@@ -71,7 +75,9 @@ def _build_raster_metadata(
         tile_url_connect = tile_url_path
 
     # VRT datasets don't have a single COG download
-    record_type = getattr(dataset, "record_type", None) or getattr(dataset.record, "record_type", None)
+    record_type = getattr(dataset, "record_type", None) or getattr(
+        dataset.record, "record_type", None
+    )
     is_vrt = record_type == "vrt_dataset"
     if is_vrt:
         download_url = None
@@ -139,7 +145,13 @@ def _dataset_to_response(
     raster_metadata = None
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
     if record_type in ("raster_dataset", "vrt_dataset") and raster_asset is not None:
-        raster_metadata = _build_raster_metadata(dataset, raster_asset, is_admin=is_admin, source_count=source_count, base_url=base_url)
+        raster_metadata = _build_raster_metadata(
+            dataset,
+            raster_asset,
+            is_admin=is_admin,
+            source_count=source_count,
+            base_url=base_url,
+        )
 
     return DatasetResponse(
         id=dataset.id,

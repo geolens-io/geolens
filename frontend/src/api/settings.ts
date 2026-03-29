@@ -57,6 +57,10 @@ export async function getTileConfig(): Promise<TileConfig> {
   return apiFetch<TileConfig>('/settings/tile-config/');
 }
 
+export async function getEnabledWidgets(): Promise<string[]> {
+  return apiFetch<string[]>('/settings/enabled-widgets/');
+}
+
 // --- Unified admin endpoints ---
 
 export async function getAllSettings(): Promise<AllSettingsResponse> {

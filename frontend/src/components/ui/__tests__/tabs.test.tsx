@@ -1,4 +1,3 @@
-import { screen } from '@testing-library/react';
 import { render } from '@/test/test-utils';
 import { Tabs, TabsList, TabsTrigger } from '../tabs';
 

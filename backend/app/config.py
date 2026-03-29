@@ -27,7 +27,9 @@ class Settings(BaseSettings):
     # Upload settings
     upload_max_size_mb: int = 500
     upload_staging_dir: str = "/app/staging"
-    upload_allowed_extensions: str = ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls"
+    upload_allowed_extensions: str = (
+        ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls"
+    )
 
     # Multipart upload threshold in MB (files above this use multipart presigned URLs)
     presigned_multipart_threshold_mb: int = 100

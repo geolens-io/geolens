@@ -186,7 +186,15 @@
       "resourceId": "ID de ressource",
       "ipAddress": "Adresse IP"
     },
-    "detailsHint": "Détails (cliquez sur la ligne pour réduire)"
+    "detailsHint": "Détails (cliquez sur la ligne pour réduire)",
+    "export": {
+      "csv": "Exporter CSV",
+      "json": "Exporter en JSON",
+      "loading": "Exportation...",
+      "errorTitle": "Échec de l'exportation",
+      "errorBody": "Une erreur est survenue. Réessayez ou réduisez la plage de dates.",
+      "formatOptions": "Options de format d'exportation"
+    }
   },
   "ai": {
     "title": "IA",
@@ -197,6 +205,7 @@
     "status": "Statut",
     "enabled": "Activee",
     "disabled": "Desactivee",
+    "sendSampleValuesDescription": "Inclure des valeurs d'exemple dans les requêtes LLM pour de meilleurs résultats. Désactivez pour les données sensibles.",
     "semanticSearch": "Recherche semantique",
     "semanticSearchDescription": "Activer la recherche par similarite vectorielle en complement de la recherche par mots-cles",
     "embeddingCoverage": "Couverture des embeddings",
@@ -227,6 +236,7 @@
     "regenerateAll": "Tout régénérer",
     "labels": {
       "aiEnabled": "Chat IA activé",
+      "sendSampleValues": "Envoyer des valeurs d'exemple au LLM",
       "llmProvider": "Fournisseur LLM",
       "model": "Modèle",
       "openaiBaseUrl": "URL de base compatible OpenAI",
@@ -422,6 +432,10 @@
       "useCurrentView": "Utiliser la vue actuelle",
       "saved": "Paramètres de carte enregistrés",
       "saveFailed": "Échec de l'enregistrement des paramètres de carte"
+    },
+    "widgets": {
+      "title": "Widgets de carte",
+      "description": "Activer ou désactiver les widgets disponibles dans le constructeur de cartes."
     },
     "appearance": {
       "branding": {

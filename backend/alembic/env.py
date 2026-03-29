@@ -26,8 +26,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-import pathlib
-from importlib.metadata import entry_points as iter_entry_points
+import pathlib  # noqa: E402
+from importlib.metadata import entry_points as iter_entry_points  # noqa: E402
 
 
 def _discover_migration_paths() -> list[str]:

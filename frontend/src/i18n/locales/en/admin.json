@@ -482,6 +482,10 @@
       "saved": "Map defaults saved",
       "saveFailed": "Failed to save map defaults"
     },
+    "widgets": {
+      "title": "Map Widgets",
+      "description": "Enable or disable widgets available in the map builder."
+    },
     "appearance": {
       "branding": {
         "title": "Branding",

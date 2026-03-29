@@ -96,7 +96,10 @@ class TestModalityAssets:
         # Should have both computed and merged assets
         assert "raster_tiles" in assets
         assert "data" in assets
-        assert assets["data"]["href"] == "http://localhost:8080/api/assets/storage/file.tif"
+        assert (
+            assets["data"]["href"]
+            == "http://localhost:8080/api/assets/storage/file.tif"
+        )
 
     def test_stac_asset_precedence(self):
         """DatasetAsset rows win on key conflict with computed assets."""
@@ -115,7 +118,10 @@ class TestModalityAssets:
         assets = _build_assets(ds, API_URL, stac_asset_rows=stac_rows)
 
         # DatasetAsset row should override computed value
-        assert assets["raster_tiles"]["href"] == "http://localhost:8080/api/assets/custom/tiles"
+        assert (
+            assets["raster_tiles"]["href"]
+            == "http://localhost:8080/api/assets/custom/tiles"
+        )
         assert assets["raster_tiles"]["title"] == "Custom Tiles"
 
     def test_default_record_type_fallback(self):

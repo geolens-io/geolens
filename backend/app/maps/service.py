@@ -112,7 +112,11 @@ async def get_map_with_layers(
     """
     ForkedMap = aliased(Map)
     map_stmt = (
-        select(Map, ForkedMap.name.label("forked_from_name"), User.username.label("owner_username"))
+        select(
+            Map,
+            ForkedMap.name.label("forked_from_name"),
+            User.username.label("owner_username"),
+        )
         .outerjoin(ForkedMap, Map.forked_from == ForkedMap.id)
         .outerjoin(User, Map.created_by == User.id)
         .where(Map.id == map_id)
@@ -257,7 +261,9 @@ async def list_maps(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail" if map_obj.thumbnail_uri else None,
+                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail"
+                if map_obj.thumbnail_uri
+                else None,
                 "layer_count": row[1],
                 "created_by_username": row[2],
                 "created_at": map_obj.created_at,
@@ -550,7 +556,6 @@ async def duplicate_map(
     return new_map, excluded_count
 
 
-
 async def _resolve_layer_type(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -568,7 +573,11 @@ async def _resolve_layer_type(
         .where(Dataset.id == dataset_id)
     )
     record_type = result.scalar_one_or_none()
-    return "raster_geolens" if record_type in ("raster_dataset", "vrt_dataset") else "vector_geolens"
+    return (
+        "raster_geolens"
+        if record_type in ("raster_dataset", "vrt_dataset")
+        else "vector_geolens"
+    )
 
 
 async def add_layer(
@@ -1009,7 +1018,9 @@ async def get_maps_for_dataset(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail" if map_obj.thumbnail_uri else None,
+                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail"
+                if map_obj.thumbnail_uri
+                else None,
                 "layer_count": row[1],
                 "created_by_username": row[2],
                 "created_at": map_obj.created_at,

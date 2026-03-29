@@ -146,6 +146,7 @@ All configuration is managed through environment variables in `.env`. See the [C
 | [Cloud Deployment](docs/cloud-deployment.md) | AWS, GCP, and DigitalOcean deployment guides |
 | [AI Map Features](docs/llm-map-features.md) | Chat-driven map building with LLMs |
 | [AI Data Features](docs/llm-data-features.md) | Semantic search and auto-generated metadata |
+| [Widget Development](docs/widgets.md) | Build custom map builder widgets |
 
 ## Contributing
 

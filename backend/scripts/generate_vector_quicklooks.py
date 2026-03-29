@@ -9,7 +9,6 @@ Uses timeout protection to skip datasets that take too long.
 
 import asyncio
 import io
-import sys
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -28,14 +27,16 @@ async def main() -> None:
 
     async with async_session() as db:
         # Raw SQL to avoid ORM relationship issues
-        result = await db.execute(text(
-            "SELECT d.id, d.table_name, d.geometry_type "
-            "FROM catalog.datasets d "
-            "JOIN catalog.records r ON d.record_id = r.id "
-            "WHERE r.record_type = 'vector_dataset' "
-            "  AND d.table_name IS NOT NULL "
-            "  AND d.quicklook_256_uri IS NULL"
-        ))
+        result = await db.execute(
+            text(
+                "SELECT d.id, d.table_name, d.geometry_type "
+                "FROM catalog.datasets d "
+                "JOIN catalog.records r ON d.record_id = r.id "
+                "WHERE r.record_type = 'vector_dataset' "
+                "  AND d.table_name IS NOT NULL "
+                "  AND d.quicklook_256_uri IS NULL"
+            )
+        )
         rows = result.fetchall()
 
         if not rows:
@@ -61,9 +62,12 @@ async def main() -> None:
 
                 ql_key = f"vectors/{row.id}/quicklook_256.png"
                 await storage.put(ql_key, io.BytesIO(ql_bytes))
-                await db.execute(text(
-                    "UPDATE catalog.datasets SET quicklook_256_uri = :uri WHERE id = :id"
-                ), {"uri": ql_key, "id": row.id})
+                await db.execute(
+                    text(
+                        "UPDATE catalog.datasets SET quicklook_256_uri = :uri WHERE id = :id"
+                    ),
+                    {"uri": ql_key, "id": row.id},
+                )
                 await db.commit()
                 success += 1
                 print(f"  [{i}/{len(rows)}] OK   {name} ({len(ql_bytes)} bytes)")

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_active_user, get_optional_user, require_permission
+from app.auth.dependencies import get_optional_user, require_permission
 from app.auth.models import User
 from app.dependencies import get_db
 from app.records.schemas import (
@@ -57,8 +57,12 @@ async def list_contacts_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    if user is None and (record.visibility != "public" or record.record_status != "published"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    if user is None and (
+        record.visibility != "public" or record.record_status != "published"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
     contacts = await list_contacts(db, record_id)
     return ContactListResponse(
         contacts=[ContactResponse.model_validate(c) for c in contacts],
@@ -170,8 +174,12 @@ async def list_keywords_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    if user is None and (record.visibility != "public" or record.record_status != "published"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    if user is None and (
+        record.visibility != "public" or record.record_status != "published"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
     keywords = await list_keywords(db, record_id)
     return KeywordListResponse(
         keywords=[KeywordResponse.model_validate(k) for k in keywords],
@@ -251,8 +259,12 @@ async def list_distributions_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    if user is None and (record.visibility != "public" or record.record_status != "published"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+    if user is None and (
+        record.visibility != "public" or record.record_status != "published"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
     distributions = await list_distributions(db, record_id)
     return DistributionListResponse(
         distributions=[DistributionResponse.model_validate(d) for d in distributions],

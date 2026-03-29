@@ -102,7 +102,9 @@ async def test_search_tool_includes_samples_when_enabled(client: AsyncClient):
     fake_ds = _make_fake_dataset(with_samples=True)
 
     async for db in app.dependency_overrides[get_db]():
-        with patch("app.ai.service.search_datasets", new_callable=AsyncMock) as mock_search:
+        with patch(
+            "app.ai.service.search_datasets", new_callable=AsyncMock
+        ) as mock_search:
             mock_search.return_value = ([fake_ds], 1)
             results = await _execute_search_tool(
                 db,
@@ -127,7 +129,9 @@ async def test_search_tool_omits_samples_when_disabled(client: AsyncClient):
     fake_ds = _make_fake_dataset(with_samples=True)
 
     async for db in app.dependency_overrides[get_db]():
-        with patch("app.ai.service.search_datasets", new_callable=AsyncMock) as mock_search:
+        with patch(
+            "app.ai.service.search_datasets", new_callable=AsyncMock
+        ) as mock_search:
             mock_search.return_value = ([fake_ds], 1)
             results = await _execute_search_tool(
                 db,

@@ -308,7 +308,9 @@ class TestServiceReuploadPreview:
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         with (
-            patch("app.datasets.router_reupload.build_gdal_source") as mock_build_source,
+            patch(
+                "app.datasets.router_reupload.build_gdal_source"
+            ) as mock_build_source,
             patch(
                 "app.datasets.router_reupload.run_service_preview",
                 new_callable=AsyncMock,
@@ -411,7 +413,9 @@ class TestServiceReuploadPreview:
                     "URLs targeting private/internal networks are not allowed"
                 ),
             ) as mock_ssrf,
-            patch("app.datasets.router_reupload.build_gdal_source") as mock_build_source,
+            patch(
+                "app.datasets.router_reupload.build_gdal_source"
+            ) as mock_build_source,
             patch(
                 "app.datasets.router_reupload.run_service_preview",
                 new_callable=AsyncMock,

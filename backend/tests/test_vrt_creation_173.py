@@ -10,8 +10,6 @@ All tests are pure unit tests — no DB, no real files, no network.
 """
 
 import uuid
-from dataclasses import dataclass, field
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,6 +22,7 @@ from app.raster.vrt import build_vrt, resolve_vrt_source_path
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _valid_vrt_request(**overrides) -> dict:
     base = {
@@ -47,6 +46,7 @@ def _make_subprocess_result(returncode: int = 0, stderr: str = "") -> MagicMock:
 # TestVrtSchemas
 # ---------------------------------------------------------------------------
 
+
 class TestVrtSchemas:
     """Schema-level validation for VrtCreateRequest and VrtCreateResponse."""
 
@@ -56,10 +56,12 @@ class TestVrtSchemas:
         assert req.resolution_strategy == "finest"
 
     def test_valid_band_stack_coarsest_passes(self):
-        req = VrtCreateRequest(**_valid_vrt_request(
-            vrt_type="band_stack",
-            resolution_strategy="coarsest",
-        ))
+        req = VrtCreateRequest(
+            **_valid_vrt_request(
+                vrt_type="band_stack",
+                resolution_strategy="coarsest",
+            )
+        )
         assert req.vrt_type == "band_stack"
 
     def test_valid_mosaic_average_passes(self):
@@ -69,7 +71,10 @@ class TestVrtSchemas:
     def test_invalid_vrt_type_raises_validation_error(self):
         with pytest.raises(ValidationError) as exc_info:
             VrtCreateRequest(**_valid_vrt_request(vrt_type="invalid"))
-        assert "vrt_type" in str(exc_info.value).lower() or "literal" in str(exc_info.value).lower()
+        assert (
+            "vrt_type" in str(exc_info.value).lower()
+            or "literal" in str(exc_info.value).lower()
+        )
 
     def test_invalid_resolution_strategy_raises_validation_error(self):
         with pytest.raises(ValidationError):
@@ -103,6 +108,7 @@ class TestVrtSchemas:
 # TestVrtBuildFunctions
 # ---------------------------------------------------------------------------
 
+
 class TestVrtBuildFunctions:
     """Test build_vrt dispatch with mocked subprocess."""
 
@@ -111,7 +117,9 @@ class TestVrtBuildFunctions:
         sources = ["/path/a.tif", "/path/b.tif"]
         output = "/tmp/out.vrt"
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result) as mock_run:
+        with patch(
+            "app.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
             result = build_vrt("mosaic", sources, output, "finest")
 
         assert result == output
@@ -129,7 +137,9 @@ class TestVrtBuildFunctions:
         sources = ["/path/a.tif", "/path/b.tif"]
         output = "/tmp/out.vrt"
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result) as mock_run:
+        with patch(
+            "app.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
             result = build_vrt("band_stack", sources, output, "coarsest")
 
         assert result == output
@@ -154,7 +164,9 @@ class TestVrtBuildFunctions:
     def test_resolution_strategy_finest_maps_to_highest(self):
         mock_result = _make_subprocess_result(returncode=0)
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result) as mock_run:
+        with patch(
+            "app.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
             build_vrt("mosaic", ["/a.tif"], "/out.vrt", "finest")
 
         cmd = mock_run.call_args[0][0]
@@ -164,7 +176,9 @@ class TestVrtBuildFunctions:
     def test_resolution_strategy_coarsest_maps_to_lowest(self):
         mock_result = _make_subprocess_result(returncode=0)
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result) as mock_run:
+        with patch(
+            "app.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
             build_vrt("mosaic", ["/a.tif"], "/out.vrt", "coarsest")
 
         cmd = mock_run.call_args[0][0]
@@ -174,7 +188,9 @@ class TestVrtBuildFunctions:
     def test_resolution_strategy_average_maps_to_average(self):
         mock_result = _make_subprocess_result(returncode=0)
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result) as mock_run:
+        with patch(
+            "app.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
             build_vrt("mosaic", ["/a.tif"], "/out.vrt", "average")
 
         cmd = mock_run.call_args[0][0]
@@ -185,6 +201,7 @@ class TestVrtBuildFunctions:
 # ---------------------------------------------------------------------------
 # TestResolveSourcePath
 # ---------------------------------------------------------------------------
+
 
 class TestResolveSourcePath:
     """Test resolve_vrt_source_path for local and S3 storage."""
@@ -236,6 +253,7 @@ class TestResolveSourcePath:
 # TestVrtCreateEndpoint
 # ---------------------------------------------------------------------------
 
+
 class TestVrtCreateEndpoint:
     """Unit tests for the POST /ingest/vrt/create endpoint validation logic."""
 
@@ -246,6 +264,7 @@ class TestVrtCreateEndpoint:
 
         async def _check():
             from app.ingest.router import create_vrt
+
             mock_request = MagicMock()
             mock_request.source_dataset_ids = [uuid.uuid4()]  # only 1
             mock_user = MagicMock()
@@ -265,6 +284,7 @@ class TestVrtCreateEndpoint:
 
         async def _check():
             from app.ingest.router import create_vrt
+
             mock_request = MagicMock()
             mock_request.source_dataset_ids = []
             mock_user = MagicMock()

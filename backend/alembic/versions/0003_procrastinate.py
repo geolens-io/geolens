@@ -8,6 +8,7 @@ Revision ID: 0003_prc
 Revises: 0002_tbl
 Create Date: 2026-03-28
 """
+
 from typing import Sequence, Union
 from alembic import op
 
@@ -751,16 +752,32 @@ CREATE TRIGGER procrastinate_trigger_status_events_update_v1 AFTER UPDATE OF sta
 
 def downgrade() -> None:
     # --- Drop triggers ---
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_trigger_status_events_update_v1 ON catalog.procrastinate_jobs;")
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_trigger_status_events_insert_v1 ON catalog.procrastinate_jobs;")
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_trigger_scheduled_events_v1 ON catalog.procrastinate_jobs;")
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_trigger_delete_jobs_v1 ON catalog.procrastinate_jobs;")
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_trigger_abort_requested_events_v1 ON catalog.procrastinate_jobs;")
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_jobs_notify_queue_job_inserted_v1 ON catalog.procrastinate_jobs;")
-    op.execute("DROP TRIGGER IF EXISTS procrastinate_jobs_notify_queue_job_aborted_v1 ON catalog.procrastinate_jobs;")
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_trigger_status_events_update_v1 ON catalog.procrastinate_jobs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_trigger_status_events_insert_v1 ON catalog.procrastinate_jobs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_trigger_scheduled_events_v1 ON catalog.procrastinate_jobs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_trigger_delete_jobs_v1 ON catalog.procrastinate_jobs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_trigger_abort_requested_events_v1 ON catalog.procrastinate_jobs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_jobs_notify_queue_job_inserted_v1 ON catalog.procrastinate_jobs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS procrastinate_jobs_notify_queue_job_aborted_v1 ON catalog.procrastinate_jobs;"
+    )
 
     # --- Drop indexes ---
-    op.execute("DROP INDEX IF EXISTS catalog.procrastinate_periodic_defers_job_id_fkey_v1;")
+    op.execute(
+        "DROP INDEX IF EXISTS catalog.procrastinate_periodic_defers_job_id_fkey_v1;"
+    )
     op.execute("DROP INDEX IF EXISTS catalog.procrastinate_jobs_queueing_lock_idx_v1;")
     op.execute("DROP INDEX IF EXISTS catalog.procrastinate_jobs_queue_name_idx_v1;")
     op.execute("DROP INDEX IF EXISTS catalog.procrastinate_jobs_priority_idx_v1;")
@@ -782,24 +799,58 @@ def downgrade() -> None:
     op.execute("DROP SEQUENCE IF EXISTS catalog.procrastinate_events_id_seq;")
 
     # --- Drop functions ---
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_update_heartbeat_v1(bigint);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_unregister_worker_v1(bigint);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_unlink_periodic_defers_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_function_status_events_update_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_function_status_events_insert_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_function_scheduled_events_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_abort_requested_events_procedure_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_retry_job_v2(bigint, timestamp with time zone, integer, character varying, character varying);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_retry_job_v1(bigint, timestamp with time zone, integer, character varying, character varying);")
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_update_heartbeat_v1(bigint);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_unregister_worker_v1(bigint);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_unlink_periodic_defers_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_function_status_events_update_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_function_status_events_insert_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_function_scheduled_events_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_trigger_abort_requested_events_procedure_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_retry_job_v2(bigint, timestamp with time zone, integer, character varying, character varying);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_retry_job_v1(bigint, timestamp with time zone, integer, character varying, character varying);"
+    )
     op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_register_worker_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_prune_stalled_workers_v1(double precision);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_notify_queue_job_inserted_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_notify_queue_abort_job_v1();")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_finish_job_v1(bigint, catalog.procrastinate_job_status, boolean);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_fetch_job_v2(character varying[], bigint);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_defer_periodic_job_v2(character varying, character varying, character varying, character varying, integer, character varying, bigint, jsonb);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_defer_jobs_v1(catalog.procrastinate_job_to_defer_v1[]);")
-    op.execute("DROP FUNCTION IF EXISTS catalog.procrastinate_cancel_job_v1(bigint, boolean, boolean);")
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_prune_stalled_workers_v1(double precision);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_notify_queue_job_inserted_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_notify_queue_abort_job_v1();"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_finish_job_v1(bigint, catalog.procrastinate_job_status, boolean);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_fetch_job_v2(character varying[], bigint);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_defer_periodic_job_v2(character varying, character varying, character varying, character varying, integer, character varying, bigint, jsonb);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_defer_jobs_v1(catalog.procrastinate_job_to_defer_v1[]);"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS catalog.procrastinate_cancel_job_v1(bigint, boolean, boolean);"
+    )
 
     # --- Drop types ---
     op.execute("DROP TYPE IF EXISTS catalog.procrastinate_job_to_defer_v1;")

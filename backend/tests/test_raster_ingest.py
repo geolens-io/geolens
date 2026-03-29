@@ -5,7 +5,6 @@ Integration/DB tests are marked and skipped when no DB is available.
 """
 
 import io
-import struct
 import tempfile
 import uuid
 from pathlib import Path
@@ -243,7 +242,11 @@ class TestSha256File:
         h2 = sha256_file(str(f))
         assert h1 == h2
         assert len(h1) == 64
-        assert h1 == "b94d27b9934d3e08a52e52d7da7dabfac484efe04294e576f21d7b0d2f5abc4e"[:64] or len(h1) == 64
+        assert (
+            h1
+            == "b94d27b9934d3e08a52e52d7da7dabfac484efe04294e576f21d7b0d2f5abc4e"[:64]
+            or len(h1) == 64
+        )
 
     def test_different_content_different_hash(self, tmp_path):
         f1 = tmp_path / "a.bin"
@@ -355,7 +358,9 @@ class _MockDataset:
 class _MockStorage:
     """Tracks list and delete calls; raises on delete if configured."""
 
-    def __init__(self, keys_by_prefix: dict[str, list[str]], delete_raises: bool = False):
+    def __init__(
+        self, keys_by_prefix: dict[str, list[str]], delete_raises: bool = False
+    ):
         self._keys = keys_by_prefix
         self._delete_raises = delete_raises
         self.deleted_keys: list[str] = []
@@ -409,10 +414,9 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         session.execute = mock.AsyncMock(side_effect=_track_execute)
 
-        with mock.patch(
-            "app.datasets.service.get_dataset", return_value=mock_dataset
-        ), mock.patch(
-            "app.storage.provider.get_storage", return_value=storage
+        with (
+            mock.patch("app.datasets.service.get_dataset", return_value=mock_dataset),
+            mock.patch("app.storage.provider.get_storage", return_value=storage),
         ):
             from app.datasets.service import delete_dataset
 
@@ -452,10 +456,9 @@ class TestRasterDeleteCascadeRemovesStorage:
         _refs_result.all.return_value = []
         session.execute.return_value = _refs_result
 
-        with mock.patch(
-            "app.datasets.service.get_dataset", return_value=mock_dataset
-        ), mock.patch(
-            "app.storage.provider.get_storage", return_value=storage
+        with (
+            mock.patch("app.datasets.service.get_dataset", return_value=mock_dataset),
+            mock.patch("app.storage.provider.get_storage", return_value=storage),
         ):
             from app.datasets.service import delete_dataset
 
@@ -480,9 +483,7 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         session.execute.side_effect = _capture_execute
 
-        with mock.patch(
-            "app.datasets.service.get_dataset", return_value=mock_dataset
-        ):
+        with mock.patch("app.datasets.service.get_dataset", return_value=mock_dataset):
             from app.datasets.service import delete_dataset
 
             result = await delete_dataset(session, dataset_id, "My Vector")

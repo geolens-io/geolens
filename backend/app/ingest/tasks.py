@@ -123,7 +123,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 or lower_path.endswith(".xlsx")
                 or lower_path.endswith(".xls")
             )
-            if has_geometry and srid is None and not assumes_4326 and srid_override is None:
+            if (
+                has_geometry
+                and srid is None
+                and not assumes_4326
+                and srid_override is None
+            ):
                 job.status = "failed"
                 job.error_message = (
                     "Missing CRS: no coordinate system detected. "
@@ -157,7 +162,14 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # then construct geometry post-import. This ensures the override
             # works even for CSVs where GDAL would auto-detect geometry.
             ogr_geometry_type = None if user_wants_geom else geometry_type
-            await run_ogr2ogr(file_path, table_name, db_conn_str, source_srid=srid, geometry_type=ogr_geometry_type, layer_name=layer_name)
+            await run_ogr2ogr(
+                file_path,
+                table_name,
+                db_conn_str,
+                source_srid=srid,
+                geometry_type=ogr_geometry_type,
+                layer_name=layer_name,
+            )
 
             if user_wants_geom and x_column and y_column:
                 from app.ingest.metadata import construct_point_geometry
@@ -242,14 +254,23 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 session, table_name, metadata.get("column_info", []), dataset
             )
             dataset.quality_detail = quality_score
-            await session.flush()
 
-            # 8b2. Generate vector quicklook thumbnail (spatial only)
+            # 9. Update job to complete and commit dataset + job atomically
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 9b. Generate vector quicklook thumbnail (non-fatal, after commit)
+            # Runs after commit so a connection-killing query (OOM, timeout on
+            # complex geometry) cannot roll back the dataset.
             if has_geometry:
                 try:
                     import io as _io
 
-                    from app.vector.quicklook import generate_vector_quicklook_with_timeout as generate_vector_quicklook
+                    from app.vector.quicklook import (
+                        generate_vector_quicklook_with_timeout as generate_vector_quicklook,
+                    )
 
                     ql_bytes = await generate_vector_quicklook(
                         session, table_name, metadata.get("geometry_type", ""), 256
@@ -258,19 +279,22 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     ql_key = f"vectors/{dataset.id}/quicklook_256.png"
                     await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
                     dataset.quicklook_256_uri = ql_key
-                    await session.flush()
+                    await session.commit()
                 except Exception as _ql_exc:
+                    await session.rollback()
                     import structlog as _sl
-                    _sl.get_logger().warning("quicklook_failed", table=table_name, error=str(_ql_exc))
 
-            # 8c. Archive original file to storage provider
+                    _sl.get_logger().warning(
+                        "quicklook_failed", table=table_name, error=str(_ql_exc)
+                    )
+
+            # 9c. Archive original file to storage provider
+            archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
             try:
                 storage = get_storage()
-                archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
                 with open(file_path, "rb") as fobj:
                     await storage.put(archive_key, fobj)
             except Exception as archive_exc:
-                # Archival failure is non-fatal -- data is already in PostGIS
                 import structlog
 
                 _log = structlog.get_logger()
@@ -279,12 +303,6 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     archive_key=archive_key,
                     error=str(archive_exc),
                 )
-
-            # 9. Update job to complete
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
 
             # Invalidate caches after successful ingest
             await invalidate_catalog_cache()
@@ -382,7 +400,11 @@ async def ingest_service(
             # 3. Build GDAL source string
             object_id_field = um.get("object_id_field") or "OBJECTID"
             gdal_source, layer_arg = build_gdal_source(
-                service_type_raw, source_url, source_layer, layer_id, token=token,
+                service_type_raw,
+                source_url,
+                source_layer,
+                layer_id,
+                token=token,
                 order_field=object_id_field,
             )
 
@@ -412,7 +434,11 @@ async def ingest_service(
                 if ":" in source_layer:
                     unqualified = source_layer.split(":", 1)[1]
                     gdal_source_retry, layer_arg_retry = build_gdal_source(
-                        service_type_raw, source_url, unqualified, layer_id, token=token,
+                        service_type_raw,
+                        source_url,
+                        unqualified,
+                        layer_id,
+                        token=token,
                         order_field=object_id_field,
                     )
                     await run_ogr2ogr_service(
@@ -462,13 +488,20 @@ async def ingest_service(
                 session, table_name, metadata.get("column_info", []), dataset
             )
             dataset.quality_detail = quality_score
-            await session.flush()
 
-            # 7b. Generate vector quicklook thumbnail
+            # 8. Update job to complete and commit dataset + job atomically
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+
+            # 8b. Generate vector quicklook thumbnail (non-fatal, after commit)
             try:
                 import io as _io
 
-                from app.vector.quicklook import generate_vector_quicklook_with_timeout as generate_vector_quicklook
+                from app.vector.quicklook import (
+                    generate_vector_quicklook_with_timeout as generate_vector_quicklook,
+                )
 
                 ql_bytes = await generate_vector_quicklook(
                     session, table_name, metadata.get("geometry_type", ""), 256
@@ -477,16 +510,14 @@ async def ingest_service(
                 ql_key = f"vectors/{dataset.id}/quicklook_256.png"
                 await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
                 dataset.quicklook_256_uri = ql_key
-                await session.flush()
+                await session.commit()
             except Exception as _ql_exc:
+                await session.rollback()
                 import structlog as _sl
-                _sl.get_logger().warning("quicklook_failed", table=table_name, error=str(_ql_exc))
 
-            # 8. Update job to complete
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
+                _sl.get_logger().warning(
+                    "quicklook_failed", table=table_name, error=str(_ql_exc)
+                )
 
             # Invalidate caches after successful service import
             await invalidate_catalog_cache()
@@ -562,13 +593,15 @@ async def _apply_reupload_swap(
 
     if live_exists:
         await session.execute(
-            text(f"ALTER TABLE {_qtable(table_name)} RENAME TO \"{table_name}_old\"")
+            text(f'ALTER TABLE {_qtable(table_name)} RENAME TO "{table_name}_old"')
         )
     await session.execute(
-        text(f"ALTER TABLE {_qtable(staging_table)} RENAME TO \"{table_name}\"")
+        text(f'ALTER TABLE {_qtable(staging_table)} RENAME TO "{table_name}"')
     )
     if live_exists:
-        await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(table_name + '_old')}"))
+        await session.execute(
+            text(f"DROP TABLE IF EXISTS {_qtable(table_name + '_old')}")
+        )
 
     # Update dataset metadata in the same transaction as swap
     dataset.srid = metadata["srid"]
@@ -726,9 +759,17 @@ async def reupload_file(
 
             # 4. Load into staging table (drop stale staging table first)
             db_conn_str = build_pg_conn_str()
-            await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE"))
+            await session.execute(
+                text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE")
+            )
             await session.commit()
-            await run_ogr2ogr(file_path, staging_tn, db_conn_str, source_srid=srid, geometry_type=geometry_type)
+            await run_ogr2ogr(
+                file_path,
+                staging_tn,
+                db_conn_str,
+                source_srid=srid,
+                geometry_type=geometry_type,
+            )
 
             # 5. Post-process staging table
             if has_geometry:
@@ -763,11 +804,11 @@ async def reupload_file(
             )
 
             # 9. Archive original file to storage provider
+            archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
             try:
                 from app.storage import get_storage
 
                 storage = get_storage()
-                archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
                 with open(file_path, "rb") as fobj:
                     await storage.put(archive_key, fobj)
             except Exception as archive_exc:
@@ -797,7 +838,9 @@ async def reupload_file(
             # Clean up staging table on failure
             await session.rollback()
             try:
-                await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}"))
+                await session.execute(
+                    text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}")
+                )
                 await session.commit()
             except Exception:
                 pass
@@ -897,7 +940,9 @@ async def reupload_service(
             reupload_oid_field = um.get("object_id_field") or "OBJECTID"
 
             # Drop stale staging table from prior failed attempt
-            await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE"))
+            await session.execute(
+                text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE")
+            )
             await session.commit()
 
             async def _run_service_import(layer_name: str) -> None:
@@ -975,7 +1020,9 @@ async def reupload_service(
         except Exception as exc:
             await session.rollback()
             try:
-                await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}"))
+                await session.execute(
+                    text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}")
+                )
                 await session.commit()
             except Exception:
                 pass
@@ -1431,7 +1478,9 @@ async def ingest_vrt(
                 .join(Dataset, RasterAsset.dataset_id == Dataset.id)
                 .where(Dataset.id.in_(ids))
             )
-            asset_map = {asset.dataset_id: asset for asset in asset_result.scalars().all()}
+            asset_map = {
+                asset.dataset_id: asset for asset in asset_result.scalars().all()
+            }
             # Preserve insertion order
             ordered_assets = [asset_map[sid] for sid in ids if sid in asset_map]
 
@@ -1544,7 +1593,9 @@ async def ingest_vrt(
 
 
 @task_app.task(queue="raster", retry=1)
-async def regenerate_vrt(job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs) -> None:
+async def regenerate_vrt(
+    job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
+) -> None:
     """Background task: rebuild a VRT file after source add/remove and update metadata.
 
     Atomic swap: new VRT is built to a temp path, then written to the SAME storage key

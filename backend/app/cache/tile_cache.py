@@ -33,9 +33,7 @@ class TileCacheProvider:
     def __init__(self, url: str) -> None:
         self._client = redis_async.from_url(url, decode_responses=False)
 
-    async def get(
-        self, table: str, z: int, x: int, y: int
-    ) -> bytes | None:
+    async def get(self, table: str, z: int, x: int, y: int) -> bytes | None:
         """Return cached tile bytes or None on miss/error."""
         key = f"tile:{table}:{z}:{x}:{y}"
         try:
@@ -81,6 +79,4 @@ class TileCacheProvider:
                     break
             logger.info("tile_cache_invalidated", table=table)
         except Exception:
-            logger.warning(
-                "tile_cache_invalidate_failed", table=table, exc_info=True
-            )
+            logger.warning("tile_cache_invalidate_failed", table=table, exc_info=True)

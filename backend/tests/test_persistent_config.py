@@ -509,6 +509,92 @@ async def test_public_map_defaults_endpoint(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
+# Enabled widgets endpoint + validator tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_enabled_widgets_endpoint_returns_list(client: AsyncClient):
+    """GET /settings/enabled-widgets/ returns a list (public, no auth)."""
+    resp = await client.get("/settings/enabled-widgets/")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+
+
+@pytest.mark.anyio
+async def test_enabled_widgets_roundtrip(client: AsyncClient, admin_auth_header: dict):
+    """PUT /settings/ with enabled_widgets persists and GET returns the list."""
+    widget_ids = ["scale-bar", "coordinates"]
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"enabled_widgets": widget_ids}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/settings/enabled-widgets/")
+    assert resp.status_code == 200
+    assert resp.json() == widget_ids
+
+
+@pytest.mark.anyio
+async def test_enabled_widgets_null_means_all(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ with enabled_widgets=null resets to 'all enabled' (empty list)."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"enabled_widgets": None}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/settings/enabled-widgets/")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.anyio
+async def test_enabled_widgets_rejects_non_list(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ with enabled_widgets as a string returns 422."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"enabled_widgets": "not-a-list"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_enabled_widgets_rejects_empty_strings(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ with empty string in enabled_widgets returns 422."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"enabled_widgets": ["valid", ""]}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_enabled_widgets_rejects_non_string_items(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ with non-string items in enabled_widgets returns 422."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"enabled_widgets": [123, True]}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # CORS dynamic middleware tests
 # ---------------------------------------------------------------------------
 

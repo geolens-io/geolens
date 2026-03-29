@@ -261,6 +261,20 @@
       "description": "Laden Sie die aktuelle Konfiguration als JSON-Datei herunter. Enthält Einstellungen und OAuth-Anbieter.",
       "button": "JSON exportieren"
     },
+    "validateFailed": "Konnektivitätsprüfung fehlgeschlagen",
+    "validate": {
+      "title": "Konnektivität prüfen",
+      "description": "Testen Sie die Verbindung zu Speicher, Cache und OIDC-Anbietern.",
+      "button": "Validierung starten",
+      "serviceHeader": "Dienst",
+      "statusHeader": "Status",
+      "latencyHeader": "Latenz",
+      "errorHeader": "Fehler",
+      "statusOk": "Verbunden",
+      "statusError": "Fehlgeschlagen",
+      "latency": "{{ms}}ms",
+      "noOidc": "Keine OIDC-Anbieter konfiguriert"
+    },
     "import": {
       "title": "Konfiguration importieren",
       "description": "Laden Sie eine JSON-Konfigurationsdatei hoch. Vorschau der Änderungen vor dem Anwenden.",

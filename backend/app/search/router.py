@@ -60,9 +60,13 @@ def _build_pagination_url(
         "limit": str(limit),
     }
     query_params.update(params)
-    return build_url(base_path, base_url=public_api_url) + "?" + urlencode(
-        query_params,
-        doseq=True,
+    return (
+        build_url(base_path, base_url=public_api_url)
+        + "?"
+        + urlencode(
+            query_params,
+            doseq=True,
+        )
     )
 
 
@@ -171,18 +175,22 @@ async def _handle_search(
     all_dataset_ids = [d.id for d in datasets]
     stac_assets_by_dataset: dict[str, list[dict]] = {}
     if all_dataset_ids:
-        da_stmt = select(DatasetAsset).where(DatasetAsset.dataset_id.in_(all_dataset_ids))
+        da_stmt = select(DatasetAsset).where(
+            DatasetAsset.dataset_id.in_(all_dataset_ids)
+        )
         da_result = await db.execute(da_stmt)
         for da in da_result.scalars().all():
             ds_key = str(da.dataset_id)
-            stac_assets_by_dataset.setdefault(ds_key, []).append({
-                "key": da.key,
-                "href": da.href,
-                "media_type": da.media_type,
-                "roles": da.roles,
-                "title": da.title,
-                "description": da.description,
-            })
+            stac_assets_by_dataset.setdefault(ds_key, []).append(
+                {
+                    "key": da.key,
+                    "href": da.href,
+                    "media_type": da.media_type,
+                    "roles": da.roles,
+                    "title": da.title,
+                    "description": da.description,
+                }
+            )
 
     # Pre-fetch raster metadata for STAC property enrichment
     raster_meta: dict[str, dict] = {}
@@ -207,9 +215,7 @@ async def _handle_search(
             RasterAsset.band_info,
             RasterAsset.vrt_type,
             RasterAsset.resolution_strategy,
-        ).where(
-            RasterAsset.dataset_id.in_(raster_ids)
-        )
+        ).where(RasterAsset.dataset_id.in_(raster_ids))
         ra_result = await db.execute(ra_stmt)
         for row in ra_result.all():
             raster_meta[str(row.dataset_id)] = {
@@ -230,18 +236,21 @@ async def _handle_search(
         from app.raster.models import VrtGeneration
 
         vrt_dataset_ids = [
-            did for did in raster_ids
+            did
+            for did in raster_ids
             if raster_meta.get(str(did), {}).get("vrt_type") is not None
         ]
         if vrt_dataset_ids:
-            vg_stmt = select(
-                RasterAsset.dataset_id,
-                VrtGeneration.source_count,
-            ).join(
-                VrtGeneration,
-                VrtGeneration.id == RasterAsset.current_generation_id,
-            ).where(
-                RasterAsset.dataset_id.in_(vrt_dataset_ids)
+            vg_stmt = (
+                select(
+                    RasterAsset.dataset_id,
+                    VrtGeneration.source_count,
+                )
+                .join(
+                    VrtGeneration,
+                    VrtGeneration.id == RasterAsset.current_generation_id,
+                )
+                .where(RasterAsset.dataset_id.in_(vrt_dataset_ids))
             )
             vg_result = await db.execute(vg_stmt)
             for row in vg_result.all():
@@ -250,7 +259,8 @@ async def _handle_search(
 
     features = [
         dataset_to_ogc_record(
-            d, public_api_url,
+            d,
+            public_api_url,
             stac_asset_rows=stac_assets_by_dataset.get(str(d.id)),
             raster_meta=raster_meta.get(str(d.id)),
         )
@@ -262,29 +272,31 @@ async def _handle_search(
     if q and q.strip() and offset == 0 and not record_type and not collection_id:
         coll_results = await search_collections(db, q, user, user_roles, limit=5)
         for coll in coll_results:
-            features.append({
-                "type": "Feature",
-                "id": coll["id"],
-                "geometry": None,
-                "properties": {
-                    "type": "collection",
-                    "title": coll["name"],
-                    "description": coll["description"],
-                    "record_type": "collection",
-                    "dataset_count": coll["dataset_count"],
-                    "created": coll["created_at"],
-                },
-                "links": [
-                    {
-                        "rel": "self",
-                        "href": build_url(
-                            f"/catalog/collections/{coll['id']}",
-                            base_url=public_api_url,
-                        ),
-                        "type": "application/json",
-                    }
-                ],
-            })
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": coll["id"],
+                    "geometry": None,
+                    "properties": {
+                        "type": "collection",
+                        "title": coll["name"],
+                        "description": coll["description"],
+                        "record_type": "collection",
+                        "dataset_count": coll["dataset_count"],
+                        "created": coll["created_at"],
+                    },
+                    "links": [
+                        {
+                            "rel": "self",
+                            "href": build_url(
+                                f"/catalog/collections/{coll['id']}",
+                                base_url=public_api_url,
+                            ),
+                            "type": "application/json",
+                        }
+                    ],
+                }
+            )
 
     # Build dict of active query parameters for pagination URLs
     active_params: dict[str, str | list[str]] = {}
@@ -380,7 +392,9 @@ async def _handle_search(
 
     return OGCFeatureCollectionResponse(
         type="FeatureCollection",
-        timeStamp=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        timeStamp=datetime.now(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
         numberMatched=total,
         numberReturned=len(features),
         features=features,
@@ -409,10 +423,18 @@ async def search_facets_endpoint(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    exclude_synthetic: bool = Query(True, description="Exclude synthetic/test datasets"),
-    spatial_predicate: Literal["intersects", "within"] = Query("intersects", description="Spatial predicate: intersects or within"),
-    geometry: str | None = Query(None, description="GeoJSON geometry for spatial filter"),
-    collection_id: uuid.UUID | None = Query(None, description="Filter by collection membership"),
+    exclude_synthetic: bool = Query(
+        True, description="Exclude synthetic/test datasets"
+    ),
+    spatial_predicate: Literal["intersects", "within"] = Query(
+        "intersects", description="Spatial predicate: intersects or within"
+    ),
+    geometry: str | None = Query(
+        None, description="GeoJSON geometry for spatial filter"
+    ),
+    collection_id: uuid.UUID | None = Query(
+        None, description="Filter by collection membership"
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -502,10 +524,18 @@ async def search_datasets_endpoint(
         alias="datetime",
         description="OGC datetime interval: instant, start/end, ../end, start/..",
     ),
-    exclude_synthetic: bool = Query(True, description="Exclude synthetic/test datasets"),
-    spatial_predicate: Literal["intersects", "within"] = Query("intersects", description="Spatial predicate: intersects or within"),
-    geometry: str | None = Query(None, description="GeoJSON geometry for spatial filter"),
-    collection_id: uuid.UUID | None = Query(None, description="Filter by collection membership"),
+    exclude_synthetic: bool = Query(
+        True, description="Exclude synthetic/test datasets"
+    ),
+    spatial_predicate: Literal["intersects", "within"] = Query(
+        "intersects", description="Spatial predicate: intersects or within"
+    ),
+    geometry: str | None = Query(
+        None, description="GeoJSON geometry for spatial filter"
+    ),
+    collection_id: uuid.UUID | None = Query(
+        None, description="Filter by collection membership"
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
@@ -938,7 +968,9 @@ async def collection_items(
     srid: int | None = Query(None),
     source_organization: str | None = Query(None),
     record_type: str | None = Query(None),
-    type_param: str | None = Query(None, alias="type", description="OGC record type filter"),
+    type_param: str | None = Query(
+        None, alias="type", description="OGC record type filter"
+    ),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     vintage_start: date | None = Query(None),
@@ -960,9 +992,15 @@ async def collection_items(
         alias="datetime",
         description="OGC datetime interval: instant, start/end, ../end, start/..",
     ),
-    exclude_synthetic: bool = Query(True, description="Exclude synthetic/test datasets"),
-    spatial_predicate: Literal["intersects", "within"] = Query("intersects", description="Spatial predicate: intersects or within"),
-    geometry: str | None = Query(None, description="GeoJSON geometry for spatial filter"),
+    exclude_synthetic: bool = Query(
+        True, description="Exclude synthetic/test datasets"
+    ),
+    spatial_predicate: Literal["intersects", "within"] = Query(
+        "intersects", description="Spatial predicate: intersects or within"
+    ),
+    geometry: str | None = Query(
+        None, description="GeoJSON geometry for spatial filter"
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -1142,7 +1180,8 @@ async def get_collection_item(
     public_api_url = await get_public_api_url(db, request=request)
     return JSONResponse(
         content=dataset_to_ogc_record(
-            dataset, public_api_url,
+            dataset,
+            public_api_url,
             stac_asset_rows=stac_asset_rows or None,
             raster_meta=item_raster_meta,
         ),

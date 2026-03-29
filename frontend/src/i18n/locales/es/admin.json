@@ -186,7 +186,15 @@
       "resourceId": "ID del recurso",
       "ipAddress": "Dirección IP"
     },
-    "detailsHint": "Detalles (haga clic en la fila para contraer)"
+    "detailsHint": "Detalles (haga clic en la fila para contraer)",
+    "export": {
+      "csv": "Exportar CSV",
+      "json": "Exportar como JSON",
+      "loading": "Exportando...",
+      "errorTitle": "Error de exportación",
+      "errorBody": "Algo salió mal. Inténtelo de nuevo o reduzca el rango de fechas.",
+      "formatOptions": "Opciones de formato de exportación"
+    }
   },
   "ai": {
     "title": "IA",
@@ -197,6 +205,7 @@
     "status": "Estado",
     "enabled": "Habilitado",
     "disabled": "Deshabilitado",
+    "sendSampleValuesDescription": "Incluir valores de ejemplo en las consultas LLM para mejores resultados. Desactive para datos sensibles.",
     "semanticSearch": "Busqueda semantica",
     "semanticSearchDescription": "Habilitar busqueda por similitud vectorial junto a la busqueda por palabras clave",
     "embeddingCoverage": "Cobertura de embeddings",
@@ -227,6 +236,7 @@
     "regenerateAll": "Regenerar todo",
     "labels": {
       "aiEnabled": "Chat IA habilitado",
+      "sendSampleValues": "Enviar valores de ejemplo al LLM",
       "llmProvider": "Proveedor LLM",
       "model": "Modelo",
       "openaiBaseUrl": "URL base compatible con OpenAI",
@@ -422,6 +432,10 @@
       "useCurrentView": "Usar vista actual",
       "saved": "Valores predeterminados del mapa guardados",
       "saveFailed": "Error al guardar los valores predeterminados del mapa"
+    },
+    "widgets": {
+      "title": "Widgets de mapa",
+      "description": "Habilitar o deshabilitar los widgets disponibles en el constructor de mapas."
     },
     "appearance": {
       "branding": {

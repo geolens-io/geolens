@@ -72,12 +72,14 @@ def extract_raster_metadata(file_path: str) -> dict:
 
         band_info = []
         for i in range(1, src.count + 1):
-            band_info.append({
-                "index": i,
-                "dtype": src.dtypes[i - 1],
-                "nodata": str(src.nodata) if src.nodata is not None else None,
-                "color_interp": src.colorinterp[i - 1].name,
-            })
+            band_info.append(
+                {
+                    "index": i,
+                    "dtype": src.dtypes[i - 1],
+                    "nodata": str(src.nodata) if src.nodata is not None else None,
+                    "color_interp": src.colorinterp[i - 1].name,
+                }
+            )
 
         # Extract temporal metadata from TIFF tags
         temporal_start = None
@@ -89,6 +91,7 @@ def extract_raster_metadata(file_path: str) -> dict:
                     # TIFFTAG_DATETIME format: "YYYY:MM:DD HH:MM:SS"
                     cleaned = raw.strip().replace(":", "-", 2).split(" ")[0]
                     from datetime import date as _date
+
                     _date.fromisoformat(cleaned)
                     temporal_start = cleaned
                     break
@@ -184,11 +187,20 @@ def prepare_with_overviews(
     env = {**os.environ, "GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
     cmd = [
         "gdaladdo",
-        "-r", resampling,
-        "--config", "COMPRESS_OVERVIEW", compression,
-        "--config", "GDAL_CACHEMAX", "200",
+        "-r",
+        resampling,
+        "--config",
+        "COMPRESS_OVERVIEW",
+        compression,
+        "--config",
+        "GDAL_CACHEMAX",
+        "200",
         tmp_path,
-        "2", "4", "8", "16", "32",
+        "2",
+        "4",
+        "8",
+        "16",
+        "32",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
@@ -235,7 +247,8 @@ def convert_to_cog(
         warp_tmp = warp_tmp_file.name
         warp_cmd = [
             "gdalwarp",
-            "-t_srs", f"EPSG:{assign_crs}",
+            "-t_srs",
+            f"EPSG:{assign_crs}",
         ]
         if resampling:
             warp_cmd.extend(["-r", resampling])
@@ -254,17 +267,25 @@ def convert_to_cog(
         env = {**os.environ, "GDAL_CACHEMAX": "200"}
         cmd = [
             "gdal_translate",
-            "-of", "GTiff",
-            "-co", f"COMPRESS={compression}",
+            "-of",
+            "GTiff",
+            "-co",
+            f"COMPRESS={compression}",
         ]
         if predictor is not None:
             cmd.extend(["-co", f"PREDICTOR={predictor}"])
-        cmd.extend([
-            "-co", "BLOCKXSIZE=512",
-            "-co", "BLOCKYSIZE=512",
-            "-co", "TILED=YES",
-            "-co", "COPY_SRC_OVERVIEWS=YES",
-        ])
+        cmd.extend(
+            [
+                "-co",
+                "BLOCKXSIZE=512",
+                "-co",
+                "BLOCKYSIZE=512",
+                "-co",
+                "TILED=YES",
+                "-co",
+                "COPY_SRC_OVERVIEWS=YES",
+            ]
+        )
         if nodata is not None:
             cmd.extend(["-a_nodata", str(nodata)])
         cmd.extend([tmp_path, output_path])

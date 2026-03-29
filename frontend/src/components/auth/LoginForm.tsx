@@ -63,7 +63,6 @@ export function LoginForm() {
               placeholder={t('enterUsername')}
               required
               autoComplete="username"
-              autoFocus
             />
           </div>
           <div className="flex flex-col gap-2">

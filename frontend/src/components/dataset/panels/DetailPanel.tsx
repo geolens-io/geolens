@@ -40,7 +40,6 @@ export function DetailPanel(props: DetailPanelProps) {
 
   const recordType = dataset.record_type;
   const isTable = recordType === 'table';
-  const isRaster = recordType === 'raster_dataset';
   const isVrt = recordType === 'vrt_dataset';
   const isCollection = recordType === 'collection';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;

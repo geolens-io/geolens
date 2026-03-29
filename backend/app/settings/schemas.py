@@ -222,6 +222,17 @@ def validate_public_api_url(v: Any) -> str:
 
 
 # Mapping from setting key to validator function
+def validate_enabled_widgets(v: Any) -> list[str] | None:
+    if v is None:
+        return None
+    if not isinstance(v, list):
+        raise ValueError("enabled_widgets must be a list or null")
+    for item in v:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("Each widget ID must be a non-empty string")
+    return [item.strip() for item in v]
+
+
 SETTING_VALIDATORS: dict[str, Any] = {
     "login_rate_limit": validate_login_rate_limit,
     "global_rate_limit": validate_global_rate_limit,
@@ -236,4 +247,5 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "public_app_url": validate_public_app_url,
     "public_api_url": validate_public_api_url,
     "public_base_url": validate_public_api_url,
+    "enabled_widgets": validate_enabled_widgets,
 }

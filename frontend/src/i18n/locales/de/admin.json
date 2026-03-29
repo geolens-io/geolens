@@ -186,7 +186,15 @@
       "resourceId": "Ressourcen-ID",
       "ipAddress": "IP-Adresse"
     },
-    "detailsHint": "Details (Zeile anklicken zum Einklappen)"
+    "detailsHint": "Details (Zeile anklicken zum Einklappen)",
+    "export": {
+      "csv": "CSV exportieren",
+      "json": "Als JSON exportieren",
+      "loading": "Wird exportiert...",
+      "errorTitle": "Export fehlgeschlagen",
+      "errorBody": "Etwas ist schiefgelaufen. Versuchen Sie es erneut oder schränken Sie den Datumsbereich ein.",
+      "formatOptions": "Exportformat-Optionen"
+    }
   },
   "ai": {
     "title": "KI",
@@ -197,6 +205,7 @@
     "status": "Status",
     "enabled": "Aktiviert",
     "disabled": "Deaktiviert",
+    "sendSampleValuesDescription": "Beispielwerte in LLM-Anfragen einbeziehen für bessere Ergebnisse. Für datenschutzsensible Datensätze deaktivieren.",
     "semanticSearch": "Semantische Suche",
     "semanticSearchDescription": "Vektorbasierte Ahnlichkeitssuche neben der Stichwortsuche aktivieren",
     "embeddingCoverage": "Embedding-Abdeckung",
@@ -227,6 +236,7 @@
     "regenerateAll": "Alle neu generieren",
     "labels": {
       "aiEnabled": "KI-Chat aktiviert",
+      "sendSampleValues": "Beispielwerte an LLM senden",
       "llmProvider": "LLM-Anbieter",
       "model": "Modell",
       "openaiBaseUrl": "OpenAI-kompatible Basis-URL",
@@ -422,6 +432,10 @@
       "useCurrentView": "Aktuelle Ansicht verwenden",
       "saved": "Kartenvorgaben gespeichert",
       "saveFailed": "Kartenvorgaben konnten nicht gespeichert werden"
+    },
+    "widgets": {
+      "title": "Karten-Widgets",
+      "description": "Aktivieren oder deaktivieren Sie Widgets, die im Karteneditor verfügbar sind."
     },
     "appearance": {
       "branding": {

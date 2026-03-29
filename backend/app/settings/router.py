@@ -20,6 +20,7 @@ from app.persistent_config import (
     BASEMAPS,
     BRANDING_SHOW_BADGE,
     EMBEDDING_DIMS,
+    ENABLED_WIDGETS,
     MAP_DEFAULTS,
     _is_env_only,
     _registry,
@@ -30,7 +31,6 @@ from app.settings.models import AppSetting
 from app.config import settings as app_settings
 from app.settings.schemas import (
     ApiKeyStatusResponse,
-    BasemapEntry,
     BasemapPublicResponse,
     ConfigModeResponse,
     DetectEmbeddingDimsResponse,
@@ -398,6 +398,16 @@ async def get_map_defaults(
     """Return the default map center and zoom (public, no auth required)."""
     stored = await MAP_DEFAULTS.get(db)
     return MapDefaultsResponse(**stored)
+
+
+@router.get("/enabled-widgets/")
+async def get_enabled_widgets(
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Return list of enabled widget IDs (public, no auth). Empty list = all enabled."""
+    result = await ENABLED_WIDGETS.get(db)
+    # null in DB means "all enabled" — normalize to empty list for the API contract
+    return result if result is not None else []
 
 
 @router.get("/tile-config/")

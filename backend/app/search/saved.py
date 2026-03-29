@@ -68,7 +68,9 @@ async def list_saved_searches(
 ) -> tuple[list[SavedSearch], int]:
     """List saved searches for a user, ordered by most recently updated."""
     base = select(SavedSearch).where(SavedSearch.user_id == user_id)
-    total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    total = (
+        await session.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
     stmt = base.order_by(SavedSearch.updated_at.desc()).offset(skip).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all()), total

@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,9 +43,13 @@ class Map(Base):
 
     # Basemap
     basemap_style: Mapped[str] = mapped_column(
-        String(30), default="openfreemap-positron", server_default="openfreemap-positron"
+        String(30),
+        default="openfreemap-positron",
+        server_default="openfreemap-positron",
     )
-    show_basemap_labels: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    show_basemap_labels: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
 
     # Active widget IDs (null = use client defaults, [] = no widgets)
     widgets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
@@ -96,7 +110,9 @@ class MapLayer(Base):
     filter: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     label_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     style_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    show_in_legend: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    show_in_legend: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

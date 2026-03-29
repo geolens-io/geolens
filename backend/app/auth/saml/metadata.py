@@ -26,10 +26,14 @@ def parse_idp_metadata(xml_string: str) -> dict:
         f"[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']"
     )
     if sso_elem is None:
-        raise ValueError("Missing SingleSignOnService with HTTP-Redirect binding (SSO URL)")
+        raise ValueError(
+            "Missing SingleSignOnService with HTTP-Redirect binding (SSO URL)"
+        )
     sso_url = sso_elem.attrib.get("Location")
     if not sso_url:
-        raise ValueError("SingleSignOnService element missing Location attribute (SSO URL)")
+        raise ValueError(
+            "SingleSignOnService element missing Location attribute (SSO URL)"
+        )
 
     # Find signing certificate
     cert_elem = root.find(f".//{{{DS_NS}}}X509Certificate")

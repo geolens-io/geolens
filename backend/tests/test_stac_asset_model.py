@@ -62,9 +62,7 @@ class TestDatasetAssetCRUD:
     async def test_dataset_asset_insert(self, client, test_db_session):
         """DatasetAsset table accepts inserts and round-trips via SELECT."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         asset = DatasetAsset(
             dataset_id=dataset.id,
@@ -82,7 +80,10 @@ class TestDatasetAssetCRUD:
         assert asset.dataset_id == dataset.id
         assert asset.key == "data"
         assert asset.href == "/app/storage/test.tif"
-        assert asset.media_type == "image/tiff; application=geotiff; profile=cloud-optimized"
+        assert (
+            asset.media_type
+            == "image/tiff; application=geotiff; profile=cloud-optimized"
+        )
         assert asset.roles == ["data"]
         assert asset.size_bytes == 1024000
         assert asset.created_at is not None
@@ -90,9 +91,7 @@ class TestDatasetAssetCRUD:
     async def test_dataset_asset_unique_key(self, client, test_db_session):
         """UniqueConstraint rejects duplicate (dataset_id, key) pairs."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         asset1 = DatasetAsset(
             dataset_id=dataset.id,
@@ -114,9 +113,7 @@ class TestDatasetAssetCRUD:
     async def test_dataset_asset_cascade_delete(self, client, test_db_session):
         """Deleting a Dataset cascades to delete its DatasetAsset rows."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         asset = DatasetAsset(
             dataset_id=dataset.id,
@@ -146,9 +143,7 @@ class TestToStacProperties:
     async def test_to_stac_properties_full(self, client, test_db_session):
         """to_stac_properties() with full metadata returns complete STAC dict."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         raster = RasterAsset(
             dataset_id=dataset.id,
@@ -183,9 +178,7 @@ class TestToStacProperties:
     async def test_to_stac_properties_sparse(self, client, test_db_session):
         """to_stac_properties() with only epsg returns only proj:epsg."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         raster = RasterAsset(
             dataset_id=dataset.id,
@@ -202,9 +195,7 @@ class TestToStacProperties:
     async def test_to_stac_properties_empty(self, client, test_db_session):
         """to_stac_properties() with no metadata returns empty dict."""
         admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_record_and_dataset(
-            test_db_session, admin_id=admin_id
-        )
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         raster = RasterAsset(
             dataset_id=dataset.id,
@@ -276,7 +267,10 @@ class TestBackfillAssetKeys:
         # Verify COG data asset
         await test_db_session.refresh(cog_data_asset)
         assert cog_data_asset.key == "data"
-        assert cog_data_asset.media_type == "image/tiff; application=geotiff; profile=cloud-optimized"
+        assert (
+            cog_data_asset.media_type
+            == "image/tiff; application=geotiff; profile=cloud-optimized"
+        )
         assert cog_data_asset.roles == ["data"]
 
         # Verify VRT data asset

@@ -43,6 +43,11 @@ describe('MapCardGrid', () => {
     expect(screen.getByRole('img')).toBeInTheDocument();
   });
 
+  it('renders MapIcon placeholder when thumbnail_url is null', () => {
+    render(<MapCardGrid map={makeMap({ thumbnail_url: null })} onDelete={() => {}} />);
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
   it('renders MapIcon placeholder when img fires onError (simulating 404)', () => {
     render(<MapCardGrid map={makeMap()} onDelete={() => {}} />);
     const img = screen.getByRole('img');

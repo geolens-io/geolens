@@ -25,7 +25,9 @@ async def test_get_tile_config_exposes_resolved_public_urls():
         ),
     ):
         response = await settings_router.get_tile_config(
-            request=SimpleNamespace(headers={}, url=SimpleNamespace(scheme="https"), scope={}),
+            request=SimpleNamespace(
+                headers={}, url=SimpleNamespace(scheme="https"), scope={}
+            ),
             db=object(),
         )
 

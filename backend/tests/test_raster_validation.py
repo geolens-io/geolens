@@ -4,12 +4,12 @@ All tests are pure unit tests — no DB, no files, no network.
 A FakeRasterAsset dataclass substitutes for SQLAlchemy RasterAsset objects.
 CRS equality is tested via mock to avoid real WKT string handling.
 """
+
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.raster.validation import SourceValidationError, validate_sources
 
@@ -17,6 +17,7 @@ from app.raster.validation import SourceValidationError, validate_sources
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class FakeRasterAsset:
@@ -41,6 +42,7 @@ def _ids(errors: list[SourceValidationError]) -> set[str]:
 # ---------------------------------------------------------------------------
 # TestCrsCheck
 # ---------------------------------------------------------------------------
+
 
 class TestCrsCheck:
     """VAL-01: CRS consistency check (mosaic + band_stack)."""
@@ -109,6 +111,7 @@ class TestCrsCheck:
 # TestBandCountCheck
 # ---------------------------------------------------------------------------
 
+
 class TestBandCountCheck:
     """VAL-02: Band count check (mosaic only)."""
 
@@ -141,6 +144,7 @@ class TestBandCountCheck:
 # TestSingleBandCheck
 # ---------------------------------------------------------------------------
 
+
 class TestSingleBandCheck:
     """VAL-03: Single-band requirement (band_stack only)."""
 
@@ -172,6 +176,7 @@ class TestSingleBandCheck:
 # TestDtypeCheck
 # ---------------------------------------------------------------------------
 
+
 class TestDtypeCheck:
     """VAL-04: dtype consistency check (mosaic + band_stack)."""
 
@@ -202,6 +207,7 @@ class TestDtypeCheck:
 # ---------------------------------------------------------------------------
 # TestNodataCheck
 # ---------------------------------------------------------------------------
+
 
 class TestNodataCheck:
     """VAL-06: Nodata consistency check (mosaic + band_stack)."""
@@ -250,6 +256,7 @@ class TestNodataCheck:
 # TestRotationCheck
 # ---------------------------------------------------------------------------
 
+
 class TestRotationCheck:
     """VAL-07: Rotation rejection (mosaic + band_stack)."""
 
@@ -292,6 +299,7 @@ class TestRotationCheck:
 # ---------------------------------------------------------------------------
 # TestGridAlignmentCheck
 # ---------------------------------------------------------------------------
+
 
 class TestGridAlignmentCheck:
     """VAL-05: Grid alignment check (band_stack only)."""
@@ -377,6 +385,7 @@ class TestGridAlignmentCheck:
 # TestAllChecksRun
 # ---------------------------------------------------------------------------
 
+
 class TestAllChecksRun:
     """Verify no fail-fast: multiple errors returned for one problematic source."""
 
@@ -401,10 +410,24 @@ class TestAllChecksRun:
 
     def test_band_stack_multiple_problems(self):
         """Band-stack: CRS mismatch + dtype mismatch + rotation + grid misalign."""
-        src_ref = FakeRasterAsset(dtype="uint8", is_rotated=False, band_count=1,
-                                   width=256, height=256, res_x=1.0, res_y=1.0)
-        src_bad = FakeRasterAsset(dtype="float32", is_rotated=True, band_count=3,
-                                   width=512, height=256, res_x=2.0, res_y=1.0)
+        src_ref = FakeRasterAsset(
+            dtype="uint8",
+            is_rotated=False,
+            band_count=1,
+            width=256,
+            height=256,
+            res_x=1.0,
+            res_y=1.0,
+        )
+        src_bad = FakeRasterAsset(
+            dtype="float32",
+            is_rotated=True,
+            band_count=3,
+            width=512,
+            height=256,
+            res_x=2.0,
+            res_y=1.0,
+        )
 
         ref_crs = MagicMock()
         ref_crs.equals.return_value = False
@@ -423,6 +446,7 @@ class TestAllChecksRun:
 # ---------------------------------------------------------------------------
 # TestValidSources
 # ---------------------------------------------------------------------------
+
 
 class TestValidSources:
     """Fully compatible sources return empty list for both vrt_types."""
@@ -443,10 +467,26 @@ class TestValidSources:
 
     def test_valid_band_stack_sources(self):
         sources = [
-            FakeRasterAsset(band_count=1, dtype="float32", nodata="-9999",
-                             is_rotated=False, width=256, height=256, res_x=1.0, res_y=1.0),
-            FakeRasterAsset(band_count=1, dtype="float32", nodata="-9999",
-                             is_rotated=False, width=256, height=256, res_x=1.0, res_y=1.0),
+            FakeRasterAsset(
+                band_count=1,
+                dtype="float32",
+                nodata="-9999",
+                is_rotated=False,
+                width=256,
+                height=256,
+                res_x=1.0,
+                res_y=1.0,
+            ),
+            FakeRasterAsset(
+                band_count=1,
+                dtype="float32",
+                nodata="-9999",
+                is_rotated=False,
+                width=256,
+                height=256,
+                res_x=1.0,
+                res_y=1.0,
+            ),
         ]
         mock_crs = MagicMock()
         mock_crs.equals.return_value = True
@@ -461,6 +501,7 @@ class TestValidSources:
 # ---------------------------------------------------------------------------
 # TestEdgeCases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     """Edge cases: 0 or 1 sources return empty list."""
@@ -484,6 +525,7 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 # TestSourceValidationError
 # ---------------------------------------------------------------------------
+
 
 class TestSourceValidationError:
     """Verify SourceValidationError has all required fields."""

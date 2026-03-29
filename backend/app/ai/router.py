@@ -13,7 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.chat_service import chat_edit_map
 from app.ai.llm_loop import ToolLoopExhaustedError
-from app.ai.schemas import ChatMapLayer, ChatRequest, ChatResponse, MapGenerateRequest, MapGenerateResponse
+from app.ai.schemas import (
+    ChatMapLayer,
+    ChatRequest,
+    ChatResponse,
+    MapGenerateRequest,
+    MapGenerateResponse,
+)
 from app.ai.streaming import stream_chat_edit
 from app.ai.metadata_schemas import (
     KeywordSuggestionsResponse,
@@ -114,15 +120,16 @@ async def _validate_chat_layers(
     allowed_tables = await build_table_allowlist(db, user)
 
     # Look up authoritative dataset metadata for all referenced dataset_ids
-    dataset_ids = list({l.dataset_id for l in layers})
+    dataset_ids = list({layer.dataset_id for layer in layers})
     try:
         dataset_uuids = [uuid_mod.UUID(did) for did in dataset_ids]
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid dataset_id in layers")
 
     result = await db.execute(
-        select(Dataset.id, Dataset.table_name, Dataset.geometry_type)
-        .where(Dataset.id.in_(dataset_uuids))
+        select(Dataset.id, Dataset.table_name, Dataset.geometry_type).where(
+            Dataset.id.in_(dataset_uuids)
+        )
     )
     dataset_map = {str(row.id): row for row in result.all()}
 
@@ -130,7 +137,9 @@ async def _validate_chat_layers(
     for layer in layers:
         ds = dataset_map.get(layer.dataset_id)
         if not ds:
-            logger.warning("Chat layer references unknown dataset", dataset_id=layer.dataset_id)
+            logger.warning(
+                "Chat layer references unknown dataset", dataset_id=layer.dataset_id
+            )
             continue
         if ds.table_name not in allowed_tables:
             logger.warning(

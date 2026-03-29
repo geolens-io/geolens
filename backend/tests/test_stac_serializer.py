@@ -63,7 +63,11 @@ def _make_ogc_record(
         "id": record_id,
         "properties": props,
         "links": [
-            {"rel": "self", "href": "/collections/datasets/items/1", "type": "application/geo+json"},
+            {
+                "rel": "self",
+                "href": "/collections/datasets/items/1",
+                "type": "application/geo+json",
+            },
         ],
         "assets": {
             "data": {
@@ -84,7 +88,9 @@ def _make_ogc_record(
     if has_geometry:
         record["geometry"] = {
             "type": "Polygon",
-            "coordinates": [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]],
+            "coordinates": [
+                [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]
+            ],
         }
         record["bbox"] = [-180, -90, 180, 90]
     else:
@@ -207,7 +213,7 @@ class TestOgcRecordToStacItem:
         rels = {link["rel"] for link in item["links"]}
         assert "collection" in rels
 
-        coll_link = next(l for l in item["links"] if l["rel"] == "collection")
+        coll_link = next(lnk for lnk in item["links"] if lnk["rel"] == "collection")
         assert "my-collection" in coll_link["href"]
 
     def test_no_collection_when_omitted(self):
@@ -225,7 +231,9 @@ class TestOgcRecordToStacItem:
         item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
 
         assert "data" in item["assets"]
-        assert item["assets"]["data"]["href"] == "https://storage.example.com/raster.tif"
+        assert (
+            item["assets"]["data"]["href"] == "https://storage.example.com/raster.tif"
+        )
         # Should NOT include stac_assets keys
         assert "source" not in item["assets"]
 

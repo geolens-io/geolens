@@ -131,7 +131,11 @@ async def lifespan(app: FastAPI):
     load_extensions()
     init_edition(list_extensions())
     edition_info = get_edition()
-    logger.info("Edition detected", edition=edition_info.edition, features=list(edition_info.features))
+    logger.info(
+        "Edition detected",
+        edition=edition_info.edition,
+        features=list(edition_info.features),
+    )
 
     # Register enterprise routers dynamically (no-op if no extensions)
     for ext_router in get_extension_routers():

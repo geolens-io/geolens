@@ -35,7 +35,7 @@ export function useCreateDataset() {
   });
 }
 
-export function useDataset(id: string, options?: { refetchInterval?: number | false | ((query: any) => number | false) }) {
+export function useDataset(id: string, options?: { refetchInterval?: number | false | ((query: unknown) => number | false) }) {
   return useQuery({
     queryKey: queryKeys.datasets.detail(id),
     queryFn: () => getDataset(id),

@@ -23,7 +23,7 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
 
-  return apiFetch<UploadResponse>('/ingest/upload/', {
+  return apiFetch<UploadResponse>('/ingest/upload', {
     method: 'POST',
     body: formData,
   });
@@ -99,7 +99,7 @@ export async function bulkRegisterTables(
 }
 
 export async function getUploadConfig(): Promise<UploadConfig> {
-  return apiFetch<UploadConfig>('/ingest/upload/config/');
+  return apiFetch<UploadConfig>('/ingest/upload/config');
 }
 
 export async function requestPresignedUpload(
@@ -107,7 +107,7 @@ export async function requestPresignedUpload(
   fileSize: number,
   contentType?: string,
 ): Promise<PresignedUploadResponse> {
-  return apiFetch<PresignedUploadResponse>('/ingest/upload/presigned/', {
+  return apiFetch<PresignedUploadResponse>('/ingest/upload/presigned', {
     method: 'POST',
     body: JSON.stringify({
       filename,
@@ -166,7 +166,7 @@ export async function uploadPresigned(file: File): Promise<UploadResponse> {
 }
 
 export async function createVrt(request: VrtCreateRequest): Promise<VrtCreateResponse> {
-  return apiFetch<VrtCreateResponse>('/ingest/vrt/create/', {
+  return apiFetch<VrtCreateResponse>('/ingest/vrt/create', {
     method: 'POST',
     body: JSON.stringify(request),
   });

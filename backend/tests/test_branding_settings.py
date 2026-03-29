@@ -29,9 +29,7 @@ async def test_put_branding_returns_404_community(
 
 
 @pytest.mark.anyio
-async def test_put_branding_invalid_body(
-    client: AsyncClient, admin_auth_header: dict
-):
+async def test_put_branding_invalid_body(client: AsyncClient, admin_auth_header: dict):
     """PUT /api/settings/branding/ with invalid body returns 405.
 
     Note: In community mode, no PUT route exists (enterprise only).

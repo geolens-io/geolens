@@ -326,7 +326,9 @@ async def list_dataset_relationships(
     """List all FK relationships for a dataset."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     from app.datasets.service import list_relationships
@@ -384,7 +386,9 @@ async def get_feature_related_records(
     """Get related records for a feature via FK relationship."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     from app.datasets.service import get_related_records

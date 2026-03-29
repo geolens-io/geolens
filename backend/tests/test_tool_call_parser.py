@@ -56,7 +56,9 @@ class TestParseXmlToolCalls:
         assert isinstance(calls[0][1]["opacity"], float)
 
     def test_coerce_bool_true(self):
-        text = "<function=toggle_visibility><parameter=visible>true</parameter></function>"
+        text = (
+            "<function=toggle_visibility><parameter=visible>true</parameter></function>"
+        )
         calls, _ = parse_xml_tool_calls(text)
         assert calls[0][1]["visible"] is True
 

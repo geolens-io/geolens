@@ -13,7 +13,7 @@ dependencies = [
     "geoalchemy2",
     "pydantic",
     "pydantic-settings",
-    "pyjwt>=2.11.0",
+    "pyjwt>=2.12.0",
     "pwdlib[bcrypt]>=0.3.0",
     "procrastinate",
     "psycopg[binary]",
@@ -38,6 +38,9 @@ dependencies = [
     "itsdangerous>=2.1.0",
     "sse-starlette>=3.3.2",
     "sqlglot>=29.0.0",
+    # Security: pin transitive deps to versions without known CVEs
+    "cryptography>=46.0.6",
+    "requests>=2.33.0",
 ]
 
 [dependency-groups]

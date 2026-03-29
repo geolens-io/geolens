@@ -12,7 +12,7 @@ export const useWidgetStore = create<WidgetState>()((set) => ({
   toggle: (id) =>
     set((s) => {
       const next = new Set(s.activeWidgets);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return { activeWidgets: next };
     }),
   open: (id) =>

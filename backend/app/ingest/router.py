@@ -46,21 +46,26 @@ from app.ingest.service import (
     save_upload_file,
     validate_file_extension,
 )
-from app.ingest.tasks import ingest_file, ingest_raster, ingest_service, ingest_vrt, regenerate_vrt
+from app.ingest.tasks import (
+    ingest_file,
+    ingest_raster,
+    ingest_service,
+    ingest_vrt,
+    regenerate_vrt,
+)
 from app.ingest.validation import validate_file_content
 from app.raster.validation import validate_sources
+from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
 from app.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ingest", tags=["Datasets"])
 
-from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
-
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
 
-@router.get("/upload/config/")
+@router.get("/upload/config")
 async def get_upload_config(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -81,7 +86,7 @@ async def get_upload_config(
 
 
 @router.post(
-    "/upload/presigned/",
+    "/upload/presigned",
     response_model=PresignedUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -207,7 +212,7 @@ async def complete_presigned_upload(
 
 
 @router.post(
-    "/upload/",
+    "/upload",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -323,7 +328,9 @@ async def upload_file(
 )
 async def preview_file(
     job_id: uuid.UUID,
-    layer_name: str | None = Query(None, description="Sheet/layer name for multi-layer files"),
+    layer_name: str | None = Query(
+        None, description="Sheet/layer name for multi-layer files"
+    ),
     user: User = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> PreviewResponse | RasterPreviewResponse:
@@ -586,7 +593,11 @@ async def bulk_register_tables(
     return BulkRegisterResponse(results=results)
 
 
-@router.post("/vrt/create/", response_model=VrtCreateResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/vrt/create",
+    response_model=VrtCreateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def create_vrt(
     request: VrtCreateRequest,
     user: User = Depends(require_permission("upload")),
@@ -796,7 +807,9 @@ async def add_vrt_source(
         triggered_by=str(user.id),
     )
 
-    return VrtMutationResponse(job_id=job.id, message="Source added, VRT regeneration started")
+    return VrtMutationResponse(
+        job_id=job.id, message="Source added, VRT regeneration started"
+    )
 
 
 @router.delete(
@@ -895,4 +908,6 @@ async def remove_vrt_source(
         triggered_by=str(user.id),
     )
 
-    return VrtMutationResponse(job_id=job.id, message="Source removed, VRT regeneration started")
+    return VrtMutationResponse(
+        job_id=job.id, message="Source removed, VRT regeneration started"
+    )

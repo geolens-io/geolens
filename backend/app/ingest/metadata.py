@@ -53,9 +53,7 @@ async def construct_point_geometry(
         raise ValueError("Invalid column name")
 
     await session.execute(
-        text(
-            f"ALTER TABLE data.{table_name} ADD COLUMN geom geometry(Point, {srid})"
-        )
+        text(f"ALTER TABLE data.{table_name} ADD COLUMN geom geometry(Point, {srid})")
     )
     result = await session.execute(
         text(
@@ -417,10 +415,7 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> None:
     )
     _validate_table_name(geom_col)
     await session.execute(
-        text(
-            f"ALTER TABLE data.{table_name} "
-            f"RENAME COLUMN {geom_col} TO geom"
-        )
+        text(f"ALTER TABLE data.{table_name} RENAME COLUMN {geom_col} TO geom")
     )
     await session.commit()
 
@@ -486,10 +481,7 @@ async def add_4326_column(
 
     # B-tree index on gid for ORDER BY / keyset pagination (Phase 180 OPT-03)
     await session.execute(
-        text(
-            f"CREATE INDEX IF NOT EXISTS idx_{table_name}_gid "
-            f"ON {tref} (gid)"
-        )
+        text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_gid ON {tref} (gid)")
     )
 
     await session.commit()
@@ -497,7 +489,9 @@ async def add_4326_column(
 
 async def grant_reader_access(session: AsyncSession, table_name: str) -> None:
     """Grant SELECT on the table to geolens_reader role."""
-    await session.execute(text(f"GRANT SELECT ON {_qtable(table_name)} TO geolens_reader"))
+    await session.execute(
+        text(f"GRANT SELECT ON {_qtable(table_name)} TO geolens_reader")
+    )
     await session.commit()
 
 

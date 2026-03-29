@@ -303,7 +303,9 @@ async def test_collection_items_pagination(
     assert data2["numberReturned"] == 2
 
     # Should have both "next" and "previous" links
-    prev_link = next((link for link in data2["links"] if link["rel"] == "previous"), None)
+    prev_link = next(
+        (link for link in data2["links"] if link["rel"] == "previous"), None
+    )
     assert prev_link is not None, "Missing 'previous' pagination link"
 
 
@@ -464,12 +466,14 @@ async def test_items_self_link_includes_query_params(
     assert resp.status_code == 200
     data = resp.json()
 
-    self_link = next(
-        (link for link in data["links"] if link["rel"] == "self"), None
-    )
+    self_link = next((link for link in data["links"] if link["rel"] == "self"), None)
     assert self_link is not None, "Missing self link in items response"
-    assert "limit=2" in self_link["href"], f"limit missing from self link: {self_link['href']}"
-    assert "offset=0" in self_link["href"], f"offset missing from self link: {self_link['href']}"
+    assert "limit=2" in self_link["href"], (
+        f"limit missing from self link: {self_link['href']}"
+    )
+    assert "offset=0" in self_link["href"], (
+        f"offset missing from self link: {self_link['href']}"
+    )
 
     # Test with bbox
     resp2 = await client.get(
@@ -479,8 +483,8 @@ async def test_items_self_link_includes_query_params(
     assert resp2.status_code == 200
     data2 = resp2.json()
 
-    self_link2 = next(
-        (link for link in data2["links"] if link["rel"] == "self"), None
-    )
+    self_link2 = next((link for link in data2["links"] if link["rel"] == "self"), None)
     assert self_link2 is not None, "Missing self link in items response with bbox"
-    assert "-75,40,-73,41" in self_link2["href"], f"bbox missing from self link: {self_link2['href']}"
+    assert "-75,40,-73,41" in self_link2["href"], (
+        f"bbox missing from self link: {self_link2['href']}"
+    )

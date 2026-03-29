@@ -103,9 +103,7 @@ def _find_link(links: list[dict], rel: str) -> dict | None:
 
 
 @pytest.mark.anyio
-async def test_pagination_uses_previous_rel(
-    client: AsyncClient, test_db_session
-):
+async def test_pagination_uses_previous_rel(client: AsyncClient, test_db_session):
     """Gap 1: Pagination links use rel='previous', not 'prev'."""
     admin_id = await _get_admin_id(test_db_session)
     prefix = uuid.uuid4().hex[:6]
@@ -131,7 +129,9 @@ async def test_pagination_uses_previous_rel(
 async def test_no_stac_bleedthrough(client: AsyncClient, test_db_session):
     """Gap 2: OGC records must not contain STAC-specific keys."""
     admin_id = await _get_admin_id(test_db_session)
-    await _create_dataset(test_db_session, admin_id=admin_id, name=f"stac-clean-{uuid.uuid4().hex[:6]}")
+    await _create_dataset(
+        test_db_session, admin_id=admin_id, name=f"stac-clean-{uuid.uuid4().hex[:6]}"
+    )
 
     resp = await client.get("/collections/datasets/items", params={"limit": 1})
     assert resp.status_code == 200
@@ -140,7 +140,9 @@ async def test_no_stac_bleedthrough(client: AsyncClient, test_db_session):
 
     feature = data["features"][0]
     for stac_key in ("stac_version", "stac_extensions", "stac_assets"):
-        assert stac_key not in feature, f"STAC key '{stac_key}' should not be in OGC record"
+        assert stac_key not in feature, (
+            f"STAC key '{stac_key}' should not be in OGC record"
+        )
     # conformsTo is a valid OGC Records Part 1 field, not STAC
     assert "conformsTo" in feature, "OGC record should include conformsTo"
 
@@ -176,9 +178,7 @@ async def test_themes_include_scheme(client: AsyncClient, test_db_session):
 
 
 @pytest.mark.anyio
-async def test_contacts_include_email_phone(
-    client: AsyncClient, test_db_session
-):
+async def test_contacts_include_email_phone(client: AsyncClient, test_db_session):
     """Gap 4: Contacts include email and phone when present."""
     admin_id = await _get_admin_id(test_db_session)
     ds = await _create_dataset(
@@ -207,9 +207,7 @@ async def test_contacts_include_email_phone(
 
 
 @pytest.mark.anyio
-async def test_contacts_null_fields_omitted(
-    client: AsyncClient, test_db_session
-):
+async def test_contacts_null_fields_omitted(client: AsyncClient, test_db_session):
     """Gap 4b: Contacts with null email/phone omit those keys (not null values)."""
     admin_id = await _get_admin_id(test_db_session)
     ds = await _create_dataset(
@@ -244,7 +242,9 @@ async def test_contacts_null_fields_omitted(
 async def test_feature_collection_has_timestamp(client: AsyncClient, test_db_session):
     """Gap 6: FeatureCollection response includes timeStamp."""
     admin_id = await _get_admin_id(test_db_session)
-    await _create_dataset(test_db_session, admin_id=admin_id, name=f"timestamp-{uuid.uuid4().hex[:6]}")
+    await _create_dataset(
+        test_db_session, admin_id=admin_id, name=f"timestamp-{uuid.uuid4().hex[:6]}"
+    )
 
     resp = await client.get("/collections/datasets/items", params={"limit": 1})
     assert resp.status_code == 200
@@ -272,7 +272,9 @@ async def test_sortby_ogc_syntax(client: AsyncClient, test_db_session):
     assert resp_asc.status_code == 200
     titles_asc = [f["properties"]["title"] for f in resp_asc.json()["features"]]
     assert len(titles_asc) >= 2, "Need at least 2 results to verify order"
-    assert titles_asc == sorted(titles_asc, key=str.lower), "Expected ascending title order"
+    assert titles_asc == sorted(titles_asc, key=str.lower), (
+        "Expected ascending title order"
+    )
 
     # Descending by title
     resp_desc = await client.get(
@@ -282,10 +284,14 @@ async def test_sortby_ogc_syntax(client: AsyncClient, test_db_session):
     assert resp_desc.status_code == 200
     titles_desc = [f["properties"]["title"] for f in resp_desc.json()["features"]]
     assert len(titles_desc) >= 2, "Need at least 2 results to verify order"
-    assert titles_desc == sorted(titles_desc, key=str.lower, reverse=True), "Expected descending title order"
+    assert titles_desc == sorted(titles_desc, key=str.lower, reverse=True), (
+        "Expected descending title order"
+    )
 
     # Ascending and descending should be opposite
-    assert titles_asc != titles_desc, "Ascending and descending should produce different order"
+    assert titles_asc != titles_desc, (
+        "Ascending and descending should produce different order"
+    )
 
     # +created should also work
     resp2 = await client.get(
@@ -297,9 +303,7 @@ async def test_sortby_ogc_syntax(client: AsyncClient, test_db_session):
 @pytest.mark.anyio
 async def test_sortby_invalid_field_returns_400(client: AsyncClient):
     """Gap 7b: sortby with unknown field returns 400."""
-    resp = await client.get(
-        "/collections/datasets/items", params={"sortby": "+bogus"}
-    )
+    resp = await client.get("/collections/datasets/items", params={"sortby": "+bogus"})
     assert resp.status_code == 400
     data = resp.json()
     assert "InvalidParameterValue" in data.get("code", "")
@@ -327,12 +331,16 @@ async def test_type_query_param(client: AsyncClient, test_db_session):
 async def test_collection_has_schema_link(client: AsyncClient, test_db_session):
     """Gap 9: /collections/datasets metadata includes schema link."""
     admin_id = await _get_admin_id(test_db_session)
-    await _create_dataset(test_db_session, admin_id=admin_id, name=f"schema-link-{uuid.uuid4().hex[:6]}")
+    await _create_dataset(
+        test_db_session, admin_id=admin_id, name=f"schema-link-{uuid.uuid4().hex[:6]}"
+    )
 
     resp = await client.get("/collections/datasets")
     assert resp.status_code == 200
     data = resp.json()
-    schema_link = _find_link(data["links"], "http://www.opengis.net/def/rel/ogc/1.0/schema")
+    schema_link = _find_link(
+        data["links"], "http://www.opengis.net/def/rel/ogc/1.0/schema"
+    )
     assert schema_link is not None, "Missing schema link on /collections/datasets"
     assert "schema" in schema_link["href"]
     assert schema_link["type"] == "application/schema+json"
@@ -353,5 +361,9 @@ async def test_raster_record_formats(client: AsyncClient, test_db_session):
     assert resp.status_code == 200
     data = resp.json()
     formats = data["properties"]["formats"]
-    assert any("geotiff" in f for f in formats), "Raster record must have geotiff format"
-    assert not any("geopackage" in f for f in formats), "Raster record must not have vector formats"
+    assert any("geotiff" in f for f in formats), (
+        "Raster record must have geotiff format"
+    )
+    assert not any("geopackage" in f for f in formats), (
+        "Raster record must not have vector formats"
+    )

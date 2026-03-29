@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordKeyword
