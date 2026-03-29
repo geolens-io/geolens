@@ -506,6 +506,8 @@ async def duplicate_map(
         bearing=source.bearing,
         pitch=source.pitch,
         basemap_style=source.basemap_style,
+        show_basemap_labels=source.show_basemap_labels,
+        widgets=source.widgets,
         thumbnail_uri=None,
         visibility="private",
         forked_from=source.id,
@@ -835,6 +837,7 @@ async def get_shared_map(
         "bearing": map_obj.bearing,
         "pitch": map_obj.pitch,
         "basemap_style": map_obj.basemap_style,
+        "show_basemap_labels": map_obj.show_basemap_labels,
         "has_non_public_layers": has_non_public,
     }
 
