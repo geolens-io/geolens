@@ -47,58 +47,57 @@ async function tryRefresh(): Promise<boolean> {
   return !!useAuthStore.getState().token;
 }
 
-export async function apiFetch<T>(
+async function authenticatedFetch(
   path: string,
   options: RequestInit = {},
-): Promise<T> {
+  prepareHeaders?: (headers: Headers) => void,
+): Promise<Response> {
   // Proactively refresh if token expires within 30 seconds
   const { token: currentToken, expiresAt } = useAuthStore.getState();
   if (currentToken && expiresAt && Date.now() > expiresAt - 30_000) {
     await tryRefresh();
   }
 
-  const token = useAuthStore.getState().token;
-  const headers = new Headers(options.headers);
-
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  if (!headers.has('Content-Type') && !(options.body instanceof URLSearchParams) && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
+  function buildHeaders(): Headers {
+    const headers = new Headers(options.headers);
+    const token = useAuthStore.getState().token;
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    prepareHeaders?.(headers);
+    return headers;
   }
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers,
+    headers: buildHeaders(),
   });
 
   if (response.status === 401) {
-    // Attempt token refresh before logging out
     const refreshed = await tryRefresh();
     if (refreshed) {
-      // Retry original request with new token
-      const newToken = useAuthStore.getState().token;
-      const retryHeaders = new Headers(options.headers);
-      if (newToken) {
-        retryHeaders.set('Authorization', `Bearer ${newToken}`);
-      }
-      if (!retryHeaders.has('Content-Type') && !(options.body instanceof URLSearchParams) && !(options.body instanceof FormData)) {
-        retryHeaders.set('Content-Type', 'application/json');
-      }
       const retry = await fetch(`${API_BASE}${path}`, {
         ...options,
-        headers: retryHeaders,
+        headers: buildHeaders(),
       });
-      if (retry.ok) {
-        if (retry.status === 204) return undefined as T;
-        return retry.json() as Promise<T>;
-      }
-      // Retry also failed -- fall through to logout
+      if (retry.ok) return retry;
     }
     useAuthStore.getState().logout();
     throw new ApiError('Unauthorized', 401);
   }
+
+  return response;
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const response = await authenticatedFetch(path, options, (headers) => {
+    if (!headers.has('Content-Type') && !(options.body instanceof URLSearchParams) && !(options.body instanceof FormData)) {
+      headers.set('Content-Type', 'application/json');
+    }
+  });
 
   if (!response.ok) {
     let detail = response.statusText;
@@ -124,50 +123,11 @@ export async function apiFetchBlob(
   path: string,
   options: RequestInit = {},
 ): Promise<Blob> {
-  // Proactively refresh if token expires within 30 seconds
-  const { token: currentToken, expiresAt } = useAuthStore.getState();
-  if (currentToken && expiresAt && Date.now() > expiresAt - 30_000) {
-    await tryRefresh();
-  }
-
-  const token = useAuthStore.getState().token;
-  const headers = new Headers(options.headers);
-
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'image/*');
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
-
-  if (response.status === 401) {
-    const refreshed = await tryRefresh();
-    if (refreshed) {
-      const newToken = useAuthStore.getState().token;
-      const retryHeaders = new Headers(options.headers);
-      if (newToken) {
-        retryHeaders.set('Authorization', `Bearer ${newToken}`);
-      }
-      if (!retryHeaders.has('Accept')) {
-        retryHeaders.set('Accept', 'image/*');
-      }
-      const retry = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers: retryHeaders,
-      });
-      if (retry.ok) {
-        return retry.blob();
-      }
+  const response = await authenticatedFetch(path, options, (headers) => {
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'image/*');
     }
-    useAuthStore.getState().logout();
-    throw new ApiError('Unauthorized', 401);
-  }
+  });
 
   if (!response.ok) {
     throw new ApiError(response.statusText, response.status);

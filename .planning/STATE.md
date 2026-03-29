@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v13.0
 milestone_name: Open-Core Pre-Release
 status: verifying
-stopped_at: Completed 260329-bn7-PLAN.md
-last_updated: "2026-03-29T12:29:00.493Z"
-last_activity: 2026-03-28
+stopped_at: Completed 260329-lnd-PLAN.md
+last_updated: "2026-03-29T19:55:00.000Z"
+last_activity: 2026-03-29
 progress:
   total_phases: 6
   completed_phases: 5
@@ -265,10 +265,12 @@ Progress: [░░░░░░░░░░] 0%
 | 260329-ga7 | Search results card UI/UX restructure — 4-band layout, 80x80 preview, segmented metadata | 2026-03-29 | 4fe3c243 | Verified | [260329-ga7-search-results-card-ui-ux-restructure-st](./quick/260329-ga7-search-results-card-ui-ux-restructure-st/) |
 | 260329-kq7 | Enhance dataset cards with icon specs, auto-description, 120px thumbnail | 2026-03-29 | df7a10b9 | Verified | [260329-kq7-enhance-dataset-cards-with-quick-actions](./quick/260329-kq7-enhance-dataset-cards-with-quick-actions/) |
 | 260330 | Review current search card layout/style and produce optimization guidance with Playwright evidence | 2026-03-29 | b6e97535 | Verified | [260330-review-the-current-state-of-the-search-c](./quick/260330-review-the-current-state-of-the-search-c/) |
+| 260329-lnd | Validate search card review assessment with Playwright | 2026-03-29 | pending | Verified | [260329-lnd-validate-search-card-review-assessment-w](./quick/260329-lnd-validate-search-card-review-assessment-w/) |
+| 260329-onb | Fix private map thumbnail 404s with authenticated fetch | 2026-03-29 | 94ba1f31 | Verified | [260329-onb-use-playwright-mcp-to-investigate-and-re](./quick/260329-onb-use-playwright-mcp-to-investigate-and-re/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-29 - Completed quick task 260330: Review current search card layout/style and produce optimization guidance with Playwright evidence
+Last activity: 2026-03-29 - Completed quick task 260329-onb: Fix private map thumbnail 404s with authenticated fetch
 Last session: 2026-03-29T12:29:00.489Z
 Stopped at: Completed 260329-bn7-PLAN.md
 Resume file: None

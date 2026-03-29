@@ -18,10 +18,6 @@ export function useMapThumbnail(thumbnailUrl: string | null | undefined): string
         if (!cancelled) {
           objectUrl = URL.createObjectURL(blob);
           setSrc(objectUrl);
-        } else {
-          // Component unmounted before fetch resolved — revoke immediately
-          const url = URL.createObjectURL(blob);
-          URL.revokeObjectURL(url);
         }
       })
       .catch(() => {
