@@ -11,6 +11,7 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { getGeometryTypeLabel } from '@/i18n/labels';
+import { semanticBadgeColors } from '@/lib/status-colors';
 
 interface ImportPreviewProps {
   preview: FilePreviewResponse | RasterPreviewResponse;
@@ -33,8 +34,8 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
       <Card className="p-4 space-y-2">
         <div className="flex items-center gap-2">
           <Badge
-            variant="secondary"
-            className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+            variant="outline"
+            className={semanticBadgeColors.success}
           >
             Raster
           </Badge>
@@ -108,7 +109,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
                 preview.detected_geometry_columns.wkt_column) ? (
               <Badge
                 variant="outline"
-                className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800"
+                className={semanticBadgeColors.info}
               >
                 {t('preview.geometryDetected')}
               </Badge>

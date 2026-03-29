@@ -42,7 +42,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
     <div
       {...getRootProps()}
       className={cn(
-        'flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 text-center transition-all duration-200 ease-out',
+        'flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 text-center transition-[color,background-color,border-color] duration-200 ease-out',
         isDragReject && 'border-destructive bg-destructive/10 scale-[1.01]',
         isDragActive && !isDragReject && 'border-primary bg-primary/10 scale-[1.01] shadow-md',
         !isDragActive &&

@@ -94,7 +94,7 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
               </div>
               <div className="h-2 rounded-full bg-muted">
                 <div
-                  className={`h-2 rounded-full transition-all ${barColor(value)}`}
+                  className={`h-2 rounded-full transition-[width] duration-300 ease-out ${barColor(value)}`}
                   style={{ width: `${Math.min(value, 100)}%` }}
                 />
               </div>
