@@ -4,7 +4,7 @@ export const semanticBadgeColors = {
   warning:
     'border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200',
   info:
-    'border-sky-300 bg-sky-100 text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-200',
+    'border-teal-300 bg-teal-100 text-teal-950 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-200',
   success:
     'border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200',
   destructive:
