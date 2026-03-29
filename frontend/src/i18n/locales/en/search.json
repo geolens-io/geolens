@@ -82,6 +82,15 @@
     "updatedFallback": "Updated {{time}}",
     "bandCount_one": "{{count}} band",
     "bandCount_other": "{{count}} bands",
+    "sourceCount_one": "{{count}} source",
+    "sourceCount_other": "{{count}} sources",
+    "autoDesc": {
+      "vector": "{{geometryType}} dataset with {{count}} features in {{crs}}",
+      "raster": "Raster dataset, {{bands}} bands, {{gsd}} resolution",
+      "vrt": "{{vrtType}} virtual raster with {{count}} sources",
+      "table": "Table with {{count}} rows",
+      "fallback": "Geospatial dataset"
+    },
     "vector": "Vector",
     "raster": "Raster",
     "vrt": "Virtual Raster",
