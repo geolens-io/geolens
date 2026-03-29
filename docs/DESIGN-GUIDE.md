@@ -13,6 +13,8 @@ GeoLens targets a clean, professional, data-focused aesthetic. The interface pri
 - **Clear hierarchy** -- use font weight, size, and color to establish visual priority without decoration.
 - **Muted backgrounds with vibrant status indicators** -- the neutral OKLCH grays make semantic colors (success, warning, destructive) immediately visible.
 
+**Default rule:** When unsure which tokens or colors to use, stick with `background` + `card` + `primary`. Do not introduce new tokens or colors without a clear reason.
+
 **Technical notes:**
 
 - All colors use the **OKLCH** color space. OKLCH is perceptually uniform -- equal numeric changes in lightness produce equal perceived brightness changes. This means opacity modifiers like `bg-primary/50` produce predictable, visually consistent results across all token colors.
@@ -22,6 +24,16 @@ GeoLens targets a clean, professional, data-focused aesthetic. The interface pri
 ## 2. Design Tokens (GUIDE-01)
 
 Every token is defined in `frontend/src/index.css`. The `@theme inline` bridge maps raw CSS custom properties to Tailwind utility classes (e.g., `--color-primary: var(--primary)` enables `bg-primary`, `text-primary`).
+
+### Token Usage Hierarchy
+
+When styling a component, reach for tokens in this order:
+
+1. **Semantic tokens first** -- `background`, `card`, `primary`, `foreground`, `muted-foreground`, `destructive`, `success`, `warning`, `info`. These cover 90% of use cases.
+2. **Surface tokens for layering** -- `surface-0` through `surface-3`. Only when you need explicit elevation stacking beyond the card/popover defaults.
+3. **Primary scale tokens (rare)** -- `primary-50` through `primary-900`. Only for custom tints that no semantic token provides (e.g., a subtle primary wash on a selected row).
+
+**Hard rule:** Never use raw primary scale tokens for UI semantics. If you need "the action color", use `primary`. If you need "a subtle highlight", use `accent` or `muted`. The scale exists for edge cases, not daily use.
 
 ### Primary Scale (50-900)
 
@@ -103,8 +115,8 @@ Semantic colors for application states.
 | `--success-foreground` | `oklch(0.985 0 0)` | `oklch(0.20 0.05 145)` | `text-success-foreground` | Text on success backgrounds |
 | `--warning` | `oklch(0.75 0.15 85)` | `oklch(0.80 0.16 85)` | `bg-warning`, `text-warning` | Pending, restricted |
 | `--warning-foreground` | `oklch(0.28 0.07 46)` | `oklch(0.28 0.07 46)` | `text-warning-foreground` | Text on warning backgrounds |
-| `--info` | `oklch(0.55 0.18 250)` | `oklch(0.72 0.17 250)` | `bg-info`, `text-info` | Running, in-progress |
-| `--info-foreground` | `oklch(0.985 0 0)` | `oklch(0.20 0.05 250)` | `text-info-foreground` | Text on info backgrounds |
+| `--info` | `oklch(0.55 0.15 195)` | `oklch(0.72 0.14 195)` | `bg-info`, `text-info` | Running, in-progress |
+| `--info-foreground` | `oklch(0.985 0 0)` | `oklch(0.20 0.05 195)` | `text-info-foreground` | Text on info backgrounds |
 
 ### Data Visualization Palette
 
