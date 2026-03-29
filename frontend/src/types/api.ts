@@ -281,6 +281,7 @@ export interface OGCRecordProperties {
   } | null;
   record_status?: string | null;
   record_type?: string;
+  has_quicklook?: boolean;
   band_count?: number | null;
   epsg?: number | null;
   res_x?: number | null;

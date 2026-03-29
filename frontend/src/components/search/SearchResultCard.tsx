@@ -130,8 +130,8 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
-  // Quicklook: only fetch for record types that support visual previews.
-  const quicklookId = !isCollection && !isTable ? (feature.id as string) : null;
+  // Quicklook: only fetch when the backend confirms a quicklook exists.
+  const quicklookId = !isCollection && !isTable && properties.has_quicklook ? (feature.id as string) : null;
   const { src: quicklookSrc, isLoading: qlLoading, isError: qlError } = useQuicklook(quicklookId);
 
   // Provenance (for non-collection types)
