@@ -261,7 +261,7 @@ async def list_maps(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail"
+                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
                 if map_obj.thumbnail_uri
                 else None,
                 "layer_count": row[1],
@@ -1018,7 +1018,7 @@ async def get_maps_for_dataset(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail"
+                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
                 if map_obj.thumbnail_uri
                 else None,
                 "layer_count": row[1],
