@@ -595,7 +595,7 @@ export function useBuilderLayers(
 
     if (mode === 'heatmap') {
       const savedCirclePaint = { ...updatedPaint };
-      const savedHeatmapPaint = (currentStyleConfig['heatmap_paint'] as Record<string, unknown> | undefined) ?? {};
+      const savedHeatmapPaint = (currentStyleConfig['heatmapPaint'] as Record<string, unknown> | undefined) ?? {};
 
       updatedPaint = Object.keys(savedHeatmapPaint).length > 0
         ? { ...savedHeatmapPaint }
@@ -604,7 +604,7 @@ export function useBuilderLayers(
       const updatedStyleConfig = {
         ...currentStyleConfig,
         render_mode: 'heatmap',
-        saved_circle_paint: savedCirclePaint,
+        savedCirclePaint: savedCirclePaint,
       };
 
       setLocalLayers((prev) =>
@@ -618,7 +618,7 @@ export function useBuilderLayers(
       swapLayerOnMap(layer, 'heatmap', updatedPaint);
     } else {
       const savedHeatmapPaint = { ...updatedPaint };
-      const savedCirclePaint = (currentStyleConfig['saved_circle_paint'] as Record<string, unknown> | undefined) ?? {};
+      const savedCirclePaint = (currentStyleConfig['savedCirclePaint'] as Record<string, unknown> | undefined) ?? {};
 
       updatedPaint = Object.keys(savedCirclePaint).length > 0 ? savedCirclePaint : {
         'circle-color': '#3b82f6',
@@ -630,9 +630,9 @@ export function useBuilderLayers(
       const updatedStyleConfig = {
         ...currentStyleConfig,
         render_mode: 'points',
-        heatmap_paint: savedHeatmapPaint,
+        heatmapPaint: savedHeatmapPaint,
       };
-      delete updatedStyleConfig['saved_circle_paint'];
+      delete updatedStyleConfig['savedCirclePaint'];
 
       setLocalLayers((prev) =>
         prev.map((l) =>
