@@ -1,15 +1,12 @@
 import { cn } from '@/lib/utils';
-import { useWidgetStore } from '@/stores/map-widget-store';
 import { WidgetPanel } from './WidgetPanel';
-import { WidgetErrorBoundary } from './WidgetHost';
+import { WidgetErrorBoundary } from './WidgetErrorBoundary';
 import type { WidgetContext, WidgetDefinition } from './types';
 
 interface WidgetSidebarProps {
   side: 'left' | 'right';
   /** Active sidebar widgets (filtered by store) -- rendered as content */
   widgets: WidgetDefinition[];
-  /** All registered sidebar widgets for this side -- used to decide if container should exist */
-  allSidebarWidgets: WidgetDefinition[];
   ctx: WidgetContext;
 }
 
@@ -18,7 +15,7 @@ interface WidgetSidebarProps {
  * Always mounts when there are sidebar widget registrations to enable smooth
  * open/close animation via CSS translate.
  */
-export function WidgetSidebar({ side, widgets, allSidebarWidgets: _allSidebarWidgets, ctx }: WidgetSidebarProps) {
+export function WidgetSidebar({ side, widgets, ctx }: WidgetSidebarProps) {
   const isRight = side === 'right';
   const hasActive = widgets.length > 0;
 
@@ -40,11 +37,7 @@ export function WidgetSidebar({ side, widgets, allSidebarWidgets: _allSidebarWid
     >
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {widgets.map((w) => (
-          <WidgetPanel
-            key={w.id}
-            def={w}
-            onClose={() => useWidgetStore.getState().close(w.id)}
-          >
+          <WidgetPanel key={w.id} def={w}>
             <WidgetErrorBoundary widgetId={w.id}>
               <w.component ctx={ctx} />
             </WidgetErrorBoundary>

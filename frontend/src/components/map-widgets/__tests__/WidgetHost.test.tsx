@@ -54,9 +54,10 @@ describe('WidgetHost', () => {
     mockEnabledWidgets = undefined; // default: all enabled
   });
 
-  it('renders nothing when no widgets are active', () => {
-    const { container } = render(<WidgetHost ctx={testCtx} />);
-    expect(container.innerHTML).toBe('');
+  it('renders no widget content when no widgets are active', () => {
+    render(<WidgetHost ctx={testCtx} />);
+    expect(screen.queryByTestId('widget-a')).toBeNull();
+    expect(screen.queryByTestId('widget-b')).toBeNull();
   });
 
   it('renders active widgets', () => {
@@ -91,11 +92,11 @@ describe('WidgetHost', () => {
     expect(screen.queryByTestId('widget-b')).toBeNull();
   });
 
-  it('renders nothing when admin disables all widgets', () => {
+  it('renders no widget content when admin disables all widgets', () => {
     mockEnabledWidgets = []; // none enabled
     useWidgetStore.getState().open(WIDGET_A_ID);
-    const { container } = render(<WidgetHost ctx={testCtx} />);
-    expect(container.innerHTML).toBe('');
+    render(<WidgetHost ctx={testCtx} />);
+    expect(screen.queryByTestId('widget-a')).toBeNull();
   });
 
   // --- Error boundary ---

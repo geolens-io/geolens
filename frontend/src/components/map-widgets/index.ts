@@ -6,4 +6,3 @@ export { registerWidget, getWidgets, getWidget } from './registry';
 export { WidgetHost } from './WidgetHost';
 export { WidgetPanel } from './WidgetPanel';
 export { WidgetToolbar } from './WidgetToolbar';
-export { WidgetSidebar } from './WidgetSidebar';
