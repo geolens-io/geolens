@@ -186,8 +186,16 @@ export function syncLayersToMap(
 
   managedSourcesRef.current = desiredSources;
 
-  reorderDataLayers(map, layers);
+  // Only reorder when layer order actually changed (not on every paint/visibility sync)
+  const orderKey = layers.map((l) => l.id).join(',');
+  if (orderKey !== lastOrderKeyRef.current) {
+    lastOrderKeyRef.current = orderKey;
+    reorderDataLayers(map, layers);
+  }
 }
+
+/** Tracks the last layer order to avoid redundant moveLayer calls. */
+const lastOrderKeyRef = { current: '' };
 
 /** Reorder MapLibre layers so first in array renders on top (matches UI list).
  *  Reverse iterate: moveLayer() without beforeId moves to top of stack,
