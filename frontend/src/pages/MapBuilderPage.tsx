@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { BuilderMap } from '@/components/builder/BuilderMap';
 import { LayerPanel } from '@/components/builder/LayerPanel';
 import { LayerInspector } from '@/components/builder/LayerInspector';
-import { BasemapPicker } from '@/components/builder/BasemapPicker';
 import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
 import { ShareDialog } from '@/components/builder/SharePanel';
 import { ChatPanel } from '@/components/builder/ChatPanel';
@@ -205,8 +204,19 @@ export function MapBuilderPage() {
   }, [save.maybeAutoCaptureThumbnail]);
 
   const widgetCtx = useMemo(
-    () => ({ mapInstance, layers: layers.localLayers, mapId: id! }),
-    [mapInstance, layers.localLayers, id],
+    () => ({
+      mapInstance,
+      layers: layers.localLayers,
+      mapId: id!,
+      basemap: {
+        value: layers.localBasemap,
+        onChange: layers.setLocalBasemap,
+        showLabels: layers.showBasemapLabels,
+        onToggleLabels: layers.setShowBasemapLabels,
+        onDirty: layers.markDirty,
+      },
+    }),
+    [mapInstance, layers.localLayers, id, layers.localBasemap, layers.showBasemapLabels, layers.setLocalBasemap, layers.setShowBasemapLabels, layers.markDirty],
   );
 
   if (isLoading) {
@@ -418,19 +428,6 @@ export function MapBuilderPage() {
             onAddDataClick={() => dialogs.setShowAddData(true)}
             inspectorMode={useInspector}
           />
-
-          <div className="border-t pt-3 px-2">
-            <h3 className="text-sm font-medium mb-2">{t('basemap.title')}</h3>
-            <BasemapPicker
-              value={layers.localBasemap}
-              onChange={(key) => {
-                layers.setLocalBasemap(key);
-                layers.markDirty();
-              }}
-              showLabels={layers.showBasemapLabels}
-              onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
-            />
-          </div>
 
           <WidgetSidebarSection ctx={widgetCtx} />
 

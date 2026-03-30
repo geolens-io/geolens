@@ -340,6 +340,9 @@
       "label": "Leyenda",
       "noLayers": "Sin capas visibles"
     },
+    "basemap": {
+      "label": "Mapa base"
+    },
     "closeWidget": "Cerrar widget",
     "widgetError": "Este widget encontró un error"
   },
