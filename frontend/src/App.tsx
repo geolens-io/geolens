@@ -20,7 +20,7 @@ const CollectionDetailPage = lazy(() => import('./pages/CollectionDetailPage').t
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const ImportPage = lazy(() => import('./pages/ImportPage').then(m => ({ default: m.ImportPage })));
 const MapsPage = lazy(() => import('./pages/MapsPage').then(m => ({ default: m.MapsPage })));
-const MapBuilderPage = lazy(() => import('./pages/MapBuilderPage').then(m => ({ default: m.MapBuilderPage })));
+const MapViewerGate = lazy(() => import('./pages/MapViewerGate').then(m => ({ default: m.MapViewerGate })));
 const AdminOverviewPage = lazy(() => import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage })));
 const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage').then(m => ({ default: m.AdminUsersPage })));
 const AdminJobsPage = lazy(() => import('./pages/admin/AdminJobsPage').then(m => ({ default: m.AdminJobsPage })));
@@ -54,14 +54,14 @@ export const appRoutes = (
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} />
+      <Route path="maps" element={<MapsPage />} />
+      <Route path="maps/:id" element={<MapViewerGate />} errorElement={<RouteErrorBoundary />} />
 
       {/* Protected routes — auth required */}
       <Route element={<ProtectedRoute />}>
         <Route path="settings" element={<SettingsPage />} />
         <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} />
-          <Route path="maps" element={<MapsPage />} />
-          <Route path="maps/:id" element={<MapBuilderPage />} errorElement={<RouteErrorBoundary />} />
         </Route>
         <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
           <Route element={<AdminLayout />}>

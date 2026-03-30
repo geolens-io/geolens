@@ -25,6 +25,7 @@ import { MapDeleteDialog } from '@/components/maps/MapDeleteDialog';
 import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useAuthStore } from '@/stores/auth-store';
 
 const PAGE_SIZE = 20;
 const VIEW_STORAGE_KEY = 'geolens-maps-view';
@@ -39,6 +40,7 @@ function getStoredView(): string {
 
 export function MapsPage() {
   const { t } = useTranslation();
+  const isEditor = useAuthStore((s) => s.isEditor());
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -109,7 +111,15 @@ export function MapsPage() {
       <PageHeader
         title={t('maps.title')}
         actions={
-          data ? <Badge variant="secondary">{data.total}</Badge> : undefined
+          <div className="flex items-center gap-2">
+            {data && <Badge variant="secondary">{data.total}</Badge>}
+            {isEditor && (
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                {t('maps.createMap', 'Create Map')}
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -139,20 +149,22 @@ export function MapsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={visibility} onValueChange={setVisibility}>
-          <SelectTrigger
-            className="w-[140px]"
-            aria-label={t('maps.visibility')}
-          >
-            <SelectValue placeholder={t('maps.visibility')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('maps.allMaps')}</SelectItem>
-            <SelectItem value="private">{t('maps.private')}</SelectItem>
-            <SelectItem value="internal">{t('maps.internal')}</SelectItem>
-            <SelectItem value="public">{t('maps.public')}</SelectItem>
-          </SelectContent>
-        </Select>
+        {isEditor && (
+          <Select value={visibility} onValueChange={setVisibility}>
+            <SelectTrigger
+              className="w-[140px]"
+              aria-label={t('maps.visibility')}
+            >
+              <SelectValue placeholder={t('maps.visibility')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('maps.allMaps')}</SelectItem>
+              <SelectItem value="private">{t('maps.private')}</SelectItem>
+              <SelectItem value="internal">{t('maps.internal')}</SelectItem>
+              <SelectItem value="public">{t('maps.public')}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
 
         <ToggleGroup
           type="single"
@@ -191,7 +203,7 @@ export function MapsPage() {
               : t('maps.noMapsDescription')
           }
           action={
-            !debouncedSearch && visibility === 'all' ? (
+            !debouncedSearch && visibility === 'all' && isEditor ? (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 {t('maps.createFirstMap')}
@@ -204,7 +216,7 @@ export function MapsPage() {
       {data && data.maps.length > 0 && viewMode === 'list' && (
         <div className="space-y-4">
           {data.maps.map((map) => (
-            <MapCard key={map.id} map={map} onDelete={handleDeleteClick} />
+            <MapCard key={map.id} map={map} onDelete={isEditor ? handleDeleteClick : undefined} />
           ))}
         </div>
       )}
@@ -212,7 +224,7 @@ export function MapsPage() {
       {data && data.maps.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.maps.map((map) => (
-            <MapCardGrid key={map.id} map={map} onDelete={handleDeleteClick} />
+            <MapCardGrid key={map.id} map={map} onDelete={isEditor ? handleDeleteClick : undefined} />
           ))}
         </div>
       )}
@@ -226,15 +238,19 @@ export function MapsPage() {
         />
       )}
 
-      <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {isEditor && (
+        <>
+          <MapCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
 
-      <MapDeleteDialog
-        open={!!deletingMap}
-        onOpenChange={(open) => !open && setDeletingMap(null)}
-        mapName={deletingMap?.name ?? ''}
-        onConfirm={handleDeleteConfirm}
-        isDeleting={deleteMap.isPending}
-      />
+          <MapDeleteDialog
+            open={!!deletingMap}
+            onOpenChange={(open) => !open && setDeletingMap(null)}
+            mapName={deletingMap?.name ?? ''}
+            onConfirm={handleDeleteConfirm}
+            isDeleting={deleteMap.isPending}
+          />
+        </>
+      )}
     </PageShell>
   );
 }

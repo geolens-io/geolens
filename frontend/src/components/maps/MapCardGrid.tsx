@@ -87,22 +87,24 @@ export function MapCardGrid({ map, onDelete }: MapCardProps) {
             </span>
           </div>
 
-          <div className="flex justify-end">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors duration-150"
-                  onClick={() => onDelete(map.id)}
-                  aria-label={t('maps.card.delete')}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">{t('maps.card.delete')}</TooltipContent>
-            </Tooltip>
-          </div>
+          {onDelete && (
+            <div className="flex justify-end">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors duration-150"
+                    onClick={() => onDelete(map.id)}
+                    aria-label={t('maps.card.delete')}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">{t('maps.card.delete')}</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
         </div>
       </Card>
     </TooltipProvider>
