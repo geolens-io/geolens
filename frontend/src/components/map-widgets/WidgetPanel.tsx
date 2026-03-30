@@ -1,14 +1,15 @@
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import type { WidgetDefinition } from './types';
 
 interface WidgetPanelProps {
   def: WidgetDefinition;
-  onClose: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-export function WidgetPanel({ def, onClose, children }: WidgetPanelProps) {
+export function WidgetPanel({ def, children }: WidgetPanelProps) {
   const { t } = useTranslation('builder');
   const Icon = def.icon;
 
@@ -18,7 +19,7 @@ export function WidgetPanel({ def, onClose, children }: WidgetPanelProps) {
         <Icon className="h-3.5 w-3.5 shrink-0 text-foreground/70" />
         <span className="text-xs font-medium flex-1">{t(def.labelKey)}</span>
         <button
-          onClick={onClose}
+          onClick={() => useWidgetStore.getState().close(def.id)}
           className="shrink-0 rounded p-0.5 hover:bg-accent/50 text-foreground/50 hover:text-foreground transition-colors"
           aria-label={t('widgets.closeWidget')}
         >
