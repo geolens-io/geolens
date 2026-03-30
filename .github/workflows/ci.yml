@@ -40,21 +40,6 @@ jobs:
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgis/postgis:17-3.5
-        env:
-          POSTGRES_DB: geolens_test
-          POSTGRES_USER: geolens
-          POSTGRES_PASSWORD: geolens_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U geolens -d geolens_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-          --health-start-period 15s
     defaults:
       run:
         working-directory: backend
@@ -69,6 +54,30 @@ jobs:
       GEOLENS_ADMIN_PASSWORD: admin
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=geolens_test \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d geolens_test >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
 
       - uses: astral-sh/setup-uv@v6
         with:

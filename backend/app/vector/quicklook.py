@@ -44,7 +44,6 @@ def _geo_to_pixel(
     return (px, py)
 
 
-
 def _draw_geometry(
     draw: ImageDraw.ImageDraw,
     geom,

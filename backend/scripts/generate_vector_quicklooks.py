@@ -30,19 +30,14 @@ async def main() -> None:
 
     async with async_session() as db:
         # Raw SQL to avoid ORM relationship issues
-        where_clause = (
-            ""
-            if force
-            else "  AND d.quicklook_256_uri IS NULL"
-        )
+        where_clause = "" if force else "  AND d.quicklook_256_uri IS NULL"
         result = await db.execute(
             text(
                 "SELECT d.id, d.table_name, d.geometry_type "
                 "FROM catalog.datasets d "
                 "JOIN catalog.records r ON d.record_id = r.id "
                 "WHERE r.record_type = 'vector_dataset' "
-                "  AND d.table_name IS NOT NULL"
-                + where_clause
+                "  AND d.table_name IS NOT NULL" + where_clause
             )
         )
         rows = result.fetchall()
