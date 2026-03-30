@@ -47,7 +47,9 @@ const outputDir = path.resolve(
     ),
 );
 
-const manifest = JSON.parse(fs.readFileSync(targetsPath, 'utf8')) as TargetManifest;
+const manifest: TargetManifest = fs.existsSync(targetsPath)
+  ? (JSON.parse(fs.readFileSync(targetsPath, 'utf8')) as TargetManifest)
+  : { targets: {} as Record<RecordType, AuditTarget | null> };
 
 function ensureDir(dirPath: string) {
   fs.mkdirSync(dirPath, { recursive: true });
