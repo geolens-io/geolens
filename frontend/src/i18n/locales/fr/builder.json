@@ -342,9 +342,6 @@
       "label": "Légende",
       "noLayers": "Aucune couche visible"
     },
-    "basemap": {
-      "label": "Fond de carte"
-    },
     "closeWidget": "Fermer le widget",
     "widgetError": "Ce widget a rencontré une erreur"
   },

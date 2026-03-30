@@ -342,9 +342,6 @@
       "label": "Legende",
       "noLayers": "Keine sichtbaren Layer"
     },
-    "basemap": {
-      "label": "Basiskarte"
-    },
     "closeWidget": "Widget schließen",
     "widgetError": "Dieses Widget ist auf einen Fehler gestoßen"
   },
