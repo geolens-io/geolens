@@ -457,7 +457,9 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Original Map")
         map_id = created["id"]
 
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Original Map (copy)"
@@ -516,7 +518,9 @@ class TestDuplicateMap:
         )
 
         # Duplicate
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["layer_count"] == 1
@@ -528,7 +532,9 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Source Map")
         map_id = created["id"]
 
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["forked_from_id"] == map_id
@@ -587,7 +593,9 @@ class TestDuplicateMap:
         assert r1.json()["name"] == "Chain Test (copy)"
 
         # Fork the fork
-        r2 = await client.post(f"/maps/{fork1_id}/duplicate/", headers=admin_auth_header)
+        r2 = await client.post(
+            f"/maps/{fork1_id}/duplicate/", headers=admin_auth_header
+        )
         assert r2.status_code == 201
         assert r2.json()["name"] == "Chain Test (copy 2)"
 
@@ -700,7 +708,9 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
 
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["layer_count"] == 1
@@ -718,7 +728,9 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
 
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         assert resp.json()["visibility"] == "private"
 
@@ -804,7 +816,9 @@ class TestDuplicateMap:
             headers={**admin_auth_header, "content-type": "text/plain"},
         )
 
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         assert resp.json()["thumbnail_url"] is None
 
@@ -826,7 +840,9 @@ class TestDuplicateMap:
         assert resp.json()["widgets"] == widget_ids
 
         # Duplicate
-        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=admin_auth_header
+        )
         assert resp.status_code == 201
         assert resp.json()["widgets"] == widget_ids
 
