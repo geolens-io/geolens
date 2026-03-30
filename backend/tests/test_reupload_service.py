@@ -122,7 +122,7 @@ class TestServiceReuploadCommitDispatch:
                 headers=admin_auth_header,
             )
 
-        assert resp.status_code == 200
+        assert resp.status_code == 202
         payload = resp.json()
         assert payload["status"] == "pending"
         assert payload["message"] == "Re-upload queued"

@@ -552,7 +552,7 @@ async def test_enabled_widgets_null_means_all(
 
     resp = await client.get("/settings/enabled-widgets/")
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json() is None  # null = no restriction (all widgets enabled)
 
 
 @pytest.mark.anyio
@@ -655,8 +655,10 @@ async def test_cors_preflight_returns_200(client: AsyncClient, admin_auth_header
 
 
 @pytest.mark.anyio
-async def test_cors_wildcard_allows_all(client: AsyncClient, admin_auth_header: dict):
-    """Origin '*' in allowed origins permits all origins."""
+async def test_cors_wildcard_rejected_with_credentials(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Wildcard '*' is rejected — credentials=true requires explicit origins."""
     await client.put(
         "/settings/",
         json={"settings": {"cors_allowed_origins": "*"}},
@@ -665,7 +667,7 @@ async def test_cors_wildcard_allows_all(client: AsyncClient, admin_auth_header: 
 
     resp = await client.get("/health", headers={"Origin": "http://anything.com"})
     assert resp.status_code == 200
-    assert resp.headers.get("access-control-allow-origin") == "http://anything.com"
+    assert "access-control-allow-origin" not in resp.headers
 
 
 @pytest.mark.anyio
