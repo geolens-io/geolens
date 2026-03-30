@@ -159,7 +159,7 @@ services:
       start_period: 10s
 
   titiler:
-    image: ghcr.io/developmentseed/titiler:latest
+    image: ghcr.io/developmentseed/titiler:2.0.0
     command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
       GDAL_CACHEMAX: "200"
@@ -251,7 +251,7 @@ services:
       start_period: 5s
 
   minio-setup:
-    image: quay.io/minio/mc:latest
+    image: quay.io/minio/mc:RELEASE.2025-02-18T16-25-36Z
     profiles: ["cloud-dev"]
     depends_on:
       minio:

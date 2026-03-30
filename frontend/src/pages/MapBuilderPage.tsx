@@ -202,6 +202,7 @@ export function MapBuilderPage() {
     (mapInstanceRef as React.MutableRefObject<MaplibreMap | null>).current = map;
     setMapInstance(map);
     if (map) save.maybeAutoCaptureThumbnail(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the method reference matters, not the whole `save` object
   }, [save.maybeAutoCaptureThumbnail]);
 
   const widgetCtx = useMemo(

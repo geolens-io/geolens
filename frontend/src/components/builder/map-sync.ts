@@ -1,7 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
-import { MAP_COLORS } from '@/lib/map-colors';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
