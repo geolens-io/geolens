@@ -61,7 +61,7 @@ jobs:
 
       # Build local image for security scanning (single platform)
       - name: Build image for scanning
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           load: true
@@ -81,7 +81,7 @@ jobs:
       # Push multi-arch images (only runs if scan passes)
       - name: Build and push
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
