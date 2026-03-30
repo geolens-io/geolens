@@ -87,9 +87,11 @@ services:
     # Runs as root so the entrypoint can fix volume ownership, then drops to
     # uid 1001 (appuser) via setpriv before exec-ing the application.
     user: "0:0"
+    init: true
+    stop_grace_period: 30s
     entrypoint: ["/app/scripts/api-entrypoint.sh"]
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
@@ -131,6 +133,8 @@ services:
       context: ./backend
     # See api service comment — same root-then-drop pattern for volume ownership.
     user: "0:0"
+    init: true
+    stop_grace_period: 35s
     entrypoint: ["/app/scripts/worker-entrypoint.sh"]
     volumes:
       - ./backend/app:/app/app
