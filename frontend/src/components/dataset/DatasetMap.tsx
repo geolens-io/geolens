@@ -385,8 +385,16 @@ export function DatasetMap({
             if (id === 'basemap' || next.sources?.[id]) continue;
             customSources[id] = src;
           }
+          // Only carry over layers whose source exists in the merged style
+          const mergedSourceIds = new Set([
+            ...Object.keys(next.sources ?? {}),
+            ...Object.keys(customSources),
+          ]);
           for (const layer of _prev.layers || []) {
-            if (!next.layers?.some((l) => l.id === layer.id)) customLayers.push(layer);
+            if (next.layers?.some((l) => l.id === layer.id)) continue;
+            const src = (layer as { source?: string }).source;
+            if (src && !mergedSourceIds.has(src)) continue;
+            customLayers.push(layer);
           }
         }
         return {
