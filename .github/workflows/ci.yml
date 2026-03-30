@@ -52,6 +52,7 @@ jobs:
       JWT_SECRET_KEY: test-secret-key-for-ci
       GEOLENS_ADMIN_USERNAME: admin
       GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
 
