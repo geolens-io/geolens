@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Visibility = Literal["private", "internal", "public"]
+Visibility = Literal["private", "restricted", "internal", "public"]
 
 
 class UploadResponse(BaseModel):

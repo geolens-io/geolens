@@ -155,7 +155,7 @@ async def dataset_maps(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
-) -> dict:
+):
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.maps.schemas import MapListResponse
     from app.maps.service import get_maps_for_dataset
