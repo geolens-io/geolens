@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 Phase: 211
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-03-29 - Completed quick task 260329-rr9: programmatic widget placement (floating w/anchor or sidebar)
+Last activity: 2026-03-30 - Completed quick task 260330-qey: public users should be able to see public maps
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -271,10 +271,12 @@ Progress: [░░░░░░░░░░] 0%
 | 260329-p4p | Basemap thumbnails: static PNGs, globe fallback, larger size | 2026-03-29 | eb77a79e | Verified | [260329-p4p-in-map-creator-basemap-thumbnails-are-no](./quick/260329-p4p-in-map-creator-basemap-thumbnails-are-no/) |
 | 260329-r8z | Fix measure widget not working in map creator | 2026-03-29 | 0fbc33ce | Verified | [260329-r8z-measure-widget-doesnt-work-in-the-map-cr](./quick/260329-r8z-measure-widget-doesnt-work-in-the-map-cr/) |
 | 260329-rr9 | Programmatic widget placement (floating w/anchor or sidebar) | 2026-03-29 | 3c233b5e | Verified | [260329-rr9-programmatic-widget-option-for-placement](./quick/260329-rr9-programmatic-widget-option-for-placement/) |
+| 260330-ltj | Enhance map creator with heatmap and visualization capabilities | 2026-03-30 | 0d8e4d08 | Verified | [260330-ltj-enhance-map-creator-with-heatmap-and-vis](./quick/260330-ltj-enhance-map-creator-with-heatmap-and-vis/) |
+| 260330-qey | Public users should be able to see public maps | 2026-03-30 | a22e31f3 | Verified | [260330-qey-as-a-public-user-i-should-be-able-to-see](./quick/260330-qey-as-a-public-user-i-should-be-able-to-see/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-29 - Completed quick task 260329-r8z: Fix measure widget not working in map creator
+Last activity: 2026-03-30 - Completed quick task 260330-qey: public users should be able to see public maps
 Last session: 2026-03-29T12:29:00.489Z
 Stopped at: Completed 260329-bn7-PLAN.md
 Resume file: None
