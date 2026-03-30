@@ -41,7 +41,7 @@ class CreateEmptyDatasetRequest(BaseModel):
     columns: list[ColumnDefinition]
 
 
-Visibility = Literal["private", "internal", "public"]
+Visibility = Literal["private", "restricted", "internal", "public"]
 
 
 class DatasetCreate(BaseModel):
