@@ -21,6 +21,16 @@ export function buildHeatmapColorExpression(rampName: string): unknown[] {
 
 const DEFAULT_RAMP = 'YlOrRd';
 
+/** Default paint properties for a new heatmap layer. */
+export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
+  'heatmap-radius': 30,
+  'heatmap-weight': 1,
+  'heatmap-intensity': 1,
+  'heatmap-color': buildHeatmapColorExpression(DEFAULT_RAMP),
+  'heatmap-opacity': 0.8,
+  '_heatmap-ramp': DEFAULT_RAMP,
+};
+
 export const heatmapAdapter: LayerAdapter = {
   type: 'heatmap',
 
