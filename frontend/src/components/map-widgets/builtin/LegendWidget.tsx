@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
+import { getRampColors } from '@/lib/color-ramps';
 import { cn } from '@/lib/utils';
 import type { WidgetContext } from '../types';
 
@@ -30,7 +31,14 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
         return (
           <div key={layer.id}>
             <div className="p-1 text-xs">
-              {layer.style_config?.column ? (
+              {(layer.style_config as Record<string, unknown> | undefined)?.render_mode === 'heatmap' ? (
+                <HeatmapLegend
+                  name={layer.display_name ?? layer.dataset_name}
+                  rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? 'YlOrRd'}
+                  weightColumn={(layer.paint?.['_heatmap-weight-column'] as string) ?? undefined}
+                  opacity={opacity}
+                />
+              ) : layer.style_config?.column ? (
                 <>
                   <div className="font-medium text-foreground mb-1 truncate">
                     {layer.display_name ?? layer.dataset_name}
@@ -190,6 +198,41 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function HeatmapLegend({
+  name,
+  rampName,
+  weightColumn,
+  opacity,
+}: {
+  name: string;
+  rampName: string;
+  weightColumn?: string;
+  opacity: number;
+}) {
+  const { t } = useTranslation('builder');
+  const colors = getRampColors(rampName, 6);
+  const gradient = `linear-gradient(to right, ${colors.join(', ')})`;
+
+  return (
+    <div style={opacity < 1 ? { opacity } : undefined}>
+      <div className="font-medium text-foreground mb-1 truncate">{name}</div>
+      <div
+        className="h-3 rounded-sm w-full"
+        style={{ background: gradient }}
+      />
+      <div className="flex justify-between mt-0.5">
+        <span className="text-[10px] text-muted-foreground">{t('widgets.legend.low')}</span>
+        <span className="text-[10px] text-muted-foreground">{t('widgets.legend.high')}</span>
+      </div>
+      {weightColumn && (
+        <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+          {t('widgets.legend.weightedBy', { column: weightColumn })}
+        </div>
+      )}
     </div>
   );
 }

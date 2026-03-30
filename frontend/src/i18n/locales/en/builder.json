@@ -350,7 +350,10 @@
     },
     "legend": {
       "label": "Legend",
-      "noLayers": "No visible layers"
+      "noLayers": "No visible layers",
+      "low": "Low",
+      "high": "High",
+      "weightedBy": "Weighted by: {{column}}"
     },
     "closeWidget": "Close widget",
     "widgetError": "This widget encountered an error"

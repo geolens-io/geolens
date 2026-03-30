@@ -350,7 +350,10 @@
     },
     "legend": {
       "label": "Legende",
-      "noLayers": "Keine sichtbaren Layer"
+      "noLayers": "Keine sichtbaren Layer",
+      "low": "Niedrig",
+      "high": "Hoch",
+      "weightedBy": "Gewichtet nach: {{column}}"
     },
     "closeWidget": "Widget schließen",
     "widgetError": "Dieses Widget ist auf einen Fehler gestoßen"
