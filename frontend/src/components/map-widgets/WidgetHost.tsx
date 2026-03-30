@@ -72,27 +72,3 @@ export function WidgetHost({ byAnchor, ctx }: WidgetHostProps) {
     </>
   );
 }
-
-interface WidgetSidebarSectionProps {
-  sidebar: WidgetDefinition[];
-  ctx: WidgetContext;
-}
-
-/** Renders sidebar-mode widgets as sections inside the existing builder sidebar */
-export function WidgetSidebarSection({ sidebar, ctx }: WidgetSidebarSectionProps) {
-  if (sidebar.length === 0) return null;
-
-  return (
-    <>
-      {sidebar.map((w) => (
-        <div key={w.id} className="border-t pt-3 px-2">
-          <WidgetPanel def={w} showClose={false}>
-            <WidgetErrorBoundary widgetId={w.id}>
-              <w.component ctx={ctx} />
-            </WidgetErrorBoundary>
-          </WidgetPanel>
-        </div>
-      ))}
-    </>
-  );
-}

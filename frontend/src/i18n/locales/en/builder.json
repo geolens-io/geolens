@@ -342,9 +342,6 @@
       "label": "Legend",
       "noLayers": "No visible layers"
     },
-    "basemap": {
-      "label": "Basemap"
-    },
     "closeWidget": "Close widget",
     "widgetError": "This widget encountered an error"
   },

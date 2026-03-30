@@ -46,7 +46,8 @@ import { useBuilderLayout } from '@/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/hooks/use-builder-layers';
 import { useBuilderSave } from '@/hooks/use-builder-save';
-import { WidgetHost, WidgetToolbar, WidgetSidebarSection, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
+import { BasemapPicker } from '@/components/builder/BasemapPicker';
+import { WidgetHost, WidgetToolbar, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
@@ -204,23 +205,11 @@ export function MapBuilderPage() {
   }, [save.maybeAutoCaptureThumbnail]);
 
   const widgetCtx = useMemo(
-    () => ({
-      mapInstance,
-      layers: layers.localLayers,
-      mapId: id!,
-      basemap: {
-        value: layers.localBasemap,
-        onChange: layers.setLocalBasemap,
-        showLabels: layers.showBasemapLabels,
-        onToggleLabels: layers.setShowBasemapLabels,
-        onDirty: layers.markDirty,
-      },
-    }),
-    // setLocalBasemap, setShowBasemapLabels (useState setters) and markDirty (useCallback) are stable refs
-    [mapInstance, layers.localLayers, id, layers.localBasemap, layers.showBasemapLabels],
+    () => ({ mapInstance, layers: layers.localLayers, mapId: id! }),
+    [mapInstance, layers.localLayers, id],
   );
 
-  const { byAnchor, sidebar } = usePartitionedWidgets();
+  const { byAnchor } = usePartitionedWidgets();
 
   if (isLoading) {
     return (
@@ -432,7 +421,18 @@ export function MapBuilderPage() {
             inspectorMode={useInspector}
           />
 
-          <WidgetSidebarSection sidebar={sidebar} ctx={widgetCtx} />
+          <div className="border-t pt-3 px-2">
+            <h3 className="text-sm font-medium mb-2">{t('basemap.title')}</h3>
+            <BasemapPicker
+              value={layers.localBasemap}
+              onChange={(key) => {
+                layers.setLocalBasemap(key);
+                layers.markDirty();
+              }}
+              showLabels={layers.showBasemapLabels}
+              onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
+            />
+          </div>
 
         </div>
       </div>

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { getThemeBasemap, toMaplibreStyle } from '@/lib/basemap-utils';
+import { getThemeBasemap, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
+import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useTerraDraw } from '@/hooks/use-terra-draw';
 import { useFeatureEditing, showAllFeaturesInTiles } from '@/hooks/use-feature-editing';
@@ -76,9 +77,13 @@ export function DatasetMap({
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
   const { data: tileToken } = useTileToken(datasetId);
+  const [userBasemapId, setUserBasemapId] = useState<string | null>(null);
   const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
-  const basemapStyle = themeBasemap
-    ? toMaplibreStyle(themeBasemap.url, themeBasemap.attribution)
+  const activeBasemap = userBasemapId
+    ? findBasemapById(basemaps ?? [], userBasemapId) ?? themeBasemap
+    : themeBasemap;
+  const basemapStyle = activeBasemap
+    ? toMaplibreStyle(activeBasemap.url, activeBasemap.attribution)
     : toMaplibreStyle(
         resolvedTheme === 'dark'
           ? 'https://tiles.openfreemap.org/styles/dark'
@@ -638,6 +643,13 @@ export function DatasetMap({
           </Button>
         </div>
       )}
+
+      {/* Basemap toggle */}
+      <BasemapToggle
+        value={activeBasemap?.id ?? ''}
+        onChange={setUserBasemapId}
+        className="absolute bottom-3 left-3 z-10"
+      />
 
       {/* Zoom-to-extent and fullscreen controls */}
       <div className={cn("absolute z-10 flex flex-col gap-1 right-[10px]", showNavControl ? "top-[120px]" : "top-3")}>
