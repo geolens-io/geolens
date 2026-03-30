@@ -121,12 +121,21 @@ interface SliderRowProps {
   min: number;
   max: number;
   step: number;
-  display: string;
   onChange: (val: number) => void;
+  /** Pre-computed display string. Takes precedence over `format`. */
+  display?: string;
+  /** Format shorthand: percent (0-1 → "50%"), px ("5px"), zoom ("3"). */
+  format?: 'percent' | 'px' | 'zoom';
+}
+
+function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string {
+  if (format === 'percent') return `${Math.round(value * 100)}%`;
+  if (format === 'px') return `${value}px`;
+  return `${value}`;
 }
 
 /** Shared slider row component used by heatmap controls and style editor. */
-export function SliderRow({ label, value, min, max, step, display, onChange }: SliderRowProps) {
+export function SliderRow({ label, value, min, max, step, display, format, onChange }: SliderRowProps) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground w-20">{label}</span>
@@ -138,7 +147,9 @@ export function SliderRow({ label, value, min, max, step, display, onChange }: S
         onValueChange={([v]) => onChange(v)}
         className="flex-1"
       />
-      <span className="text-xs text-muted-foreground w-10 text-right">{display}</span>
+      <span className="text-xs text-muted-foreground w-10 text-right">
+        {display ?? formatValue(value, format)}
+      </span>
     </div>
   );
 }
