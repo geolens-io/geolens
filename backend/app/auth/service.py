@@ -133,6 +133,24 @@ class AuthService:
         await self.db.commit()
         return new_access, new_refresh
 
+    async def revoke_all_refresh_tokens(self, user_id: uuid.UUID) -> int:
+        """Revoke all active refresh tokens for a user (logout).
+
+        Returns the number of tokens revoked.
+        """
+        from sqlalchemy import update
+
+        result = await self.db.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked == False,  # noqa: E712
+            )
+            .values(revoked=True)
+        )
+        await self.db.commit()
+        return result.rowcount
+
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------

@@ -48,9 +48,12 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if not raw:
             return False
 
-        # Parse comma-separated origins
+        # Parse comma-separated origins.
+        # Wildcard is rejected — credentials=true requires explicit origins.
         origins = [o.strip() for o in raw.split(",") if o.strip()]
-        return "*" in origins or origin in origins
+        if "*" in origins:
+            return False
+        return origin in origins
 
     @staticmethod
     def _set_cors_headers(response: Response, origin: str) -> None:

@@ -129,9 +129,9 @@ async def generate_vector_quicklook(
     bounds_sql = text(
         f"SELECT ST_XMin(e) AS minx, ST_YMin(e) AS miny, "
         f"       ST_XMax(e) AS maxx, ST_YMax(e) AS maxy, "
-        f"       (SELECT reltuples::bigint FROM pg_class WHERE relname = '{table_name}') AS est_rows "
+        f"       (SELECT reltuples::bigint FROM pg_class WHERE relname = :tname) AS est_rows "
         f"FROM (SELECT ST_Extent(geom_4326) AS e FROM data.{table_name} WHERE geom_4326 IS NOT NULL) sub"
-    )
+    ).bindparams(tname=table_name)
     bounds_result = await db.execute(bounds_sql)
     bounds_row = bounds_result.fetchone()
 
