@@ -3,7 +3,6 @@ import { useWidgetStore } from '@/stores/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
 import { WidgetPanel } from './WidgetPanel';
-import { WidgetSidebar } from './WidgetSidebar';
 import { WidgetErrorBoundary } from './WidgetErrorBoundary';
 import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 
@@ -14,15 +13,12 @@ const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'bottom-right': 'absolute bottom-4 right-4 z-10 flex flex-col gap-2',
 };
 
-interface WidgetHostProps {
-  ctx: WidgetContext;
-}
-
-export function WidgetHost({ ctx }: WidgetHostProps) {
+/** Shared hook: partition active+enabled widgets by placement mode */
+export function usePartitionedWidgets() {
   const activeWidgets = useWidgetStore((s) => s.activeWidgets);
   const { data: enabledWidgetIds } = useEnabledWidgets();
 
-  const { byAnchor, sidebarLeft, sidebarRight } = useMemo(() => {
+  return useMemo(() => {
     const allRegistered = getWidgets();
     const enabledSet = enabledWidgetIds == null ? null : new Set(enabledWidgetIds);
 
@@ -31,23 +27,28 @@ export function WidgetHost({ ctx }: WidgetHostProps) {
     );
 
     const byAnchor: Record<string, WidgetDefinition[]> = {};
-    const sidebarLeft: WidgetDefinition[] = [];
-    const sidebarRight: WidgetDefinition[] = [];
+    const sidebar: WidgetDefinition[] = [];
 
     for (const w of definitions) {
       if (w.placement.mode === 'floating') {
         const anchor = w.placement.anchor;
         (byAnchor[anchor] ??= []).push(w);
-      } else if (w.placement.side === 'left') {
-        sidebarLeft.push(w);
       } else {
-        sidebarRight.push(w);
+        sidebar.push(w);
       }
     }
 
-    return { byAnchor, sidebarLeft, sidebarRight };
+    return { byAnchor, sidebar };
   }, [activeWidgets, enabledWidgetIds]);
+}
 
+interface WidgetHostProps {
+  ctx: WidgetContext;
+}
+
+/** Renders floating widgets anchored to map corners */
+export function WidgetHost({ ctx }: WidgetHostProps) {
+  const { byAnchor } = usePartitionedWidgets();
   const anchors = Object.keys(ANCHOR_POSITIONS) as WidgetAnchor[];
 
   return (
@@ -68,8 +69,31 @@ export function WidgetHost({ ctx }: WidgetHostProps) {
           </div>
         );
       })}
-      <WidgetSidebar side="left" widgets={sidebarLeft} ctx={ctx} />
-      <WidgetSidebar side="right" widgets={sidebarRight} ctx={ctx} />
+    </>
+  );
+}
+
+interface WidgetSidebarSectionProps {
+  ctx: WidgetContext;
+}
+
+/** Renders sidebar-mode widgets as sections inside the existing builder sidebar */
+export function WidgetSidebarSection({ ctx }: WidgetSidebarSectionProps) {
+  const { sidebar } = usePartitionedWidgets();
+
+  if (sidebar.length === 0) return null;
+
+  return (
+    <>
+      {sidebar.map((w) => (
+        <div key={w.id} className="border-t pt-3 px-2">
+          <WidgetPanel def={w}>
+            <WidgetErrorBoundary widgetId={w.id}>
+              <w.component ctx={ctx} />
+            </WidgetErrorBoundary>
+          </WidgetPanel>
+        </div>
+      ))}
     </>
   );
 }
