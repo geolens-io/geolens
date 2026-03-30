@@ -8,11 +8,43 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # ---------- detect changed paths for conditional jobs ----------
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker-compose*.yml'
+              - 'Dockerfile*'
+            frontend:
+              - 'frontend/**'
+            e2e:
+              - 'backend/**'
+              - 'frontend/**'
+              - 'e2e/**'
+              - 'playwright.config.ts'
+              - 'docker-compose*.yml'
+
+  # ---------- backend ----------
   backend-lint:
     name: Backend Lint
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,6 +71,8 @@ jobs:
 
   backend-test:
     name: Backend Tests
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -126,8 +160,11 @@ jobs:
           path: backend/htmlcov/
           retention-days: 14
 
+  # ---------- frontend ----------
   frontend-lint:
     name: Frontend Lint & Typecheck
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -160,6 +197,8 @@ jobs:
 
   frontend-test:
     name: Frontend Tests
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -187,8 +226,11 @@ jobs:
           path: frontend/coverage/
           retention-days: 14
 
+  # ---------- security ----------
   security-scan:
     name: Security Scan
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -213,8 +255,10 @@ jobs:
       - name: Run pip-audit (dependency vulnerability scan)
         run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539
 
+  # ---------- E2E (only on push to main) ----------
   e2e-test:
     name: E2E Tests
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
