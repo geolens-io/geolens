@@ -4,15 +4,13 @@ import { useWidgetStore } from '@/stores/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
 import { WidgetPanel } from './WidgetPanel';
-import type { WidgetContext, WidgetSlot, WidgetDefinition } from './types';
+import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 
-const SLOT_POSITIONS: Record<WidgetSlot, string> = {
+const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'top-left': 'absolute top-3 left-3 z-10 flex flex-col gap-2',
   'top-right': 'absolute top-14 right-3 z-10 flex flex-col gap-2',
   'bottom-left': 'absolute bottom-20 left-4 z-10 flex flex-col gap-2',
   'bottom-right': 'absolute bottom-4 right-4 z-10 flex flex-col gap-2',
-  'sidebar-bottom': 'absolute bottom-4 left-4 z-10 flex flex-col gap-2',
-  'map-overlay': 'absolute bottom-0 left-0 right-0 z-20',
 };
 
 /** Isolates widget crashes so one broken widget doesn't take down the host */
@@ -58,24 +56,28 @@ export function WidgetHost({ ctx }: WidgetHostProps) {
     (w) => activeWidgets.has(w.id) && (enabledSet === null || enabledSet.has(w.id)),
   );
 
-  // Group by slot
-  const bySlot = definitions.reduce<Record<string, WidgetDefinition[]>>((acc, w) => {
-    const slot = w.slot;
-    if (!acc[slot]) acc[slot] = [];
-    acc[slot].push(w);
+  // Partition by placement mode
+  const floating = definitions.filter((w) => w.placement.mode === 'floating');
+
+  // Group floating widgets by anchor
+  const byAnchor = floating.reduce<Record<string, WidgetDefinition[]>>((acc, w) => {
+    if (w.placement.mode !== 'floating') return acc;
+    const anchor = w.placement.anchor;
+    if (!acc[anchor]) acc[anchor] = [];
+    acc[anchor].push(w);
     return acc;
   }, {});
 
-  const slots = Object.keys(SLOT_POSITIONS) as WidgetSlot[];
+  const anchors = Object.keys(ANCHOR_POSITIONS) as WidgetAnchor[];
 
   return (
     <>
-      {slots.map((slot) => {
-        const widgets = bySlot[slot] ?? [];
+      {anchors.map((anchor) => {
+        const widgets = byAnchor[anchor] ?? [];
         if (widgets.length === 0) return null;
-        const className = SLOT_POSITIONS[slot];
+        const className = ANCHOR_POSITIONS[anchor];
         return (
-          <div key={slot} className={className}>
+          <div key={anchor} className={className}>
             {widgets.map((w) => (
               <WidgetPanel
                 key={w.id}
