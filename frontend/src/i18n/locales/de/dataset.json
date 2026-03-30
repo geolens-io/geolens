@@ -390,7 +390,8 @@
     "multiPartNotEditable": "Dieses Feature hat mehrere Teile und kann nicht auf der Karte bearbeitet werden.",
     "featureNotSelectable": "Dieses Feature kann nicht zur Bearbeitung ausgewählt werden.",
     "fullscreen": "Vollbild aktivieren",
-    "exitFullscreen": "Vollbild beenden"
+    "exitFullscreen": "Vollbild beenden",
+    "changeBasemap": "Basiskarte ändern"
   },
   "validation": {
     "title": "Validierungsstatus",

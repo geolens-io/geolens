@@ -26,7 +26,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { Focus, Maximize2, Minimize2, PenLine } from 'lucide-react';
 import { toast } from 'sonner';
 import maplibregl from 'maplibre-gl';
@@ -79,16 +78,23 @@ export function DatasetMap({
   const { data: tileToken } = useTileToken(datasetId);
   const [userBasemapId, setUserBasemapId] = useState<string | null>(null);
   const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
-  const activeBasemap = userBasemapId
-    ? findBasemapById(basemaps ?? [], userBasemapId) ?? themeBasemap
-    : themeBasemap;
-  const basemapStyle = activeBasemap
-    ? toMaplibreStyle(activeBasemap.url, activeBasemap.attribution)
-    : toMaplibreStyle(
-        resolvedTheme === 'dark'
-          ? 'https://tiles.openfreemap.org/styles/dark'
-          : 'https://tiles.openfreemap.org/styles/positron',
-      );
+  const activeBasemap = useMemo(
+    () => userBasemapId
+      ? findBasemapById(basemaps ?? [], userBasemapId) ?? themeBasemap
+      : themeBasemap,
+    [userBasemapId, basemaps, themeBasemap],
+  );
+  // Memoize to prevent prop-driven setStyle races — imperative effect handles all changes after mount
+  const basemapStyle = useMemo(
+    () => activeBasemap
+      ? toMaplibreStyle(activeBasemap.url, activeBasemap.attribution)
+      : toMaplibreStyle(
+          resolvedTheme === 'dark'
+            ? 'https://tiles.openfreemap.org/styles/dark'
+            : 'https://tiles.openfreemap.org/styles/positron',
+        ),
+    [activeBasemap, resolvedTheme],
+  );
 
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -357,13 +363,13 @@ export function DatasetMap({
     }
   }, [containerRef]);
 
-  // --- Theme-aware basemap switching ---
+  // --- Basemap switching (theme change or user selection) ---
+  // Single imperative path with transformStyle to preserve custom sources/layers.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const newBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
-    if (!newBasemap) return;
-    const newStyle = toMaplibreStyle(newBasemap.url, newBasemap.attribution);
+    if (!activeBasemap) return;
+    const newStyle = toMaplibreStyle(activeBasemap.url, activeBasemap.attribution);
     const style = map.getStyle();
     if (!style) return;
     // Only switch if the current style differs
@@ -388,7 +394,7 @@ export function DatasetMap({
         } as StyleSpecification;
       },
     });
-  }, [resolvedTheme, basemaps]);
+  }, [activeBasemap]);
 
   const [minx, miny, maxx, maxy] = hasBbox ? bbox : [0, 0, 0, 0];
 
@@ -582,7 +588,6 @@ export function DatasetMap({
       : 'crosshair'
     : undefined;
 
-  const showNavControl = true;
 
   return (
     <div
@@ -597,11 +602,11 @@ export function DatasetMap({
         mapStyle={basemapStyle as string}
         style={{ width: '100%', height: '100%' }}
         cursor={cursor}
-        interactive={showNavControl}
+        interactive
         scrollZoom={isFullscreen}
         onLoad={handleLoad}
       >
-        {showNavControl && <NavigationControl position="top-right" />}
+        <NavigationControl position="top-right" />
 
         {/* Bbox overlay for spatial context */}
         {bboxGeojson && (
@@ -648,11 +653,12 @@ export function DatasetMap({
       <BasemapToggle
         value={activeBasemap?.id ?? ''}
         onChange={setUserBasemapId}
+        title={t('map.changeBasemap')}
         className="absolute bottom-3 left-3 z-10"
       />
 
       {/* Zoom-to-extent and fullscreen controls */}
-      <div className={cn("absolute z-10 flex flex-col gap-1 right-[10px]", showNavControl ? "top-[120px]" : "top-3")}>
+      <div className="absolute z-10 flex flex-col gap-1 right-[10px] top-[120px]">
         {hasBbox && (
           <button
             type="button"
