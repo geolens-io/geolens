@@ -4,6 +4,7 @@ import { useWidgetStore } from '@/stores/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
 import { WidgetPanel } from './WidgetPanel';
+import { WidgetSidebar } from './WidgetSidebar';
 import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 
 const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
@@ -14,7 +15,7 @@ const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
 };
 
 /** Isolates widget crashes so one broken widget doesn't take down the host */
-class WidgetErrorBoundary extends Component<
+export class WidgetErrorBoundary extends Component<
   { widgetId: string; children: ReactNode },
   { hasError: boolean }
 > {
@@ -52,12 +53,33 @@ export function WidgetHost({ ctx }: WidgetHostProps) {
   // null/undefined = not configured (show all), [] = none, [...ids] = only those
   const allRegistered = getWidgets();
   const enabledSet = enabledWidgetIds == null ? null : new Set(enabledWidgetIds);
+
+  // Active + enabled definitions
   const definitions = allRegistered.filter(
     (w) => activeWidgets.has(w.id) && (enabledSet === null || enabledSet.has(w.id)),
   );
 
-  // Partition by placement mode
+  // All enabled registrations (for always-render sidebar pattern)
+  const allEnabled = allRegistered.filter(
+    (w) => enabledSet === null || enabledSet.has(w.id),
+  );
+
+  // Partition active widgets by placement mode
   const floating = definitions.filter((w) => w.placement.mode === 'floating');
+  const sidebarLeft = definitions.filter(
+    (w) => w.placement.mode === 'sidebar' && w.placement.side === 'left',
+  );
+  const sidebarRight = definitions.filter(
+    (w) => w.placement.mode === 'sidebar' && w.placement.side === 'right',
+  );
+
+  // All enabled sidebar registrations (for always-render containers)
+  const allSidebarLeft = allEnabled.filter(
+    (w) => w.placement.mode === 'sidebar' && w.placement.side === 'left',
+  );
+  const allSidebarRight = allEnabled.filter(
+    (w) => w.placement.mode === 'sidebar' && w.placement.side === 'right',
+  );
 
   // Group floating widgets by anchor
   const byAnchor = floating.reduce<Record<string, WidgetDefinition[]>>((acc, w) => {
@@ -92,6 +114,22 @@ export function WidgetHost({ ctx }: WidgetHostProps) {
           </div>
         );
       })}
+      {allSidebarLeft.length > 0 && (
+        <WidgetSidebar
+          side="left"
+          widgets={sidebarLeft}
+          allSidebarWidgets={allSidebarLeft}
+          ctx={ctx}
+        />
+      )}
+      {allSidebarRight.length > 0 && (
+        <WidgetSidebar
+          side="right"
+          widgets={sidebarRight}
+          allSidebarWidgets={allSidebarRight}
+          ctx={ctx}
+        />
+      )}
     </>
   );
 }
