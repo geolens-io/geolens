@@ -84,17 +84,19 @@ export function DatasetMap({
       : themeBasemap,
     [userBasemapId, basemaps, themeBasemap],
   );
-  // Memoize to prevent prop-driven setStyle races — imperative effect handles all changes after mount
-  const basemapStyle = useMemo(
-    () => activeBasemap
-      ? toMaplibreStyle(activeBasemap.url, activeBasemap.attribution)
+  // Initial style for <MapGL> — never changes after first render.
+  // All subsequent basemap changes are handled imperatively via the effect below.
+  const initialBasemapStyle = useRef<string | import('maplibre-gl').StyleSpecification | null>(null);
+  if (initialBasemapStyle.current === null) {
+    const bm = themeBasemap;
+    initialBasemapStyle.current = bm
+      ? toMaplibreStyle(bm.url, bm.attribution)
       : toMaplibreStyle(
           resolvedTheme === 'dark'
             ? 'https://tiles.openfreemap.org/styles/dark'
             : 'https://tiles.openfreemap.org/styles/positron',
-        ),
-    [activeBasemap, resolvedTheme],
-  );
+        );
+  }
 
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -599,7 +601,7 @@ export function DatasetMap({
     >
       <MapGL
         initialViewState={initialViewState}
-        mapStyle={basemapStyle as string}
+        mapStyle={initialBasemapStyle.current as string}
         style={{ width: '100%', height: '100%' }}
         cursor={cursor}
         interactive
