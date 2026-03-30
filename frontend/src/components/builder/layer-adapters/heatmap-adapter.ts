@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { syncVectorPaint, CUSTOM_PAINT_PROPS } from './shared';
+import { CUSTOM_PAINT_PROPS } from './shared';
 import { getRampColors } from '@/lib/color-ramps';
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
