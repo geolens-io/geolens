@@ -2,14 +2,13 @@ import type React from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
-/** Named positions where widgets can render */
-export type WidgetSlot =
-  | 'top-left'
-  | 'top-right'
-  | 'bottom-left'
-  | 'bottom-right'
-  | 'sidebar-bottom'
-  | 'map-overlay';
+/** Anchor positions for floating widgets */
+export type WidgetAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+/** Placement configuration -- fixed at registration time */
+export type WidgetPlacement =
+  | { mode: 'floating'; anchor: WidgetAnchor }
+  | { mode: 'sidebar'; side: 'left' | 'right' };
 
 /** Context every widget receives */
 export interface WidgetContext {
@@ -24,7 +23,7 @@ export interface WidgetDefinition {
   /** i18n key under the 'builder' namespace, e.g. 'widgets.measurement.label' */
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
-  slot: WidgetSlot;
+  placement: WidgetPlacement;
   component: React.ComponentType<{ ctx: WidgetContext }>;
   defaultVisible?: boolean;
 }

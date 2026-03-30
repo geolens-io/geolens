@@ -7,7 +7,7 @@ registerWidget({
   id: 'measurement',
   labelKey: 'widgets.measurement.label',
   icon: Ruler,
-  slot: 'top-left',
+  placement: { mode: 'floating', anchor: 'top-left' },
   component: MeasurementWidget,
   defaultVisible: false,
 });
@@ -16,7 +16,7 @@ registerWidget({
   id: 'legend',
   labelKey: 'widgets.legend.label',
   icon: Layers,
-  slot: 'bottom-left',
+  placement: { mode: 'floating', anchor: 'bottom-left' },
   component: LegendWidget,
   defaultVisible: true,
 });
