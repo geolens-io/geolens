@@ -35,7 +35,5 @@ export function getTestI18nOptions() {
   return {
     ...getBaseI18nOptions(),
     lng: fallbackLng,
-    initImmediate: false,
-    showSupportNotice: false,
   };
 }

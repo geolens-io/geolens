@@ -7,7 +7,7 @@ RUN apt-get update && \
         postgresql-server-dev-17 \
         git \
         ca-certificates && \
-    git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
+    git clone --branch v0.8.2 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
     cd /tmp/pgvector && \
     make && \
     make install && \

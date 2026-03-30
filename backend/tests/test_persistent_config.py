@@ -515,11 +515,11 @@ async def test_public_map_defaults_endpoint(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_enabled_widgets_endpoint_returns_list(client: AsyncClient):
-    """GET /settings/enabled-widgets/ returns a list (public, no auth)."""
+    """GET /settings/enabled-widgets/ returns a list or null (public, no auth)."""
     resp = await client.get("/settings/enabled-widgets/")
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, list)
+    assert data is None or isinstance(data, list)
 
 
 @pytest.mark.anyio

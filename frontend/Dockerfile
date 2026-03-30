@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:22.22.2-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Serve (non-root nginx)
-FROM nginxinc/nginx-unprivileged:alpine
+FROM nginxinc/nginx-unprivileged:1.28.2-alpine
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"

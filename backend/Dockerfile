@@ -1,4 +1,4 @@
-FROM python:3.13-slim AS base
+FROM python:3.13.12-slim AS base
 
 LABEL org.opencontainers.image.title="geolens-api"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog API"
