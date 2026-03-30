@@ -21,7 +21,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { getLayerType } from '@/components/builder/map-sync';
+import { getLayerType, resolveAdapterType } from '@/components/builder/map-sync';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -219,6 +219,7 @@ export function ViewerMap({
     const handleClick = (e: MapMouseEvent) => {
       const queryLayers = layers
         .filter((l) => visibleLayers.has(l.sort_order))
+        .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
         .map((l) => getLayerId(l.sort_order))
         .filter((id) => map.getLayer(id));
 
@@ -261,6 +262,7 @@ export function ViewerMap({
     const handleMouseMove = (e: MapMouseEvent) => {
       const queryLayers = layers
         .filter((l) => visibleLayers.has(l.sort_order))
+        .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
         .map((l) => getLayerId(l.sort_order))
         .filter((id) => map.getLayer(id));
 
@@ -309,11 +311,11 @@ export function ViewerMap({
           minzoom: 1,
           maxzoom: 22,
         });
-        const type = getLayerType(layer.geometry_type);
+        const type = resolveAdapterType(layer.geometry_type, layer.style_config);
         const adapter = getAdapter(type);
         adapter.addLayers(map, adapterInput);
       } else {
-        const type = getLayerType(layer.geometry_type);
+        const type = resolveAdapterType(layer.geometry_type, layer.style_config);
         const adapter = getAdapter(type);
         adapter.syncPaint(map, adapterInput);
       }
@@ -410,7 +412,7 @@ export function ViewerMap({
     if (!map || !map.isStyleLoaded()) return;
 
     for (const layer of layers) {
-      const type = getLayerType(layer.geometry_type);
+      const type = resolveAdapterType(layer.geometry_type, layer.style_config);
       const adapter = getAdapter(type);
       const adapterInput = toAdapterInput(layer, visibleLayers, '');
       adapter.syncVisibility(map, adapterInput);

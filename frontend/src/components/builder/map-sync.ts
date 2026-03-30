@@ -7,9 +7,9 @@ import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 
 // Import shared utilities used locally
-import { getLayerType } from './layer-adapters/shared';
+import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
 // Re-export for backward compatibility with existing consumers
-export { CUSTOM_PAINT_PROPS, getLayerType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
+export { CUSTOM_PAINT_PROPS, getLayerType, resolveAdapterType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
@@ -100,7 +100,7 @@ export function syncLayersToMap(
     adapterInput.tileUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
     desiredSources.add(sourceId);
 
-    const type = getLayerType(layer.dataset_geometry_type);
+    const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
     const adapter = getAdapter(type);
 
     if (!map.getSource(sourceId)) {
@@ -129,9 +129,11 @@ export function syncLayersToMap(
     }
 
     // Sync label layer for existing sources (add/update/remove)
+    // Heatmap layers don't support labels — hide any existing label layer
     const labelId = getLabelLayerId(layer.id);
+    const isHeatmap = type === 'heatmap';
     if (map.getSource(sourceId)) {
-      if (layer.label_config?.column) {
+      if (layer.label_config?.column && !isHeatmap) {
         const lc = layer.label_config;
         const geomType = getLayerType(layer.dataset_geometry_type);
 
@@ -149,15 +151,19 @@ export function syncLayersToMap(
           }
         }
       } else if (map.getLayer(labelId)) {
-        // Remove label layer when config cleared
-        map.removeLayer(labelId);
+        // Remove label layer when config cleared or when switching to heatmap
+        if (isHeatmap) {
+          map.setLayoutProperty(labelId, 'visibility', 'none');
+        } else {
+          map.removeLayer(labelId);
+        }
       }
     }
 
     // Update visibility via adapter (handles main + companion layers)
     getAdapter(type).syncVisibility(map, adapterInput);
-    // Also sync label visibility
-    if (map.getLayer(labelId)) {
+    // Also sync label visibility (keep hidden for heatmap layers)
+    if (map.getLayer(labelId) && !isHeatmap) {
       const vis = layer.visible ? 'visible' : 'none';
       map.setLayoutProperty(labelId, 'visibility', vis);
     }
