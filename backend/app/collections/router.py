@@ -308,7 +308,7 @@ async def delete_collection_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{collection_id}/datasets", response_model=AddDatasetsResponse)
+@router.post("/{collection_id}/datasets/", response_model=AddDatasetsResponse)
 async def add_datasets_endpoint(
     collection_id: uuid.UUID,
     body: CollectionAddDatasetsRequest,
@@ -375,7 +375,7 @@ async def remove_dataset_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{collection_id}/datasets", response_model=DatasetListResponse)
+@router.get("/{collection_id}/datasets/", response_model=DatasetListResponse)
 async def get_collection_datasets_endpoint(
     collection_id: uuid.UUID,
     skip: int = Query(0, ge=0),

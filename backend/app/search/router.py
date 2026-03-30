@@ -27,6 +27,7 @@ from app.ogc.utils import build_url
 from app.public_urls import get_public_api_url
 from geoalchemy2.shape import to_shape
 from app.search.schemas import (
+    FacetCountResponse,
     OGCCollectionMetadataResponse,
     OGCCollectionsResponse,
     OGCFeatureCollectionResponse,
@@ -409,7 +410,7 @@ async def _handle_search(
 search_router = APIRouter(prefix="/search", tags=["Search"])
 
 
-@search_router.get("/facets/")
+@search_router.get("/facets/", response_model=FacetCountResponse)
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, description="Full-text search query"),
@@ -437,7 +438,7 @@ async def search_facets_endpoint(
     ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> FacetCountResponse:
     """Return record_type facet counts for the given filters."""
     # Parse geometry GeoJSON (takes precedence over bbox)
     geometry_geojson: str | None = None

@@ -303,12 +303,12 @@ async def get_collections(
     )
 
 
-@stac_router.get("/collections/{collection_id}")
+@stac_router.get("/collections/{collection_id}", response_model=None)
 async def get_collection(
     collection_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> dict:
     """Get a single STAC Collection."""
     stac_api_url = await _resolve_stac_api_url(db, request)
 
@@ -364,12 +364,12 @@ async def get_collection(
     )
 
 
-@stac_router.get("/items/{item_id}")
+@stac_router.get("/items/{item_id}", response_model=None)
 async def get_item(
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> dict:
     """Get a single STAC Item by dataset ID."""
     stac_api_url = await _resolve_stac_api_url(db, request)
     public_api_url = await get_public_api_url(db, request=request)

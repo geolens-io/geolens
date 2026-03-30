@@ -3,7 +3,7 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 # --- Contacts ---
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 class ContactCreate(BaseModel):
     role: str  # Validated by DB CHECK constraint (full ISO CI_RoleCode codelist)
     name: str | None = None
-    email: str | None = None
+    email: EmailStr | None = None
     organization: str | None = None
     phone: str | None = None
     extra_json: dict[str, Any] | None = None  # JSONB for unmapped/extra fields
@@ -22,7 +22,7 @@ class ContactCreate(BaseModel):
 class ContactUpdate(BaseModel):
     role: str | None = None
     name: str | None = None
-    email: str | None = None
+    email: EmailStr | None = None
     organization: str | None = None
     phone: str | None = None
     extra_json: dict[str, Any] | None = None

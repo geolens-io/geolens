@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -103,7 +103,7 @@ def _build_map_response(
     created_by_username: str | None = None,
 ) -> MapResponse:
     """Build a MapResponse from a map object and layer list."""
-    thumbnail_url = f"/maps/{map_obj.id}/thumbnail" if map_obj.thumbnail_uri else None
+    thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
     return MapResponse(
         id=map_obj.id,
         name=map_obj.name,
@@ -159,8 +159,8 @@ async def create_map_endpoint(
 
 @router.get("/", response_model=MapListResponse)
 async def list_maps_endpoint(
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     search: str | None = None,
     sort_by: str = "updated_at",
     sort_dir: str = "desc",
@@ -215,7 +215,7 @@ async def get_shared_map_endpoint(
     return SharedMapResponse(**map_data, layers=layers)
 
 
-@router.get("/{map_id}/visibility-check", response_model=VisibilityCheckResponse)
+@router.get("/{map_id}/visibility-check/", response_model=VisibilityCheckResponse)
 async def visibility_check_endpoint(
     map_id: uuid.UUID,
     user: User = Depends(require_permission("edit_metadata")),
@@ -393,7 +393,7 @@ async def delete_map_endpoint(
 
 
 @router.post(
-    "/{map_id}/duplicate",
+    "/{map_id}/duplicate/",
     response_model=DuplicateMapResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -457,7 +457,7 @@ async def duplicate_map_endpoint(
     )
 
 
-@router.get("/{map_id}/share", response_model=ShareTokenResponse | None)
+@router.get("/{map_id}/share/", response_model=ShareTokenResponse | None)
 async def get_map_share_token_endpoint(
     map_id: uuid.UUID,
     user: User = Depends(get_current_active_user),
@@ -481,7 +481,7 @@ async def get_map_share_token_endpoint(
     )
 
 
-@router.post("/{map_id}/share", response_model=ShareTokenResponse)
+@router.post("/{map_id}/share/", response_model=ShareTokenResponse)
 async def share_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -523,7 +523,7 @@ async def share_map_endpoint(
     )
 
 
-@router.patch("/{map_id}/share", response_model=ShareTokenResponse)
+@router.patch("/{map_id}/share/", response_model=ShareTokenResponse)
 async def update_map_share_token_endpoint(
     map_id: uuid.UUID,
     body: ShareTokenRequest,
@@ -563,7 +563,7 @@ async def update_map_share_token_endpoint(
     )
 
 
-@router.delete("/{map_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{map_id}/share/", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_map_share_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -597,7 +597,7 @@ async def revoke_map_share_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.put("/{map_id}/thumbnail", status_code=status.HTTP_204_NO_CONTENT)
+@router.put("/{map_id}/thumbnail/", status_code=status.HTTP_204_NO_CONTENT)
 async def upload_thumbnail(
     map_id: uuid.UUID,
     data_uri: str = Body(..., media_type="text/plain"),
@@ -660,7 +660,7 @@ async def upload_thumbnail(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{map_id}/thumbnail")
+@router.get("/{map_id}/thumbnail/")
 async def get_thumbnail(
     map_id: uuid.UUID,
     user: User | None = Depends(get_optional_user),

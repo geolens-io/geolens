@@ -200,7 +200,7 @@ async def test_dataset_rows_latency(
 ):
     """GET /datasets/{id}/rows completes under threshold."""
     dataset_id, _ = _perf_dataset
-    url = f"/datasets/{dataset_id}/rows"
+    url = f"/datasets/{dataset_id}/rows/"
 
     # Warm-up
     await client.get(url, headers=admin_auth_header)

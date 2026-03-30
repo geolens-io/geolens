@@ -93,7 +93,7 @@ export async function updateUser(userId: string, data: {
 }
 
 export async function deactivateUser(userId: string): Promise<UserResponse> {
-  return apiFetch<UserResponse>(`/admin/users/${userId}/deactivate`, { method: 'POST' });
+  return apiFetch<UserResponse>(`/admin/users/${userId}/deactivate/`, { method: 'POST' });
 }
 
 export async function deleteUser(userId: string): Promise<void> {
@@ -101,11 +101,11 @@ export async function deleteUser(userId: string): Promise<void> {
 }
 
 export async function approveUser(userId: string, role: string): Promise<UserResponse> {
-  return apiFetch<UserResponse>(`/admin/users/${userId}/approve`, { method: 'POST', body: JSON.stringify({ role }) });
+  return apiFetch<UserResponse>(`/admin/users/${userId}/approve/`, { method: 'POST', body: JSON.stringify({ role }) });
 }
 
 export async function rejectUser(userId: string): Promise<void> {
-  await apiFetch(`/admin/users/${userId}/reject`, { method: 'POST' });
+  await apiFetch(`/admin/users/${userId}/reject/`, { method: 'POST' });
 }
 
 // API Key management

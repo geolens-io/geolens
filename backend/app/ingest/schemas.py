@@ -3,7 +3,9 @@
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+Visibility = Literal["private", "internal", "public"]
 
 
 class UploadResponse(BaseModel):
@@ -45,9 +47,9 @@ class RasterPreviewResponse(BaseModel):
 
 
 class CommitRequest(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=500)
     summary: str | None = None
-    visibility: str = "private"
+    visibility: Visibility = "private"
     srid_override: int | None = None
     token: str | None = None
     temporal_start: str | None = None
@@ -71,7 +73,7 @@ class RegisterRequest(BaseModel):
     table_name: str
     title: str
     summary: str | None = None
-    visibility: str = "private"
+    visibility: Visibility = "private"
 
 
 class TableRegisterResponse(BaseModel):
@@ -95,7 +97,7 @@ class BulkRegisterItem(BaseModel):
     table_name: str
     title: str
     summary: str | None = None
-    visibility: str = "private"
+    visibility: Visibility = "private"
 
 
 class BulkRegisterRequest(BaseModel):
@@ -121,7 +123,7 @@ class BulkRegisterResponse(BaseModel):
 
 class PresignedUploadRequest(BaseModel):
     filename: str
-    file_size: int  # bytes
+    file_size: int = Field(ge=1)  # bytes
     content_type: str = "application/octet-stream"
 
 
@@ -160,7 +162,7 @@ class VrtCreateRequest(BaseModel):
     resolution_strategy: Literal["finest", "coarsest", "average"]
     title: str
     summary: str | None = None
-    visibility: str = "private"
+    visibility: Visibility = "private"
 
 
 class VrtCreateResponse(BaseModel):

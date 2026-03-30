@@ -14,7 +14,7 @@ from app.dependencies import get_db
 from app.ingest.schemas import UploadResponse
 from app.ingest.tasks import ingest_file, ingest_service
 from app.jobs.models import IngestJob
-from app.jobs.schemas import JobStatusResponse
+from app.jobs.schemas import JobStatusResponse, StaleCleanupResponse
 
 router = APIRouter(prefix="/jobs", tags=["Admin"])
 
@@ -24,11 +24,11 @@ JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
 
 
-@router.post("/cleanup/stale/")
+@router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
 async def cleanup_stale_jobs(
     user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> StaleCleanupResponse:
     """Fail all stale jobs: pending >1h or running >1h.
 
     Admin-only. Use after a failed bulk import to clean up orphaned jobs.
@@ -67,11 +67,11 @@ async def cleanup_stale_jobs(
 
     await db.commit()
 
-    return {
-        "pending_failed": len(pending_jobs),
-        "running_failed": len(running_jobs),
-        "total_cleaned": len(pending_jobs) + len(running_jobs),
-    }
+    return StaleCleanupResponse(
+        pending_failed=len(pending_jobs),
+        running_failed=len(running_jobs),
+        total_cleaned=len(pending_jobs) + len(running_jobs),
+    )
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
@@ -147,7 +147,11 @@ async def get_job_status(
     )
 
 
-@router.post("/{job_id}/retry", response_model=UploadResponse)
+@router.post(
+    "/{job_id}/retry",
+    response_model=UploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def retry_job(
     job_id: uuid.UUID,
     user: User = Depends(require_permission("upload")),

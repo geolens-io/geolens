@@ -5,12 +5,19 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class GeoJSONGeometry(BaseModel):
+    """A GeoJSON geometry object (RFC 7946)."""
+
+    type: str  # "Point", "MultiPoint", "LineString", "Polygon", etc.
+    coordinates: list
+
+
 class GeoJSONFeature(BaseModel):
     """A single GeoJSON Feature."""
 
     type: Literal["Feature"] = "Feature"
     id: int
-    geometry: dict | None = None
+    geometry: GeoJSONGeometry | None = None
     properties: dict
 
 
@@ -32,19 +39,19 @@ class GeoJSONFeatureCollection(BaseModel):
 class FeatureCreate(BaseModel):
     """GeoJSON-style feature for insertion."""
 
-    geometry: dict  # GeoJSON geometry object
+    geometry: GeoJSONGeometry
     properties: dict | None = None
 
 
 class FeatureReplace(BaseModel):
     """Full feature replacement (PUT semantics)."""
 
-    geometry: dict  # Required for full replacement
+    geometry: GeoJSONGeometry  # Required for full replacement
     properties: dict  # Required — set fields to null explicitly
 
 
 class FeatureUpdate(BaseModel):
     """Partial feature update (PATCH semantics)."""
 
-    geometry: dict | None = None
+    geometry: GeoJSONGeometry | None = None
     properties: dict | None = None

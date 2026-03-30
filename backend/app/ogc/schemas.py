@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_serializer
 
+from app.features.schemas import GeoJSONGeometry
+
 
 class OGCLink(BaseModel):
     href: str
@@ -60,6 +62,6 @@ class OGCSingleFeatureResponse(BaseModel):
 
     type: Literal["Feature"] = "Feature"
     id: int
-    geometry: dict | None
+    geometry: GeoJSONGeometry | None
     properties: dict | None
     links: list[OGCLink] = []

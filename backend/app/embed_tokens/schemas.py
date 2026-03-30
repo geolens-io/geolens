@@ -40,7 +40,7 @@ def _validate_origins(v: list[str] | None) -> list[str] | None:
 class EmbedTokenCreate(BaseModel):
     expires_in_days: int = Field(default=30, ge=1, le=365)
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    allowed_origins: list[str] | None = None
+    allowed_origins: list[str] | None = Field(default=None, max_length=50)
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
@@ -49,7 +49,7 @@ class EmbedTokenCreate(BaseModel):
 
 
 class EmbedTokenUpdate(BaseModel):
-    allowed_origins: list[str] | None = None
+    allowed_origins: list[str] | None = Field(default=None, max_length=50)
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
@@ -93,7 +93,7 @@ class AdminEmbedTokenListResponse(BaseModel):
 
 
 class BulkRevokeRequest(BaseModel):
-    token_ids: list[uuid.UUID]
+    token_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
 
 
 class BulkRevokeResponse(BaseModel):

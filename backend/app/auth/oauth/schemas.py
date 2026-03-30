@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OAuthProviderCreate(BaseModel):
@@ -13,8 +13,8 @@ class OAuthProviderCreate(BaseModel):
     slug: str
     display_name: str
     provider_type: Literal["google", "microsoft", "oidc", "saml"]
-    client_id: str | None = None
-    client_secret: str | None = None
+    client_id: str | None = Field(default=None, min_length=1, max_length=500)
+    client_secret: str | None = Field(default=None, min_length=1, max_length=1000)
     metadata_xml: str | None = None
     discovery_url: str | None = None
     authorize_url: str | None = None

@@ -2,7 +2,7 @@ import uuid
 from enum import Enum
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MapVisibility(str, Enum):
@@ -15,7 +15,7 @@ class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
     sort_order: int = 0
     visible: bool = True
-    opacity: float = 1.0
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
     paint: dict | None = None
     layout: dict | None = None
     display_name: str | None = None
@@ -27,7 +27,7 @@ class MapLayerInput(BaseModel):
 
 
 class MapCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     description: str | None = None
 
 

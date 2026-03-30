@@ -11,7 +11,7 @@ dependencies = [
     "asyncpg",
     "alembic",
     "geoalchemy2",
-    "pydantic",
+    "pydantic[email]",
     "pydantic-settings",
     "pyjwt>=2.12.0",
     "pwdlib[bcrypt]>=0.3.0",

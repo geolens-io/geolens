@@ -39,9 +39,9 @@ def fetch_dataset_rows(client):
     dataset_id = ds.get("id", "")
 
     with client.get(
-        f"/api/datasets/{dataset_id}/rows?limit=100",
+        f"/api/datasets/{dataset_id}/rows/?limit=100",
         headers=AUTH_HEADERS,
-        name="/api/datasets/[id]/rows",
+        name="/api/datasets/[id]/rows/",
         catch_response=True,
     ) as resp:
         if resp.status_code == 200:

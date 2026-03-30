@@ -1,13 +1,13 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.datasets.schemas import DatasetResponse
 
 
 class CollectionCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     description: str | None = None
 
 
@@ -44,7 +44,7 @@ class CollectionListResponse(BaseModel):
 
 
 class CollectionAddDatasetsRequest(BaseModel):
-    dataset_ids: list[uuid.UUID]
+    dataset_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
 
 
 class CollectionDatasetResponse(BaseModel):

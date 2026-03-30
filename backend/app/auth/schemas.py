@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class TokenResponse(BaseModel):
@@ -14,7 +14,7 @@ class TokenResponse(BaseModel):
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=150)
     password: str = Field(min_length=8)
-    email: str | None = Field(default=None, min_length=1, max_length=320)
+    email: EmailStr | None = Field(default=None, max_length=320)
 
 
 class RegisterResponse(BaseModel):

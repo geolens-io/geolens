@@ -2,11 +2,11 @@
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProbeRequest(BaseModel):
-    url: str
+    url: str = Field(min_length=1)
     token: str | None = None
 
 
@@ -37,7 +37,7 @@ class ProbeError(BaseModel):
 
 
 class ServicePreviewRequest(BaseModel):
-    url: str  # Normalized service URL (from probe response)
+    url: str = Field(min_length=1)  # Normalized service URL (from probe response)
     service_type: str  # "WFS 2.0.0" or "ArcGIS FeatureServer" (from probe)
     layer_name: str  # Layer name (from probe layers list)
     layer_title: str | None = (

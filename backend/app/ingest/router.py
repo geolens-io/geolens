@@ -418,6 +418,7 @@ async def preview_file(
 @router.post(
     "/commit/{job_id}",
     response_model=CommitResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def commit_import(
     job_id: uuid.UUID,

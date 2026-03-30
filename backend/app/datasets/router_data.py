@@ -28,6 +28,7 @@ from app.datasets.schemas import (
     DatasetRowsResponse,
     RelatedDatasetsResponse,
     StatusUpdate,
+    StatusUpdateResponse,
 )
 from app.datasets.service import (
     get_dataset,
@@ -57,7 +58,7 @@ async def list_related_datasets(
     return RelatedDatasetsResponse(items=items, total=len(items))
 
 
-@router.get("/{dataset_id}/rows", response_model=DatasetRowsResponse)
+@router.get("/{dataset_id}/rows/", response_model=DatasetRowsResponse)
 async def get_dataset_rows_endpoint(
     request: Request,
     dataset_id: uuid.UUID,
@@ -154,7 +155,7 @@ async def dataset_maps(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
-):
+) -> dict:
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.maps.schemas import MapListResponse
     from app.maps.service import get_maps_for_dataset
@@ -180,14 +181,14 @@ ALLOWED_TRANSITIONS = {
 }
 
 
-@router.patch("/{dataset_id}/status")
+@router.patch("/{dataset_id}/status/", response_model=StatusUpdateResponse)
 async def update_publication_status(
     dataset_id: uuid.UUID,
     body: StatusUpdate,
     request: Request,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> StatusUpdateResponse:
     """Transition a dataset's publication status following allowed paths.
 
     Allowed transitions:
@@ -216,4 +217,4 @@ async def update_publication_status(
     dataset.record.record_status = target
     await db.commit()
     await db.refresh(dataset)
-    return {"id": str(dataset.id), "record_status": target}
+    return StatusUpdateResponse(id=str(dataset.id), record_status=target)

@@ -41,10 +41,13 @@ class CreateEmptyDatasetRequest(BaseModel):
     columns: list[ColumnDefinition]
 
 
+Visibility = Literal["private", "internal", "public"]
+
+
 class DatasetCreate(BaseModel):
     title: str
     summary: str | None = None
-    visibility: str = "private"
+    visibility: Visibility = "private"
 
 
 class RasterBandInfo(BaseModel):
@@ -138,6 +141,11 @@ class DatasetResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class StatusUpdateResponse(BaseModel):
+    id: str
+    record_status: str
+
+
 class StatusUpdate(BaseModel):
     status: str
 
@@ -178,7 +186,7 @@ class BulkDeleteResponse(BaseModel):
 class DatasetMeta(BaseModel):
     title: str | None = None
     summary: str | None = None
-    visibility: str | None = None
+    visibility: Visibility | None = None
     license: str | None = None
     source_organization: str | None = None
     data_vintage_start: date | None = None

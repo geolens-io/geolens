@@ -283,6 +283,7 @@ async def reupload_preview(
 @router.post(
     "/{dataset_id}/reupload/{job_id}/commit",
     response_model=ReuploadCommitResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def reupload_commit(
     dataset_id: uuid.UUID,
