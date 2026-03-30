@@ -234,11 +234,9 @@ function MobileNav() {
             <NavLink to="/collections" className={mobileNavLinkClass}>
               {t('nav.collections')}
             </NavLink>
-            {can('edit_metadata') && (
-              <NavLink to="/maps" className={mobileNavLinkClass}>
-                {t('nav.maps')}
-              </NavLink>
-            )}
+            <NavLink to="/maps" className={mobileNavLinkClass}>
+              {t('nav.maps')}
+            </NavLink>
             {user && (
               <>
                 <Separator className="my-2" />
@@ -334,11 +332,9 @@ export function Navbar() {
             <NavLink to="/collections" className={navLinkClass}>
               {t('nav.collections')}
             </NavLink>
-            {can('edit_metadata') && (
-              <NavLink to="/maps" className={navLinkClass}>
-                {t('nav.maps')}
-              </NavLink>
-            )}
+            <NavLink to="/maps" className={navLinkClass}>
+              {t('nav.maps')}
+            </NavLink>
           </nav>
         </div>
         <div className="flex items-center gap-2">

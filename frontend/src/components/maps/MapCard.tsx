@@ -19,7 +19,7 @@ import { VisibilityIcon } from './VisibilityIcon';
 
 export interface MapCardProps {
   map: MapSummaryResponse;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 export function MapCard({ map, onDelete }: MapCardProps) {
@@ -94,20 +94,22 @@ export function MapCard({ map, onDelete }: MapCardProps) {
             </div>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive transition-colors duration-150 shrink-0"
-                onClick={() => onDelete(map.id)}
-                aria-label={t('maps.card.delete')}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{t('maps.card.delete')}</TooltipContent>
-          </Tooltip>
+          {onDelete && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive transition-colors duration-150 shrink-0"
+                  onClick={() => onDelete(map.id)}
+                  aria-label={t('maps.card.delete')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('maps.card.delete')}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </Card>
     </TooltipProvider>
