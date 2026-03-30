@@ -7,6 +7,7 @@ export const CUSTOM_PAINT_PROPS = new Set([
   'outline-width', 'outline-color',
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
+  '_heatmap-ramp', '_heatmap-weight-column',
 ]);
 
 export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
@@ -86,6 +87,22 @@ export function finalizeLayer(
   if (filter && Array.isArray(filter) && filter.length > 0) {
     map.setFilter(layerId, filter);
   }
+}
+
+/** Resolve the adapter type based on geometry type and optional style_config.
+ *  If style_config.render_mode === 'heatmap' and the layer is a point layer,
+ *  returns 'heatmap'. Otherwise falls back to getLayerType(). */
+export function resolveAdapterType(
+  geometryType: string | null,
+  styleConfig?: { render_mode?: string } | null,
+): string {
+  if (
+    styleConfig?.render_mode === 'heatmap' &&
+    getLayerType(geometryType) === 'circle'
+  ) {
+    return 'heatmap';
+  }
+  return getLayerType(geometryType);
 }
 
 /** Sync paint properties for a vector layer, skipping custom props and using JSON.stringify diff. */
