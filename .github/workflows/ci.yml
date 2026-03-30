@@ -16,6 +16,7 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
