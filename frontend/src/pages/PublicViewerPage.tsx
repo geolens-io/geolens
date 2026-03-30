@@ -1,6 +1,7 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { useSharedMap } from '@/hooks/use-maps';
+import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { Clock, MapPinOff } from 'lucide-react';
@@ -46,55 +47,13 @@ export function PublicViewerPage() {
 
   const { data, isLoading, isError, error } = useSharedMap(token, apiKey);
 
-  const [visibleLayers, setVisibleLayers] = useState<Set<number> | null>(null);
-
-  const effectiveVisibleLayers = useMemo(() => {
-    if (visibleLayers !== null) return visibleLayers;
-    if (!data) return new Set<number>();
-    return new Set(data.layers.filter((l) => l.visible).map((l) => l.sort_order));
-  }, [visibleLayers, data]);
-
   const effectiveShowLegend = useMemo(() => {
     if (legendParam !== null) return legendParam === 'true';
     return !isEmbed;
   }, [legendParam, isEmbed]);
 
-  const [isLegendOpen, setIsLegendOpen] = useState(() => {
-    if (!effectiveShowLegend) return false;
-    return typeof window !== 'undefined' ? window.innerWidth >= 500 : true;
-  });
-
-  // Auto-collapse/expand legend on resize
-  useEffect(() => {
-    if (!effectiveShowLegend) return;
-
-    const handleResize = () => {
-      const w = window.innerWidth;
-      if (w < 500) {
-        setIsLegendOpen(false);
-      } else {
-        setIsLegendOpen(true);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [effectiveShowLegend]);
-
-  const handleToggleVisibility = useCallback((sortOrder: number) => {
-    setVisibleLayers((prev) => {
-      const current = prev ?? new Set(
-        (data?.layers ?? []).filter((l) => l.visible).map((l) => l.sort_order),
-      );
-      const next = new Set(current);
-      if (next.has(sortOrder)) {
-        next.delete(sortOrder);
-      } else {
-        next.add(sortOrder);
-      }
-      return next;
-    });
-  }, [data]);
+  const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
+    useViewerLayers(data?.layers, { showLegend: effectiveShowLegend });
 
   if (isLoading) {
     return (
@@ -150,7 +109,7 @@ export function PublicViewerPage() {
         basemapStyle={data.basemap_style}
         showBasemapLabels={data.show_basemap_labels ?? true}
         initialViewState={viewState}
-        visibleLayers={effectiveVisibleLayers}
+        visibleLayers={visibleLayers}
         apiKey={apiKey}
         embedToken={embedToken}
       />
@@ -168,7 +127,7 @@ export function PublicViewerPage() {
       {effectiveShowLegend && (
         <LayerLegend
           layers={data.layers}
-          visibleLayers={effectiveVisibleLayers}
+          visibleLayers={visibleLayers}
           onToggleVisibility={handleToggleVisibility}
           isOpen={isLegendOpen}
           onToggle={() => setIsLegendOpen((prev) => !prev)}
