@@ -26,7 +26,7 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 function hideFeatureFromTiles(map: MaplibreMap, gid: number) {
   for (const layerId of VECTOR_TILE_LAYERS) {
     if (map.getLayer(layerId)) {
-      map.setFilter(layerId, ['!=', ['id'], gid]);
+      map.setFilter(layerId, ['all', ['has', 'id'], ['!=', ['id'], gid]]);
     }
   }
 }
