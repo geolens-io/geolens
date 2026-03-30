@@ -211,31 +211,42 @@ export function ViewerMap({
     [onMapReady, embedToken],
   );
 
+  // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
+  const interactiveLayers = useMemo(
+    () =>
+      layers
+        .filter((l) => visibleLayers.has(l.sort_order))
+        .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
+        .map((l) => getLayerId(l.sort_order)),
+    [layers, visibleLayers],
+  );
+  // Ref so event handlers always see current value without re-registration
+  const interactiveLayersRef = useRef(interactiveLayers);
+  interactiveLayersRef.current = interactiveLayers;
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
+
   // Click handler: show popup with feature attributes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
     const handleClick = (e: MapMouseEvent) => {
-      const queryLayers = layers
-        .filter((l) => visibleLayers.has(l.sort_order))
-        .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
-        .map((l) => getLayerId(l.sort_order))
-        .filter((id) => map.getLayer(id));
+      const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
 
-      if (queryLayers.length === 0) {
+      if (queryIds.length === 0) {
         setPopupInfo(null);
         return;
       }
 
-      const hits = map.queryRenderedFeatures(e.point, { layers: queryLayers });
+      const hits = map.queryRenderedFeatures(e.point, { layers: queryIds });
       if (hits.length > 0) {
         setPopupInfo({
           longitude: e.lngLat.lng,
           latitude: e.lngLat.lat,
           features: hits.map((feature) => {
             const sortOrder = parseInt(feature.layer.id.replace(/^viewer-layer-/, ''), 10);
-            const matchedLayer = layers.find((l) => l.sort_order === sortOrder);
+            const matchedLayer = layersRef.current.find((l) => l.sort_order === sortOrder);
             return {
               properties: (feature.properties ?? {}) as Record<string, unknown>,
               layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('viewer.featureFallback'),
@@ -252,7 +263,7 @@ export function ViewerMap({
     return () => {
       map.off('click', handleClick);
     };
-  }, [layers, visibleLayers, mapReady, t]);
+  }, [mapReady, t]);
 
   // Mousemove: pointer cursor on interactive features
   useEffect(() => {
@@ -260,18 +271,14 @@ export function ViewerMap({
     if (!map || !map.isStyleLoaded()) return;
 
     const handleMouseMove = (e: MapMouseEvent) => {
-      const queryLayers = layers
-        .filter((l) => visibleLayers.has(l.sort_order))
-        .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
-        .map((l) => getLayerId(l.sort_order))
-        .filter((id) => map.getLayer(id));
+      const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
 
-      if (queryLayers.length === 0) {
+      if (queryIds.length === 0) {
         map.getCanvas().style.cursor = '';
         return;
       }
 
-      const features = map.queryRenderedFeatures(e.point, { layers: queryLayers });
+      const features = map.queryRenderedFeatures(e.point, { layers: queryIds });
       map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
     };
 
@@ -280,7 +287,7 @@ export function ViewerMap({
       map.off('mousemove', handleMouseMove);
       if (map.getCanvas()) map.getCanvas().style.cursor = '';
     };
-  }, [layers, visibleLayers, mapReady]);
+  }, [mapReady]);
 
   // Clear popup when layer visibility changes
   useEffect(() => {
