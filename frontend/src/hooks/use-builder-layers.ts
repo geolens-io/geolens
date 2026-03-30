@@ -3,7 +3,11 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { getLayerType, resolveAdapterType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
+import { getRampColors } from '@/lib/color-ramps';
+import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapResponse, LabelConfig, StyleConfig } from '@/types/api';
@@ -519,6 +523,184 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }
 
+  function handleRenderModeChange(layerId: string, mode: 'points' | 'heatmap') {
+    const layer = localLayers.find((l) => l.id === layerId);
+    if (!layer) return;
+
+    // Build updated style_config with new render_mode
+    const currentStyleConfig = (layer.style_config ?? {}) as Record<string, unknown>;
+    let updatedPaint = { ...(layer.paint as Record<string, unknown>) };
+
+    if (mode === 'heatmap') {
+      // Save current circle paint for later restoration
+      const savedCirclePaint = { ...updatedPaint };
+
+      // Restore heatmap paint if previously set, otherwise use defaults
+      const savedHeatmapPaint = (currentStyleConfig['heatmap_paint'] as Record<string, unknown> | undefined) ?? {};
+
+      if (Object.keys(savedHeatmapPaint).length > 0) {
+        updatedPaint = { ...savedHeatmapPaint };
+      } else {
+        // Build default heatmap paint
+        const colors = getRampColors('YlOrRd', 6);
+        const heatmapColorExpr = [
+          'interpolate', ['linear'], ['heatmap-density'],
+          0,   'rgba(0,0,0,0)',
+          0.2, colors[1],
+          0.4, colors[2],
+          0.6, colors[3],
+          0.8, colors[4],
+          1.0, colors[5],
+        ];
+        updatedPaint = {
+          'heatmap-radius': 30,
+          'heatmap-weight': 1,
+          'heatmap-intensity': 1,
+          'heatmap-color': heatmapColorExpr,
+          'heatmap-opacity': 0.8,
+          '_heatmap-ramp': 'YlOrRd',
+        };
+      }
+
+      const updatedStyleConfig = {
+        ...currentStyleConfig,
+        render_mode: 'heatmap',
+        saved_circle_paint: savedCirclePaint,
+      };
+
+      setLocalLayers((prev) =>
+        prev.map((l) =>
+          l.id === layerId
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
+            : l,
+        ),
+      );
+
+      // Live map update — remove circle layer and re-add as heatmap
+      const map = mapInstanceRef.current;
+      if (map && map.isStyleLoaded()) {
+        const mapLayerId = `layer-${layerId}`;
+        const labelId = `layer-${layerId}-label`;
+        const sourceId = `source-${layerId}`;
+
+        // Hide label (heatmaps don't support labels)
+        if (map.getLayer(labelId)) {
+          map.setLayoutProperty(labelId, 'visibility', 'none');
+        }
+
+        // Remove old circle layer
+        if (map.getLayer(mapLayerId)) {
+          map.removeLayer(mapLayerId);
+        }
+
+        // Get tile URL from existing source
+        const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
+        const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
+        const sourceLayer = `data.${layer.dataset_table_name}`;
+
+        const adapterInput: AdapterLayerInput = {
+          id: layerId,
+          dataset_table_name: layer.dataset_table_name,
+          dataset_geometry_type: layer.dataset_geometry_type,
+          opacity: layer.opacity ?? 1,
+          visible: layer.visible,
+          paint: updatedPaint,
+          layout: (layer.layout as Record<string, unknown>) ?? {},
+          filter: layer.filter,
+          label_config: layer.label_config,
+          sourceId,
+          layerId: mapLayerId,
+          sourceLayer,
+          tileUrl,
+        };
+
+        const adapter = getAdapter('heatmap');
+        adapter.addLayers(map, adapterInput);
+      }
+    } else {
+      // Switching back to points — restore saved circle paint
+      const savedHeatmapPaint = { ...updatedPaint };
+      const savedCirclePaint = (currentStyleConfig['saved_circle_paint'] as Record<string, unknown> | undefined) ?? {};
+
+      updatedPaint = Object.keys(savedCirclePaint).length > 0 ? savedCirclePaint : {
+        'circle-color': '#3b82f6',
+        'circle-radius': 5,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1,
+      };
+
+      const updatedStyleConfig = {
+        ...currentStyleConfig,
+        render_mode: 'points',
+        heatmap_paint: savedHeatmapPaint,
+      };
+      // Remove saved_circle_paint from config since we're back to points
+      delete updatedStyleConfig['saved_circle_paint'];
+
+      setLocalLayers((prev) =>
+        prev.map((l) =>
+          l.id === layerId
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
+            : l,
+        ),
+      );
+
+      // Live map update — remove heatmap layer and re-add as circle
+      const map = mapInstanceRef.current;
+      if (map && map.isStyleLoaded()) {
+        const mapLayerId = `layer-${layerId}`;
+        const sourceId = `source-${layerId}`;
+
+        // Remove old heatmap layer
+        if (map.getLayer(mapLayerId)) {
+          map.removeLayer(mapLayerId);
+        }
+
+        const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
+        const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
+        const sourceLayer = `data.${layer.dataset_table_name}`;
+
+        const adapterInput: AdapterLayerInput = {
+          id: layerId,
+          dataset_table_name: layer.dataset_table_name,
+          dataset_geometry_type: layer.dataset_geometry_type,
+          opacity: layer.opacity ?? 1,
+          visible: layer.visible,
+          paint: updatedPaint,
+          layout: (layer.layout as Record<string, unknown>) ?? {},
+          filter: layer.filter,
+          label_config: layer.label_config,
+          sourceId,
+          layerId: mapLayerId,
+          sourceLayer,
+          tileUrl,
+        };
+
+        const adapter = getAdapter('circle');
+        adapter.addLayers(map, adapterInput);
+
+        // Re-add label layer if label_config exists
+        if (layer.label_config?.column) {
+          const labelId = `layer-${layerId}-label`;
+          if (!map.getLayer(labelId) && map.getSource(sourceId)) {
+            const { buildLabelLayerSpec } = await import('@/components/builder/label-layer-utils');
+            const geomType = getLayerType(layer.dataset_geometry_type);
+            map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
+            // Match parent visibility
+            const vis = layer.visible ? 'visible' : 'none';
+            map.setLayoutProperty(labelId, 'visibility', vis);
+          } else if (map.getLayer(labelId)) {
+            // Restore visibility
+            const vis = layer.visible ? 'visible' : 'none';
+            map.setLayoutProperty(labelId, 'visibility', vis);
+          }
+        }
+      }
+    }
+
+    setHasUnsavedChanges(true);
+  }
+
   function handleLayoutChange(layerId: string, newLayout: Record<string, unknown>) {
     const prevLayout = (localLayers.find((l) => l.id === layerId)?.layout ?? {}) as Record<string, unknown>;
     setLocalLayers((prev) =>
@@ -595,6 +777,7 @@ export function useBuilderLayers(
     handleStyleConfigChange,
     handlePaintChange,
     handleOpacityChange,
+    handleRenderModeChange,
     handleLayoutChange,
     handleZoomToLayer,
     handleRemove,

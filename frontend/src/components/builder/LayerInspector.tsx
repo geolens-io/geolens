@@ -25,6 +25,7 @@ interface LayerInspectorProps {
   onLabelChange: (layerId: string, config: LabelConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
   onClose: () => void;
 }
 
@@ -38,6 +39,7 @@ export function LayerInspector({
   onLabelChange,
   onStyleConfigChange,
   onLayoutChange,
+  onRenderModeChange,
   onClose,
 }: LayerInspectorProps) {
   const { t } = useTranslation('builder');
@@ -125,6 +127,7 @@ export function LayerInspector({
               onOpacityChange={onOpacityChange}
               onStyleConfigChange={onStyleConfigChange}
               onLayoutChange={onLayoutChange}
+              onRenderModeChange={onRenderModeChange}
               showAdvanced={advanced}
             />
             {columns.length > 0 && (
