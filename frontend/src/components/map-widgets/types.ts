@@ -15,6 +15,14 @@ export interface WidgetContext {
   mapInstance: MaplibreMap | null;
   layers: MapLayerResponse[];
   mapId: string;
+  /** Basemap state — provided by the builder for basemap widget */
+  basemap?: {
+    value: string;
+    onChange: (id: string) => void;
+    showLabels: boolean;
+    onToggleLabels: (show: boolean) => void;
+    onDirty: () => void;
+  };
 }
 
 /** A registered widget */
