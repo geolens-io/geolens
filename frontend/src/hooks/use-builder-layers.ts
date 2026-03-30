@@ -528,26 +528,78 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }
 
+  /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle ↔ heatmap). */
+  function swapLayerOnMap(
+    layer: MapLayerResponse,
+    adapterType: string,
+    updatedPaint: Record<string, unknown>,
+  ) {
+    const map = mapInstanceRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    const mapLayerId = `layer-${layer.id}`;
+    const sourceId = `source-${layer.id}`;
+    const labelId = `layer-${layer.id}-label`;
+
+    // Remove old layer
+    if (map.getLayer(mapLayerId)) {
+      map.removeLayer(mapLayerId);
+    }
+
+    // Get tile URL from existing source
+    const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
+    const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
+    const sourceLayer = `data.${layer.dataset_table_name}`;
+
+    const adapterInput: AdapterLayerInput = {
+      id: layer.id,
+      dataset_table_name: layer.dataset_table_name,
+      dataset_geometry_type: layer.dataset_geometry_type,
+      opacity: layer.opacity ?? 1,
+      visible: layer.visible,
+      paint: updatedPaint,
+      layout: (layer.layout as Record<string, unknown>) ?? {},
+      filter: layer.filter,
+      label_config: layer.label_config,
+      sourceId,
+      layerId: mapLayerId,
+      sourceLayer,
+      tileUrl,
+    };
+
+    getAdapter(adapterType).addLayers(map, adapterInput);
+
+    // Manage label layer: hide for heatmap, restore for points
+    if (adapterType === 'heatmap') {
+      if (map.getLayer(labelId)) {
+        map.setLayoutProperty(labelId, 'visibility', 'none');
+      }
+    } else if (layer.label_config?.column) {
+      const vis = layer.visible ? 'visible' : 'none';
+      if (!map.getLayer(labelId) && map.getSource(sourceId)) {
+        const geomType = getLayerType(layer.dataset_geometry_type);
+        map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
+        map.setLayoutProperty(labelId, 'visibility', vis);
+      } else if (map.getLayer(labelId)) {
+        map.setLayoutProperty(labelId, 'visibility', vis);
+      }
+    }
+  }
+
   function handleRenderModeChange(layerId: string, mode: 'points' | 'heatmap') {
     const layer = localLayers.find((l) => l.id === layerId);
     if (!layer) return;
 
-    // Build updated style_config with new render_mode
     const currentStyleConfig = (layer.style_config ?? {}) as Record<string, unknown>;
     let updatedPaint = { ...(layer.paint as Record<string, unknown>) };
 
     if (mode === 'heatmap') {
-      // Save current circle paint for later restoration
       const savedCirclePaint = { ...updatedPaint };
-
-      // Restore heatmap paint if previously set, otherwise use defaults
       const savedHeatmapPaint = (currentStyleConfig['heatmap_paint'] as Record<string, unknown> | undefined) ?? {};
 
-      if (Object.keys(savedHeatmapPaint).length > 0) {
-        updatedPaint = { ...savedHeatmapPaint };
-      } else {
-        updatedPaint = { ...DEFAULT_HEATMAP_PAINT };
-      }
+      updatedPaint = Object.keys(savedHeatmapPaint).length > 0
+        ? { ...savedHeatmapPaint }
+        : { ...DEFAULT_HEATMAP_PAINT };
 
       const updatedStyleConfig = {
         ...currentStyleConfig,
@@ -563,49 +615,8 @@ export function useBuilderLayers(
         ),
       );
 
-      // Live map update — remove circle layer and re-add as heatmap
-      const map = mapInstanceRef.current;
-      if (map && map.isStyleLoaded()) {
-        const mapLayerId = `layer-${layerId}`;
-        const labelId = `layer-${layerId}-label`;
-        const sourceId = `source-${layerId}`;
-
-        // Hide label (heatmaps don't support labels)
-        if (map.getLayer(labelId)) {
-          map.setLayoutProperty(labelId, 'visibility', 'none');
-        }
-
-        // Remove old circle layer
-        if (map.getLayer(mapLayerId)) {
-          map.removeLayer(mapLayerId);
-        }
-
-        // Get tile URL from existing source
-        const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-        const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
-        const sourceLayer = `data.${layer.dataset_table_name}`;
-
-        const adapterInput: AdapterLayerInput = {
-          id: layerId,
-          dataset_table_name: layer.dataset_table_name,
-          dataset_geometry_type: layer.dataset_geometry_type,
-          opacity: layer.opacity ?? 1,
-          visible: layer.visible,
-          paint: updatedPaint,
-          layout: (layer.layout as Record<string, unknown>) ?? {},
-          filter: layer.filter,
-          label_config: layer.label_config,
-          sourceId,
-          layerId: mapLayerId,
-          sourceLayer,
-          tileUrl,
-        };
-
-        const adapter = getAdapter('heatmap');
-        adapter.addLayers(map, adapterInput);
-      }
+      swapLayerOnMap(layer, 'heatmap', updatedPaint);
     } else {
-      // Switching back to points — restore saved circle paint
       const savedHeatmapPaint = { ...updatedPaint };
       const savedCirclePaint = (currentStyleConfig['saved_circle_paint'] as Record<string, unknown> | undefined) ?? {};
 
@@ -621,7 +632,6 @@ export function useBuilderLayers(
         render_mode: 'points',
         heatmap_paint: savedHeatmapPaint,
       };
-      // Remove saved_circle_paint from config since we're back to points
       delete updatedStyleConfig['saved_circle_paint'];
 
       setLocalLayers((prev) =>
@@ -632,56 +642,7 @@ export function useBuilderLayers(
         ),
       );
 
-      // Live map update — remove heatmap layer and re-add as circle
-      const map = mapInstanceRef.current;
-      if (map && map.isStyleLoaded()) {
-        const mapLayerId = `layer-${layerId}`;
-        const sourceId = `source-${layerId}`;
-
-        // Remove old heatmap layer
-        if (map.getLayer(mapLayerId)) {
-          map.removeLayer(mapLayerId);
-        }
-
-        const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-        const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
-        const sourceLayer = `data.${layer.dataset_table_name}`;
-
-        const adapterInput: AdapterLayerInput = {
-          id: layerId,
-          dataset_table_name: layer.dataset_table_name,
-          dataset_geometry_type: layer.dataset_geometry_type,
-          opacity: layer.opacity ?? 1,
-          visible: layer.visible,
-          paint: updatedPaint,
-          layout: (layer.layout as Record<string, unknown>) ?? {},
-          filter: layer.filter,
-          label_config: layer.label_config,
-          sourceId,
-          layerId: mapLayerId,
-          sourceLayer,
-          tileUrl,
-        };
-
-        const adapter = getAdapter('circle');
-        adapter.addLayers(map, adapterInput);
-
-        // Re-add label layer if label_config exists
-        if (layer.label_config?.column) {
-          const labelId = `layer-${layerId}-label`;
-          if (!map.getLayer(labelId) && map.getSource(sourceId)) {
-            const geomType = getLayerType(layer.dataset_geometry_type);
-            map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
-            // Match parent visibility
-            const vis = layer.visible ? 'visible' : 'none';
-            map.setLayoutProperty(labelId, 'visibility', vis);
-          } else if (map.getLayer(labelId)) {
-            // Restore visibility
-            const vis = layer.visible ? 'visible' : 'none';
-            map.setLayoutProperty(labelId, 'visibility', vis);
-          }
-        }
-      }
+      swapLayerOnMap(layer, 'circle', updatedPaint);
     }
 
     setHasUnsavedChanges(true);
