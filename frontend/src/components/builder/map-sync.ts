@@ -135,6 +135,7 @@ export function syncLayersToMap(
     if (map.getSource(sourceId)) {
       if (layer.label_config?.column && !isHeatmap) {
         const lc = layer.label_config;
+        // Use getLayerType (not resolveAdapterType) — labels are geometry-based, not render-mode-based
         const geomType = getLayerType(layer.dataset_geometry_type);
 
         if (!map.getLayer(labelId)) {
@@ -161,7 +162,7 @@ export function syncLayersToMap(
     }
 
     // Update visibility via adapter (handles main + companion layers)
-    getAdapter(type).syncVisibility(map, adapterInput);
+    adapter.syncVisibility(map, adapterInput);
     // Also sync label visibility (keep hidden for heatmap layers)
     if (map.getLayer(labelId) && !isHeatmap) {
       const vis = layer.visible ? 'visible' : 'none';
