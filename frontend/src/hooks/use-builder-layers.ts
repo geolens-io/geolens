@@ -428,13 +428,18 @@ export function useBuilderLayers(
 
     const mapLayerId = `layer-${layerId}`;
     const outlineId = `layer-${layerId}-outline`;
-    const geomType = getLayerType(layer.dataset_geometry_type);
+    const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
 
     if (layer.layer_type === 'raster_geolens') {
       if (map.getLayer(mapLayerId)) {
         map.setPaintProperty(mapLayerId, 'raster-opacity', newOpacity);
       }
+    } else if (adapterType === 'heatmap') {
+      if (map.getLayer(mapLayerId)) {
+        map.setPaintProperty(mapLayerId, 'heatmap-opacity', newOpacity * 0.8);
+      }
     } else {
+      const geomType = adapterType as 'fill' | 'line' | 'circle';
       if (map.getLayer(mapLayerId)) {
         map.setPaintProperty(
           mapLayerId,
