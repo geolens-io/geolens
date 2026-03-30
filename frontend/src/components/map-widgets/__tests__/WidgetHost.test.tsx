@@ -37,9 +37,9 @@ function CrashingWidget(): JSX.Element {
 
 // Register once — registry is module-level
 if (!getWidgets().find((w) => w.id === WIDGET_A_ID)) {
-  registerWidget({ id: WIDGET_A_ID, labelKey: 'widgets.a', icon: LayoutGrid, slot: 'top-left', component: WidgetA });
-  registerWidget({ id: WIDGET_B_ID, labelKey: 'widgets.b', icon: LayoutGrid, slot: 'top-right', component: WidgetB });
-  registerWidget({ id: WIDGET_CRASH_ID, labelKey: 'widgets.crash', icon: LayoutGrid, slot: 'bottom-left', component: CrashingWidget });
+  registerWidget({ id: WIDGET_A_ID, labelKey: 'widgets.a', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-left' }, component: WidgetA });
+  registerWidget({ id: WIDGET_B_ID, labelKey: 'widgets.b', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-right' }, component: WidgetB });
+  registerWidget({ id: WIDGET_CRASH_ID, labelKey: 'widgets.crash', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'bottom-left' }, component: CrashingWidget });
 }
 
 const testCtx: WidgetContext = {

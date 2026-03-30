@@ -10,7 +10,7 @@ describe('widget registry', () => {
     id: `test-widget-${Date.now()}`,
     labelKey: 'Test Widget',
     icon: LayoutGrid,
-    slot: 'top-right' as const,
+    placement: { mode: 'floating' as const, anchor: 'top-right' as const },
     component: () => null,
   };
 
