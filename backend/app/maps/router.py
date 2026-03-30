@@ -174,20 +174,25 @@ async def list_maps_endpoint(
     sort_by: str = "updated_at",
     sort_dir: str = "desc",
     visibility: str | None = None,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> MapListResponse:
-    """List maps. Admins see all; others see own private + all internal/public.
+    """List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
     sort_dir (asc/desc), and visibility filter (private/internal/public).
     """
-    user_roles = await get_user_roles(db, user)
+    if user is not None:
+        user_roles = await get_user_roles(db, user)
+        uid = user.id
+    else:
+        user_roles = set()
+        uid = None
     maps, total = await list_maps(
         db,
         skip=skip,
         limit=limit,
-        user_id=user.id,
+        user_id=uid,
         user_roles=user_roles,
         search=search,
         sort_by=sort_by,

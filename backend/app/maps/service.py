@@ -190,8 +190,8 @@ async def list_maps(
                     Map.visibility.in_(["internal", "public"]),
                 )
             )
-        # No user context -- legacy fallback (shouldn't happen in practice)
-        return stmt
+        # Anonymous -- public maps only
+        return stmt.where(Map.visibility == "public")
 
     # Build search/visibility filters (applied to both count and data queries)
     def _apply_extra_filters(stmt):
