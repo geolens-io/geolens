@@ -155,7 +155,7 @@ jobs:
 
       - name: Upload backend coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/htmlcov/
@@ -221,7 +221,7 @@ jobs:
 
       - name: Upload frontend coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-coverage
           path: frontend/coverage/
@@ -298,7 +298,7 @@ jobs:
 
       - name: Upload test results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-test-results
           path: test-results/
@@ -306,7 +306,7 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/
