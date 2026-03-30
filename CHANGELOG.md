@@ -1,0 +1,204 @@
+# Changelog
+
+All notable changes to GeoLens are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [13.0] - 2026-03-27
+
+### Added
+- Open-core architecture with enterprise extension points
+- Plugin entrypoint system for modular feature loading
+- CI pipeline with path-filtered conditional jobs, security scanning (bandit + pip-audit), and E2E tests
+- Docker image publishing to GHCR with Trivy scan gate and SBOM attestation
+
+### Changed
+- Upgraded all dependencies (backend and frontend) to latest stable versions
+- Pinned Docker base images to specific digests for reproducible builds
+
+### Fixed
+- IDOR vulnerabilities in dataset and map endpoints
+- CORS configuration tightened to explicit allowed origins
+- Rate limiting added to authentication endpoints
+- Graceful shutdown and init process in Docker containers
+
+## [12.3] - 2026-03-21
+
+### Added
+- Keyboard-accessible map builder with full tab navigation
+- Builder save/load unit and E2E tests
+- Alembic migrations run automatically on API container startup
+
+### Fixed
+- Basemap E2E test selector alignment
+- Missing i18n keys in builder components
+
+## [12.2] - 2026-03-19
+
+### Added
+- No-tile badge for raster datasets without a configured tile URL
+- Tile error tracking and hero state machine for raster/VRT previews
+
+### Fixed
+- Raster hero state now correctly shows no-tile badge instead of infinite spinner
+
+## [12.1] - 2026-03-17
+
+### Added
+- Smart timestamps in audit log (relative for recent, absolute for older entries)
+- Client-side search on collections browse page
+- Responsive overflow tabs on dataset detail panel
+
+### Fixed
+- Login form test selector ambiguity
+- Missing i18n keys for dataset card provenance fallback
+- Trailing slash on collections/datasets API call causing 307 redirect
+
+## [12.0] - 2026-03-17
+
+### Added
+- Record-first discovery architecture -- catalog now surfaces individual records, not just datasets
+- Keyword facet picker integrated into filter panel
+- Search ranking with faceted filtering backend
+- Publish button wired to dataset status endpoint
+
+### Changed
+- Catalog search rewritten around record-level results
+- Filter panel now supports keyword facets alongside existing filters
+
+### Fixed
+- Keyword URL encoding in search queries
+- Missing i18n metadata keys
+
+## [11.0] - 2026-03-16
+
+### Added
+- Performance regression test suite for 5 critical API paths
+- Load test framework with tuning documentation
+- Connection pool and query optimization for large catalogs
+
+## [10.1] - 2026-03-15
+
+### Added
+- VRT-based raster mosaics from multiple source GeoTIFFs
+- Sources tab on dataset detail showing VRT member files
+- Delete guard UX showing dependent VRT links on 409 conflict
+- VRT i18n keys for all 4 locales (en, de, es, fr)
+
+### Fixed
+- VRT regeneration banner and error display
+- SQL string concatenation bugs in VRT source link queries
+- AlertDialogAction auto-close behavior on 409 delete errors
+
+## [10.0] - 2026-03-14
+
+### Added
+- Raster dataset support -- upload GeoTIFF and Cloud-Optimized GeoTIFF (COG) files
+- Automatic COG conversion for non-optimized GeoTIFFs
+- Raster tile serving via Titiler integration
+- Raster layer controls in map builder (opacity, band selection)
+- AI chat awareness of raster datasets with set_opacity action
+- `layer_type` field round-trip in saved maps
+
+### Changed
+- Map builder layer item rendering now conditional on vector vs raster type
+- TileToken schema extended to union of vector and raster token types
+
+## [8.2] - 2026-03-10
+
+### Added
+- Inline-editable share link settings (title, description, allowed origins)
+- PATCH endpoints for share tokens and embed tokens
+- SharePanel redesigned with inline editing replacing read-only summary
+
+## [8.0] - 2026-03-09
+
+### Added
+- Spatial intelligence -- AI can execute spatial queries and display results as ephemeral map layers
+- Ephemeral result layer rendering with dismiss UI
+- Backend GeoJSON extraction from spatial query results
+- Semantic search powered by pgvector
+- Related datasets discovery based on vector similarity
+- Semantic search toggle in filter panel
+
+### Changed
+- Enterprise configuration consolidated and cleaned up
+- AI prompts optimized for spatial query generation
+
+## [7.2] - 2026-03-08
+
+### Added
+- pgvector-based semantic search across dataset metadata
+- Related datasets API endpoint and frontend card
+- Semantic search toggle with store and API support
+
+## [6.2] - 2026-03-07
+
+### Added
+- OAuth 2.0 / OIDC authentication support
+- Enterprise configuration management UI
+- Settings tabs reorganized into sidebar sub-navigation
+- Config import/export functionality
+
+### Fixed
+- File dialog double-trigger on config import
+- Missing sidebar translation keys for config and permissions sections
+
+## [6.0] - 2026-03-03
+
+### Added
+- Redis circuit breaker for cache provider resilience
+- Procrastinate queue splitting with file-size-based routing
+- Upload limits admin UI with database-driven enforcement
+- CORS deployment documentation
+- Type-safe filter specifications replacing `unknown[]` types
+
+### Changed
+- Production hardening across 9 phases (102-110)
+- Abort cleanup wired into collection membership manager
+
+## [3.0] - 2026-02-28
+
+### Added
+- Collections for organizing datasets into groups
+- Batch dataset operations
+- Dataset export in multiple formats (GeoJSON, Shapefile, GeoPackage, CSV)
+- CRS reprojection on export
+
+## [2.4] - 2026-02-26
+
+### Added
+- Theme support (light/dark) with system preference detection
+- Admin settings API for basemaps, map defaults, and feature toggles
+- Basemap utilities and theme-aware basemap selection
+- Admin layout with sidebar navigation
+
+## [2.0] - 2026-02-22
+
+### Added
+- Initial public release
+- PostGIS-backed spatial data catalog
+- Full-text and spatial search
+- Vector file upload and ingestion (Shapefile, GeoPackage, GeoJSON, CSV)
+- Interactive map preview with MapLibre GL
+- OGC API - Features compliance
+- JWT authentication with role-based access control
+- Docker Compose deployment
+
+[13.0]: https://github.com/geolens-io/geolens/compare/v12.3...v13.0
+[12.3]: https://github.com/geolens-io/geolens/compare/v12.2...v12.3
+[12.2]: https://github.com/geolens-io/geolens/compare/v12.1...v12.2
+[12.1]: https://github.com/geolens-io/geolens/compare/v12.0...v12.1
+[12.0]: https://github.com/geolens-io/geolens/compare/v11.0...v12.0
+[11.0]: https://github.com/geolens-io/geolens/compare/v10.1...v11.0
+[10.1]: https://github.com/geolens-io/geolens/compare/v10.0...v10.1
+[10.0]: https://github.com/geolens-io/geolens/compare/v8.2...v10.0
+[8.2]: https://github.com/geolens-io/geolens/compare/v8.0...v8.2
+[8.0]: https://github.com/geolens-io/geolens/compare/v7.2...v8.0
+[7.2]: https://github.com/geolens-io/geolens/compare/v6.2...v7.2
+[6.2]: https://github.com/geolens-io/geolens/compare/v6.0...v6.2
+[6.0]: https://github.com/geolens-io/geolens/compare/v3.0...v6.0
+[3.0]: https://github.com/geolens-io/geolens/compare/v2.4...v3.0
+[2.4]: https://github.com/geolens-io/geolens/compare/v2.0...v2.4
+[2.0]: https://github.com/geolens-io/geolens/releases/tag/v2.0
