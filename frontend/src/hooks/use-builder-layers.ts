@@ -683,7 +683,6 @@ export function useBuilderLayers(
         if (layer.label_config?.column) {
           const labelId = `layer-${layerId}-label`;
           if (!map.getLayer(labelId) && map.getSource(sourceId)) {
-            const { buildLabelLayerSpec } = await import('@/components/builder/label-layer-utils');
             const geomType = getLayerType(layer.dataset_geometry_type);
             map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
             // Match parent visibility
