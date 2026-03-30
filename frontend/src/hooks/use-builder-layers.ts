@@ -379,7 +379,7 @@ export function useBuilderLayers(
 
     const mapLayerId = `layer-${layerId}`;
     const outlineId = `layer-${layerId}-outline`;
-    const geomType = getLayerType(layer.dataset_geometry_type);
+    const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
 
     // Generic paint property sync
     for (const [prop, value] of Object.entries(newPaint)) {
@@ -395,12 +395,16 @@ export function useBuilderLayers(
 
     // Compound opacity override (product of per-type and master opacity)
     if (map.getLayer(mapLayerId)) {
-      const opacityProp = `${geomType}-opacity`;
-      map.setPaintProperty(mapLayerId, opacityProp, getCompoundOpacity(newPaint, geomType, layer.opacity ?? 1));
+      if (adapterType === 'heatmap') {
+        map.setPaintProperty(mapLayerId, 'heatmap-opacity', (layer.opacity ?? 1) * 0.8);
+      } else {
+        const geomType = adapterType as 'fill' | 'line' | 'circle';
+        map.setPaintProperty(mapLayerId, `${geomType}-opacity`, getCompoundOpacity(newPaint, geomType, layer.opacity ?? 1));
+      }
     }
 
-    // Custom outline props -> outline line layer
-    if (map.getLayer(outlineId)) {
+    // Custom outline props -> outline line layer (not applicable for heatmap)
+    if (adapterType !== 'heatmap' && map.getLayer(outlineId)) {
       const oc = newPaint['_outline-color'] ?? newPaint['outline-color'];
       if (oc !== undefined) {
         map.setPaintProperty(outlineId, 'line-color', oc);
