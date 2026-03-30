@@ -1,6 +1,7 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { useParams } from 'react-router';
 import { useMap } from '@/hooks/use-maps';
+import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { MapPinOff } from 'lucide-react';
@@ -12,8 +13,7 @@ import type { MapLayerResponse, SharedLayerResponse } from '@/types/api';
 
 /**
  * Transform a MapLayerResponse (from GET /maps/{id}) into the SharedLayerResponse
- * format that ViewerMap consumes. The tile_url field is set to a placeholder since
- * ViewerMap builds the actual tile URL from table_name via buildSignedTileUrl.
+ * format that ViewerMap consumes.
  */
 function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
   return {
@@ -32,7 +32,6 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     label_config: layer.label_config,
     style_config: layer.style_config,
     show_in_legend: layer.show_in_legend,
-    // ViewerMap builds the actual URL via buildSignedTileUrl(table_name, token)
     tile_url: `/api/tiles/data.${layer.dataset_table_name}/{z}/{x}/{y}.pbf`,
   };
 }
@@ -46,43 +45,11 @@ export function PublicMapViewerPage() {
 
   const layers = useMemo(
     () => (data?.layers ?? []).map(toSharedLayer),
-    [data],
+    [data?.layers],
   );
 
-  const [visibleLayers, setVisibleLayers] = useState<Set<number> | null>(null);
-
-  const effectiveVisibleLayers = useMemo(() => {
-    if (visibleLayers !== null) return visibleLayers;
-    if (!data) return new Set<number>();
-    return new Set(data.layers.filter((l) => l.visible).map((l) => l.sort_order));
-  }, [visibleLayers, data]);
-
-  const [isLegendOpen, setIsLegendOpen] = useState(() => {
-    return typeof window !== 'undefined' ? window.innerWidth >= 500 : true;
-  });
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsLegendOpen(window.innerWidth >= 500);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const handleToggleVisibility = useCallback((sortOrder: number) => {
-    setVisibleLayers((prev) => {
-      const current = prev ?? new Set(
-        (data?.layers ?? []).filter((l) => l.visible).map((l) => l.sort_order),
-      );
-      const next = new Set(current);
-      if (next.has(sortOrder)) {
-        next.delete(sortOrder);
-      } else {
-        next.add(sortOrder);
-      }
-      return next;
-    });
-  }, [data]);
+  const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
+    useViewerLayers(data?.layers);
 
   if (isLoading) {
     return (
@@ -124,7 +91,7 @@ export function PublicMapViewerPage() {
         basemapStyle={data.basemap_style}
         showBasemapLabels={data.show_basemap_labels ?? true}
         initialViewState={viewState}
-        visibleLayers={effectiveVisibleLayers}
+        visibleLayers={visibleLayers}
       />
 
       {/* Floating title pill */}
@@ -138,7 +105,7 @@ export function PublicMapViewerPage() {
 
       <LayerLegend
         layers={layers}
-        visibleLayers={effectiveVisibleLayers}
+        visibleLayers={visibleLayers}
         onToggleVisibility={handleToggleVisibility}
         isOpen={isLegendOpen}
         onToggle={() => setIsLegendOpen((prev) => !prev)}
