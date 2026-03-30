@@ -572,9 +572,7 @@ export function useBuilderLayers(
     }
   }
 
-  function markDirty() {
-    setHasUnsavedChanges(true);
-  }
+  const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
   return {
     localLayers,

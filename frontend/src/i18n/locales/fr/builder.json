@@ -261,7 +261,9 @@
     "collapseSidebar": "Réduire le panneau latéral",
     "expandSidebar": "Développer le panneau latéral",
     "widgets": "Widgets",
-    "moreActions": "Plus d'actions"
+    "moreActions": "Plus d'actions",
+    "allSaved": "Toutes les modifications enregistrées",
+    "closeChat": "Fermer le chat"
   },
   "toasts": {
     "mapSaved": "Carte enregistrée",

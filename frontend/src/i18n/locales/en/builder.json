@@ -261,7 +261,9 @@
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
     "widgets": "Widgets",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "allSaved": "All changes saved",
+    "closeChat": "Close chat"
   },
   "toasts": {
     "mapSaved": "Map saved",

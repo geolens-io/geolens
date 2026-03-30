@@ -13,7 +13,7 @@ const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'bottom-right': 'absolute bottom-4 right-4 z-10 flex flex-col gap-2',
 };
 
-/** Shared hook: partition active+enabled widgets by placement mode */
+/** Partition active+enabled widgets by placement mode. Call once in the parent. */
 export function usePartitionedWidgets() {
   const activeWidgets = useWidgetStore((s) => s.activeWidgets);
   const { data: enabledWidgetIds } = useEnabledWidgets();
@@ -43,12 +43,12 @@ export function usePartitionedWidgets() {
 }
 
 interface WidgetHostProps {
+  byAnchor: Record<string, WidgetDefinition[]>;
   ctx: WidgetContext;
 }
 
 /** Renders floating widgets anchored to map corners */
-export function WidgetHost({ ctx }: WidgetHostProps) {
-  const { byAnchor } = usePartitionedWidgets();
+export function WidgetHost({ byAnchor, ctx }: WidgetHostProps) {
   const anchors = Object.keys(ANCHOR_POSITIONS) as WidgetAnchor[];
 
   return (
@@ -74,20 +74,19 @@ export function WidgetHost({ ctx }: WidgetHostProps) {
 }
 
 interface WidgetSidebarSectionProps {
+  sidebar: WidgetDefinition[];
   ctx: WidgetContext;
 }
 
 /** Renders sidebar-mode widgets as sections inside the existing builder sidebar */
-export function WidgetSidebarSection({ ctx }: WidgetSidebarSectionProps) {
-  const { sidebar } = usePartitionedWidgets();
-
+export function WidgetSidebarSection({ sidebar, ctx }: WidgetSidebarSectionProps) {
   if (sidebar.length === 0) return null;
 
   return (
     <>
       {sidebar.map((w) => (
         <div key={w.id} className="border-t pt-3 px-2">
-          <WidgetPanel def={w}>
+          <WidgetPanel def={w} showClose={false}>
             <WidgetErrorBoundary widgetId={w.id}>
               <w.component ctx={ctx} />
             </WidgetErrorBoundary>

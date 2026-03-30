@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { LayoutGrid } from 'lucide-react';
 import { useWidgetStore } from '@/stores/map-widget-store';
 import { registerWidget, getWidgets } from '../registry';
-import { WidgetHost } from '../WidgetHost';
+import { WidgetHost, usePartitionedWidgets } from '../WidgetHost';
 import type { WidgetContext } from '../types';
 
 // Mock useEnabledWidgets — controls admin filtering
@@ -48,6 +48,12 @@ const testCtx: WidgetContext = {
   mapId: 'test-map-123',
 };
 
+/** Test wrapper that calls usePartitionedWidgets and passes byAnchor to WidgetHost */
+function TestWidgetHost({ ctx }: { ctx: WidgetContext }) {
+  const { byAnchor } = usePartitionedWidgets();
+  return <WidgetHost byAnchor={byAnchor} ctx={ctx} />;
+}
+
 describe('WidgetHost', () => {
   beforeEach(() => {
     useWidgetStore.setState(initialState, true);
@@ -55,20 +61,20 @@ describe('WidgetHost', () => {
   });
 
   it('renders no widget content when no widgets are active', () => {
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.queryByTestId('widget-a')).toBeNull();
     expect(screen.queryByTestId('widget-b')).toBeNull();
   });
 
   it('renders active widgets', () => {
     useWidgetStore.getState().open(WIDGET_A_ID);
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.getByTestId('widget-a')).toHaveTextContent('A: 0 layers');
   });
 
   it('passes context to widgets', () => {
     useWidgetStore.getState().open(WIDGET_B_ID);
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.getByTestId('widget-b')).toHaveTextContent('B: test-map-123');
   });
 
@@ -78,7 +84,7 @@ describe('WidgetHost', () => {
     mockEnabledWidgets = undefined;
     useWidgetStore.getState().open(WIDGET_A_ID);
     useWidgetStore.getState().open(WIDGET_B_ID);
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.getByTestId('widget-a')).toBeInTheDocument();
     expect(screen.getByTestId('widget-b')).toBeInTheDocument();
   });
@@ -87,7 +93,7 @@ describe('WidgetHost', () => {
     mockEnabledWidgets = [WIDGET_A_ID]; // only A enabled
     useWidgetStore.getState().open(WIDGET_A_ID);
     useWidgetStore.getState().open(WIDGET_B_ID);
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.getByTestId('widget-a')).toBeInTheDocument();
     expect(screen.queryByTestId('widget-b')).toBeNull();
   });
@@ -95,7 +101,7 @@ describe('WidgetHost', () => {
   it('renders no widget content when admin disables all widgets', () => {
     mockEnabledWidgets = []; // none enabled
     useWidgetStore.getState().open(WIDGET_A_ID);
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.queryByTestId('widget-a')).toBeNull();
   });
 
@@ -105,7 +111,7 @@ describe('WidgetHost', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     useWidgetStore.getState().open(WIDGET_A_ID);
     useWidgetStore.getState().open(WIDGET_CRASH_ID);
-    render(<WidgetHost ctx={testCtx} />);
+    render(<TestWidgetHost ctx={testCtx} />);
 
     // Healthy widget still renders
     expect(screen.getByTestId('widget-a')).toBeInTheDocument();

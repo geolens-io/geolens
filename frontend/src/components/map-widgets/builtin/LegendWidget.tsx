@@ -3,6 +3,12 @@ import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/comp
 import { cn } from '@/lib/utils';
 import type { WidgetContext } from '../types';
 
+function breakLabel(i: number, breaks: number[]): string {
+  if (i === 0) return `< ${breaks[0]}`;
+  if (i === breaks.length) return `>= ${breaks[breaks.length - 1]}`;
+  return `${breaks[i - 1]} - ${breaks[i]}`;
+}
+
 export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   const { t } = useTranslation('builder');
 
@@ -61,14 +67,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                           return (
                             <ul className="space-y-0.5">
                               {sc.sizes.map((size, i) => {
-                                let label: string;
-                                if (i === 0) {
-                                  label = `< ${breaks[0]}`;
-                                } else if (i === breaks.length) {
-                                  label = `>= ${breaks[breaks.length - 1]}`;
-                                } else {
-                                  label = `${breaks[i - 1]} - ${breaks[i]}`;
-                                }
+                                const label = breakLabel(i, breaks);
                                 const r = Math.min(size, 12);
                                 return (
                                   <li key={i} className="flex items-center gap-1.5">
@@ -103,14 +102,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                           return (
                             <ul className="space-y-0.5">
                               {sc.sizes.map((size, i) => {
-                                let label: string;
-                                if (i === 0) {
-                                  label = `< ${breaks[0]}`;
-                                } else if (i === breaks.length) {
-                                  label = `>= ${breaks[breaks.length - 1]}`;
-                                } else {
-                                  label = `${breaks[i - 1]} - ${breaks[i]}`;
-                                }
+                                const label = breakLabel(i, breaks);
                                 const sw = Math.min(size, 8);
                                 return (
                                   <li key={i} className="flex items-center gap-1.5">
