@@ -403,11 +403,9 @@ async def get_map_defaults(
 @router.get("/enabled-widgets/")
 async def get_enabled_widgets(
     db: AsyncSession = Depends(get_db),
-) -> list[str]:
-    """Return list of enabled widget IDs (public, no auth). Empty list = all enabled."""
-    result = await ENABLED_WIDGETS.get(db)
-    # null in DB means "all enabled" — normalize to empty list for the API contract
-    return result if result is not None else []
+) -> list[str] | None:
+    """Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those."""
+    return await ENABLED_WIDGETS.get(db)
 
 
 @router.get("/tile-config/")
