@@ -451,6 +451,7 @@ export function MapBuilderPage() {
             onLabelChange={layers.handleLabelChange}
             onStyleConfigChange={layers.handleStyleConfigChange}
             onLayoutChange={layers.handleLayoutChange}
+            onRenderModeChange={layers.handleRenderModeChange}
             onClose={() => layers.handleToggleExpand('')}
           />
         </div>

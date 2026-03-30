@@ -4,8 +4,10 @@ import { ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
+import { HeatmapStyleControls } from './HeatmapStyleControls';
 import { getLayerType } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
@@ -17,6 +19,7 @@ interface LayerStyleEditorProps {
   onOpacityChange: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
   showAdvanced?: boolean;
 }
 
@@ -60,6 +63,7 @@ export function LayerStyleEditor({
   onOpacityChange,
   onStyleConfigChange,
   onLayoutChange,
+  onRenderModeChange,
   showAdvanced,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
@@ -67,6 +71,7 @@ export function LayerStyleEditor({
   const paint = layer.paint;
   const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
   const isDataDriven = !!layer.style_config?.column;
+  const renderMode = ((layer.style_config as Record<string, unknown> | undefined)?.render_mode as string) || 'points';
 
   const fillEnabled = !paint['_fill-disabled'];
   const strokeEnabled = !paint['_stroke-disabled'];
@@ -108,11 +113,37 @@ export function LayerStyleEditor({
 
   return (
     <div className="space-y-3">
-      {/* Data-driven style editor */}
-      <DataDrivenStyleEditor
-        layer={layer}
-        onStyleConfigChange={onStyleConfigChange}
-      />
+      {/* Render as dropdown — point layers only */}
+      {geomType === 'circle' && (
+        <div className="space-y-1">
+          <div className="text-xs font-medium">{t('style.renderAs')}</div>
+          <Select
+            value={renderMode}
+            onValueChange={(mode) => onRenderModeChange?.(layer.id, mode as 'points' | 'heatmap')}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="points">{t('style.renderPoints')}</SelectItem>
+              <SelectItem value="heatmap">{t('style.renderHeatmap')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Heatmap controls — shown when render mode is heatmap */}
+      {geomType === 'circle' && renderMode === 'heatmap' && (
+        <HeatmapStyleControls layer={layer} onPaintChange={onPaintChange} />
+      )}
+
+      {/* Data-driven style editor — hidden when in heatmap mode */}
+      {renderMode !== 'heatmap' && (
+        <DataDrivenStyleEditor
+          layer={layer}
+          onStyleConfigChange={onStyleConfigChange}
+        />
+      )}
 
       {/* Flat color controls */}
       <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
@@ -248,8 +279,8 @@ export function LayerStyleEditor({
           </>
         )}
 
-        {/* Circle (point) controls */}
-        {geomType === 'circle' && (
+        {/* Circle (point) controls — hidden when in heatmap mode */}
+        {geomType === 'circle' && renderMode !== 'heatmap' && (
           <>
             <div className="text-xs font-medium">{t('style.point')}</div>
             {isDataDriven ? (

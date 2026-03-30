@@ -41,6 +41,7 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -58,6 +59,7 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -76,6 +78,7 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={onLayoutChange}
+        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -94,6 +97,7 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={onLayoutChange}
+        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -110,6 +114,7 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -329,5 +334,79 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
     // Stroke toggle present but stroke controls collapsed
     expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
     expect(screen.getByText('Fill')).toBeInTheDocument();
+  });
+});
+
+describe('LayerStyleEditor - render mode (heatmap)', () => {
+  it('renders "Render as" dropdown for point layers', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'Point', paint: { 'circle-color': '#ff0000' } })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Render as')).toBeInTheDocument();
+  });
+
+  it('does NOT render "Render as" dropdown for polygon layers', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#ff0000' } })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('Render as')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render "Render as" dropdown for line layers', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'LineString', paint: { 'line-color': '#ff0000' } })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('Render as')).not.toBeInTheDocument();
+  });
+
+  it('shows heatmap controls when render_mode is heatmap', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: { 'heatmap-radius': 30, 'heatmap-intensity': 1 },
+          style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'heatmap' } as unknown as import('@/types/api').StyleConfig,
+          dataset_column_info: [{ name: 'count', type: 'integer' }],
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    // Heatmap controls should be present
+    expect(screen.getByText('Weight column')).toBeInTheDocument();
+    expect(screen.getByText('Color ramp')).toBeInTheDocument();
+    expect(screen.getByText('Radius')).toBeInTheDocument();
+    expect(screen.getByText('Intensity')).toBeInTheDocument();
+
+    // Circle controls should be absent
+    expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
   });
 });

@@ -70,7 +70,17 @@
     "jsonCancel": "Cancel",
     "zoomRange": "Zoom Range",
     "minZoom": "Min zoom",
-    "maxZoom": "Max zoom"
+    "maxZoom": "Max zoom",
+    "renderAs": "Render as",
+    "renderPoints": "Points",
+    "renderHeatmap": "Heatmap",
+    "heatmap": {
+      "weight": "Weight column",
+      "weightNone": "None (equal weight)",
+      "colorRamp": "Color ramp",
+      "radius": "Radius",
+      "intensity": "Intensity"
+    }
   },
   "filters": {
     "title": "Filters",
