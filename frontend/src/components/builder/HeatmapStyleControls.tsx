@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ColorRampPicker } from './ColorRampPicker';
-import { getRampColors } from '@/lib/color-ramps';
+import { buildHeatmapColorExpression } from './layer-adapters/heatmap-adapter';
 import type { MapLayerResponse } from '@/types/api';
 
 const NUMERIC_TYPES = new Set([
@@ -18,20 +18,6 @@ function isNumericType(type: string): boolean {
 interface HeatmapStyleControlsProps {
   layer: MapLayerResponse;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
-}
-
-/** Build a MapLibre heatmap-color interpolation expression from a named ramp. */
-export function buildHeatmapColorExpressionFromRamp(rampName: string): unknown[] {
-  const colors = getRampColors(rampName, 6);
-  return [
-    'interpolate', ['linear'], ['heatmap-density'],
-    0,   'rgba(0,0,0,0)',
-    0.2, colors[1],
-    0.4, colors[2],
-    0.6, colors[3],
-    0.8, colors[4],
-    1.0, colors[5],
-  ];
 }
 
 export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleControlsProps) {
@@ -72,7 +58,7 @@ export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleContr
     const newPaint = {
       ...paint,
       '_heatmap-ramp': name,
-      'heatmap-color': buildHeatmapColorExpressionFromRamp(name),
+      'heatmap-color': buildHeatmapColorExpression(name),
     };
     onPaintChange(layer.id, newPaint);
   }

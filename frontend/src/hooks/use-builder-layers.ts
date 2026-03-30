@@ -6,7 +6,7 @@ import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, resolveAdapterType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { getRampColors } from '@/lib/color-ramps';
+import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
@@ -546,25 +546,7 @@ export function useBuilderLayers(
       if (Object.keys(savedHeatmapPaint).length > 0) {
         updatedPaint = { ...savedHeatmapPaint };
       } else {
-        // Build default heatmap paint
-        const colors = getRampColors('YlOrRd', 6);
-        const heatmapColorExpr = [
-          'interpolate', ['linear'], ['heatmap-density'],
-          0,   'rgba(0,0,0,0)',
-          0.2, colors[1],
-          0.4, colors[2],
-          0.6, colors[3],
-          0.8, colors[4],
-          1.0, colors[5],
-        ];
-        updatedPaint = {
-          'heatmap-radius': 30,
-          'heatmap-weight': 1,
-          'heatmap-intensity': 1,
-          'heatmap-color': heatmapColorExpr,
-          'heatmap-opacity': 0.8,
-          '_heatmap-ramp': 'YlOrRd',
-        };
+        updatedPaint = { ...DEFAULT_HEATMAP_PAINT };
       }
 
       const updatedStyleConfig = {
