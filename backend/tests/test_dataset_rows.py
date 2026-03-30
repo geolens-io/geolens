@@ -233,7 +233,7 @@ class TestRowsAuth:
     async def test_rows_anonymous_nonexistent_returns_404(self, client: AsyncClient):
         """GET /datasets/{uuid}/rows without token returns 404 for nonexistent dataset."""
         fake_id = str(uuid.uuid4())
-        resp = await client.get(f"/datasets/{fake_id}/rows")
+        resp = await client.get(f"/datasets/{fake_id}/rows/")
         assert resp.status_code == 404
 
     @pytest.mark.anyio
@@ -242,7 +242,7 @@ class TestRowsAuth:
     ):
         """GET /datasets/{random_uuid}/rows with auth returns 404."""
         fake_id = str(uuid.uuid4())
-        resp = await client.get(f"/datasets/{fake_id}/rows", headers=admin_auth_header)
+        resp = await client.get(f"/datasets/{fake_id}/rows/", headers=admin_auth_header)
         assert resp.status_code == 404
 
 
@@ -282,11 +282,11 @@ class TestRowsVisibility:
         )
 
         # Viewer cannot access rows
-        resp = await client.get(f"/datasets/{ds.id}/rows", headers=viewer_auth_header)
+        resp = await client.get(f"/datasets/{ds.id}/rows/", headers=viewer_auth_header)
         assert resp.status_code == 404
 
         # Admin can access rows
-        resp = await client.get(f"/datasets/{ds.id}/rows", headers=admin_auth_header)
+        resp = await client.get(f"/datasets/{ds.id}/rows/", headers=admin_auth_header)
         assert resp.status_code == 200
 
 
@@ -305,7 +305,7 @@ class TestRowsResponse:
     ):
         """GET /datasets/{id}/rows returns rows, approximate_total, next_cursor, and columns."""
         resp = await client.get(
-            f"/datasets/{rows_dataset.id}/rows", headers=admin_auth_header
+            f"/datasets/{rows_dataset.id}/rows/", headers=admin_auth_header
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -327,7 +327,7 @@ class TestRowsResponse:
     ):
         """Rows contain the expected dict keys from the test table."""
         resp = await client.get(
-            f"/datasets/{rows_dataset.id}/rows", headers=admin_auth_header
+            f"/datasets/{rows_dataset.id}/rows/", headers=admin_auth_header
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -348,7 +348,7 @@ class TestRowsResponse:
     ):
         """Rows must NOT contain geometry columns (geom, geom_4326)."""
         resp = await client.get(
-            f"/datasets/{geom_rows_dataset.id}/rows", headers=admin_auth_header
+            f"/datasets/{geom_rows_dataset.id}/rows/", headers=admin_auth_header
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -376,7 +376,7 @@ class TestRowsKeysetPagination:
     ):
         """after=0 returns first page of rows ordered by gid."""
         resp = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 2, "after": 0},
             headers=admin_auth_header,
         )
@@ -398,7 +398,7 @@ class TestRowsKeysetPagination:
         """Using next_cursor from page 1 returns page 2 with different rows."""
         # Page 1
         resp1 = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 2, "after": 0},
             headers=admin_auth_header,
         )
@@ -407,7 +407,7 @@ class TestRowsKeysetPagination:
 
         # Page 2
         resp2 = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 2, "after": cursor},
             headers=admin_auth_header,
         )
@@ -429,7 +429,7 @@ class TestRowsKeysetPagination:
         """Last page returns fewer rows and next_cursor=null."""
         # Get all 5 rows in 3-row pages
         resp1 = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 3, "after": 0},
             headers=admin_auth_header,
         )
@@ -439,7 +439,7 @@ class TestRowsKeysetPagination:
 
         # Page 2 should have 2 remaining rows and null cursor
         resp2 = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 3, "after": cursor},
             headers=admin_auth_header,
         )
@@ -456,7 +456,7 @@ class TestRowsKeysetPagination:
     ):
         """Cursor past all rows returns empty rows and next_cursor=null."""
         resp = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 10, "after": 99999},
             headers=admin_auth_header,
         )
@@ -474,7 +474,7 @@ class TestRowsKeysetPagination:
     ):
         """Filters still work with keyset pagination."""
         resp = await client.get(
-            f"/datasets/{rows_dataset.id}/rows",
+            f"/datasets/{rows_dataset.id}/rows/",
             params={"limit": 10, "after": 0, "filter[name]": "a"},
             headers=admin_auth_header,
         )
@@ -497,7 +497,7 @@ class TestRowsValidation:
         """limit=0 returns 422 (below minimum of 1)."""
         fake_id = str(uuid.uuid4())
         resp = await client.get(
-            f"/datasets/{fake_id}/rows",
+            f"/datasets/{fake_id}/rows/",
             params={"limit": 0},
             headers=admin_auth_header,
         )
@@ -510,7 +510,7 @@ class TestRowsValidation:
         """limit=501 returns 422 (above maximum of 500)."""
         fake_id = str(uuid.uuid4())
         resp = await client.get(
-            f"/datasets/{fake_id}/rows",
+            f"/datasets/{fake_id}/rows/",
             params={"limit": 501},
             headers=admin_auth_header,
         )

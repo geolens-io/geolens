@@ -254,7 +254,7 @@ class TestCollectionMembership:
 
         # Add datasets
         resp = await client.post(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             json={"dataset_ids": [str(ds1.id), str(ds2.id)]},
             headers=admin_auth_header,
         )
@@ -263,7 +263,7 @@ class TestCollectionMembership:
 
         # List datasets in collection
         resp = await client.get(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
@@ -294,7 +294,7 @@ class TestCollectionMembership:
 
         # Add
         await client.post(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             json={"dataset_ids": [str(ds.id)]},
             headers=admin_auth_header,
         )
@@ -308,7 +308,7 @@ class TestCollectionMembership:
 
         # Verify removed
         resp = await client.get(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             headers=admin_auth_header,
         )
         assert resp.json()["total"] == 0
@@ -341,23 +341,23 @@ class TestCollectionMembership:
 
         # Add same dataset to both
         await client.post(
-            f"/catalog/collections/{coll_a}/datasets",
+            f"/catalog/collections/{coll_a}/datasets/",
             json={"dataset_ids": [str(ds.id)]},
             headers=admin_auth_header,
         )
         await client.post(
-            f"/catalog/collections/{coll_b}/datasets",
+            f"/catalog/collections/{coll_b}/datasets/",
             json={"dataset_ids": [str(ds.id)]},
             headers=admin_auth_header,
         )
 
         # Both collections list the dataset
         resp_a = await client.get(
-            f"/catalog/collections/{coll_a}/datasets",
+            f"/catalog/collections/{coll_a}/datasets/",
             headers=admin_auth_header,
         )
         resp_b = await client.get(
-            f"/catalog/collections/{coll_b}/datasets",
+            f"/catalog/collections/{coll_b}/datasets/",
             headers=admin_auth_header,
         )
         assert resp_a.json()["total"] == 1
@@ -395,7 +395,7 @@ class TestCollectionMembership:
 
         # First add
         resp = await client.post(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             json={"dataset_ids": [str(ds.id)]},
             headers=admin_auth_header,
         )
@@ -403,7 +403,7 @@ class TestCollectionMembership:
 
         # Second add (duplicate)
         resp = await client.post(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             json={"dataset_ids": [str(ds.id)]},
             headers=admin_auth_header,
         )
@@ -449,7 +449,7 @@ class TestCollectionExtent:
         coll_id = resp.json()["id"]
 
         await client.post(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             json={"dataset_ids": [str(ds1.id), str(ds2.id)]},
             headers=admin_auth_header,
         )
@@ -524,21 +524,21 @@ class TestCollectionVisibility:
         coll_id = resp.json()["id"]
 
         await client.post(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             json={"dataset_ids": [str(ds_public.id), str(ds_private.id)]},
             headers=admin_auth_header,
         )
 
         # Admin sees both
         resp = await client.get(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             headers=admin_auth_header,
         )
         assert resp.json()["total"] == 2
 
         # Viewer sees only public
         resp = await client.get(
-            f"/catalog/collections/{coll_id}/datasets",
+            f"/catalog/collections/{coll_id}/datasets/",
             headers=viewer_auth_header,
         )
         assert resp.json()["total"] == 1
@@ -616,7 +616,7 @@ class TestListCollections:
         )
 
         await client.post(
-            f"/catalog/collections/{coll_with_id}/datasets",
+            f"/catalog/collections/{coll_with_id}/datasets/",
             json={"dataset_ids": [str(ds.id)]},
             headers=admin_auth_header,
         )

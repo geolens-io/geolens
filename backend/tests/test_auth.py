@@ -166,7 +166,7 @@ class TestLogin:
 
         # Deactivate
         resp = await client.post(
-            f"/admin/users/{user_id}/deactivate", headers=admin_headers
+            f"/admin/users/{user_id}/deactivate/", headers=admin_headers
         )
         assert resp.status_code == 200
 
@@ -341,7 +341,7 @@ class TestAdminUserManagement:
         user_id = user_data["id"]
 
         resp = await client.post(
-            f"/admin/users/{user_id}/deactivate", headers=admin_headers
+            f"/admin/users/{user_id}/deactivate/", headers=admin_headers
         )
         assert resp.status_code == 200
         assert resp.json()["is_active"] is False

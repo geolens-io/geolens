@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SearchParams(BaseModel):
@@ -23,8 +23,6 @@ class SearchParams(BaseModel):
     offset: int = 0
     limit: int = 10
     exclude_synthetic: bool = True
-
-    bbox_parsed: list[float] | None = None
 
     @field_validator("bbox")
     @classmethod
@@ -101,7 +99,7 @@ class OGCRecordResponse(BaseModel):
     type: str = "Feature"
     id: str
     conformsTo: list[str] | None = None
-    geometry: dict | None = None
+    geometry: dict | None = None  # GeoJSON bbox polygon — built dynamically
     properties: OGCRecordProperties
     links: list[OGCRecordLink]
     assets: dict[str, OGCAsset] | None = None
@@ -137,7 +135,7 @@ class CollectionMetadata(BaseModel):
 class SavedSearchCreate(BaseModel):
     """Request body for creating a saved search."""
 
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     params: dict
 
 
@@ -160,10 +158,29 @@ class SavedSearchListResponse(BaseModel):
     total: int
 
 
+class FacetValueCount(BaseModel):
+    """A single facet value with count."""
+
+    value: str
+    count: int
+
+
+class CollectionFacetItem(BaseModel):
+    """A collection facet entry."""
+
+    id: str
+    name: str
+    dataset_count: int
+
+
 class FacetCountResponse(BaseModel):
-    """Facet counts by record type."""
+    """Multi-group facet counts for the search sidebar."""
 
     record_type: dict[str, int]
+    keywords: list[FacetValueCount] = []
+    source_organization: list[FacetValueCount] = []
+    srid: list[FacetValueCount] = []
+    collections: list[CollectionFacetItem] = []
 
 
 class OGCCollectionsResponse(BaseModel):

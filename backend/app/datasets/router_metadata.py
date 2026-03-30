@@ -7,6 +7,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Response,
     status,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +49,7 @@ router = APIRouter(prefix="/datasets", tags=["Datasets - Metadata"])
 
 
 @router.get(
-    "/{dataset_id}/versions",
+    "/{dataset_id}/versions/",
     response_model=DatasetVersionListResponse,
 )
 async def get_dataset_versions_endpoint(
@@ -246,7 +247,7 @@ async def reset_attribute_endpoint(
 
 
 @router.get(
-    "/{dataset_id}/columns/{column_name}/values", response_model=ColumnValuesResponse
+    "/{dataset_id}/columns/{column_name}/values/", response_model=ColumnValuesResponse
 )
 async def get_column_values(
     dataset_id: uuid.UUID,
@@ -280,7 +281,7 @@ async def get_column_values(
 
 
 @router.get(
-    "/{dataset_id}/columns/{column_name}/stats", response_model=ColumnStatsResponse
+    "/{dataset_id}/columns/{column_name}/stats/", response_model=ColumnStatsResponse
 )
 async def get_column_stats_endpoint(
     dataset_id: uuid.UUID,
@@ -317,12 +318,15 @@ async def get_column_stats_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{dataset_id}/relationships/")
+@router.get(
+    "/{dataset_id}/relationships/",
+    response_model=list[DatasetRelationshipResponse],
+)
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[DatasetRelationshipResponse]:
     """List all FK relationships for a dataset."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -337,13 +341,17 @@ async def list_dataset_relationships(
     return [DatasetRelationshipResponse(**item) for item in items]
 
 
-@router.post("/{dataset_id}/relationships/", status_code=201)
+@router.post(
+    "/{dataset_id}/relationships/",
+    response_model=DatasetRelationshipResponse,
+    status_code=201,
+)
 async def create_dataset_relationship(
     dataset_id: uuid.UUID,
     body: DatasetRelationshipCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("edit_metadata")),
-):
+) -> DatasetRelationshipResponse:
     """Create a new FK relationship. Editor+ required."""
     from app.datasets.service import create_relationship
 
@@ -362,7 +370,7 @@ async def delete_dataset_relationship(
     relationship_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission("edit_metadata")),
-):
+) -> Response:
     """Delete a FK relationship. Editor+ required."""
     from app.datasets.service import delete_relationship
 
@@ -371,6 +379,7 @@ async def delete_dataset_relationship(
         await db.commit()
     except ValueError:
         raise HTTPException(status_code=404, detail="Relationship not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{dataset_id}/features/{gid}/related/{relationship_id}/")

@@ -21,7 +21,7 @@ function makeMap(overrides: Partial<MapSummaryResponse> = {}): MapSummaryRespons
     layer_count: 2,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-02T00:00:00Z',
-    thumbnail_url: '/api/maps/map-1/thumbnail',
+    thumbnail_url: '/api/maps/map-1/thumbnail/',
     created_by_username: 'testuser',
     ...overrides,
   };

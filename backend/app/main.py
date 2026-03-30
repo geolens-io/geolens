@@ -333,6 +333,38 @@ _OPENAPI_TAGS = [
         "name": "Maps",
         "description": "Saved map configurations, layers, AI styling, and sharing.",
     },
+    {
+        "name": "config-ops",
+        "description": "Configuration export, import, dry-run, and connectivity validation.",
+    },
+    {
+        "name": "Admin Embed Tokens",
+        "description": "Admin management of embed tokens across all maps.",
+    },
+    {
+        "name": "Embed Tokens",
+        "description": "Per-map embed token CRUD for iframe tile access.",
+    },
+    {
+        "name": "Tiles",
+        "description": "Vector and raster tile serving with HMAC-signed access tokens.",
+    },
+    {
+        "name": "STAC",
+        "description": "SpatioTemporal Asset Catalog API for published raster datasets.",
+    },
+    {
+        "name": "Datasets - Export",
+        "description": "DCAT JSON-LD catalog export and COG download.",
+    },
+    {
+        "name": "Datasets - Data",
+        "description": "Row access, validation, related datasets, and publication status.",
+    },
+    {
+        "name": "Datasets - Metadata",
+        "description": "Attribute metadata, column stats, and FK relationships.",
+    },
 ]
 
 # Disable interactive docs when structured logging is enabled (production).

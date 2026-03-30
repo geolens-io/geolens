@@ -18,7 +18,6 @@ from app.admin.schemas import (
     AdminJobListResponse,
     AdminJobResponse,
     AdminUserCreate,
-    ApiKeyCreateResponse,
     UserNameItem,
     ApproveRequest,
     BackfillResponse,
@@ -32,7 +31,7 @@ from app.admin.schemas import (
 from app.admin.service import AdminService
 from app.auth.dependencies import get_current_active_user, require_permission
 from app.auth.models import ApiKey, User
-from app.auth.schemas import UserResponse
+from app.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.config import settings as app_settings
 from app.dependencies import get_db
 from app.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
@@ -169,7 +168,7 @@ async def update_user(
 
 
 @router.post(
-    "/users/{user_id}/deactivate",
+    "/users/{user_id}/deactivate/",
     response_model=UserResponse,
 )
 async def deactivate_user(
@@ -196,7 +195,7 @@ async def deactivate_user(
 
 
 @router.post(
-    "/users/{user_id}/approve",
+    "/users/{user_id}/approve/",
     response_model=UserResponse,
 )
 async def approve_user(
@@ -224,7 +223,7 @@ async def approve_user(
 
 
 @router.post(
-    "/users/{user_id}/reject",
+    "/users/{user_id}/reject/",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def reject_user(

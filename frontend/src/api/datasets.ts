@@ -45,7 +45,7 @@ export async function getDatasetRows(
     }
   }
   const qs = query.toString();
-  return apiFetch<DatasetRowsResponse>(`/datasets/${id}/rows${qs ? `?${qs}` : ''}`);
+  return apiFetch<DatasetRowsResponse>(`/datasets/${id}/rows/${qs ? `?${qs}` : ''}`);
 }
 
 export function getExportUrl(
@@ -113,7 +113,7 @@ export async function updatePublicationStatus(
   id: string,
   status: string,
 ): Promise<DatasetResponse> {
-  return apiFetch<DatasetResponse>(`/datasets/${id}/status`, {
+  return apiFetch<DatasetResponse>(`/datasets/${id}/status/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -223,7 +223,7 @@ export async function getDatasetVersions(
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   const qs = query.toString();
-  return apiFetch<DatasetVersionListResponse>(`/datasets/${datasetId}/versions${qs ? `?${qs}` : ''}`);
+  return apiFetch<DatasetVersionListResponse>(`/datasets/${datasetId}/versions/${qs ? `?${qs}` : ''}`);
 }
 
 export async function listAttributes(datasetId: string): Promise<AttributeMetadataListResponse> {

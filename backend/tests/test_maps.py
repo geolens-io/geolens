@@ -457,7 +457,7 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Original Map")
         map_id = created["id"]
 
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "Original Map (copy)"
@@ -468,7 +468,7 @@ class TestDuplicateMap:
     ):
         """POST /maps/{random_uuid}/duplicate returns 404."""
         resp = await client.post(
-            f"/maps/{uuid.uuid4()}/duplicate", headers=admin_auth_header
+            f"/maps/{uuid.uuid4()}/duplicate/", headers=admin_auth_header
         )
         assert resp.status_code == 404
 
@@ -488,7 +488,7 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
         resp = await client.post(
-            f"/maps/{map_id}/duplicate", headers=viewer_auth_header
+            f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -516,7 +516,7 @@ class TestDuplicateMap:
         )
 
         # Duplicate
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         data = resp.json()
         assert data["layer_count"] == 1
@@ -528,7 +528,7 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Source Map")
         map_id = created["id"]
 
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         data = resp.json()
         assert data["forked_from_id"] == map_id
@@ -542,7 +542,7 @@ class TestDuplicateMap:
         source_id = created["id"]
 
         fork_resp = await client.post(
-            f"/maps/{source_id}/duplicate", headers=admin_auth_header
+            f"/maps/{source_id}/duplicate/", headers=admin_auth_header
         )
         fork_id = fork_resp.json()["id"]
 
@@ -564,11 +564,11 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Collision Test")
         map_id = created["id"]
 
-        r1 = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        r1 = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert r1.status_code == 201
         assert r1.json()["name"] == "Collision Test (copy)"
 
-        r2 = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        r2 = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert r2.status_code == 201
         assert r2.json()["name"] == "Collision Test (copy 2)"
 
@@ -581,13 +581,13 @@ class TestDuplicateMap:
 
         # First fork
         r1 = await client.post(
-            f"/maps/{source_id}/duplicate", headers=admin_auth_header
+            f"/maps/{source_id}/duplicate/", headers=admin_auth_header
         )
         fork1_id = r1.json()["id"]
         assert r1.json()["name"] == "Chain Test (copy)"
 
         # Fork the fork
-        r2 = await client.post(f"/maps/{fork1_id}/duplicate", headers=admin_auth_header)
+        r2 = await client.post(f"/maps/{fork1_id}/duplicate/", headers=admin_auth_header)
         assert r2.status_code == 201
         assert r2.json()["name"] == "Chain Test (copy 2)"
 
@@ -633,7 +633,7 @@ class TestDuplicateMap:
 
         # Fork as viewer -- should exclude private layer
         resp = await client.post(
-            f"/maps/{map_id}/duplicate", headers=viewer_auth_header
+            f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -670,7 +670,7 @@ class TestDuplicateMap:
         )
 
         resp = await client.post(
-            f"/maps/{map_id}/duplicate", headers=viewer_auth_header
+            f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -700,7 +700,7 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
 
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         data = resp.json()
         assert data["layer_count"] == 1
@@ -718,7 +718,7 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
 
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         assert resp.json()["visibility"] == "private"
 
@@ -730,7 +730,7 @@ class TestDuplicateMap:
         source_id = created["id"]
 
         fork_resp = await client.post(
-            f"/maps/{source_id}/duplicate", headers=admin_auth_header
+            f"/maps/{source_id}/duplicate/", headers=admin_auth_header
         )
         fork_id = fork_resp.json()["id"]
 
@@ -783,7 +783,7 @@ class TestDuplicateMap:
             )
 
         resp = await client.post(
-            f"/maps/{map_id}/duplicate", headers=viewer_auth_header
+            f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -799,12 +799,12 @@ class TestDuplicateMap:
 
         # Set a thumbnail on source
         await client.put(
-            f"/maps/{map_id}/thumbnail",
+            f"/maps/{map_id}/thumbnail/",
             content="data:image/png;base64,iVBORw0KGgo=",
             headers={**admin_auth_header, "content-type": "text/plain"},
         )
 
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         assert resp.json()["thumbnail_url"] is None
 
@@ -826,7 +826,7 @@ class TestDuplicateMap:
         assert resp.json()["widgets"] == widget_ids
 
         # Duplicate
-        resp = await client.post(f"/maps/{map_id}/duplicate", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/duplicate/", headers=admin_auth_header)
         assert resp.status_code == 201
         assert resp.json()["widgets"] == widget_ids
 
@@ -874,7 +874,7 @@ class TestShareToken:
         map_id = created["id"]
         assert created["visibility"] == "private"
 
-        resp = await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
         assert resp.status_code == 400
         assert "public" in resp.json()["detail"].lower()
 
@@ -894,7 +894,7 @@ class TestShareToken:
         assert resp.status_code == 200
 
         # Share
-        resp = await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+        resp = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert "token" in data
@@ -912,8 +912,8 @@ class TestShareToken:
             headers=admin_auth_header,
         )
 
-        resp1 = await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
-        resp2 = await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+        resp1 = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
+        resp2 = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
         assert resp1.json()["token"] == resp2.json()["token"]
 
     async def test_revoke_share_token(
@@ -928,9 +928,9 @@ class TestShareToken:
             json={"visibility": "public"},
             headers=admin_auth_header,
         )
-        await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+        await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
 
-        resp = await client.delete(f"/maps/{map_id}/share", headers=admin_auth_header)
+        resp = await client.delete(f"/maps/{map_id}/share/", headers=admin_auth_header)
         assert resp.status_code == 204
 
     async def test_revoke_share_no_token(
@@ -940,7 +940,7 @@ class TestShareToken:
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
-        resp = await client.delete(f"/maps/{map_id}/share", headers=admin_auth_header)
+        resp = await client.delete(f"/maps/{map_id}/share/", headers=admin_auth_header)
         assert resp.status_code == 404
 
     async def test_share_map_not_found(
@@ -948,7 +948,7 @@ class TestShareToken:
     ):
         """POST /maps/{random_uuid}/share returns 404."""
         resp = await client.post(
-            f"/maps/{uuid.uuid4()}/share", headers=admin_auth_header
+            f"/maps/{uuid.uuid4()}/share/", headers=admin_auth_header
         )
         assert resp.status_code == 404
 
@@ -957,7 +957,7 @@ class TestShareToken:
     ):
         """POST /maps/{id}/share as viewer returns 403."""
         resp = await client.post(
-            f"/maps/{uuid.uuid4()}/share", headers=viewer_auth_header
+            f"/maps/{uuid.uuid4()}/share/", headers=viewer_auth_header
         )
         assert resp.status_code == 403
 
@@ -974,10 +974,10 @@ class TestShareToken:
             json={"visibility": "public"},
             headers=admin_auth_header,
         )
-        await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+        await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
 
         # Viewer (non-owner) should not be able to read the share token
-        resp = await client.get(f"/maps/{map_id}/share", headers=viewer_auth_header)
+        resp = await client.get(f"/maps/{map_id}/share/", headers=viewer_auth_header)
         assert resp.status_code == 403
 
     async def test_admin_revoke_share_token_cascades_embed_tokens(
@@ -994,7 +994,7 @@ class TestShareToken:
             headers=admin_auth_header,
         )
         share_resp = await client.post(
-            f"/maps/{map_id}/share", headers=admin_auth_header
+            f"/maps/{map_id}/share/", headers=admin_auth_header
         )
         assert share_resp.status_code == 200
 
@@ -1078,7 +1078,7 @@ class TestSharedMap:
             headers=admin_auth_header,
         )
         share_resp = await client.post(
-            f"/maps/{map_id}/share", headers=admin_auth_header
+            f"/maps/{map_id}/share/", headers=admin_auth_header
         )
         token = share_resp.json()["token"]
 
@@ -1108,12 +1108,12 @@ class TestSharedMap:
             headers=admin_auth_header,
         )
         share_resp = await client.post(
-            f"/maps/{map_id}/share", headers=admin_auth_header
+            f"/maps/{map_id}/share/", headers=admin_auth_header
         )
         token = share_resp.json()["token"]
 
         # Revoke
-        await client.delete(f"/maps/{map_id}/share", headers=admin_auth_header)
+        await client.delete(f"/maps/{map_id}/share/", headers=admin_auth_header)
 
         # Access revoked token
         resp = await client.get(f"/maps/shared/{token}")
@@ -1501,7 +1501,7 @@ class TestVisibilityCheck:
         map_id = created["id"]
 
         resp = await client.get(
-            f"/maps/{map_id}/visibility-check", headers=admin_auth_header
+            f"/maps/{map_id}/visibility-check/", headers=admin_auth_header
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -1513,7 +1513,7 @@ class TestVisibilityCheck:
     ):
         """GET /maps/{random_uuid}/visibility-check returns 404."""
         resp = await client.get(
-            f"/maps/{uuid.uuid4()}/visibility-check",
+            f"/maps/{uuid.uuid4()}/visibility-check/",
             headers=admin_auth_header,
         )
         assert resp.status_code == 404
@@ -1535,7 +1535,7 @@ async def _make_public_map_with_share_token(
         json={"visibility": "public"},
         headers=headers,
     )
-    share_resp = await client.post(f"/maps/{map_id}/share", headers=headers)
+    share_resp = await client.post(f"/maps/{map_id}/share/", headers=headers)
     token = share_resp.json()["token"]
     return map_id, token
 
@@ -1549,7 +1549,7 @@ class TestUpdateShareToken:
             client, admin_auth_header
         )
         resp = await client.patch(
-            f"/maps/{map_id}/share",
+            f"/maps/{map_id}/share/",
             json={"expires_at": "2026-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
@@ -1567,13 +1567,13 @@ class TestUpdateShareToken:
         )
         # First set an expiration
         await client.patch(
-            f"/maps/{map_id}/share",
+            f"/maps/{map_id}/share/",
             json={"expires_at": "2026-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
         # Now remove it
         resp = await client.patch(
-            f"/maps/{map_id}/share",
+            f"/maps/{map_id}/share/",
             json={"expires_at": None},
             headers=admin_auth_header,
         )
@@ -1591,7 +1591,7 @@ class TestUpdateShareToken:
         )
         # Token was created without expiration (never expires)
         resp = await client.patch(
-            f"/maps/{map_id}/share",
+            f"/maps/{map_id}/share/",
             json={"expires_at": "2026-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
@@ -1612,7 +1612,7 @@ class TestUpdateShareToken:
             headers=admin_auth_header,
         )
         resp = await client.patch(
-            f"/maps/{map_id}/share",
+            f"/maps/{map_id}/share/",
             json={"expires_at": "2026-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
@@ -1623,7 +1623,7 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share as viewer returns 403."""
         resp = await client.patch(
-            f"/maps/{uuid.uuid4()}/share",
+            f"/maps/{uuid.uuid4()}/share/",
             json={"expires_at": "2026-06-01T00:00:00Z"},
             headers=viewer_auth_header,
         )
@@ -1637,7 +1637,7 @@ class TestUpdateShareToken:
             client, admin_auth_header
         )
         resp = await client.patch(
-            f"/maps/{map_id}/share",
+            f"/maps/{map_id}/share/",
             json={"expires_at": "2026-12-31T00:00:00Z"},
             headers=admin_auth_header,
         )
@@ -1680,7 +1680,7 @@ class TestAdminShareTokenListing:
             json={"visibility": "public"},
             headers=admin_auth_header,
         )
-        await client.post(f"/maps/{map_id}/share", headers=admin_auth_header)
+        await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
 
         # Search for the unique name
         resp = await client.get(

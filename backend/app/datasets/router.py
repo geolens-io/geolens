@@ -411,7 +411,7 @@ async def update_dataset_metadata(
     )
 
 
-@router.post("/bulk-delete", response_model=BulkDeleteResponse)
+@router.post("/bulk-delete/", response_model=BulkDeleteResponse)
 async def bulk_delete_datasets_endpoint(
     body: BulkDeleteRequest,
     request: Request,

@@ -64,7 +64,7 @@ export async function updateMap(
 }
 
 export async function duplicateMap(mapId: string): Promise<DuplicateMapResponse> {
-  return apiFetch<DuplicateMapResponse>(`/maps/${mapId}/duplicate`, {
+  return apiFetch<DuplicateMapResponse>(`/maps/${mapId}/duplicate/`, {
     method: 'POST',
   });
 }
@@ -112,7 +112,7 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
 }
 
 export async function checkMapVisibility(mapId: string): Promise<{ non_public_datasets: string[]; has_non_public: boolean }> {
-  return apiFetch(`/maps/${mapId}/visibility-check`);
+  return apiFetch(`/maps/${mapId}/visibility-check/`);
 }
 
 export async function publishMap(id: string, visibility: 'public' | 'private' | 'internal'): Promise<MapResponse> {
@@ -127,32 +127,32 @@ export async function createShareToken(
   expiresAt?: string,
 ): Promise<ShareTokenResponse> {
   const body = expiresAt ? JSON.stringify({ expires_at: expiresAt }) : undefined;
-  return apiFetch<ShareTokenResponse>(`/maps/${mapId}/share`, {
+  return apiFetch<ShareTokenResponse>(`/maps/${mapId}/share/`, {
     method: 'POST',
     ...(body && { body }),
   });
 }
 
 export async function revokeShareToken(mapId: string): Promise<void> {
-  await apiFetch(`/maps/${mapId}/share`, { method: 'DELETE' });
+  await apiFetch(`/maps/${mapId}/share/`, { method: 'DELETE' });
 }
 
 export async function updateShareTokenExpiration(
   mapId: string,
   expiresAt: string | null,
 ): Promise<ShareTokenResponse> {
-  return apiFetch<ShareTokenResponse>(`/maps/${mapId}/share`, {
+  return apiFetch<ShareTokenResponse>(`/maps/${mapId}/share/`, {
     method: 'PATCH',
     body: JSON.stringify({ expires_at: expiresAt }),
   });
 }
 
 export async function getMapShareToken(mapId: string): Promise<ShareTokenResponse | null> {
-  return apiFetch<ShareTokenResponse | null>(`/maps/${mapId}/share`);
+  return apiFetch<ShareTokenResponse | null>(`/maps/${mapId}/share/`);
 }
 
 export async function uploadThumbnail(mapId: string, dataUri: string): Promise<void> {
-  await apiFetch(`/maps/${mapId}/thumbnail`, {
+  await apiFetch(`/maps/${mapId}/thumbnail/`, {
     method: 'PUT',
     headers: { 'Content-Type': 'text/plain' },
     body: dataUri,
@@ -236,7 +236,7 @@ export async function fetchColumnValues(
 ): Promise<ColumnValuesResponse> {
   const params = limit ? `?limit=${limit}` : '';
   return apiFetch<ColumnValuesResponse>(
-    `/datasets/${datasetId}/columns/${columnName}/values${params}`,
+    `/datasets/${datasetId}/columns/${columnName}/values/${params}`,
   );
 }
 
@@ -245,7 +245,7 @@ export async function fetchColumnStats(
   columnName: string,
 ): Promise<ColumnStatsResponse> {
   return apiFetch<ColumnStatsResponse>(
-    `/datasets/${datasetId}/columns/${columnName}/stats`,
+    `/datasets/${datasetId}/columns/${columnName}/stats/`,
   );
 }
 

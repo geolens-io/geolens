@@ -593,7 +593,7 @@ class TestVersionsEndpoint:
         await test_db_session.commit()
 
         resp = await client.get(
-            f"/datasets/{dataset.id}/versions",
+            f"/datasets/{dataset.id}/versions/",
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
@@ -619,7 +619,7 @@ class TestVersionsEndpoint:
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.get(
-            f"/datasets/{dataset.id}/versions",
+            f"/datasets/{dataset.id}/versions/",
             headers=admin_auth_header,
         )
         assert resp.status_code == 200

@@ -26,12 +26,12 @@ describe('useMapThumbnail', () => {
   it('returns null initially then blob URL after fetch', async () => {
     mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
 
-    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail'));
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
 
     expect(result.current).toBeNull();
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
-    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail');
+    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail/');
     expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob);
   });
 
@@ -44,7 +44,7 @@ describe('useMapThumbnail', () => {
   it('returns null when fetch fails', async () => {
     mockApiFetchBlob.mockRejectedValueOnce(new Error('404'));
 
-    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail'));
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
 
     // Wait for the rejected promise to settle
     await act(async () => {
@@ -59,12 +59,12 @@ describe('useMapThumbnail', () => {
 
     const { result, rerender } = renderHook(
       ({ url }: { url: string }) => useMapThumbnail(url),
-      { initialProps: { url: '/api/maps/1/thumbnail' } },
+      { initialProps: { url: '/api/maps/1/thumbnail/' } },
     );
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
 
-    rerender({ url: '/api/maps/2/thumbnail' });
+    rerender({ url: '/api/maps/2/thumbnail/' });
 
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
   });
@@ -72,7 +72,7 @@ describe('useMapThumbnail', () => {
   it('revokes blob URL on unmount', async () => {
     mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
 
-    const { result, unmount } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail'));
+    const { result, unmount } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
 
@@ -89,7 +89,7 @@ describe('useMapThumbnail', () => {
       }),
     );
 
-    const { result, unmount } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail'));
+    const { result, unmount } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
 
     unmount();
 

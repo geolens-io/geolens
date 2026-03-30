@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.auth.schemas import UserResponse
 
@@ -13,7 +13,7 @@ VALID_ROLES = {"admin", "editor", "viewer"}
 class AdminUserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=150)
     password: str = Field(min_length=8)
-    email: str | None = None
+    email: EmailStr | None = None
     role: str = "viewer"
 
     @field_validator("role")
@@ -36,7 +36,7 @@ class ApproveRequest(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    email: str | None = None
+    email: EmailStr | None = None
     is_active: bool | None = None
     role: str | None = None
 
@@ -138,14 +138,7 @@ class InfrastructureResponse(BaseModel):
 
 class AdminApiKeyCreateRequest(BaseModel):
     user_id: uuid.UUID
-    name: str
-
-
-class ApiKeyCreateResponse(BaseModel):
-    id: uuid.UUID
-    key: str
-    name: str
-    created_at: datetime
+    name: str = Field(min_length=1, max_length=255)
 
 
 class AdminApiKeyListItem(BaseModel):

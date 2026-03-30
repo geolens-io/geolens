@@ -116,6 +116,19 @@ class SettingsResetRequest(BaseModel):
     keys: list[str]
 
 
+class EditionInfoResponse(BaseModel):
+    """Response for GET /settings/edition/."""
+
+    edition: str
+    features: list[str]
+
+
+class BrandingResponse(BaseModel):
+    """Response for GET /settings/branding/."""
+
+    show_badge: bool
+
+
 class ConfigModeResponse(BaseModel):
     """Response for GET /settings/config-mode/."""
 

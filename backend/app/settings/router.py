@@ -32,8 +32,10 @@ from app.config import settings as app_settings
 from app.settings.schemas import (
     ApiKeyStatusResponse,
     BasemapPublicResponse,
+    BrandingResponse,
     ConfigModeResponse,
     DetectEmbeddingDimsResponse,
+    EditionInfoResponse,
     MapDefaultsResponse,
     SETTING_VALIDATORS,
     SettingItem,
@@ -51,7 +53,7 @@ router = APIRouter(prefix="/settings", tags=["Admin"])
 # ---------------------------------------------------------------------------
 
 
-@router.get("/all/")
+@router.get("/all/", response_model=SettingsAllResponse)
 async def get_all_settings(
     request: Request,
     _user: User = Depends(require_permission("manage_settings")),
@@ -86,7 +88,7 @@ async def get_all_settings(
     return SettingsAllResponse(env_only=env_only, tabs=tabs)
 
 
-@router.put("/")
+@router.put("/", response_model=SettingsAllResponse)
 async def update_settings(
     body: SettingsUpdateRequest,
     request: Request,
@@ -185,7 +187,7 @@ async def update_settings(
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-@router.post("/reset/")
+@router.post("/reset/", response_model=SettingsAllResponse)
 async def reset_settings(
     body: SettingsResetRequest,
     request: Request,
@@ -352,23 +354,23 @@ async def delete_oauth_provider(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/edition/")
-async def edition_info():
+@router.get("/edition/", response_model=EditionInfoResponse)
+async def edition_info() -> EditionInfoResponse:
     """Return current edition and available features. Public, no auth required."""
     info = get_edition()
-    return {"edition": info.edition, "features": list(info.features)}
+    return EditionInfoResponse(edition=info.edition, features=list(info.features))
 
 
-@router.get("/branding/")
+@router.get("/branding/", response_model=BrandingResponse)
 async def get_branding(
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> BrandingResponse:
     """Return branding configuration (public, no auth required)."""
     show_badge = await BRANDING_SHOW_BADGE.get(db)
-    return {"show_badge": show_badge}
+    return BrandingResponse(show_badge=show_badge)
 
 
-@router.get("/basemaps/")
+@router.get("/basemaps/", response_model=list[BasemapPublicResponse])
 async def get_basemaps(
     db: AsyncSession = Depends(get_db),
 ) -> list[BasemapPublicResponse]:
@@ -391,7 +393,7 @@ async def get_basemaps(
     return result
 
 
-@router.get("/map-defaults/")
+@router.get("/map-defaults/", response_model=MapDefaultsResponse)
 async def get_map_defaults(
     db: AsyncSession = Depends(get_db),
 ) -> MapDefaultsResponse:
@@ -408,7 +410,7 @@ async def get_enabled_widgets(
     return await ENABLED_WIDGETS.get(db)
 
 
-@router.get("/tile-config/")
+@router.get("/tile-config/", response_model=TileConfigResponse)
 async def get_tile_config(
     request: Request,
     db: AsyncSession = Depends(get_db),

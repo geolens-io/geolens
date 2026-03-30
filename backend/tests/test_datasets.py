@@ -405,7 +405,7 @@ class TestAnonymousAccess:
             visibility="public",
             name="Anon Rows DS",
         )
-        resp = await client.get(f"/datasets/{ds.id}/rows")
+        resp = await client.get(f"/datasets/{ds.id}/rows/")
         # 200 or 404 (no data table), but NOT 401
         assert resp.status_code != 401
 
@@ -462,7 +462,7 @@ class TestAnonymousAccess:
             visibility="public",
             name="Anon Versions DS",
         )
-        resp = await client.get(f"/datasets/{ds.id}/versions")
+        resp = await client.get(f"/datasets/{ds.id}/versions/")
         assert resp.status_code != 401
 
     async def test_anon_get_history_public(
@@ -519,8 +519,8 @@ class TestDatasetSubRouterRouting:
         """Sub-router paths return valid responses (not 404 from missing registration)."""
         fake_id = str(uuid.uuid4())
         routes = [
-            ("GET", f"/datasets/{fake_id}/versions"),
-            ("GET", f"/datasets/{fake_id}/rows"),
+            ("GET", f"/datasets/{fake_id}/versions/"),
+            ("GET", f"/datasets/{fake_id}/rows/"),
             ("GET", f"/datasets/{fake_id}/validate/"),
             ("GET", f"/datasets/{fake_id}/related/"),
             ("GET", f"/datasets/{fake_id}/maps/"),
@@ -544,7 +544,7 @@ class TestBulkDeleteDatasets:
     """Tests for POST /datasets/bulk-delete."""
 
     async def test_bulk_delete_requires_auth(self, client: AsyncClient):
-        resp = await client.post("/datasets/bulk-delete", json={"datasets": []})
+        resp = await client.post("/datasets/bulk-delete/", json={"datasets": []})
         assert resp.status_code == 401
 
     async def test_bulk_delete_empty_list_rejected(
@@ -552,7 +552,7 @@ class TestBulkDeleteDatasets:
     ):
         """Empty datasets list fails validation (min_length=1)."""
         resp = await client.post(
-            "/datasets/bulk-delete",
+            "/datasets/bulk-delete/",
             json={"datasets": []},
             headers=admin_auth_header,
         )
@@ -571,7 +571,7 @@ class TestBulkDeleteDatasets:
         )
 
         resp = await client.post(
-            "/datasets/bulk-delete",
+            "/datasets/bulk-delete/",
             json={
                 "datasets": [
                     {"dataset_id": str(ds1.id), "confirm_title": "Bulk Del 1"},
@@ -599,7 +599,7 @@ class TestBulkDeleteDatasets:
         ds = await _create_dataset(test_db_session, created_by=user_id, name="Bulk Mix")
 
         resp = await client.post(
-            "/datasets/bulk-delete",
+            "/datasets/bulk-delete/",
             json={
                 "datasets": [
                     {"dataset_id": str(ds.id), "confirm_title": "Bulk Mix"},
@@ -626,7 +626,7 @@ class TestBulkDeleteDatasets:
         )
 
         resp = await client.post(
-            "/datasets/bulk-delete",
+            "/datasets/bulk-delete/",
             json={
                 "datasets": [
                     {"dataset_id": str(ds.id), "confirm_title": "Wrong Title"},

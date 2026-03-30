@@ -50,7 +50,7 @@ export async function addDatasetsToCollection(
   collectionId: string,
   datasetIds: string[],
 ): Promise<{ added: number }> {
-  return apiFetch<{ added: number }>(`/catalog/collections/${collectionId}/datasets`, {
+  return apiFetch<{ added: number }>(`/catalog/collections/${collectionId}/datasets/`, {
     method: 'POST',
     body: JSON.stringify({ dataset_ids: datasetIds }),
   });
@@ -73,5 +73,5 @@ export async function getCollectionDatasets(
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   const qs = query.toString();
-  return apiFetch<DatasetListResponse>(`/catalog/collections/${collectionId}/datasets${qs ? `?${qs}` : ''}`);
+  return apiFetch<DatasetListResponse>(`/catalog/collections/${collectionId}/datasets/${qs ? `?${qs}` : ''}`);
 }

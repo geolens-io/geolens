@@ -84,7 +84,7 @@ class TestValidTransitions:
         await test_db_session.commit()
 
         resp = await client.patch(
-            f"/datasets/{dataset.id}/status",
+            f"/datasets/{dataset.id}/status/",
             json={"status": to_status},
             headers=admin_auth_header,
         )
@@ -121,7 +121,7 @@ class TestInvalidTransitions:
         await test_db_session.commit()
 
         resp = await client.patch(
-            f"/datasets/{dataset.id}/status",
+            f"/datasets/{dataset.id}/status/",
             json={"status": to_status},
             headers=admin_auth_header,
         )
@@ -146,7 +146,7 @@ class TestInvalidStatusValue:
         await test_db_session.commit()
 
         resp = await client.patch(
-            f"/datasets/{dataset.id}/status",
+            f"/datasets/{dataset.id}/status/",
             json={"status": "archived"},
             headers=admin_auth_header,
         )
@@ -162,7 +162,7 @@ class TestDatasetNotFound:
     async def test_nonexistent_dataset_returns_404(self, client, admin_auth_header):
         fake_id = uuid.uuid4()
         resp = await client.patch(
-            f"/datasets/{fake_id}/status",
+            f"/datasets/{fake_id}/status/",
             json={"status": "ready"},
             headers=admin_auth_header,
         )

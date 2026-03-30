@@ -16,3 +16,9 @@ class JobStatusResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class StaleCleanupResponse(BaseModel):
+    pending_failed: int
+    running_failed: int
+    total_cleaned: int
