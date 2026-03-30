@@ -390,7 +390,8 @@
     "multiPartNotEditable": "Cette entité a plusieurs parties et ne peut pas être modifiée sur la carte.",
     "featureNotSelectable": "Cette entité ne peut pas être sélectionnée pour l'édition.",
     "fullscreen": "Plein écran",
-    "exitFullscreen": "Quitter le plein écran"
+    "exitFullscreen": "Quitter le plein écran",
+    "changeBasemap": "Changer le fond de carte"
   },
   "validation": {
     "title": "Statut de validation",

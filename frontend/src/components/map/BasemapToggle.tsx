@@ -1,28 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { Map as MapIcon } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
+import { basemapThumbnail } from '@/lib/basemap-utils';
 import { cn } from '@/lib/utils';
-import positronThumb from '@/assets/basemaps/positron.png';
-import darkThumb from '@/assets/basemaps/dark.png';
-import osmThumb from '@/assets/basemaps/osm.png';
-import brightThumb from '@/assets/basemaps/bright.png';
-
-const BUILTIN_THUMBNAILS: Record<string, string> = {
-  'openfreemap-positron': positronThumb,
-  'openfreemap-dark': darkThumb,
-  'openstreetmap': osmThumb,
-  'osm-standard': osmThumb,
-  'openfreemap-bright': brightThumb,
-};
 
 interface BasemapToggleProps {
   value: string;
   onChange: (id: string) => void;
+  title?: string;
   className?: string;
 }
 
 /** Compact basemap selector button with popover for map overlays */
-export function BasemapToggle({ value, onChange, className }: BasemapToggleProps) {
+export function BasemapToggle({ value, onChange, title = 'Change basemap', className }: BasemapToggleProps) {
   const { data: basemaps } = useBasemaps();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -47,8 +37,8 @@ export function BasemapToggle({ value, onChange, className }: BasemapToggleProps
         type="button"
         onClick={() => setOpen(!open)}
         className="bg-background border rounded shadow-sm p-1.5 hover:bg-accent"
-        title="Change basemap"
-        aria-label="Change basemap"
+        title={title}
+        aria-label={title}
       >
         <MapIcon className="h-4 w-4" />
       </button>
@@ -68,7 +58,7 @@ export function BasemapToggle({ value, onChange, className }: BasemapToggleProps
               aria-label={b.label}
             >
               <img
-                src={BUILTIN_THUMBNAILS[b.id] ?? positronThumb}
+                src={basemapThumbnail(b.id)}
                 alt={b.label}
                 className="w-10 h-10 object-cover"
               />

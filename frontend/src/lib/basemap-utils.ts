@@ -1,8 +1,36 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import type { BasemapEntry } from '@/api/settings';
+import positronThumb from '@/assets/basemaps/positron.png';
+import darkThumb from '@/assets/basemaps/dark.png';
+import osmThumb from '@/assets/basemaps/osm.png';
+import brightThumb from '@/assets/basemaps/bright.png';
 
 export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
+
+const BUILTIN_THUMBNAILS: Record<string, string> = {
+  'openfreemap-positron': positronThumb,
+  'openfreemap-dark': darkThumb,
+  'openstreetmap': osmThumb,
+  'osm-standard': osmThumb,
+  'openfreemap-bright': brightThumb,
+};
+
+const FALLBACK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">' +
+  '<rect fill="#e5e7eb" width="160" height="160" rx="8"/>' +
+  '<circle cx="80" cy="72" r="36" fill="none" stroke="#9ca3af" stroke-width="2"/>' +
+  '<ellipse cx="80" cy="72" rx="16" ry="36" fill="none" stroke="#9ca3af" stroke-width="1.5"/>' +
+  '<line x1="44" y1="72" x2="116" y2="72" stroke="#9ca3af" stroke-width="1.5"/>' +
+  '<line x1="80" y1="36" x2="80" y2="108" stroke="#9ca3af" stroke-width="1.5"/>' +
+  '<text x="80" y="136" text-anchor="middle" font-size="12" fill="#9ca3af" font-family="system-ui,sans-serif">Map</text>' +
+  '</svg>'
+)}`;
+
+/** Get the thumbnail URL for a basemap, with a fallback globe icon for custom basemaps */
+export function basemapThumbnail(id: string): string {
+  return BUILTIN_THUMBNAILS[id] ?? FALLBACK_THUMBNAIL;
+}
 
 const LEGACY_KEY_MAP: Record<string, string> = {
   positron: 'openfreemap-positron',

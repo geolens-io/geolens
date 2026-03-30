@@ -352,7 +352,8 @@
     "featureNotSelectable": "This feature cannot be selected for editing.",
     "zoomToExtent": "Zoom to dataset extent",
     "fullscreen": "Enter fullscreen",
-    "exitFullscreen": "Exit fullscreen"
+    "exitFullscreen": "Exit fullscreen",
+    "changeBasemap": "Change basemap"
   },
   "contacts": {
     "title": "Contacts",
