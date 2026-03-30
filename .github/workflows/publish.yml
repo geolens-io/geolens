@@ -70,7 +70,7 @@ jobs:
 
       # Fail on HIGH/CRITICAL vulnerabilities before pushing
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ${{ matrix.image }}:scan
           format: table
