@@ -8,7 +8,7 @@ export type WidgetAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-ri
 /** Placement configuration -- fixed at registration time */
 export type WidgetPlacement =
   | { mode: 'floating'; anchor: WidgetAnchor }
-  | { mode: 'sidebar'; side: 'left' | 'right' };
+  | { mode: 'sidebar' };
 
 /** Context every widget receives */
 export interface WidgetContext {
