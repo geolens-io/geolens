@@ -454,6 +454,14 @@ export function DatasetMap({
         return { url: absUrl };
       });
 
+      // Suppress missing-image warnings from basemap sprites (e.g. circle-11, circle_11_black)
+      // by providing a transparent 1x1 pixel fallback for any missing icon
+      map.on('styleimagemissing', ({ id }: { id: string }) => {
+        if (!map.hasImage(id)) {
+          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+        }
+      });
+
       if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
         addRasterLayers(map);
         const tileStats = { total: 0, failed: 0 };
