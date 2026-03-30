@@ -335,13 +335,17 @@ _OPENAPI_TAGS = [
     },
 ]
 
+# Disable interactive docs when structured logging is enabled (production).
+_is_production = settings.log_json
+
 app = FastAPI(
     title="GeoLens API",
     version="12.3.0",
     summary="PostGIS-native geospatial data catalog with OGC API Features compliance",
     description=_DESCRIPTION,
     root_path="/api",
-    docs_url="/docs",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
     openapi_tags=_OPENAPI_TAGS,
     lifespan=lifespan,
 )

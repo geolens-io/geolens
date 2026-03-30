@@ -106,7 +106,9 @@ async def login(
 
 
 @router.post("/refresh/", response_model=TokenResponse)
+@limiter.limit("30/minute")
 async def refresh(
+    request: Request,
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -137,7 +139,9 @@ async def refresh(
 @router.post(
     "/register/", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
 )
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
     body: UserCreate,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
@@ -165,6 +169,17 @@ async def register(
     return RegisterResponse(
         message="Registration submitted. Your account is awaiting admin approval."
     )
+
+
+@router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Revoke all refresh tokens for the current user."""
+    service = AuthService(db)
+    await service.revoke_all_refresh_tokens(current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/config/", response_model=ConfigResponse)

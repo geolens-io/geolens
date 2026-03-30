@@ -170,9 +170,9 @@ async def get_column_info(session: AsyncSession, table_name: str) -> list[dict]:
             "SELECT column_name, data_type, ordinal_position, "
             "       (is_nullable = 'YES') AS is_nullable "
             "FROM information_schema.columns "
-            f"WHERE table_schema = 'data' AND table_name = '{table_name}' "
+            "WHERE table_schema = 'data' AND table_name = :table_name "
             "ORDER BY ordinal_position"
-        )
+        ).bindparams(table_name=table_name)
     )
     excluded = {"gid", "geom", "geom_4326"}
     return [

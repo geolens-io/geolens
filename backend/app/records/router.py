@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_optional_user, require_permission
 from app.auth.models import User
+from app.auth.visibility import get_user_roles
 from app.dependencies import get_db
 from app.records.schemas import (
     ContactCreate,
@@ -38,6 +39,26 @@ from app.records.service import (
 )
 
 router = APIRouter(prefix="/records", tags=["Records"])
+
+
+async def _check_record_ownership(
+    db: AsyncSession, record_id: uuid.UUID, user: User
+) -> None:
+    """Verify the user owns the record or is an admin. Raises 404/403."""
+    record = await get_record(db, record_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
+    if record.created_by == user.id:
+        return
+    user_roles = await get_user_roles(db, user)
+    if "admin" in user_roles:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Not authorized to modify this record",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +103,7 @@ async def create_contact_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> ContactResponse:
     """Create a new contact for a record."""
+    await _check_record_ownership(db, record_id, user)
     try:
         contact = await create_contact(
             db,
@@ -118,6 +140,7 @@ async def update_contact_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> ContactResponse:
     """Update a contact."""
+    await _check_record_ownership(db, record_id, user)
     try:
         contact = await update_contact(
             db, contact_id, **body.model_dump(exclude_none=True)
@@ -147,6 +170,7 @@ async def delete_contact_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a contact."""
+    await _check_record_ownership(db, record_id, user)
     try:
         await delete_contact(db, contact_id)
         await db.commit()
@@ -199,6 +223,7 @@ async def create_keyword_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> KeywordResponse:
     """Create a new keyword for a record."""
+    await _check_record_ownership(db, record_id, user)
     try:
         kw = await create_keyword(
             db,
@@ -232,6 +257,7 @@ async def delete_keyword_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a keyword."""
+    await _check_record_ownership(db, record_id, user)
     try:
         await delete_keyword(db, keyword_id)
         await db.commit()
@@ -284,6 +310,7 @@ async def create_distribution_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> DistributionResponse:
     """Create a manual distribution for a record."""
+    await _check_record_ownership(db, record_id, user)
     try:
         dist = await create_distribution(
             db,
@@ -324,6 +351,7 @@ async def update_distribution_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> DistributionResponse:
     """Update a distribution (manual only; auto-generated distributions are immutable)."""
+    await _check_record_ownership(db, record_id, user)
     try:
         dist = await update_distribution(
             db, distribution_id, **body.model_dump(exclude_none=True)
@@ -359,6 +387,7 @@ async def delete_distribution_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a distribution (manual only; auto-generated distributions are immutable)."""
+    await _check_record_ownership(db, record_id, user)
     try:
         await delete_distribution(db, distribution_id)
         await db.commit()
