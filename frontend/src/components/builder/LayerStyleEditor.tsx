@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code } from 'lucide-react';
-import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
-import { HeatmapStyleControls } from './HeatmapStyleControls';
+import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
 import { getLayerType } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
@@ -496,37 +495,3 @@ function JsonBlock({ label, value, onApply }: { label: string; value: Record<str
   );
 }
 
-// Internal slider row helper
-interface SliderRowProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format: 'percent' | 'px' | 'zoom';
-  onChange: (val: number) => void;
-}
-
-function SliderRow({ label, value, min, max, step, format, onChange }: SliderRowProps) {
-  const display =
-    format === 'percent'
-      ? `${Math.round(value * 100)}%`
-      : format === 'zoom'
-        ? `${value}`
-        : `${value}px`;
-
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-muted-foreground w-20">{label}</span>
-      <Slider
-        value={[value]}
-        min={min}
-        max={max}
-        step={step}
-        onValueChange={([v]) => onChange(v)}
-        className="flex-1"
-      />
-      <span className="text-xs text-muted-foreground w-10 text-right">{display}</span>
-    </div>
-  );
-}
