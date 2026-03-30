@@ -261,7 +261,9 @@
     "collapseSidebar": "Contraer barra lateral",
     "expandSidebar": "Expandir barra lateral",
     "widgets": "Widgets",
-    "moreActions": "Más acciones"
+    "moreActions": "Más acciones",
+    "allSaved": "Todos los cambios guardados",
+    "closeChat": "Cerrar chat"
   },
   "toasts": {
     "mapSaved": "Mapa guardado",

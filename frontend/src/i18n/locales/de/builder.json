@@ -261,7 +261,9 @@
     "collapseSidebar": "Seitenleiste einklappen",
     "expandSidebar": "Seitenleiste ausklappen",
     "widgets": "Widgets",
-    "moreActions": "Weitere Aktionen"
+    "moreActions": "Weitere Aktionen",
+    "allSaved": "Alle Änderungen gespeichert",
+    "closeChat": "Chat schließen"
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",

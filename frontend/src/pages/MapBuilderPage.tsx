@@ -46,7 +46,7 @@ import { useBuilderLayout } from '@/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/hooks/use-builder-layers';
 import { useBuilderSave } from '@/hooks/use-builder-save';
-import { WidgetHost, WidgetToolbar, WidgetSidebarSection, getWidgets } from '@/components/map-widgets';
+import { WidgetHost, WidgetToolbar, WidgetSidebarSection, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
@@ -216,8 +216,11 @@ export function MapBuilderPage() {
         onDirty: layers.markDirty,
       },
     }),
-    [mapInstance, layers.localLayers, id, layers.localBasemap, layers.showBasemapLabels, layers.setLocalBasemap, layers.setShowBasemapLabels, layers.markDirty],
+    // setLocalBasemap, setShowBasemapLabels (useState setters) and markDirty (useCallback) are stable refs
+    [mapInstance, layers.localLayers, id, layers.localBasemap, layers.showBasemapLabels],
   );
+
+  const { byAnchor, sidebar } = usePartitionedWidgets();
 
   if (isLoading) {
     return (
@@ -429,7 +432,7 @@ export function MapBuilderPage() {
             inspectorMode={useInspector}
           />
 
-          <WidgetSidebarSection ctx={widgetCtx} />
+          <WidgetSidebarSection sidebar={sidebar} ctx={widgetCtx} />
 
         </div>
       </div>
@@ -480,7 +483,7 @@ export function MapBuilderPage() {
           />
         )}
         <WidgetToolbar />
-        <WidgetHost ctx={widgetCtx} />
+        <WidgetHost byAnchor={byAnchor} ctx={widgetCtx} />
       </div>
 
       {/* Chat panel - compact: Sheet overlay, wide: inline rail */}
