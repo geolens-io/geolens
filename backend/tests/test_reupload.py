@@ -486,7 +486,7 @@ class TestReuploadCommit:
             json={},
             headers=admin_auth_header,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 202
         data = resp.json()
         assert data["status"] == "pending"
         assert data["message"] == "Re-upload queued"
@@ -544,7 +544,7 @@ class TestReuploadPreservesIdentity:
             json={},
             headers=admin_auth_header,
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 202
 
         # Verify dataset identity unchanged via GET endpoint
         resp = await client.get(
