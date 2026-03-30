@@ -42,19 +42,11 @@ interface DataDrivenStyleEditorProps {
 }
 
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
-const NUMERIC_TYPES = [
-  'integer', 'numeric', 'real', 'double', 'float',
-  'bigint', 'smallint', 'int4', 'int8', 'int2', 'float4', 'float8',
-];
+import { isNumericColumn } from '@/lib/column-utils';
 
 function isTextColumn(type: string): boolean {
   const t = type.toLowerCase();
   return TEXT_TYPES.some((tt) => t.includes(tt));
-}
-
-function isNumericColumn(type: string): boolean {
-  const t = type.toLowerCase();
-  return NUMERIC_TYPES.some((nt) => t.includes(nt));
 }
 
 /** Linearly interpolate classCount values between sizeRange[0] and sizeRange[1]. */

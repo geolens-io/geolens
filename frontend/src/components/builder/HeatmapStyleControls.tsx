@@ -1,50 +1,40 @@
+import { memo, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ColorRampPicker } from './ColorRampPicker';
 import { buildHeatmapColorExpression } from './layer-adapters/heatmap-adapter';
+import { isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse } from '@/types/api';
 
-const NUMERIC_TYPES = new Set([
-  'integer', 'numeric', 'real', 'double', 'float',
-  'bigint', 'smallint', 'int4', 'int8', 'int2', 'float4', 'float8',
-  'double precision', 'int', 'serial', 'bigserial',
-]);
-
-function isNumericType(type: string): boolean {
-  return NUMERIC_TYPES.has(type.toLowerCase());
-}
+/** Radix Select disallows empty string values; use sentinel for "no weight". */
+const NONE_VALUE = '__none__';
 
 interface HeatmapStyleControlsProps {
   layer: MapLayerResponse;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
 }
 
-export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleControlsProps) {
+export const HeatmapStyleControls = memo(function HeatmapStyleControls({
+  layer,
+  onPaintChange,
+}: HeatmapStyleControlsProps) {
   const { t } = useTranslation('builder');
   const paint = layer.paint as Record<string, unknown>;
 
-  // Numeric columns for weight picker
-  const numericColumns = (layer.dataset_column_info ?? []).filter((col) =>
-    isNumericType(col.type),
+  const numericColumns = useMemo(
+    () => (layer.dataset_column_info ?? []).filter((col) => isNumericColumn(col.type)),
+    [layer.dataset_column_info],
   );
 
-  // Current weight column (stored in _heatmap-weight-column custom prop)
-  // Use '__none__' sentinel instead of empty string (Radix Select disallows empty string values)
-  const NONE_VALUE = '__none__';
   const weightColumn = (paint['_heatmap-weight-column'] as string) ?? NONE_VALUE;
-
-  // Current ramp (stored in _heatmap-ramp custom prop)
   const rampName = (paint['_heatmap-ramp'] as string) ?? 'YlOrRd';
-
-  // Current radius and intensity
   const radius = typeof paint['heatmap-radius'] === 'number' ? (paint['heatmap-radius'] as number) : 30;
   const intensity = typeof paint['heatmap-intensity'] === 'number' ? (paint['heatmap-intensity'] as number) : 1;
 
-  function handleWeightColumnChange(col: string) {
+  const handleWeightColumnChange = useCallback((col: string) => {
     const newPaint = { ...paint };
     if (col === NONE_VALUE || col === '') {
-      // No weight column — constant weight 1
       newPaint['heatmap-weight'] = 1;
       delete newPaint['_heatmap-weight-column'];
     } else {
@@ -52,24 +42,23 @@ export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleContr
       newPaint['_heatmap-weight-column'] = col;
     }
     onPaintChange(layer.id, newPaint);
-  }
+  }, [paint, layer.id, onPaintChange]);
 
-  function handleRampChange(name: string) {
-    const newPaint = {
+  const handleRampChange = useCallback((name: string) => {
+    onPaintChange(layer.id, {
       ...paint,
       '_heatmap-ramp': name,
       'heatmap-color': buildHeatmapColorExpression(name),
-    };
-    onPaintChange(layer.id, newPaint);
-  }
+    });
+  }, [paint, layer.id, onPaintChange]);
 
-  function handleRadiusChange(val: number) {
+  const handleRadiusChange = useCallback((val: number) => {
     onPaintChange(layer.id, { ...paint, 'heatmap-radius': val });
-  }
+  }, [paint, layer.id, onPaintChange]);
 
-  function handleIntensityChange(val: number) {
+  const handleIntensityChange = useCallback((val: number) => {
     onPaintChange(layer.id, { ...paint, 'heatmap-intensity': val });
-  }
+  }, [paint, layer.id, onPaintChange]);
 
   return (
     <div className="space-y-3">
@@ -99,7 +88,7 @@ export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleContr
 
       {/* Radius */}
       <div className="space-y-1">
-        <HeatmapSliderRow
+        <SliderRow
           label={t('style.heatmap.radius')}
           value={radius}
           min={1}
@@ -112,7 +101,7 @@ export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleContr
 
       {/* Intensity */}
       <div className="space-y-1">
-        <HeatmapSliderRow
+        <SliderRow
           label={t('style.heatmap.intensity')}
           value={intensity}
           min={0.1}
@@ -124,9 +113,9 @@ export function HeatmapStyleControls({ layer, onPaintChange }: HeatmapStyleContr
       </div>
     </div>
   );
-}
+});
 
-interface HeatmapSliderRowProps {
+interface SliderRowProps {
   label: string;
   value: number;
   min: number;
@@ -136,7 +125,8 @@ interface HeatmapSliderRowProps {
   onChange: (val: number) => void;
 }
 
-function HeatmapSliderRow({ label, value, min, max, step, display, onChange }: HeatmapSliderRowProps) {
+/** Shared slider row component used by heatmap controls and style editor. */
+export function SliderRow({ label, value, min, max, step, display, onChange }: SliderRowProps) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground w-20">{label}</span>
