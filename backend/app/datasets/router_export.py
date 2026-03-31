@@ -20,7 +20,7 @@ from app.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
 )
-from app.auth.models import User
+from app.auth.models import Role, User, UserRole
 from app.config import settings
 from app.auth.visibility import (
     apply_visibility_filter,
@@ -167,7 +167,22 @@ async def download_cog(
     """
     from slugify import slugify
 
+    from app.auth.permissions import get_effective_permissions
     from app.raster.models import RasterAsset
+
+    # 0. Verify export permission
+    role_result = await db.execute(
+        select(Role.name)
+        .join(UserRole, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == user.id)
+    )
+    user_roles = {row[0] for row in role_result.all()}
+    matrix = await get_effective_permissions(db)
+    if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing permission: export",
+        )
 
     # 1. Fetch dataset
     dataset = await get_dataset(db, dataset_id)
