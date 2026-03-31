@@ -9,6 +9,8 @@ import { getJobStatus } from '@/api/ingest';
 import { queryKeys } from '@/lib/query-keys';
 import type { FileEntry } from '@/types/api';
 
+const isRasterFile = (name: string) => /\.tiff?$/i.test(name);
+
 interface BulkTrackingListProps {
   entries: FileEntry[];
   onReset: () => void;
@@ -24,9 +26,8 @@ export function BulkTrackingList({ entries, onReset }: BulkTrackingListProps) {
       (e.status === 'tracking' || e.status === 'complete' || e.status === 'failed'),
   );
 
-  // Identify raster entries (by file extension)
   const rasterEntries = trackable.filter(
-    (e) => e.jobId && /\.tiff?$/i.test(e.fileName),
+    (e) => e.jobId && isRasterFile(e.fileName),
   );
 
   // Read cached job status for each raster entry (JobProgress already polls, no extra polling here)
@@ -55,7 +56,7 @@ export function BulkTrackingList({ entries, onReset }: BulkTrackingListProps) {
           <JobProgress
             jobId={entry.jobId!}
             onReset={onReset}
-            isRasterEntry={/\.tiff?$/i.test(entry.fileName)}
+            isRasterEntry={isRasterFile(entry.fileName)}
           />
         </div>
       ))}
@@ -63,10 +64,10 @@ export function BulkTrackingList({ entries, onReset }: BulkTrackingListProps) {
         <div className="flex items-center gap-2 rounded-md border border-dashed p-3">
           <Layers className="size-4 text-muted-foreground" />
           <span className="text-sm text-muted-foreground flex-1">
-            {completedRasterIds.length} raster datasets ready
+            {t('bulk.rasterDatasetsReady', { count: completedRasterIds.length })}
           </span>
           <Button variant="secondary" size="sm" onClick={() => setVrtDialogOpen(true)}>
-            Create VRT Mosaic
+            {t('bulk.createVrtMosaic')}
           </Button>
         </div>
       )}

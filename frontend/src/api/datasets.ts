@@ -60,13 +60,8 @@ export function getExportUrl(
   return `${API_BASE}/datasets/${id}/export?${query.toString()}`;
 }
 
-export async function downloadExport(
-  id: string,
-  format: string,
-  filename: string,
-): Promise<void> {
+async function authenticatedDownload(url: string, filename: string): Promise<void> {
   const token = useAuthStore.getState().token;
-  const url = getExportUrl(id, format);
 
   const headers: Record<string, string> = {};
   if (token) {
@@ -99,39 +94,21 @@ export async function downloadExport(
   URL.revokeObjectURL(objectUrl);
 }
 
-export async function downloadCog(id: string, title: string): Promise<void> {
+export async function downloadExport(
+  id: string,
+  format: string,
+  filename: string,
+): Promise<void> {
+  return authenticatedDownload(getExportUrl(id, format), filename);
+}
+
+export function downloadCog(id: string, _title: string): void {
   const token = useAuthStore.getState().token;
-  const url = `${API_BASE}/datasets/${id}/download/cog`;
-
-  const headers: Record<string, string> = {};
+  const url = new URL(`${API_BASE}/datasets/${id}/download/cog`, window.location.origin);
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    url.searchParams.set('token', token);
   }
-
-  const response = await fetch(url, { headers });
-
-  if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const body = await response.json();
-      if (body.detail) {
-        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
-      }
-    } catch {
-      // body not JSON
-    }
-    throw new Error(detail);
-  }
-
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = objectUrl;
-  anchor.download = `${title}.tif`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(objectUrl);
+  window.open(url.toString(), '_blank');
 }
 
 export async function updateDataset(

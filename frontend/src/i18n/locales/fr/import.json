@@ -192,6 +192,8 @@
     "committed": "Validé",
     "removeFile": "Supprimer le fichier",
     "importProgress": "Progression de l'importation",
-    "uploadMore": "Télécharger plus"
+    "uploadMore": "Télécharger plus",
+    "rasterDatasetsReady": "{{count}} jeux de données raster prêts",
+    "createVrtMosaic": "Créer un mosaïque VRT"
   }
 }

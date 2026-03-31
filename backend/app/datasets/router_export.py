@@ -3,6 +3,7 @@
 import io
 import uuid
 
+import jwt
 from fastapi import (
     APIRouter,
     Depends,
@@ -18,9 +19,9 @@ from app.audit.service import log_action
 from app.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
-    require_permission,
 )
 from app.auth.models import User
+from app.config import settings
 from app.auth.visibility import (
     apply_visibility_filter,
     check_dataset_access,
@@ -115,18 +116,54 @@ async def get_dcat_record(
 # ---------------------------------------------------------------------------
 
 
+async def _resolve_download_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
+) -> User:
+    """Resolve user for download endpoints.
+
+    Accepts standard auth (header JWT, API key) plus a `token` query
+    parameter carrying a JWT — needed for browser-initiated downloads
+    where fetch+blob would load the entire file into memory.
+    """
+    if user is not None:
+        return user
+
+    # Fallback: JWT in ?token= query param (browser <a href> downloads)
+    qt = request.query_params.get("token")
+    if qt:
+        try:
+            payload = jwt.decode(qt, settings.jwt_secret_key, algorithms=["HS256"])
+            user_id = payload.get("sub")
+            if user_id:
+                result = await db.execute(
+                    select(User).where(User.id == uuid.UUID(user_id))
+                )
+                found = result.scalar_one_or_none()
+                if found and found.is_active and found.status == "active":
+                    return found
+        except (jwt.PyJWTError, ValueError):
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+    )
+
+
 @router.get("/{dataset_id}/download/cog")
 async def download_cog(
     dataset_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("export")),
+    user: User = Depends(_resolve_download_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
     Local storage: streams the COG file with Content-Type image/tiff.
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
-    Requires authentication and export permission.
+    Accepts standard auth or ?token= JWT query parameter for browser downloads.
     """
     from slugify import slugify
 
