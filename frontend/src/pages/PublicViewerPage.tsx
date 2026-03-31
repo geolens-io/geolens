@@ -72,7 +72,7 @@ export function PublicViewerPage() {
           {isExpired ? (
             <>
               <Clock className="size-10 text-muted-foreground" />
-              <h1 className="text-lg font-semibold text-foreground">{t('viewer.linkExpired')}</h1>
+              <h1 className="text-2xl font-semibold text-foreground">{t('viewer.linkExpired')}</h1>
               <p className="text-sm text-muted-foreground max-w-sm">
                 {t('viewer.linkExpiredDescription')}
               </p>
@@ -80,7 +80,7 @@ export function PublicViewerPage() {
           ) : (
             <>
               <MapPinOff className="size-10 text-muted-foreground" />
-              <h1 className="text-lg font-semibold text-foreground">{t('viewer.mapNotFound')}</h1>
+              <h1 className="text-2xl font-semibold text-foreground">{t('viewer.mapNotFound')}</h1>
               <p className="text-sm text-muted-foreground max-w-sm">
                 {t('viewer.mapNotFoundDescription')}
               </p>

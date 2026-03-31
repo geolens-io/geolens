@@ -158,14 +158,17 @@ export function LayerItem({
   const isRaster = caps.kind !== 'vector';
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style} role="group" aria-label={layer.display_name ?? layer.dataset_name}>
       <div className={cn(
         'flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-accent/50 group transition-opacity duration-200',
         !layer.visible && 'opacity-50',
       )}>
         <div
-          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
+          {...attributes}
           {...listeners}
+          aria-label={t('layerItem.dragToReorder')}
+          aria-roledescription={t('layerItem.sortableLayer')}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </div>
@@ -207,9 +210,13 @@ export function LayerItem({
           />
         ) : (
           <span
-            className="flex-1 text-sm truncate cursor-text flex items-center gap-1 min-w-0"
+            role="button"
+            tabIndex={0}
+            className="flex-1 text-sm truncate cursor-text flex items-center gap-1 min-w-0 rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             onDoubleClick={() => setEditing(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'F2') setEditing(true); }}
             title={t('layerItem.renameHint')}
+            aria-label={`${layer.display_name ?? layer.dataset_name} — ${t('layerItem.renameHint')}`}
           >
             <span className="truncate">{layer.display_name ?? layer.dataset_name}</span>
             {styleSummary && (

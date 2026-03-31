@@ -181,7 +181,7 @@ export function SearchPage() {
 
         {/* Results list */}
         {data && data.features.length > 0 && (
-          <section className="space-y-4" role="region" aria-label={t('results', { defaultValue: 'Search results' })}>
+          <section className="space-y-4" aria-label={t('results', { defaultValue: 'Search results' })}>
             {data.features.map((feature) => (
               <SearchResultCard key={feature.id} feature={feature} />
             ))}

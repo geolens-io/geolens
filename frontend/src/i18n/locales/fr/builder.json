@@ -1,5 +1,8 @@
 {
   "title": "Constructeur de cartes",
+  "mapBuilder": "Constructeur de cartes",
+  "mapNameLabel": "Nom de la carte",
+  "descriptionLabel": "Description de la carte",
   "loadingMap": "Chargement de la carte...",
   "backToMaps": "Retour aux cartes",
   "unsaved": "Non enregistré",
@@ -38,7 +41,11 @@
     "moreActions": "Plus d'actions",
     "expandOptions": "Développer les options",
     "searchColumns": "Rechercher des colonnes...",
-    "noColumnsMatch": "Aucune colonne correspondante"
+    "noColumnsMatch": "Aucune colonne correspondante",
+    "dragToReorder": "Glisser pour réorganiser",
+    "sortableLayer": "couche triable",
+    "hideLegend": "Masquer de la légende",
+    "showLegend": "Afficher dans la légende"
   },
   "style": {
     "fill": "Remplissage",
@@ -152,6 +159,7 @@
   },
   "search": {
     "title": "Ajouter un jeu de données",
+    "dialogDescription": "Recherchez et ajoutez des jeux de données comme couches à votre carte.",
     "placeholder": "Rechercher des jeux de données...",
     "noResults": "Aucun jeu de données trouvé",
     "added": "(ajouté)",
@@ -252,6 +260,7 @@
   },
   "info": {
     "title": "Info carte",
+    "dialogDescription": "Détails et métadonnées de cette carte.",
     "author": "Auteur",
     "created": "Créé",
     "updated": "Mis à jour",

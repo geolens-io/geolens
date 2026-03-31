@@ -1,5 +1,8 @@
 {
   "title": "Map Builder",
+  "mapBuilder": "Map Builder",
+  "mapNameLabel": "Map name",
+  "descriptionLabel": "Map description",
   "loadingMap": "Loading map...",
   "backToMaps": "Back to Maps",
   "unsaved": "Unsaved",
@@ -38,7 +41,11 @@
     "moreActions": "More actions",
     "expandOptions": "Expand options",
     "searchColumns": "Search columns...",
-    "noColumnsMatch": "No columns match"
+    "noColumnsMatch": "No columns match",
+    "dragToReorder": "Drag to reorder",
+    "sortableLayer": "sortable layer",
+    "hideLegend": "Hide from legend",
+    "showLegend": "Show in legend"
   },
   "style": {
     "fill": "Fill",
@@ -152,6 +159,7 @@
   },
   "search": {
     "title": "Add Dataset",
+    "dialogDescription": "Search and add datasets as layers to your map.",
     "placeholder": "Search datasets...",
     "noResults": "No datasets found",
     "added": "(added)",
@@ -252,6 +260,7 @@
   },
   "info": {
     "title": "Map Info",
+    "dialogDescription": "Details and metadata for this map.",
     "author": "Author",
     "created": "Created",
     "updated": "Updated",

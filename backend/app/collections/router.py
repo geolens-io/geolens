@@ -35,7 +35,7 @@ from app.collections.service import (
     update_collection,
 )
 from app.datasets.helpers import _dataset_to_response
-from app.datasets.schemas import DatasetListResponse, DatasetResponse
+from app.datasets.schemas import DatasetListResponse
 from app.dependencies import get_db
 
 router = APIRouter(prefix="/catalog/collections", tags=["Datasets"])

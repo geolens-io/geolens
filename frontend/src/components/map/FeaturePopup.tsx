@@ -136,8 +136,16 @@ export function FeaturePopup({
                 {visibleEntries.map(([key, value]) => (
                   <tr
                     key={key}
-                    className="group cursor-pointer hover:bg-muted/50 rounded"
+                    role="button"
+                    tabIndex={0}
+                    className="group cursor-pointer hover:bg-muted/50 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() => handleCopy(key, value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleCopy(key, value);
+                      }
+                    }}
                     title={t('featurePopup.clickToCopy')}
                   >
                     <td className="pr-2 py-0.5 font-medium text-muted-foreground whitespace-nowrap align-top">

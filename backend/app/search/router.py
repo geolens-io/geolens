@@ -1065,7 +1065,9 @@ async def collection_items(
         )
         dataset = ext_result.unique().scalar_one_or_none()
         if dataset is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+            )
         public_api_url = await get_public_api_url(db, request=request)
         return JSONResponse(
             content=dataset_to_ogc_record(dataset, public_api_url),

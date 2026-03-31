@@ -303,9 +303,7 @@ async def test_collection_items_pagination(
     assert data2["numberReturned"] == 2
 
     # Should have both "next" and "prev" links
-    prev_link = next(
-        (link for link in data2["links"] if link["rel"] == "prev"), None
-    )
+    prev_link = next((link for link in data2["links"] if link["rel"] == "prev"), None)
     assert prev_link is not None, "Missing 'prev' pagination link"
 
 

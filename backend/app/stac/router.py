@@ -61,16 +61,16 @@ def _published_raster_filters():
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_urls(
-    db: AsyncSession, request: Request
-) -> tuple[str, str]:
+async def _resolve_urls(db: AsyncSession, request: Request) -> tuple[str, str]:
     """Return (stac_api_url, public_api_url) with a single settings lookup."""
     public_api_url = await get_public_api_url(db, request=request)
     stac_api_url = f"{public_api_url.rstrip('/')}/stac"
     return stac_api_url, public_api_url
 
 
-def _stac_page_url(base_href: str, offset: int, limit: int, extra: dict | None = None) -> str:
+def _stac_page_url(
+    base_href: str, offset: int, limit: int, extra: dict | None = None
+) -> str:
     """Build a STAC pagination URL preserving active query params."""
     params: dict[str, str] = {"offset": str(offset), "limit": str(limit)}
     if extra:
@@ -602,7 +602,9 @@ async def get_collection_items(
         links.append(
             StacLink(
                 rel="prev",
-                href=_stac_page_url(base_href, max(0, offset - limit), limit, active_params),
+                href=_stac_page_url(
+                    base_href, max(0, offset - limit), limit, active_params
+                ),
                 type="application/geo+json",
             )
         )
@@ -752,7 +754,9 @@ async def _execute_search(
 
     # Filter by collections — accept comma-separated string or list
     if collections:
-        coll_strings = collections.split(",") if isinstance(collections, str) else collections
+        coll_strings = (
+            collections.split(",") if isinstance(collections, str) else collections
+        )
         parsed_coll_ids = []
         for cid_str in coll_strings:
             try:
@@ -854,21 +858,25 @@ async def _execute_search(
     search_href = f"{stac_api_url}/search"
     active_params: dict[str, str] = {}
     if bbox:
-        active_params["bbox"] = bbox if isinstance(bbox, str) else ",".join(str(v) for v in bbox)
+        active_params["bbox"] = (
+            bbox if isinstance(bbox, str) else ",".join(str(v) for v in bbox)
+        )
     if datetime_str:
         active_params["datetime"] = datetime_str
     if collections:
-        active_params["collections"] = collections if isinstance(collections, str) else ",".join(collections)
+        active_params["collections"] = (
+            collections if isinstance(collections, str) else ",".join(collections)
+        )
     if ids:
         active_params["ids"] = ids if isinstance(ids, str) else ",".join(ids)
     if intersects:
-        active_params["intersects"] = intersects if isinstance(intersects, str) else json.dumps(intersects)
+        active_params["intersects"] = (
+            intersects if isinstance(intersects, str) else json.dumps(intersects)
+        )
 
     # Build links
     links = [
-        StacLink(
-            rel="self", href=search_href, type="application/geo+json"
-        ),
+        StacLink(rel="self", href=search_href, type="application/geo+json"),
         StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
     ]
     if offset + limit < total:
@@ -883,7 +891,9 @@ async def _execute_search(
         links.append(
             StacLink(
                 rel="prev",
-                href=_stac_page_url(search_href, max(0, offset - limit), limit, active_params),
+                href=_stac_page_url(
+                    search_href, max(0, offset - limit), limit, active_params
+                ),
                 type="application/geo+json",
             )
         )

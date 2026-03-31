@@ -66,7 +66,7 @@ export function PublicMapViewerPage() {
       <div className="flex items-center justify-center w-full h-screen bg-muted">
         <div className="flex flex-col items-center gap-3 text-center">
           <MapPinOff className="size-10 text-muted-foreground" />
-          <h1 className="text-lg font-semibold text-foreground">
+          <h1 className="text-2xl font-semibold text-foreground">
             {isNotFound ? t('viewer.mapNotFound') : t('viewer.loadFailed', 'Unable to load map')}
           </h1>
           <p className="text-sm text-muted-foreground max-w-sm">

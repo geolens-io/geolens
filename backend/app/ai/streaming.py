@@ -28,9 +28,7 @@ from app.config import settings
 logger = structlog.stdlib.get_logger(__name__)
 
 
-def _make_stage_callback(
-    tool_name: str, stage_events: list[dict]
-):
+def _make_stage_callback(tool_name: str, stage_events: list[dict]):
     """Build a stage callback for query_data sub-stages, or None for other tools."""
     if tool_name != "query_data":
         return None

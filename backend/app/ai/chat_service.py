@@ -13,7 +13,13 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm_loop import resolve_provider, run_tool_loop
-from app.ai.schemas import ChatAction, ChatHistoryMessage, ChatMapLayer, ChatResponse, validate_paint_for_geometry
+from app.ai.schemas import (
+    ChatAction,
+    ChatHistoryMessage,
+    ChatMapLayer,
+    ChatResponse,
+    validate_paint_for_geometry,
+)
 from app.ai.sql_generator import build_sql_schema_context, generate_sql
 from app.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.ai.service import _execute_search_tool, _should_send_sample_values
@@ -622,7 +628,9 @@ async def _execute_chat_tool(
 
     # Validate paint properties for set_style against geometry type
     if tool_name == "set_style" and tool_input.get("paint"):
-        target = next((l for l in layers if l.id == tool_input.get("layer_id")), None)
+        target = next(
+            (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
+        )
         if target:
             tool_input = {
                 **tool_input,
@@ -670,7 +678,9 @@ async def _build_data_driven_style(
     if target_layer.column_info:
         col_names = {c.get("name") for c in target_layer.column_info if c.get("name")}
         if column not in col_names:
-            return {"error": f"Column '{column}' not found in layer. Available columns: {', '.join(sorted(col_names)[:10])}"}
+            return {
+                "error": f"Column '{column}' not found in layer. Available columns: {', '.join(sorted(col_names)[:10])}"
+            }
 
     color_prop = _get_color_property(target_layer.geometry_type)
 

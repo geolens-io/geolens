@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { render, renderHook, type RenderOptions, type RenderHookOptions } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -28,9 +29,11 @@ function customRender(ui: ReactElement, options: CustomRenderOptions = {}) {
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={route ? [route] : ['/']}>
-          {children}
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={route ? [route] : ['/']}>
+            {children}
+          </MemoryRouter>
+        </TooltipProvider>
       </QueryClientProvider>
     )
   }
@@ -47,9 +50,11 @@ function customRenderHook<Result, Props>(
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          {children}
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter>
+            {children}
+          </MemoryRouter>
+        </TooltipProvider>
       </QueryClientProvider>
     )
   }

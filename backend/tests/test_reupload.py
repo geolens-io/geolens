@@ -371,7 +371,8 @@ class TestServiceReuploadPreview:
             "roads",
             None,
             token="secret-token",
-            order_field="OBJECTID",
+            order_field=None,
+            result_limit=5,
         )
         mock_run_preview.assert_awaited_once_with(
             "WFS:https://example.com/wfs",

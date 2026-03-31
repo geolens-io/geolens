@@ -323,12 +323,12 @@ KEYWORD_SYSTEM = (
     "Return lowercase keywords.\n\n"
     "Example:\n"
     "Input: National Parks polygons, US extent, established dates, acreage.\n"
-    "Output: [{\"keyword\": \"environment\", \"keyword_type\": \"theme\"}, "
-    "{\"keyword\": \"planningCadastre\", \"keyword_type\": \"theme\"}, "
-    "{\"keyword\": \"protected areas\", \"keyword_type\": \"theme\"}, "
-    "{\"keyword\": \"national parks\", \"keyword_type\": \"theme\"}, "
-    "{\"keyword\": \"united states\", \"keyword_type\": \"place\"}, "
-    "{\"keyword\": \"2024\", \"keyword_type\": \"temporal\"}]"
+    'Output: [{"keyword": "environment", "keyword_type": "theme"}, '
+    '{"keyword": "planningCadastre", "keyword_type": "theme"}, '
+    '{"keyword": "protected areas", "keyword_type": "theme"}, '
+    '{"keyword": "national parks", "keyword_type": "theme"}, '
+    '{"keyword": "united states", "keyword_type": "place"}, '
+    '{"keyword": "2024", "keyword_type": "temporal"}]'
 )
 
 LINEAGE_SYSTEM = (

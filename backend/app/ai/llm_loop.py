@@ -14,13 +14,13 @@ import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
-# Timeout for individual LLM API calls (prevents indefinite hangs)
-_LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
-
 from app.ai.constants import MAX_TOOL_ROUNDS
 from app.ai.tool_call_parser import parse_xml_tool_calls
 from app.config import settings
 from app.persistent_config import LLM_MODEL, LLM_PROVIDER, OPENAI_BASE_URL
+
+# Timeout for individual LLM API calls (prevents indefinite hangs)
+_LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -44,6 +44,7 @@ def get_openai_client(base_url: str) -> AsyncOpenAI:
             api_key=settings.openai_api_key, base_url=base_url, timeout=_LLM_TIMEOUT
         )
     return _cached_openai_clients[base_url]
+
 
 # Type aliases for callbacks
 ToolExecutor = Callable[[str, dict], Awaitable[dict]]

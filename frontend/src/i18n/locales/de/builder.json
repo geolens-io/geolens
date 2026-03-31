@@ -1,5 +1,8 @@
 {
   "title": "Karten-Editor",
+  "mapBuilder": "Karten-Editor",
+  "mapNameLabel": "Kartenname",
+  "descriptionLabel": "Kartenbeschreibung",
   "loadingMap": "Karte wird geladen...",
   "backToMaps": "Zurück zu Karten",
   "unsaved": "Nicht gespeichert",
@@ -38,7 +41,11 @@
     "moreActions": "Weitere Aktionen",
     "expandOptions": "Optionen ausklappen",
     "searchColumns": "Spalten suchen...",
-    "noColumnsMatch": "Keine passenden Spalten"
+    "noColumnsMatch": "Keine passenden Spalten",
+    "dragToReorder": "Ziehen zum Neuanordnen",
+    "sortableLayer": "sortierbarer Layer",
+    "hideLegend": "Aus Legende ausblenden",
+    "showLegend": "In Legende anzeigen"
   },
   "style": {
     "fill": "Füllung",
@@ -152,6 +159,7 @@
   },
   "search": {
     "title": "Datensatz hinzufügen",
+    "dialogDescription": "Datensätze suchen und als Layer zur Karte hinzufügen.",
     "placeholder": "Datensätze suchen...",
     "noResults": "Keine Datensätze gefunden",
     "added": "(hinzugefügt)",
@@ -252,6 +260,7 @@
   },
   "info": {
     "title": "Karteninfo",
+    "dialogDescription": "Details und Metadaten zu dieser Karte.",
     "author": "Autor",
     "created": "Erstellt",
     "updated": "Aktualisiert",
