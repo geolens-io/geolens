@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FileDropzone } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
+import { stripExtension } from './utils';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
 import type { FileEntry, BatchPhase, CommitImportRequest } from '@/types/api';
@@ -27,11 +28,6 @@ function getErrorHint(errorMsg: string, t: (key: string) => string): string | nu
     return t('upload.hintEmpty');
   }
   return null;
-}
-
-function stripExtension(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  return dot > 0 ? filename.slice(0, dot) : filename;
 }
 
 export function UploadForm() {

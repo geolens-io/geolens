@@ -6,18 +6,8 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
-import type { FileEntry, CommitImportRequest, FilePreviewResponse, RasterPreviewResponse } from '@/types/api';
-
-function isRasterPreview(
-  data: FilePreviewResponse | RasterPreviewResponse,
-): data is RasterPreviewResponse {
-  return 'band_count' in data;
-}
-
-function isFilePreview(
-  data: FilePreviewResponse | RasterPreviewResponse,
-): data is FilePreviewResponse {
-  return 'layers' in data || 'layer_name' in data;
+import type { FileEntry, CommitImportRequest } from '@/types/api';
+import { isRasterPreview, isFilePreview } from './utils';
 }
 
 function getLayerName(entry: FileEntry): string | undefined {
