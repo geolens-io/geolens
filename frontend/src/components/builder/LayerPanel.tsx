@@ -85,7 +85,7 @@ export function LayerPanel({
     <div>
       <div className="flex items-center justify-between px-2 mb-2">
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-medium">{t('layers.title')}</h3>
+          <h2 className="text-sm font-medium">{t('layers.title')}</h2>
           <Badge variant="secondary" className="text-xs">
             {layers.length}
           </Badge>
@@ -118,7 +118,7 @@ export function LayerPanel({
             items={layers.map((l) => l.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div className="space-y-0.5 max-h-[28rem] overflow-y-auto">
+            <div className="space-y-0.5 max-h-[28rem] overflow-y-auto" role="list" aria-label={t('layers.title')}>
               {layers.map((layer, idx) => (
                 <LayerItem
                   key={layer.id}

@@ -260,7 +260,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
           {/* Visibility selector */}
           <div className="space-y-2">
             <p className="text-sm font-medium">{t('share.visibilityTitle')}</p>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" role="radiogroup" aria-label={t('share.visibilityTitle')}>
               {VISIBILITY_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
                 const isActive = visibility === opt.value;
@@ -268,6 +268,8 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                   <button
                     key={opt.value}
                     type="button"
+                    role="radio"
+                    aria-checked={isActive}
                     className={cn(
                       'w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors',
                       isActive

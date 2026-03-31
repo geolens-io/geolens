@@ -253,7 +253,6 @@ export function MapBuilderPage() {
               <SheetDescription>{t('descriptionLabel')}</SheetDescription>
             </SheetHeader>
             <div className="p-3 border-b space-y-2">
-              <h1 className="sr-only">{localName || t('mapBuilder')}</h1>
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
@@ -498,7 +497,7 @@ export function MapBuilderPage() {
           />
 
           <div className="border-t pt-3 px-2">
-            <h3 className="text-sm font-medium mb-2">{t('basemap.title')}</h3>
+            <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
             <BasemapPicker
               value={layers.localBasemap}
               onChange={(key) => {
@@ -534,7 +533,7 @@ export function MapBuilderPage() {
 
       {/* Map */}
       <div className="flex-1 relative">
-        {(dialogs.sidebarCollapsed || isMobile) && (
+        {dialogs.sidebarCollapsed && (
           <button
             onClick={() => dialogs.setSidebarCollapsed(false)}
             title={t('tooltips.expandSidebar')}

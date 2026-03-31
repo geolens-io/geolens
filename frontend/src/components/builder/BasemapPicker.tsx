@@ -24,6 +24,8 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
       {/* Collapsed: compact row with current basemap */}
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label={t('basemap.title')}
         className="flex items-center gap-2 w-full rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors"
       >
         <img
@@ -80,7 +82,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
             type="checkbox"
             checked={showLabels}
             onChange={(e) => onToggleLabels(e.target.checked)}
-            className="rounded"
+            className="h-4 w-4 rounded accent-primary"
           />
           {t('basemap.showLabels')}
         </label>
