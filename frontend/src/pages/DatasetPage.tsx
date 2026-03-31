@@ -50,6 +50,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { visibilityColors } from '@/lib/status-colors';
 import type { DatasetResponse } from '@/types/api';
+import { downloadCog } from '@/api/datasets';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
 
@@ -456,11 +457,9 @@ export function DatasetPage() {
             {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
             {isRaster && dataset.raster?.connect && (
-              <Button asChild variant="default" size="sm">
-                <a href={`/api/datasets/${dataset.id}/download/cog`} download>
-                  <Download className="mr-1 size-3" />
-                  {t('actions.downloadCog', { defaultValue: 'Download COG' })}
-                </a>
+              <Button variant="default" size="sm" onClick={() => downloadCog(dataset.id, dataset.title)}>
+                <Download className="mr-1 size-3" />
+                {t('actions.downloadCog', { defaultValue: 'Download COG' })}
               </Button>
             )}
             <ConnectDropdown dataset={dataset} />

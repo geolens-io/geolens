@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ApiError } from '@/api/client';
+import { downloadCog } from '@/api/datasets';
 
 interface JobProgressProps {
   jobId: string;
@@ -135,11 +136,9 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             </Button>
             {isRasterEntry && (
               <>
-                <Button variant="outline" size="sm" asChild>
-                  <a href={`/api/datasets/${job.dataset_id}/download/cog`} download>
-                    <Download className="mr-1 size-3" />
-                    Download COG
-                  </a>
+                <Button variant="outline" size="sm" onClick={() => downloadCog(job.dataset_id!, job.filename ?? 'download')}>
+                  <Download className="mr-1 size-3" />
+                  Download COG
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <Link to={`/datasets/${job.dataset_id}`}>
