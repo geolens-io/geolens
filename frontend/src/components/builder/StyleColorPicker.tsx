@@ -65,6 +65,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
                 )}
                 style={{ background: hex }}
                 title={hex}
+                aria-label={hex}
               />
             ))}
           </div>

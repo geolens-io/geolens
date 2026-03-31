@@ -44,8 +44,8 @@
     "noColumnsMatch": "No hay columnas coincidentes",
     "dragToReorder": "Arrastrar para reordenar",
     "sortableLayer": "capa ordenable",
-    "hideLegend": "Ocultar de la leyenda",
-    "showLegend": "Mostrar en la leyenda"
+    "hideFromLegend": "Ocultar de la leyenda",
+    "showInLegend": "Mostrar en la leyenda"
   },
   "style": {
     "fill": "Relleno",

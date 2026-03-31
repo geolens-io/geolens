@@ -35,6 +35,7 @@ export function ColorRampPicker({ rampName, onChange, mode }: ColorRampPickerPro
             key={ramp.name}
             type="button"
             onClick={() => onChange(ramp.name)}
+            aria-label={ramp.label}
             className={cn(
               'flex items-center gap-2 w-full px-1.5 py-1 rounded text-left transition-colors',
               isSelected

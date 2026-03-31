@@ -44,8 +44,8 @@
     "noColumnsMatch": "Aucune colonne correspondante",
     "dragToReorder": "Glisser pour réorganiser",
     "sortableLayer": "couche triable",
-    "hideLegend": "Masquer de la légende",
-    "showLegend": "Afficher dans la légende"
+    "hideFromLegend": "Masquer de la légende",
+    "showInLegend": "Afficher dans la légende"
   },
   "style": {
     "fill": "Remplissage",

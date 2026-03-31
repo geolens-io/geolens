@@ -12,19 +12,15 @@ export function useBuilderLayout() {
   )
 
   React.useEffect(() => {
-    const mqlCompact = window.matchMedia(`(max-width: ${BUILDER_COMPACT_BREAKPOINT - 1}px)`)
-    const mqlMobile = window.matchMedia(`(max-width: ${BUILDER_MOBILE_BREAKPOINT - 1}px)`)
+    const mql = window.matchMedia(`(max-width: ${BUILDER_COMPACT_BREAKPOINT - 1}px)`)
     const onChange = () => {
-      setIsCompact(window.innerWidth < BUILDER_COMPACT_BREAKPOINT)
-      setIsMobile(window.innerWidth < BUILDER_MOBILE_BREAKPOINT)
+      const w = window.innerWidth
+      setIsCompact(w < BUILDER_COMPACT_BREAKPOINT)
+      setIsMobile(w < BUILDER_MOBILE_BREAKPOINT)
     }
-    mqlCompact.addEventListener("change", onChange)
-    mqlMobile.addEventListener("change", onChange)
+    mql.addEventListener("change", onChange)
     onChange()
-    return () => {
-      mqlCompact.removeEventListener("change", onChange)
-      mqlMobile.removeEventListener("change", onChange)
-    }
+    return () => mql.removeEventListener("change", onChange)
   }, [])
 
   return { isCompact, isMobile }

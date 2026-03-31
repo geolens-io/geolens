@@ -9,6 +9,8 @@ import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, Sty
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions } from './chat-suggestions';
 
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'error';
@@ -57,7 +59,7 @@ export function ChatPanel({
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' });
   }, [messages, isLoading, streamingText]);
 
   // Progressive timeout timer

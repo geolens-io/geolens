@@ -63,7 +63,7 @@ export function LayerInspector({
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between shrink-0">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium truncate">{layer.display_name ?? layer.dataset_name}</h3>
+          <h2 className="text-sm font-medium truncate">{layer.display_name ?? layer.dataset_name}</h2>
           <span className="text-xs text-muted-foreground">{t('inspector.title')}</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -92,10 +92,14 @@ export function LayerInspector({
 
       {/* Tabs */}
       {!isRaster && (
-        <div className="flex border-b shrink-0">
+        <div className="flex border-b shrink-0" role="tablist" aria-label={t('inspector.title')}>
           {(['style', 'filter', 'labels'] as const).map((tab) => (
             <button
               key={tab}
+              id={`inspector-tab-${tab}`}
+              role="tab"
+              aria-selected={effectiveTab === tab}
+              aria-controls="inspector-tabpanel"
               className={cn(
                 'flex-1 px-2 py-2 text-xs font-semibold transition-colors',
                 effectiveTab === tab
@@ -111,7 +115,7 @@ export function LayerInspector({
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto p-3" {...(!isRaster ? { role: 'tabpanel', id: 'inspector-tabpanel', 'aria-labelledby': `inspector-tab-${effectiveTab}` } : {})}>
         {isRaster && (
           <RasterLayerControls
             opacity={layer.opacity ?? 1}

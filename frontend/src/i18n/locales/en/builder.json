@@ -44,8 +44,8 @@
     "noColumnsMatch": "No columns match",
     "dragToReorder": "Drag to reorder",
     "sortableLayer": "sortable layer",
-    "hideLegend": "Hide from legend",
-    "showLegend": "Show in legend"
+    "hideFromLegend": "Hide from legend",
+    "showInLegend": "Show in legend"
   },
   "style": {
     "fill": "Fill",

@@ -44,8 +44,8 @@
     "noColumnsMatch": "Keine passenden Spalten",
     "dragToReorder": "Ziehen zum Neuanordnen",
     "sortableLayer": "sortierbarer Layer",
-    "hideLegend": "Aus Legende ausblenden",
-    "showLegend": "In Legende anzeigen"
+    "hideFromLegend": "Aus Legende ausblenden",
+    "showInLegend": "In Legende anzeigen"
   },
   "style": {
     "fill": "Füllung",
