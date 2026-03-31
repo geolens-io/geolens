@@ -181,10 +181,6 @@ export function useBuilderLayers(
     setEphemeralResult({ geojson, bbox });
   }, []);
 
-  const handleDismissEphemeral = useCallback(() => {
-    clearEphemeralLayer();
-  }, [clearEphemeralLayer]);
-
   // --- Layer handlers ---
 
   function handleToggleVisibility(layerId: string, visible?: boolean) {
@@ -736,7 +732,7 @@ export function useBuilderLayers(
     handleAiRemoveLayer,
     handleQueryResult,
     handleToggleLegend,
-    handleDismissEphemeral,
+    handleDismissEphemeral: clearEphemeralLayer,
     markDirty,
   };
 }

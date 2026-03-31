@@ -249,18 +249,18 @@ export function LayerStyleEditor({
             />
             <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
             <div className="flex gap-1">
-              {(() => {
+              {LINE_DASH_PRESETS.map((preset) => {
                 const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
-                const currentDash = LINE_DASH_PRESETS.find(
+                const isActive = (LINE_DASH_PRESETS.find(
                   (p) => JSON.stringify(p.value) === JSON.stringify(currentDashValue),
-                )?.key ?? 'solid';
-                return LINE_DASH_PRESETS.map((preset) => (
+                )?.key ?? 'solid') === preset.key;
+                return (
                   <button
                     key={preset.key}
                     type="button"
                     className={cn(
                       'flex-1 px-2 py-1 text-xs rounded border transition-colors',
-                      currentDash === preset.key
+                      isActive
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
                     )}
@@ -272,8 +272,8 @@ export function LayerStyleEditor({
                   >
                     {t(`style.dash.${preset.key}`)}
                   </button>
-                ));
-              })()}
+                );
+              })}
             </div>
           </>
         )}

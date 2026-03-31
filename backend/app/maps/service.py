@@ -438,6 +438,52 @@ async def _generate_fork_name(
         n += 1
 
 
+async def _bulk_check_dataset_access(
+    session: AsyncSession,
+    dataset_ids: list[uuid.UUID],
+    user: User,
+    user_roles: set[str],
+) -> set[uuid.UUID]:
+    """Return the subset of dataset_ids the user can access. Single round-trip."""
+    if not dataset_ids:
+        return set()
+
+    if "admin" in user_roles:
+        return set(dataset_ids)
+
+    # Fetch visibility info for all datasets at once
+    result = await session.execute(
+        select(Dataset.id, Record.visibility, Record.created_by)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id.in_(dataset_ids))
+    )
+    rows = result.all()
+
+    accessible = set()
+    restricted_ids = []
+    for ds_id, visibility, created_by in rows:
+        if visibility == "public":
+            accessible.add(ds_id)
+        elif visibility == "private" and created_by == user.id:
+            accessible.add(ds_id)
+        elif visibility == "restricted":
+            restricted_ids.append(ds_id)
+
+    # Batch-check grants for restricted datasets
+    if restricted_ids:
+        grant_result = await session.execute(
+            select(DatasetGrant.dataset_id)
+            .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
+            .where(
+                DatasetGrant.dataset_id.in_(restricted_ids),
+                UserRole.user_id == user.id,
+            )
+        )
+        accessible.update(row[0] for row in grant_result.all())
+
+    return accessible
+
+
 async def _can_access_layer_dataset(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -520,11 +566,15 @@ async def duplicate_map(
     )
     layers = layers_result.scalars().all()
 
+    # Bulk-fetch dataset visibility info to avoid N+1 queries
+    layer_dataset_ids = list({layer.dataset_id for layer in layers})
+    accessible_ids = await _bulk_check_dataset_access(
+        session, layer_dataset_ids, user, user_roles
+    )
+
     excluded_count = 0
     for layer in layers:
-        if not await _can_access_layer_dataset(
-            session, layer.dataset_id, user, user_roles
-        ):
+        if layer.dataset_id not in accessible_ids:
             excluded_count += 1
             continue
         new_layer = MapLayer(

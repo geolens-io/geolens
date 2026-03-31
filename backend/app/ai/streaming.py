@@ -28,6 +28,17 @@ from app.config import settings
 logger = structlog.stdlib.get_logger(__name__)
 
 
+def _make_stage_callback(
+    tool_name: str, stage_events: list[dict]
+):
+    """Build a stage callback for query_data sub-stages, or None for other tools."""
+    if tool_name != "query_data":
+        return None
+    return lambda label: stage_events.append(
+        {"type": "tool_start", "tool": "query_data", "label": label}
+    )
+
+
 async def _stream_anthropic_chat(
     message: str,
     system_prompt: str,
@@ -117,19 +128,7 @@ async def _stream_anthropic_chat(
             for block in final_message.content:
                 if block.type == "tool_use":
                     stage_events: list[dict] = []
-                    stage_cb = (
-                        (
-                            lambda label: stage_events.append(
-                                {
-                                    "type": "tool_start",
-                                    "tool": "query_data",
-                                    "label": label,
-                                }
-                            )
-                        )
-                        if block.name == "query_data"
-                        else None
-                    )
+                    stage_cb = _make_stage_callback(block.name, stage_events)
 
                     result = await _execute_chat_tool(
                         block.name,
@@ -312,15 +311,7 @@ async def _stream_openai_chat(
                         continue
 
                 stage_events: list[dict] = []
-                stage_cb = (
-                    (
-                        lambda label: stage_events.append(
-                            {"type": "tool_start", "tool": "query_data", "label": label}
-                        )
-                    )
-                    if fn_name == "query_data"
-                    else None
-                )
+                stage_cb = _make_stage_callback(fn_name, stage_events)
 
                 result = await _execute_chat_tool(
                     fn_name,
@@ -370,15 +361,7 @@ async def _stream_openai_chat(
                 }
 
                 stage_events: list[dict] = []
-                stage_cb = (
-                    (
-                        lambda label: stage_events.append(
-                            {"type": "tool_start", "tool": "query_data", "label": label}
-                        )
-                    )
-                    if fn_name == "query_data"
-                    else None
-                )
+                stage_cb = _make_stage_callback(fn_name, stage_events)
 
                 result = await _execute_chat_tool(
                     fn_name,

@@ -105,6 +105,37 @@ def _build_layer_response(
     )
 
 
+def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
+    """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
+    return [
+        _build_layer_response(layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type)
+        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
+    ]
+
+
+async def _check_map_read_access(
+    map_obj,
+    user: User | None,
+    db: AsyncSession,
+) -> None:
+    """Raise 404 if the user cannot read the map."""
+    if user is None:
+        if map_obj.visibility != "public":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Map not found",
+            )
+    else:
+        user_roles = await get_user_roles(db, user)
+        is_admin = "admin" in user_roles
+        is_owner = map_obj.created_by == user.id
+        if map_obj.visibility != "public" and not is_owner and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Map not found",
+            )
+
+
 def _build_map_response(
     map_obj,
     layers: list[MapLayerResponse],
@@ -265,36 +296,8 @@ async def get_map_endpoint(
             detail="Map not found",
         )
 
-    # Visibility check
-    if user is None:
-        if map_obj.visibility != "public":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Map not found",
-            )
-    else:
-        user_roles = await get_user_roles(db, user)
-        is_admin = "admin" in user_roles
-        is_owner = map_obj.created_by == user.id
-        if map_obj.visibility != "public" and not is_owner and not is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Map not found",
-            )
-    layers = [
-        _build_layer_response(
-            layer,
-            name,
-            gt,
-            tn,
-            ext,
-            col_info,
-            feat_count,
-            samples,
-            rec_type,
-        )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
-    ]
+    await _check_map_read_access(map_obj, user, db)
+    layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
         layers,
@@ -354,20 +357,7 @@ async def update_map_endpoint(
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
         db, map_id
     )
-    layers = [
-        _build_layer_response(
-            layer,
-            name,
-            gt,
-            tn,
-            ext,
-            col_info,
-            feat_count,
-            samples,
-            rec_type,
-        )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
-    ]
+    layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
         layers,
@@ -445,20 +435,7 @@ async def duplicate_map_endpoint(
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
         db, new_map.id
     )
-    layers = [
-        _build_layer_response(
-            layer,
-            name,
-            gt,
-            tn,
-            ext,
-            col_info,
-            feat_count,
-            samples,
-            rec_type,
-        )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
-    ]
+    layers = _layers_from_tuples(layer_tuples)
     base_resp = _build_map_response(
         map_obj,
         layers,
@@ -690,22 +667,7 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
 
-    # Visibility check — mirrors get_map_endpoint
-    if user is None:
-        if map_obj.visibility != "public":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Thumbnail not found",
-            )
-    else:
-        user_roles = await get_user_roles(db, user)
-        is_admin = "admin" in user_roles
-        is_owner = map_obj.created_by == user.id
-        if map_obj.visibility != "public" and not is_owner and not is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Thumbnail not found",
-            )
+    await _check_map_read_access(map_obj, user, db)
 
     storage = get_storage()
     try:

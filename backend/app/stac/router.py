@@ -48,12 +48,6 @@ _STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_stac_api_url(db: AsyncSession, request: Request) -> str:
-    """Resolve the base STAC API URL (e.g. https://host/api/stac)."""
-    public_api_url = await get_public_api_url(db, request=request)
-    return f"{public_api_url.rstrip('/')}/stac"
-
-
 async def _resolve_urls(
     db: AsyncSession, request: Request
 ) -> tuple[str, str]:
@@ -226,7 +220,7 @@ async def landing_page(
     db: AsyncSession = Depends(get_db),
 ) -> StacCatalog:
     """STAC Catalog landing page."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
+    stac_api_url, _ = await _resolve_urls(db, request)
 
     links = [
         StacLink(rel="self", href=f"{stac_api_url}/", type="application/json"),
@@ -284,7 +278,7 @@ async def get_collections(
     db: AsyncSession = Depends(get_db),
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
+    stac_api_url, _ = await _resolve_urls(db, request)
 
     # Fetch all collections
     coll_result = await db.execute(select(Collection))
@@ -348,7 +342,7 @@ async def get_collection(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get a single STAC Collection."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
+    stac_api_url, _ = await _resolve_urls(db, request)
 
     coll_result = await db.execute(
         select(Collection).where(Collection.id == collection_id)

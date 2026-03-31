@@ -117,16 +117,6 @@ class OGCFeatureCollectionResponse(BaseModel):
     links: list[OGCRecordLink] | None = None
 
 
-class CollectionMetadata(BaseModel):
-    """OGC API Records collection metadata."""
-
-    id: str
-    title: str
-    description: str
-    itemType: str = "record"
-    links: list[OGCRecordLink]
-
-
 # ---------------------------------------------------------------------------
 # Saved search schemas
 # ---------------------------------------------------------------------------

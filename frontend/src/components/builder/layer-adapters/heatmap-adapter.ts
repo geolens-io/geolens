@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { CUSTOM_PAINT_PROPS } from './shared';
+import { CUSTOM_PAINT_PROPS, paintValueChanged } from './shared';
 import { getRampColors } from '@/lib/color-ramps';
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
@@ -65,7 +65,7 @@ export const heatmapAdapter: LayerAdapter = {
         map.setFilter(layerId, filter);
       }
     } catch (e) {
-      console.warn(`[map-sync] addLayer (heatmap) failed for ${layerId}:`, e);
+      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer (heatmap) failed for ${layerId}:`, e);
     }
   },
 
@@ -79,7 +79,7 @@ export const heatmapAdapter: LayerAdapter = {
       if (!prop.startsWith('heatmap-')) continue;
       try {
         const current = map.getPaintProperty(layerId, prop);
-        if (JSON.stringify(current) !== JSON.stringify(val)) {
+        if (paintValueChanged(current, val)) {
           map.setPaintProperty(layerId, prop, val);
         }
       } catch (e) {

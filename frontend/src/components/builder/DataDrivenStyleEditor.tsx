@@ -30,6 +30,7 @@ import {
 import { getLayerType } from '@/components/builder/map-sync';
 import { equalIntervalBreaks, quantileBreaks } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 interface DataDrivenStyleEditorProps {
@@ -42,7 +43,6 @@ interface DataDrivenStyleEditorProps {
 }
 
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
-import { isNumericColumn } from '@/lib/column-utils';
 
 function isTextColumn(type: string): boolean {
   const t = type.toLowerCase();

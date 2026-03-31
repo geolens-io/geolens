@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { MapCard } from '@/components/maps/MapCard';
 import { MapCardGrid } from '@/components/maps/MapCardGrid';
 import { MapCardSkeleton } from '@/components/maps/MapCardSkeleton';
@@ -107,6 +108,7 @@ export function MapsPage() {
   }
 
   return (
+    <TooltipProvider>
     <PageShell maxWidth="narrow">
       <PageHeader
         title={t('maps.title')}
@@ -252,5 +254,6 @@ export function MapsPage() {
         </>
       )}
     </PageShell>
+    </TooltipProvider>
   );
 }
