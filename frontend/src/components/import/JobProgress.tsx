@@ -79,6 +79,10 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   const warningShownRef = useRef(false);
 
   useEffect(() => {
+    warningShownRef.current = false;
+  }, [jobId]);
+
+  useEffect(() => {
     if (job?.status === 'complete' && job.warning_message && !warningShownRef.current) {
       warningShownRef.current = true;
       toast.warning(job.warning_message);
