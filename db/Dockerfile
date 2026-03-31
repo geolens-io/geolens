@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 postgis/postgis:17-3.6
+FROM --platform=linux/amd64 postgis/postgis:17-3.5
 
 # Install pgvector extension for semantic search embeddings
 RUN apt-get update && \
