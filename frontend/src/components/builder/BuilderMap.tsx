@@ -188,28 +188,34 @@ export function BuilderMap({
     };
   }, [layers, mapReady]);
 
-  // Mousemove: pointer cursor on interactive features
+  // Mousemove: pointer cursor on interactive features (RAF-throttled)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
+    let rafId = 0;
     const handleMouseMove = (e: MapMouseEvent) => {
-      const queryLayers = layers
-        .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
-        .map((l) => getLayerId(l.id))
-        .filter((id) => map.getLayer(id));
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (!map.isStyleLoaded()) return;
+        const queryLayers = layers
+          .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
+          .map((l) => getLayerId(l.id))
+          .filter((id) => map.getLayer(id));
 
-      if (queryLayers.length === 0) {
-        map.getCanvas().style.cursor = '';
-        return;
-      }
+        if (queryLayers.length === 0) {
+          map.getCanvas().style.cursor = '';
+          return;
+        }
 
-      const features = map.queryRenderedFeatures(e.point, { layers: queryLayers });
-      map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
+        const features = map.queryRenderedFeatures(e.point, { layers: queryLayers });
+        map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
+      });
     };
 
     map.on('mousemove', handleMouseMove);
     return () => {
+      cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
       if (map.getCanvas()) map.getCanvas().style.cursor = '';
     };
