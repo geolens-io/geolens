@@ -432,12 +432,12 @@ async def request_presigned_reupload(
         )
         num_parts = math.ceil(request.file_size / PART_SIZE)
         urls = []
-        for i in range(1, num_parts + 1):
+        for part_num in range(1, num_parts + 1):
             url = await asyncio.to_thread(
                 storage.generate_presigned_part_url,
                 s3_key,
                 upload_id,
-                i,
+                part_num,
             )
             urls.append(url)
         job.user_metadata = {
