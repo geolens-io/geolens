@@ -797,7 +797,7 @@ async def reupload_file(
             )
 
             # 7. Compute file hash + source format
-            file_hash = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+            file_hash = await asyncio.to_thread(sha256_file, file_path)
             suffix = Path(file_path).suffix.lower().lstrip(".")
             source_format = "shapefile" if suffix == "zip" else suffix
 
