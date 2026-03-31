@@ -218,6 +218,11 @@ class TestServiceReuploadWorker:
                 "app.ingest.ogr.run_ogr2ogr_service", new_callable=AsyncMock
             ) as mock_run_ogr2ogr_service,
             patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
                 "app.ingest.metadata.clip_to_mercator_bounds",
                 new_callable=AsyncMock,
             ) as mock_clip,
