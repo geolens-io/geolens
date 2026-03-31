@@ -9,13 +9,24 @@
 #   - Adds a seeder service that populates sample data on first run
 #   - Adds a reset service that restores demo data every 24 hours
 #   - Reduces upload limits for public demo safety
-#   - Disables hot-reload (production-like frontend)
+#   - Disables hot-reload and clears dev bind mounts (production-like API, worker, frontend)
 # ==============================================================================
 
 services:
   api:
+    # Clear dev bind mounts — use code baked into the image
+    volumes:
+      - upload_staging:/app/staging
+    # Production command — no --reload
+    command: >
+      sh -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       UPLOAD_MAX_SIZE_MB: "50"
+
+  worker:
+    # Clear dev bind mounts for worker too
+    volumes:
+      - upload_staging:/app/staging
 
   frontend:
     build:
@@ -43,7 +54,7 @@ services:
     restart: "no"
 
   reset:
-    image: postgis/postgis:17-3.5
+    image: postgis/postgis:17-3.6
     entrypoint: ["/scripts/reset-demo.sh"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
