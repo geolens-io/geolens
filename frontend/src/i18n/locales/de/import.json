@@ -194,6 +194,7 @@
     "importProgress": "Importfortschritt",
     "uploadMore": "Weitere hochladen",
     "rasterDatasetsReady": "{{count}} Rasterdatensätze bereit",
-    "createVrtMosaic": "VRT-Mosaik erstellen"
+    "createVrtMosaic": "VRT-Mosaik erstellen",
+    "importAsVrt": "Als VRT-Mosaik importieren"
   }
 }
