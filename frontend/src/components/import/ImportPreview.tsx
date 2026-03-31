@@ -12,15 +12,10 @@ import {
 } from '@/components/ui/table';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { semanticBadgeColors } from '@/lib/status-colors';
+import { isRasterPreview } from './utils';
 
 interface ImportPreviewProps {
   preview: FilePreviewResponse | RasterPreviewResponse;
-}
-
-function isRasterPreview(
-  data: FilePreviewResponse | RasterPreviewResponse,
-): data is RasterPreviewResponse {
-  return 'band_count' in data;
 }
 
 const MAX_VISIBLE_COLUMNS = 8;

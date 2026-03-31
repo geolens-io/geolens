@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { stripExtension } from './utils';
 
 type GeometryMode = 'auto' | 'manual' | 'none';
 type GeometryType = 'latlng' | 'wkt';
@@ -42,11 +43,6 @@ const RESAMPLING_OPTIONS = [
   'average',
   'mode',
 ];
-
-function stripExtension(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  return dot > 0 ? filename.slice(0, dot) : filename;
-}
 
 export function ImportMetadataForm({
   defaultName,
