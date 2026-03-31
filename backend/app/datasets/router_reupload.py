@@ -47,6 +47,7 @@ from app.ingest.service import (
 )
 from app.ingest.tasks import reupload_file, reupload_service
 from app.ingest.validation import validate_file_content
+from app.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.jobs.models import IngestJob
 from app.services.preview import build_gdal_source, run_service_preview
 from app.services.security import SSRFError, validate_url_for_ssrf
@@ -75,10 +76,7 @@ async def reupload_dataset(
         )
 
     try:
-        from app.persistent_config import UPLOAD_ALLOWED_EXTENSIONS
-
-        allowed_ext_str = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
-        allowed_list = [e.strip() for e in allowed_ext_str.split(",")]
+        allowed_list = await get_allowed_extensions_list(db)
         validate_file_extension(file.filename, allowed_list)
     except ValueError as exc:
         raise HTTPException(
@@ -405,10 +403,7 @@ async def request_presigned_reupload(
             detail="Dataset not found",
         )
 
-    from app.persistent_config import UPLOAD_ALLOWED_EXTENSIONS, UPLOAD_MAX_SIZE_MB
-
-    allowed_ext_str = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
-    allowed_list = [e.strip() for e in allowed_ext_str.split(",")]
+    allowed_list = await get_allowed_extensions_list(db)
     validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time

@@ -18,7 +18,7 @@ interface TabProps {
 
 const FIELDS = [
   { key: 'upload_max_size_mb', defaultValue: 500 },
-  { key: 'upload_allowed_extensions', defaultValue: '' },
+  { key: 'upload_allowed_extensions', defaultValue: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls' },
   { key: 'tile_cache_ttl', defaultValue: 300 },
 ] as const;
 
