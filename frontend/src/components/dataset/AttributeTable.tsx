@@ -3,8 +3,11 @@ import { useTranslation } from 'react-i18next';
 import {
   useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
   flexRender,
   type ColumnDef,
+  type SortingState,
+  type VisibilityState,
 } from '@tanstack/react-table';
 import { toast } from 'sonner';
 import { useDatasetRows } from '@/hooks/use-dataset';
@@ -15,8 +18,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { formatNumber } from '@/lib/format';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowUpDown, Settings2 } from 'lucide-react';
 
 /** Columns that are not user-editable */
 const NON_EDITABLE_COLUMNS = new Set(['gid', 'geom']);
@@ -31,6 +41,7 @@ interface EditingCell {
 interface AttributeTableProps {
   datasetId: string;
   canEdit?: boolean;
+  compact?: boolean;
 }
 
 function InlineCellEditor({
@@ -78,13 +89,15 @@ function InlineCellEditor({
   );
 }
 
-export function AttributeTable({ datasetId, canEdit = false }: AttributeTableProps) {
+export function AttributeTable({ datasetId, canEdit = false, compact = false }: AttributeTableProps) {
   const { t } = useTranslation('dataset');
   const [cursor, setCursor] = useState(0);
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const updateFeature = useUpdateFeature();
 
   // Debounce filters to avoid hammering the API on every keystroke
@@ -175,11 +188,27 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
           return (
             <button
               type="button"
-              className="rounded px-0.5 -mx-0.5 text-left hover:bg-muted/50"
+              className="rounded px-0.5 -mx-0.5 text-left hover:bg-muted/50 w-full block truncate"
               onClick={() => setEditingCell({ rowGid: gid, column: col.name })}
             >
               {cellValue}
             </button>
+          );
+        }
+
+        // Tooltip for long values
+        if (cellValue.length > 30) {
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="block truncate">{cellValue}</span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-sm break-all">
+                  {cellValue}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           );
         }
 
@@ -193,6 +222,10 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
     data: data?.rows ?? [],
     columns,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    state: { sorting, columnVisibility },
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
   });
 
   const approximateTotal = data?.approximate_total ?? 0;
@@ -218,21 +251,59 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
     );
   }
 
+  const cellPadding = compact ? 'py-1 text-xs' : 'py-3';
+
   return (
     <div className="space-y-3">
-      <div className="rounded-md border overflow-auto">
-        <Table>
+      {/* Toolbar: column visibility */}
+      <div className="flex items-center justify-end">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
+              <Settings2 className="h-3.5 w-3.5" />
+              Columns
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
+            {table.getAllColumns()
+              .filter((col) => col.getCanHide())
+              .map((col) => (
+                <DropdownMenuCheckboxItem
+                  key={col.id}
+                  className="capitalize text-xs"
+                  checked={col.getIsVisible()}
+                  onCheckedChange={(value) => col.toggleVisibility(!!value)}
+                >
+                  {col.id}
+                </DropdownMenuCheckboxItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="rounded-md border">
+        <Table className="w-max min-w-full">
           <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
+                    {header.isPlaceholder ? null : (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 hover:text-foreground"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.column.getIsSorted() === 'asc' ? (
+                          <span> ↑</span>
+                        ) : header.column.getIsSorted() === 'desc' ? (
+                          <span> ↓</span>
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
                         )}
+                      </button>
+                    )}
                   </TableHead>
                 ))}
               </TableRow>
@@ -262,9 +333,12 @@ export function AttributeTable({ datasetId, canEdit = false }: AttributeTablePro
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  className={row.index % 2 === 1 ? 'bg-muted/30' : ''}
+                >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="max-w-xs truncate">
+                    <TableCell key={cell.id} className={`max-w-xs truncate ${cellPadding}`}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
