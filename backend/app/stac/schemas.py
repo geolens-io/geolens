@@ -19,7 +19,7 @@ class StacCatalog(BaseModel):
 
     type: str = "Catalog"
     id: str
-    stac_version: str = "1.1.0"
+    stac_version: str = "1.0.0"
     title: str
     description: str
     conformsTo: list[str]

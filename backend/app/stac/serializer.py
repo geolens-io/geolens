@@ -1,4 +1,4 @@
-"""STAC 1.1 serializer: transforms OGC Record dicts into STAC Item/Collection JSON.
+"""STAC 1.0 serializer: transforms OGC Record dicts into STAC Item/Collection JSON.
 
 Pure dict restructuring -- no database queries.
 """
@@ -74,7 +74,7 @@ def ogc_record_to_stac_item(
     collection_id: str | None = None,
     stac_api_url: str,
 ) -> dict:
-    """Transform an OGC Record Feature dict into a STAC 1.1 Item dict.
+    """Transform an OGC Record Feature dict into a STAC 1.0 Item dict.
 
     Parameters
     ----------
@@ -111,7 +111,7 @@ def ogc_record_to_stac_item(
     # -- Build Item ---------------------------------------------------------
     item: dict = {
         "type": "Feature",
-        "stac_version": "1.1.0",
+        "stac_version": "1.0.0",
         "id": record["id"],
         "geometry": record.get("geometry"),
         "bbox": record.get("bbox"),
@@ -159,7 +159,7 @@ def ogc_collection_to_stac_collection(
     """
     return {
         "type": "Collection",
-        "stac_version": "1.1.0",
+        "stac_version": "1.0.0",
         "id": collection_id,
         "title": name,
         "description": description or "",
@@ -180,6 +180,11 @@ def ogc_collection_to_stac_collection(
             },
             {
                 "rel": "root",
+                "href": stac_api_url,
+                "type": "application/json",
+            },
+            {
+                "rel": "parent",
                 "href": stac_api_url,
                 "type": "application/json",
             },

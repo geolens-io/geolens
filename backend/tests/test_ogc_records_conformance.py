@@ -1,7 +1,7 @@
 """Regression tests for OGC API Records Part 1 conformance fixes.
 
 Covers all 10 conformance gaps:
-  1. Pagination uses rel="previous" (not "prev")
+  1. Pagination uses rel="prev" (per OGC API Features 1.0 Section 7.14.2)
   2. No STAC-specific keys in record responses
   3. Themes include scheme URI from keyword vocabulary_uri
   4. Contacts include email and phone fields
@@ -103,8 +103,8 @@ def _find_link(links: list[dict], rel: str) -> dict | None:
 
 
 @pytest.mark.anyio
-async def test_pagination_uses_previous_rel(client: AsyncClient, test_db_session):
-    """Gap 1: Pagination links use rel='previous', not 'prev'."""
+async def test_pagination_uses_prev_rel(client: AsyncClient, test_db_session):
+    """Gap 1: Pagination links use rel='prev' (per OGC API Features 1.0 / IANA)."""
     admin_id = await _get_admin_id(test_db_session)
     prefix = uuid.uuid4().hex[:6]
     for i in range(3):
@@ -118,11 +118,8 @@ async def test_pagination_uses_previous_rel(client: AsyncClient, test_db_session
     assert resp.status_code == 200
     data = resp.json()
 
-    # Must use "previous", not "prev"
-    prev_link = _find_link(data["links"], "previous")
-    assert prev_link is not None, "Expected rel='previous' link"
-    bad_prev = _find_link(data["links"], "prev")
-    assert bad_prev is None, "rel='prev' should not exist"
+    prev_link = _find_link(data["links"], "prev")
+    assert prev_link is not None, "Expected rel='prev' link"
 
 
 @pytest.mark.anyio

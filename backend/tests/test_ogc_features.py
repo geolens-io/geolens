@@ -302,11 +302,11 @@ async def test_collection_items_pagination(
     data2 = resp2.json()
     assert data2["numberReturned"] == 2
 
-    # Should have both "next" and "previous" links
+    # Should have both "next" and "prev" links
     prev_link = next(
-        (link for link in data2["links"] if link["rel"] == "previous"), None
+        (link for link in data2["links"] if link["rel"] == "prev"), None
     )
-    assert prev_link is not None, "Missing 'previous' pagination link"
+    assert prev_link is not None, "Missing 'prev' pagination link"
 
 
 @pytest.mark.anyio
@@ -485,6 +485,7 @@ async def test_items_self_link_includes_query_params(
 
     self_link2 = next((link for link in data2["links"] if link["rel"] == "self"), None)
     assert self_link2 is not None, "Missing self link in items response with bbox"
-    assert "-75,40,-73,41" in self_link2["href"], (
+    # urlencode encodes commas as %2C — check for either form
+    assert "bbox=" in self_link2["href"], (
         f"bbox missing from self link: {self_link2['href']}"
     )

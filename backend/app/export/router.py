@@ -15,6 +15,7 @@ from app.auth.dependencies import get_current_active_user
 from app.auth.models import User
 from app.auth.visibility import check_dataset_access
 from app.datasets.service import get_dataset
+from app.features.service import parse_bbox
 from app.dependencies import get_db
 from app.export.ogr import ExportError
 from app.export.schemas import ExportFormat
@@ -64,13 +65,8 @@ async def export_dataset_endpoint(
     bbox_parsed: list[float] | None = None
     if bbox:
         try:
-            parts = bbox.split(",")
-            if len(parts) != 4:
-                raise ValueError("need 4 values")
-            bbox_parsed = [float(p) for p in parts]
-            if bbox_parsed[0] >= bbox_parsed[2] or bbox_parsed[1] >= bbox_parsed[3]:
-                raise ValueError("invalid bounds: minx must be < maxx and miny < maxy")
-        except (ValueError, TypeError) as e:
+            bbox_parsed = parse_bbox(bbox)
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",

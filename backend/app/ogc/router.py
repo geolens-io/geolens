@@ -1,4 +1,5 @@
 import uuid
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -245,9 +246,14 @@ async def get_dataset_collection(
 async def get_collection_items(
     request: Request,
     dataset_id: uuid.UUID,
-    limit: int = Query(10, ge=1, le=10000),
+    limit: int = Query(10, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
+    datetime_param: str | None = Query(
+        None,
+        alias="datetime",
+        description="OGC datetime interval: instant, start/end, ../end, start/..",
+    ),
     f: str | None = Query(None),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -304,9 +310,19 @@ async def get_collection_items(
 
     # Build pagination links
     base_path = f"/collections/{dataset_id}/items"
-    self_params = f"?limit={limit}&offset={offset}"
+    active_params: dict[str, str] = {}
     if bbox:
-        self_params += f"&bbox={bbox}"
+        active_params["bbox"] = bbox
+    if datetime_param:
+        active_params["datetime"] = datetime_param
+
+    def _page_url(off: int) -> str:
+        params = {"limit": str(limit), "offset": str(off), **active_params}
+        return build_url(base_path, base_url=public_api_url) + "?" + urlencode(params)
+
+    self_params = (
+        f"?{urlencode({'limit': str(limit), 'offset': str(offset), **active_params})}"
+    )
     links = [
         OGCLink(
             rel="self",
@@ -323,25 +339,18 @@ async def get_collection_items(
         ),
     ]
     if offset + limit < total:
-        next_params = f"?offset={offset + limit}&limit={limit}"
-        if bbox:
-            next_params += f"&bbox={bbox}"
         links.append(
             OGCLink(
                 rel="next",
-                href=build_url(base_path, base_url=public_api_url) + next_params,
+                href=_page_url(offset + limit),
                 type="application/geo+json",
             )
         )
     if offset > 0:
-        prev_offset = max(0, offset - limit)
-        prev_params = f"?offset={prev_offset}&limit={limit}"
-        if bbox:
-            prev_params += f"&bbox={bbox}"
         links.append(
             OGCLink(
-                rel="previous",
-                href=build_url(base_path, base_url=public_api_url) + prev_params,
+                rel="prev",
+                href=_page_url(max(0, offset - limit)),
                 type="application/geo+json",
             )
         )

@@ -48,7 +48,7 @@ class TestStacCatalog:
         )
         assert catalog.id == "test-catalog"
         assert catalog.type == "Catalog"
-        assert catalog.stac_version == "1.1.0"
+        assert catalog.stac_version == "1.0.0"
         assert len(catalog.conformsTo) == 4
 
     def test_catalog_default_values(self):
@@ -61,7 +61,7 @@ class TestStacCatalog:
             links=[],
         )
         assert catalog.type == "Catalog"
-        assert catalog.stac_version == "1.1.0"
+        assert catalog.stac_version == "1.0.0"
 
 
 # ---------------------------------------------------------------------------

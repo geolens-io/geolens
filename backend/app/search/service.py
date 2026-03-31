@@ -1129,21 +1129,23 @@ def dataset_to_ogc_record(
         updated_user=updated_user,
     )
 
-    # Convert spatial_extent geometry to GeoJSON
+    # Convert spatial_extent geometry to GeoJSON (6 decimal places ≈ 0.11m)
     geometry = None
     if record.spatial_extent is not None:
         try:
             shape = to_shape(record.spatial_extent)
             geometry = {
                 "type": shape.geom_type,
-                "coordinates": [list(shape.exterior.coords)]
+                "coordinates": [
+                    [(round(x, 6), round(y, 6)) for x, y in shape.exterior.coords]
+                ]
                 if hasattr(shape, "exterior")
                 else [],
             }
         except Exception:
             geometry = None
 
-    # STAC 1.1.0 datetime rules
+    # STAC 1.0.0 datetime rules
     _ts = record.temporal_start
     _te = record.temporal_end
     if _ts is not None and _te is None:
@@ -1159,6 +1161,10 @@ def dataset_to_ogc_record(
         stac_start_datetime = None
         stac_end_datetime = None
 
+    # OGC Records puts "time" at the record root (alongside geometry)
+    # AND in properties for STAC consumer compatibility.
+    record_time = _build_time(dataset)
+
     ogc_record: dict = {
         "type": "Feature",
         "id": str(dataset.id),
@@ -1166,6 +1172,7 @@ def dataset_to_ogc_record(
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core",
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json",
         ],
+        "time": record_time,
         "geometry": geometry,
         "properties": {
             "type": "dataset",
@@ -1225,7 +1232,7 @@ def dataset_to_ogc_record(
                 if stac_start_datetime
                 else {}
             ),
-            "time": _build_time(dataset),
+            "time": record_time,
             # ISO governance fields (API-01)
             "lineage": record.lineage_summary,
             "update_frequency": record.update_frequency,
