@@ -180,9 +180,9 @@ class TestListMaps:
         assert created["id"] in map_ids
 
     async def test_list_maps_unauthenticated(self, client: AsyncClient):
-        """GET /maps/ without auth returns 401."""
+        """GET /maps/ without auth returns 200 (public maps only)."""
         resp = await client.get("/maps/")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     async def test_list_maps_pagination(
         self, client: AsyncClient, admin_auth_header: dict
