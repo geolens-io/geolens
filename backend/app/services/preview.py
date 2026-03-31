@@ -18,6 +18,7 @@ def build_gdal_source(
     layer_id: int | str | None = None,
     token: str | None = None,
     order_field: str = "OBJECTID",
+    result_limit: int | None = None,
 ) -> tuple[str, str]:
     """Construct a GDAL-prefixed source string for a remote service.
 
@@ -31,6 +32,8 @@ def build_gdal_source(
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
         query_url = f"{base_url}/{layer_id}/query?f=json&where=1%3D1&orderByFields={order_field}+ASC"
+        if result_limit is not None:
+            query_url += f"&resultRecordCount={result_limit}"
         if token:
             query_url += f"&token={token}"
         return (f"ESRIJSON:{query_url}", "")
@@ -42,7 +45,7 @@ async def run_service_preview(
     gdal_source: str,
     layer_name: str,
     sample_limit: int = 5,
-    timeout: float = 60.0,
+    timeout: float = 120.0,
     token: str | None = None,
 ) -> dict:
     """Run ogrinfo against a remote service to get layer metadata and sample rows.
