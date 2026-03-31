@@ -27,6 +27,24 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/services", tags=["Datasets"])
 
 
+async def _fail_preview(
+    db: AsyncSession, user_id, url: str, layer: str
+) -> None:
+    """Log audit and raise 502 for a failed service preview."""
+    await log_action(
+        session=db,
+        user_id=user_id,
+        action="preview_service_layer",
+        resource_type="service_url",
+        details={"url": url, "layer": layer, "result": "ogrinfo_failed"},
+    )
+    await db.commit()
+    raise HTTPException(
+        status_code=502,
+        detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+    )
+
+
 @router.post("/probe/", response_model=ProbeResponse)
 async def probe_service_url(
     request: ProbeRequest,
@@ -289,44 +307,14 @@ async def preview_service_layer(
                     url=request.url,
                     layer=request.layer_name,
                 )
-                await log_action(
-                    session=db,
-                    user_id=user.id,
-                    action="preview_service_layer",
-                    resource_type="service_url",
-                    details={
-                        "url": request.url,
-                        "layer": request.layer_name,
-                        "result": "ogrinfo_failed",
-                    },
-                )
-                await db.commit()
-                raise HTTPException(
-                    status_code=502,
-                    detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
-                )
+                await _fail_preview(db, user.id, request.url, request.layer_name)
         else:
             logger.warning(
                 "Preview ogrinfo failed",
                 url=request.url,
                 layer=request.layer_name,
             )
-            await log_action(
-                session=db,
-                user_id=user.id,
-                action="preview_service_layer",
-                resource_type="service_url",
-                details={
-                    "url": request.url,
-                    "layer": request.layer_name,
-                    "result": "ogrinfo_failed",
-                },
-            )
-            await db.commit()
-            raise HTTPException(
-                status_code=502,
-                detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
-            )
+            await _fail_preview(db, user.id, request.url, request.layer_name)
     except Exception:
         logger.exception(
             "Unexpected error during service preview",
