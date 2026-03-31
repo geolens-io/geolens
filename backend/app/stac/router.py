@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -52,6 +52,35 @@ async def _resolve_stac_api_url(db: AsyncSession, request: Request) -> str:
     """Resolve the base STAC API URL (e.g. https://host/api/stac)."""
     public_api_url = await get_public_api_url(db, request=request)
     return f"{public_api_url.rstrip('/')}/stac"
+
+
+async def _resolve_urls(
+    db: AsyncSession, request: Request
+) -> tuple[str, str]:
+    """Return (stac_api_url, public_api_url) with a single settings lookup."""
+    public_api_url = await get_public_api_url(db, request=request)
+    stac_api_url = f"{public_api_url.rstrip('/')}/stac"
+    return stac_api_url, public_api_url
+
+
+def _parse_extent_row(
+    ext_row: tuple | None,
+) -> tuple[list[float] | None, list[str | None] | None]:
+    """Parse a spatial/temporal extent DB row into STAC-ready values."""
+    spatial_extent = None
+    temporal_extent = None
+    if ext_row and ext_row[0] is not None:
+        spatial_extent = [
+            float(ext_row[0]),
+            float(ext_row[1]),
+            float(ext_row[2]),
+            float(ext_row[3]),
+        ]
+    if ext_row and (ext_row[4] is not None or ext_row[5] is not None):
+        t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
+        t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
+        temporal_extent = [t_start, t_end]
+    return spatial_extent, temporal_extent
 
 
 async def _fetch_dataset_asset_rows(
@@ -289,20 +318,7 @@ async def get_collections(
     stac_collections = []
     for coll in collections:
         ext_row = extent_map.get(str(coll.id))
-
-        spatial_extent = None
-        temporal_extent = None
-        if ext_row and ext_row[0] is not None:
-            spatial_extent = [
-                float(ext_row[0]),
-                float(ext_row[1]),
-                float(ext_row[2]),
-                float(ext_row[3]),
-            ]
-        if ext_row and (ext_row[4] is not None or ext_row[5] is not None):
-            t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
-            t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
-            temporal_extent = [t_start, t_end]
+        spatial_extent, temporal_extent = _parse_extent_row(ext_row)
 
         stac_coll = ogc_collection_to_stac_collection(
             str(coll.id),
@@ -343,38 +359,27 @@ async def get_collection(
             status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
         )
 
-    # Compute extent
-    extent_stmt = text("""
-        SELECT
-            ST_XMin(ST_Extent(r.spatial_extent)),
-            ST_YMin(ST_Extent(r.spatial_extent)),
-            ST_XMax(ST_Extent(r.spatial_extent)),
-            ST_YMax(ST_Extent(r.spatial_extent)),
-            MIN(r.temporal_start),
-            MAX(r.temporal_end)
-        FROM catalog.records r
-        JOIN catalog.datasets d ON d.record_id = r.id
-        JOIN catalog.collection_datasets cd ON cd.dataset_id = d.id
-        WHERE cd.collection_id = :cid
-          AND r.record_type IN ('raster_dataset', 'vrt_dataset')
-          AND r.record_status = 'published'
-    """)
-    ext_result = await db.execute(extent_stmt, {"cid": str(coll.id)})
-    ext_row = ext_result.one_or_none()
-
-    spatial_extent = None
-    temporal_extent = None
-    if ext_row and ext_row[0] is not None:
-        spatial_extent = [
-            float(ext_row[0]),
-            float(ext_row[1]),
-            float(ext_row[2]),
-            float(ext_row[3]),
-        ]
-    if ext_row and (ext_row[4] is not None or ext_row[5] is not None):
-        t_start = ext_row[4].isoformat() + "T00:00:00Z" if ext_row[4] else None
-        t_end = ext_row[5].isoformat() + "T00:00:00Z" if ext_row[5] else None
-        temporal_extent = [t_start, t_end]
+    # Compute extent using the same ORM query as get_collections (single-collection)
+    extent_stmt = (
+        select(
+            func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
+            func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
+            func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
+            func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
+            func.min(Record.temporal_start),
+            func.max(Record.temporal_end),
+        )
+        .select_from(Record)
+        .join(Dataset, Dataset.record_id == Record.id)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .where(
+            CollectionDataset.collection_id == collection_id,
+            Record.record_type.in_(["raster_dataset", "vrt_dataset"]),
+            Record.record_status == "published",
+        )
+    )
+    ext_row = (await db.execute(extent_stmt)).one_or_none()
+    spatial_extent, temporal_extent = _parse_extent_row(ext_row)
 
     return ogc_collection_to_stac_collection(
         str(coll.id),
@@ -401,8 +406,7 @@ async def get_collection_items(
     offset: int = Query(0, ge=0),
 ) -> StacItemCollection:
     """List STAC Items within a collection."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
-    public_api_url = await get_public_api_url(db, request=request)
+    stac_api_url, public_api_url = await _resolve_urls(db, request)
 
     # Verify collection exists
     coll_result = await db.execute(
@@ -512,8 +516,7 @@ async def get_item(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get a single STAC Item by dataset ID."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
-    public_api_url = await get_public_api_url(db, request=request)
+    stac_api_url, public_api_url = await _resolve_urls(db, request)
 
     # Fetch published raster/VRT dataset
     stmt = _base_published_raster_query().where(Dataset.id == item_id)
@@ -722,8 +725,7 @@ async def search_get(
     offset: int = Query(0, ge=0),
 ):
     """STAC Item Search (GET)."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
-    public_api_url = await get_public_api_url(db, request=request)
+    stac_api_url, public_api_url = await _resolve_urls(db, request)
     return await _execute_search(
         db,
         stac_api_url,
@@ -757,8 +759,7 @@ async def search_post(
     db: AsyncSession = Depends(get_db),
 ):
     """STAC Item Search (POST with JSON body)."""
-    stac_api_url = await _resolve_stac_api_url(db, request)
-    public_api_url = await get_public_api_url(db, request=request)
+    stac_api_url, public_api_url = await _resolve_urls(db, request)
 
     # Convert list params to comma-separated strings for the shared helper
     bbox_str = ",".join(str(v) for v in body.bbox) if body.bbox else None

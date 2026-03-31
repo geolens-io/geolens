@@ -274,26 +274,6 @@ async def list_maps(
     return maps, total
 
 
-# Backward-compatible aliases
-async def list_maps_by_user(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    skip: int = 0,
-    limit: int = 20,
-    user_roles: set[str] | None = None,
-) -> tuple[list[dict], int]:
-    return await list_maps(session, skip, limit, user_id=user_id, user_roles=user_roles)
-
-
-async def list_all_maps(
-    session: AsyncSession,
-    skip: int = 0,
-    limit: int = 20,
-    user_roles: set[str] | None = None,
-) -> tuple[list[dict], int]:
-    return await list_maps(session, skip, limit, user_roles=user_roles)
-
-
 async def update_map(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -338,20 +318,32 @@ async def _replace_layers(
     # Delete existing layers
     await session.execute(delete(MapLayer).where(MapLayer.map_id == map_id))
 
+    # Bulk-fetch record_type + geometry_type for all datasets in one query
+    dataset_ids = [ld["dataset_id"] for ld in layers]
+    ds_meta_result = await session.execute(
+        select(Dataset.id, Record.record_type, Dataset.geometry_type)
+        .join(Record, Record.id == Dataset.record_id)
+        .where(Dataset.id.in_(dataset_ids))
+    )
+    ds_meta = {row[0]: (row[1], row[2]) for row in ds_meta_result.all()}
+
     # Create new layers
     for layer_data in layers:
         dataset_id = layer_data["dataset_id"]
 
-        # Resolve layer_type (auto-detect from record_type if not supplied)
-        resolved_layer_type = await _resolve_layer_type(
-            session, dataset_id, layer_data.get("layer_type")
-        )
+        # Resolve layer_type from explicit value or bulk-fetched record_type
+        explicit_lt = layer_data.get("layer_type")
+        if explicit_lt is not None:
+            resolved_layer_type = explicit_lt
+        else:
+            record_type, _ = ds_meta.get(dataset_id, (None, None))
+            resolved_layer_type = (
+                "raster_geolens"
+                if record_type in ("raster_dataset", "vrt_dataset")
+                else "vector_geolens"
+            )
 
-        # Look up dataset geometry type for default style
-        ds_result = await session.execute(
-            select(Dataset.geometry_type).where(Dataset.id == dataset_id)
-        )
-        geometry_type = ds_result.scalar_one_or_none()
+        _, geometry_type = ds_meta.get(dataset_id, (None, None))
 
         paint = layer_data.get("paint")
         layout = layer_data.get("layout")
