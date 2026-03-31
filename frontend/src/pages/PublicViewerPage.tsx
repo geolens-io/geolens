@@ -4,6 +4,7 @@ import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
+import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { Clock, MapPinOff } from 'lucide-react';
 import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
@@ -114,14 +115,7 @@ export function PublicViewerPage() {
         embedToken={embedToken}
       />
 
-      {/* Floating title pill */}
-      <div className="absolute top-3 left-14 z-10 pointer-events-none">
-        <div className="bg-background/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-sm border border-border/50">
-          <h1 className="text-sm font-medium text-foreground truncate max-w-[200px]" title={data.name}>
-            {data.name}
-          </h1>
-        </div>
-      </div>
+      <MapTitlePill name={data.name} />
 
       {/* Legend overlay */}
       {effectiveShowLegend && (

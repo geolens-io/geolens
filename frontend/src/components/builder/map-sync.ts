@@ -12,12 +12,12 @@ import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
 export { CUSTOM_PAINT_PROPS, getLayerType, resolveAdapterType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
-export function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
+export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePrefix = 'source-') {
   const style = map.getStyle();
   if (!style?.layers) return;
 
   const basemapSymbolLayers = style.layers.filter(
-    (l) => l.type === 'symbol' && (!('source' in l) || !String(l.source ?? '').startsWith('source-')),
+    (l) => l.type === 'symbol' && (!('source' in l) || !String(l.source ?? '').startsWith(sourcePrefix)),
   );
 
   for (const layer of basemapSymbolLayers) {

@@ -547,21 +547,26 @@ async def _execute_search(
     stac_api_url: str,
     public_api_url: str,
     *,
-    bbox: str | None = None,
+    bbox: str | list[float] | None = None,
     datetime_str: str | None = None,
-    collections: str | None = None,
-    ids: str | None = None,
-    intersects: str | None = None,
+    collections: str | list[str] | None = None,
+    ids: str | list[str] | None = None,
+    intersects: str | dict | None = None,
     limit: int = 10,
     offset: int = 0,
 ) -> StacItemCollection:
-    """Shared STAC Item Search logic for GET and POST endpoints."""
+    """Shared STAC Item Search logic for GET and POST endpoints.
+
+    Parameters accept both string (from GET query params) and native types
+    (from POST JSON body) to avoid unnecessary serialization round-trips.
+    """
     stmt = _base_published_raster_query()
 
-    # Filter by ids
+    # Filter by ids — accept comma-separated string or list
     if ids:
+        id_strings = ids.split(",") if isinstance(ids, str) else ids
         parsed_ids = []
-        for id_str in ids.split(","):
+        for id_str in id_strings:
             try:
                 parsed_ids.append(uuid.UUID(id_str.strip()))
             except ValueError:
@@ -586,10 +591,11 @@ async def _execute_search(
                 context={"limit": limit, "returned": 0, "matched": 0},
             )
 
-    # Filter by collections
+    # Filter by collections — accept comma-separated string or list
     if collections:
+        coll_strings = collections.split(",") if isinstance(collections, str) else collections
         parsed_coll_ids = []
-        for cid_str in collections.split(","):
+        for cid_str in coll_strings:
             try:
                 parsed_coll_ids.append(uuid.UUID(cid_str.strip()))
             except ValueError:
@@ -603,28 +609,37 @@ async def _execute_search(
                 )
             )
 
-    # Filter by intersects (GeoJSON geometry)
+    # Filter by intersects (GeoJSON geometry) — accept string or dict
     if intersects:
-        try:
-            json.loads(intersects)  # validate JSON before sending to DB
-        except (ValueError, TypeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid intersects geometry: {e}",
-            )
+        if isinstance(intersects, dict):
+            intersects_str = json.dumps(intersects)
+        else:
+            intersects_str = intersects
+            try:
+                json.loads(intersects_str)  # validate JSON before sending to DB
+            except (ValueError, TypeError) as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid intersects geometry: {e}",
+                )
         stmt = stmt.where(
             func.ST_Intersects(
                 Record.spatial_extent,
-                func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects), 4326),
+                func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326),
             )
         )
     elif bbox:
-        # Filter by bbox (only if intersects not provided)
+        # Filter by bbox (only if intersects not provided) — accept string or list
         try:
-            parts = bbox.split(",")
-            if len(parts) != 4:
-                raise ValueError("need 4 values")
-            bbox_vals = [float(p) for p in parts]
+            if isinstance(bbox, str):
+                parts = bbox.split(",")
+                if len(parts) != 4:
+                    raise ValueError("need 4 values")
+                bbox_vals = [float(p) for p in parts]
+            else:
+                bbox_vals = bbox
+                if len(bbox_vals) != 4:
+                    raise ValueError("need 4 values")
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -761,21 +776,15 @@ async def search_post(
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
 
-    # Convert list params to comma-separated strings for the shared helper
-    bbox_str = ",".join(str(v) for v in body.bbox) if body.bbox else None
-    ids_str = ",".join(body.ids) if body.ids else None
-    collections_str = ",".join(body.collections) if body.collections else None
-    intersects_str = json.dumps(body.intersects) if body.intersects else None
-
     return await _execute_search(
         db,
         stac_api_url,
         public_api_url,
-        bbox=bbox_str,
+        bbox=body.bbox,
         datetime_str=body.datetime,
-        collections=collections_str,
-        ids=ids_str,
-        intersects=intersects_str,
+        collections=body.collections,
+        ids=body.ids,
+        intersects=body.intersects,
         limit=max(1, min(body.limit, 100)),
         offset=max(0, body.offset),
     )
