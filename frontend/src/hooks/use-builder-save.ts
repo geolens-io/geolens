@@ -45,7 +45,7 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       });
     }
   } catch (err) {
-    console.warn('[thumbnail] capture failed:', err);
+    if (import.meta.env.DEV) console.warn('[thumbnail] capture failed:', err);
   }
 }
 

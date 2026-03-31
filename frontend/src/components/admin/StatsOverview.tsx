@@ -256,12 +256,11 @@ export function StatsOverview() {
               <p className="text-sm text-muted-foreground">{t('stats.noDatasets')}</p>
             ) : (
               <ul className="space-y-2">
-                {Object.entries(data.datasets_by_geometry_type)
+                {(() => {
+                  const maxCount = Math.max(...Object.values(data.datasets_by_geometry_type));
+                  return Object.entries(data.datasets_by_geometry_type)
                   .sort(([, a], [, b]) => b - a)
                   .map(([type, count]) => {
-                    const maxCount = Math.max(
-                      ...Object.values(data.datasets_by_geometry_type),
-                    );
                     const pct = maxCount > 0 ? (count / maxCount) * 100 : 0;
                     return (
                       <li key={type} className="space-y-1">
@@ -277,7 +276,8 @@ export function StatsOverview() {
                         </div>
                       </li>
                     );
-                  })}
+                  });
+                })()}
               </ul>
             )}
           </CardContent>

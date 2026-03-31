@@ -18,6 +18,7 @@ from app.ai.schemas import (
     ChatHistoryMessage,
     ChatMapLayer,
     ChatResponse,
+    history_to_dicts,
     validate_paint_for_geometry,
 )
 from app.ai.sql_generator import build_sql_schema_context, generate_sql
@@ -888,10 +889,7 @@ async def chat_edit_map(
     system_prompt = build_chat_system_prompt(layers, language=language)
     provider, model, base_url = await resolve_provider(session)
 
-    # Convert history to generic dicts for the loop
-    history_dicts = None
-    if history:
-        history_dicts = [{"role": h.role, "content": h.content} for h in history]
+    history_dicts = history_to_dicts(history)
 
     # Build tool executor bound to this session/user/layers
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:

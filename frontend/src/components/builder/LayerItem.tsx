@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Eye,
@@ -143,18 +143,21 @@ export function LayerItem({
   }
 
   const columns = layer.dataset_column_info ?? [];
-  const layerColors = getLayerColors(layer);
-  const styleHints = extractStyleHints(
-    layer.paint ?? {},
-    (layer.layout as Record<string, unknown>) ?? {},
-    layer.dataset_geometry_type,
-    layer.opacity,
+  const layerColors = useMemo(() => getLayerColors(layer), [layer]);
+  const styleHints = useMemo(
+    () => extractStyleHints(
+      layer.paint ?? {},
+      (layer.layout as Record<string, unknown>) ?? {},
+      layer.dataset_geometry_type,
+      layer.opacity,
+    ),
+    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity],
   );
   const hasActiveFilter = layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0;
-  const styleSummary = getStyleSummary(layer, t);
+  const styleSummary = useMemo(() => getStyleSummary(layer, t), [layer, t]);
   const filterSummary = hasActiveFilter ? getFilterSummary(layer) : null;
-  const labelSummary = getLabelSummary(layer);
-  const caps = getLayerCapabilities(layer);
+  const labelSummary = useMemo(() => getLabelSummary(layer), [layer]);
+  const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
   const isRaster = caps.kind !== 'vector';
 
   return (

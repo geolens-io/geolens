@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint } from './shared';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const lineAdapter: LayerAdapter = {
@@ -52,11 +52,7 @@ export const lineAdapter: LayerAdapter = {
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible } = input;
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayer(layerId)) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
+    syncSingleLayerVisibility(map, input.layerId, input.visible);
   },
 
   getLayerIds(layerId: string): string[] {

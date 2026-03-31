@@ -5,8 +5,6 @@
   "descriptionLabel": "Kartenbeschreibung",
   "loadingMap": "Karte wird geladen...",
   "backToMaps": "Zurück zu Karten",
-  "unsaved": "Nicht gespeichert",
-  "downloadPng": "PNG herunterladen",
   "aiChat": "KI-Chat",
   "layers": {
     "title": "Layer",
@@ -214,6 +212,7 @@
     "updateFailed": "Änderungen konnten nicht gespeichert werden"
   },
   "chat": {
+    "experimental": "Experimentell",
     "emptyState": "Beschreiben Sie Änderungen an Ihrer Karte in natürlicher Sprache.",
     "placeholder": "Kartenänderung beschreiben...",
     "thinking": "Denkt nach...",

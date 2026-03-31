@@ -20,7 +20,7 @@ from app.ai.llm_loop import (
     build_history_messages,
     resolve_provider,
 )
-from app.ai.schemas import ChatHistoryMessage
+from app.ai.schemas import ChatHistoryMessage, history_to_dicts
 from app.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.auth.models import User
 from app.config import settings
@@ -414,10 +414,7 @@ async def stream_chat_edit(
         provider, model, _ = await resolve_provider(db)
         system_prompt = build_chat_system_prompt(layers, language=language)
 
-        # Convert history to generic dicts
-        history_dicts = None
-        if history:
-            history_dicts = [{"role": h.role, "content": h.content} for h in history]
+        history_dicts = history_to_dicts(history)
 
         if provider == "anthropic":
             if not settings.anthropic_api_key:

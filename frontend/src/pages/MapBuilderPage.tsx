@@ -211,6 +211,7 @@ export function MapBuilderPage() {
   );
 
   const { byAnchor } = usePartitionedWidgets();
+  const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
 
   if (isLoading) {
     return (
@@ -236,7 +237,6 @@ export function MapBuilderPage() {
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
   const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
 
-  const existingDatasetIds = layers.localLayers.map((l) => l.dataset_id);
   const useInspector = !isCompact;
   const selectedLayer = useInspector && layers.expandedLayerId
     ? layers.localLayers.find((l) => l.id === layers.expandedLayerId) ?? null
