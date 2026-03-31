@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueries } from '@tanstack/react-query';
 import { Layers } from 'lucide-react';
@@ -14,11 +14,13 @@ const isRasterFile = (name: string) => /\.tiff?$/i.test(name);
 interface BulkTrackingListProps {
   entries: FileEntry[];
   onReset: () => void;
+  autoOpenVrt?: boolean;
 }
 
-export function BulkTrackingList({ entries, onReset }: BulkTrackingListProps) {
+export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: BulkTrackingListProps) {
   const { t } = useTranslation('import');
   const [vrtDialogOpen, setVrtDialogOpen] = useState(false);
+  const autoOpenedRef = useRef(false);
 
   const trackable = entries.filter(
     (e) =>
@@ -30,20 +32,31 @@ export function BulkTrackingList({ entries, onReset }: BulkTrackingListProps) {
     (e) => e.jobId && isRasterFile(e.fileName),
   );
 
-  // Read cached job status for each raster entry (JobProgress already polls, no extra polling here)
+  // Read job status for each raster entry — piggybacks on JobProgress cache updates
   const rasterJobQueries = useQueries({
     queries: rasterEntries.map((entry) => ({
       queryKey: queryKeys.ingest.jobStatus(entry.jobId),
       queryFn: () => getJobStatus(entry.jobId!),
       enabled: !!entry.jobId,
-      staleTime: Infinity,
-      refetchInterval: false as const,
     })),
   });
 
   const completedRasterIds = rasterJobQueries
     .filter((q) => q.data?.status === 'complete' && q.data?.dataset_id)
     .map((q) => q.data!.dataset_id!);
+
+  // Auto-open VRT dialog when triggered from review page and all raster jobs complete
+  useEffect(() => {
+    if (
+      autoOpenVrt &&
+      !autoOpenedRef.current &&
+      rasterEntries.length >= 2 &&
+      completedRasterIds.length === rasterEntries.length
+    ) {
+      autoOpenedRef.current = true;
+      setVrtDialogOpen(true);
+    }
+  }, [autoOpenVrt, completedRasterIds.length, rasterEntries.length]);
 
   return (
     <div className="space-y-4">

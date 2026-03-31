@@ -38,6 +38,7 @@ export function UploadForm() {
   const { t } = useTranslation('import');
   const [phase, setPhase] = useState<BatchPhase>('idle');
   const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [autoOpenVrt, setAutoOpenVrt] = useState(false);
   const { data: uploadConfig } = useUploadConfig();
 
   const allowedExtensions = useMemo(
@@ -55,6 +56,7 @@ export function UploadForm() {
   const reset = useCallback(() => {
     setPhase('idle');
     setEntries([]);
+    setAutoOpenVrt(false);
   }, []);
 
   const handleFilesAccepted = async (files: File[]) => {
@@ -189,6 +191,11 @@ export function UploadForm() {
     setPhase('tracking');
   };
 
+  const handleCommitAllAsVrt = async () => {
+    setAutoOpenVrt(true);
+    await handleCommitAll();
+  };
+
   const handleSheetChange = async (entryId: string, layerName: string) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry?.jobId) return;
@@ -223,6 +230,7 @@ export function UploadForm() {
           entries={entries}
           onCommitSingle={handleCommitSingle}
           onCommitAll={handleCommitAll}
+          onCommitAllAsVrt={handleCommitAllAsVrt}
           onRemove={removeEntry}
           onSheetChange={handleSheetChange}
           isCommitting={entries.some((e) => e.status === 'committing')}
@@ -235,7 +243,7 @@ export function UploadForm() {
   }
 
   if (phase === 'tracking') {
-    return <BulkTrackingList entries={entries} onReset={reset} />;
+    return <BulkTrackingList entries={entries} onReset={reset} autoOpenVrt={autoOpenVrt} />;
   }
 
   // idle

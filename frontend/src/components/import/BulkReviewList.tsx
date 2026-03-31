@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { Layers, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -24,6 +24,7 @@ interface BulkReviewListProps {
   entries: FileEntry[];
   onCommitSingle: (entryId: string, request: CommitImportRequest) => void;
   onCommitAll: () => void;
+  onCommitAllAsVrt?: () => void;
   onRemove: (entryId: string) => void;
   onSheetChange?: (entryId: string, layerName: string) => void;
   isCommitting: boolean;
@@ -33,12 +34,16 @@ export function BulkReviewList({
   entries,
   onCommitSingle,
   onCommitAll,
+  onCommitAllAsVrt,
   onRemove,
   onSheetChange,
   isCommitting,
 }: BulkReviewListProps) {
   const { t } = useTranslation('import');
   const readyCount = entries.filter((e) => e.status === 'preview').length;
+  const rasterReadyCount = entries.filter(
+    (e) => e.status === 'preview' && e.previewData && isRasterPreview(e.previewData),
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -46,12 +51,24 @@ export function BulkReviewList({
         <h3 className="text-lg font-medium">
           {t('bulk.fileCount', { count: readyCount })}
         </h3>
-        <Button
-          onClick={onCommitAll}
-          disabled={readyCount === 0 || isCommitting}
-        >
-          {t('bulk.importAllDefaults')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {rasterReadyCount >= 2 && onCommitAllAsVrt && (
+            <Button
+              variant="secondary"
+              onClick={onCommitAllAsVrt}
+              disabled={readyCount === 0 || isCommitting}
+            >
+              <Layers className="mr-1 size-3" />
+              {t('bulk.importAsVrt', { defaultValue: 'Import as VRT Mosaic' })}
+            </Button>
+          )}
+          <Button
+            onClick={onCommitAll}
+            disabled={readyCount === 0 || isCommitting}
+          >
+            {t('bulk.importAllDefaults')}
+          </Button>
+        </div>
       </div>
 
       {entries.map((entry) => (
