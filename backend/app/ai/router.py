@@ -176,12 +176,12 @@ async def generate_map_endpoint(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
     except ToolLoopExhaustedError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Map generation required too many steps. Try a simpler prompt.",
         )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
@@ -260,12 +260,12 @@ async def chat_endpoint(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
     except ToolLoopExhaustedError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Request required too many steps. Try a simpler instruction.",
         )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
@@ -342,7 +342,7 @@ async def generate_metadata_summary(
         return await generate_summary_draft(db, body.dataset_id)
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
@@ -380,7 +380,7 @@ async def generate_metadata_keywords(
         return await generate_keyword_suggestions(db, body.dataset_id)
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
@@ -418,7 +418,7 @@ async def generate_metadata_lineage(
         return await generate_lineage_draft(db, body.dataset_id)
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
@@ -458,7 +458,7 @@ async def generate_metadata_quality_statement(
         return await generate_quality_statement_draft(db, body.dataset_id)
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:

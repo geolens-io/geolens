@@ -96,7 +96,7 @@ async def reupload_dataset(
     except ValueError as exc:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
 
@@ -412,7 +412,7 @@ async def request_presigned_reupload(
     max_size_bytes = max_size_mb * 1024 * 1024
     if request.file_size > max_size_bytes:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
         )
 

@@ -113,7 +113,7 @@ async def request_presigned_upload(
     max_size_bytes = max_size_mb * 1024 * 1024
     if request.file_size > max_size_bytes:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
         )
 
@@ -254,7 +254,7 @@ async def upload_file(
             if downloaded_validation_path is not None:
                 downloaded_validation_path.unlink(missing_ok=True)
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(exc),
             )
         finally:
@@ -612,7 +612,7 @@ async def create_vrt(
     # 1. Validate minimum source count
     if len(request.source_dataset_ids) < 2:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="At least 2 source datasets are required to create a VRT",
         )
 
@@ -633,7 +633,7 @@ async def create_vrt(
     for sid in request.source_dataset_ids:
         if sid not in found_dataset_ids:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Source dataset {sid} not found or not a raster dataset",
             )
 
@@ -641,7 +641,7 @@ async def create_vrt(
     errors = validate_sources(request.vrt_type, list(found_assets))
     if errors:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=[e.model_dump() for e in errors],
         )
 
@@ -723,7 +723,7 @@ async def add_vrt_source(
     source_asset = source_result.scalar_one_or_none()
     if source_asset is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Source dataset {request.source_dataset_id} not found or not a raster dataset",
         )
 
@@ -762,7 +762,7 @@ async def add_vrt_source(
     errors = validate_sources(vrt_asset.vrt_type, all_assets)
     if errors:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=[e.model_dump() for e in errors],
         )
 
@@ -863,7 +863,7 @@ async def remove_vrt_source(
     source_count = count_result.scalar()
     if source_count <= 2:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Removing this source would leave fewer than 2 sources. A VRT requires at least 2 sources.",
         )
 
