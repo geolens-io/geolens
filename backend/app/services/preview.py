@@ -17,7 +17,7 @@ def build_gdal_source(
     layer_name: str,
     layer_id: int | str | None = None,
     token: str | None = None,
-    order_field: str = "OBJECTID",
+    order_field: str | None = "OBJECTID",
     result_limit: int | None = None,
 ) -> tuple[str, str]:
     """Construct a GDAL-prefixed source string for a remote service.
@@ -31,7 +31,9 @@ def build_gdal_source(
     elif service_type.startswith("ArcGIS"):
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
-        query_url = f"{base_url}/{layer_id}/query?f=json&where=1%3D1&orderByFields={order_field}+ASC"
+        query_url = f"{base_url}/{layer_id}/query?f=json&where=1%3D1"
+        if order_field:
+            query_url += f"&orderByFields={order_field}+ASC"
         if result_limit is not None:
             query_url += f"&resultRecordCount={result_limit}"
         if token:

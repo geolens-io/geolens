@@ -231,7 +231,7 @@ async def preview_service_layer(
             request.layer_name,
             request.layer_id,
             token=request.token,
-            order_field=request.object_id_field or "OBJECTID",
+            order_field=None,
             result_limit=5,
         )
     except ValueError as exc:
@@ -277,7 +277,7 @@ async def preview_service_layer(
                     unqualified,
                     request.layer_id,
                     token=request.token,
-                    order_field=request.object_id_field or "OBJECTID",
+                    order_field=None,
                     result_limit=5,
                 )
                 preview_data = await run_service_preview(
