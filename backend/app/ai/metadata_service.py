@@ -7,9 +7,7 @@ for summaries, keywords, and lineage using LLM providers.
 import json
 
 import structlog
-from anthropic import AsyncAnthropic
 from geoalchemy2.shape import to_shape
-from openai import AsyncOpenAI
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +19,7 @@ from app.ai.metadata_schemas import (
     QualityStatementDraftResponse,
     SummaryDraftResponse,
 )
+from app.ai.llm_loop import get_anthropic_client, get_openai_client
 from app.config import settings
 from app.datasets.models import (
     Dataset,
@@ -28,7 +27,7 @@ from app.datasets.models import (
     RecordKeyword,
 )
 from app.embeddings.helpers import get_nearest_record_ids
-from app.persistent_config import LLM_MODEL, LLM_PROVIDER, OPENAI_BASE_URL
+from app.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BASE_URL
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -130,6 +129,26 @@ async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
             attr_strs.append(f"  - {attr.field_name} ({attr.data_type or '?'}){desc}")
         parts.append("Attribute metadata:\n" + "\n".join(attr_strs))
 
+    # Quality metrics (computed)
+    if hasattr(dataset, "quality_detail") and dataset.quality_detail:
+        qd = json.dumps(dataset.quality_detail, default=str)
+        if len(qd) > 1000:
+            qd = qd[:1000] + "..."
+        parts.append(f"Quality metrics (computed): {qd}")
+
+    if hasattr(dataset, "quality_statement") and dataset.quality_statement:
+        parts.append(f"Current quality statement: {dataset.quality_statement}")
+
+    # Temporal extent
+    if record.temporal_start:
+        parts.append(f"Temporal start: {record.temporal_start}")
+    if record.temporal_end:
+        parts.append(f"Temporal end: {record.temporal_end}")
+
+    # Record type
+    if hasattr(record, "record_type") and record.record_type:
+        parts.append(f"Record type: {record.record_type}")
+
     return "\n".join(parts)
 
 
@@ -195,7 +214,7 @@ async def _generate_structured(
         else ("anthropic" if settings.anthropic_api_key else "openai_compatible")
     )
     model = (
-        await LLM_MODEL.get(db)
+        await LLM_MODEL_LIGHT.get(db)
         if db is not None
         else (
             settings.llm_model if settings.anthropic_api_key else settings.openai_model
@@ -205,7 +224,7 @@ async def _generate_structured(
     if provider == "anthropic":
         if not settings.anthropic_api_key:
             raise ValueError("Anthropic API key not configured")
-        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = get_anthropic_client()
 
         # Define the response model as a tool
         tool = {
@@ -224,6 +243,7 @@ async def _generate_structured(
         response = await client.messages.create(
             model=model,
             max_tokens=1024,
+            temperature=0.3,
             system=system,
             messages=[{"role": "user", "content": prompt}],
             tools=[tool],
@@ -243,10 +263,7 @@ async def _generate_structured(
         base_url = await OPENAI_BASE_URL.get(db) if db is not None else None
         if not base_url:
             base_url = settings.openai_base_url or "https://api.openai.com/v1"
-        client = AsyncOpenAI(
-            api_key=settings.openai_api_key,
-            base_url=base_url,
-        )
+        client = get_openai_client(base_url)
 
         logger.info(
             "AI metadata request",
@@ -258,6 +275,7 @@ async def _generate_structured(
         response = await client.beta.chat.completions.parse(
             model=model,
             max_tokens=1024,
+            temperature=0.3,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -300,21 +318,25 @@ KEYWORD_SYSTEM = (
 )
 
 LINEAGE_SYSTEM = (
-    "You are a geospatial metadata specialist following FGDC CSDGM conventions. "
-    "Generate a lineage summary describing the origin and processing history of "
-    "this dataset, following the FGDC Data Quality Lineage model. Include: the "
-    "source data (format, organization, original CRS), any processing steps "
-    "(coordinate transformations, format conversions, filtering), and data "
-    "provenance. Write 1-3 sentences."
+    "You are a geospatial metadata specialist following ISO 19115 conventions. "
+    "Generate a lineage summary describing the origin of this dataset. "
+    "ONLY describe processing steps that can be directly inferred from the metadata: "
+    "if the original SRID differs from the current SRID (4326), note the reprojection; "
+    "if the source format differs from PostGIS, note the format conversion. "
+    "Do NOT speculate about cleaning, filtering, validation, or other processing steps "
+    "unless explicitly stated in the source metadata. "
+    "Write 1-3 sentences."
 )
 
 QUALITY_STATEMENT_SYSTEM = (
-    "You are a geospatial metadata specialist following FGDC CSDGM conventions. "
-    "Generate a quality statement describing the overall data quality of this "
-    "dataset. Address these FGDC Data Quality elements where evidence is available: "
-    "positional accuracy, attribute accuracy, logical consistency (geometry validity, "
-    "topological correctness), and completeness (feature count, attribute population). "
-    "Note the coordinate reference system definition and any known limitations. "
+    "You are a geospatial metadata specialist following ISO 19115 conventions. "
+    "Generate a quality statement for this dataset. If computed quality metrics "
+    "are provided, reference them directly (e.g., null percentages, geometry "
+    "validity rates). If no quality metrics are available, state that quality "
+    "has not been formally assessed rather than speculating. "
+    "Address: completeness (feature count, attribute population), logical "
+    "consistency (if geometry validity data is provided), and coordinate "
+    "reference system. Do NOT claim specific accuracy levels without evidence. "
     "Write 2-4 sentences."
 )
 

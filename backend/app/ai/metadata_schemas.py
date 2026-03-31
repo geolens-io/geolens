@@ -17,11 +17,21 @@ class SummaryDraftResponse(BaseModel):
     draft: str = Field(..., description="AI-generated summary text (2-4 sentences)")
 
 
+class KeywordSuggestion(BaseModel):
+    """A single keyword suggestion with classification."""
+
+    keyword: str = Field(..., description="Lowercase keyword")
+    keyword_type: str = Field(
+        "theme",
+        description="Classification: theme, place, or temporal",
+    )
+
+
 class KeywordSuggestionsResponse(BaseModel):
     """AI-suggested keywords for a dataset."""
 
-    keywords: list[str] = Field(
-        ..., description="List of suggested keywords (5-10 lowercase terms)"
+    keywords: list[KeywordSuggestion] = Field(
+        ..., description="List of suggested keywords with classification (5-10 items)"
     )
 
 

@@ -12,7 +12,13 @@ from sqlalchemy.orm import joinedload
 from collections.abc import AsyncGenerator
 
 from app.ai.constants import tool_label
-from app.ai.llm_loop import ToolLoopExhaustedError, resolve_provider, run_tool_loop
+from app.ai.llm_loop import (
+    ToolLoopExhaustedError,
+    get_anthropic_client,
+    get_openai_client,
+    resolve_provider,
+    run_tool_loop,
+)
 from app.ai.schemas import LLMMapSpec, validate_paint_for_geometry
 from app.ai.tools import (
     _GET_DATASET_DETAILS_DESC,
@@ -106,34 +112,49 @@ cover a whole country, zoom 4-6. If they cover a city, zoom 10-13.
 
 ## Output
 After gathering datasets, output your map specification as JSON inside \
-<map_spec> tags:
+<map_spec> tags. Here is a complete example with multiple layers:
 
 <map_spec>
 {{
-  "name": "Map title",
-  "description": "Brief description",
-  "center_lng": -98.5,
-  "center_lat": 39.8,
-  "zoom": 4,
+  "name": "Parks and Trails",
+  "description": "National parks with nearby hiking trails",
+  "center_lng": -105.3,
+  "center_lat": 39.7,
+  "zoom": 8,
   "basemap_style": "openfreemap-positron",
   "layers": [
     {{
-      "dataset_id": "uuid-here",
+      "dataset_id": "a1b2c3d4-0000-0000-0000-000000000001",
       "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
-      "paint": {{"fill-color": "#3b82f6", "fill-opacity": 0.3, "_outline-color": "#1d4ed8"}},
+      "paint": {{"fill-color": "#22c55e", "fill-opacity": 0.3, "_outline-color": "#15803d"}},
+      "layout": {{}}
+    }},
+    {{
+      "dataset_id": "a1b2c3d4-0000-0000-0000-000000000002",
+      "sort_order": 1,
+      "visible": true,
+      "opacity": 1.0,
+      "paint": {{"line-color": "#f59e0b", "line-width": 2}},
       "layout": {{}}
     }}
   ],
-  "explanation": "I selected X and Y datasets because..."
+  "explanation": "I found national parks (polygons) and hiking trails (lines). Parks are shown in green with trails overlaid in amber."
 }}
 </map_spec>
 
-If no matching datasets exist, output:
+All fields shown above are required. Use `dataset_id` values returned by search_datasets.
+
+If no matching datasets exist after trying multiple search strategies, output:
 <map_spec>
 {{"error": "No matching datasets found. The catalog does not contain datasets for: ..."}}
 </map_spec>
+
+## Important
+- Do NOT invent or hallucinate dataset IDs. Only use IDs returned by search_datasets.
+- If you are unsure which dataset best matches, explain your reasoning in the explanation field.
+- If no datasets match, suggest alternative search terms the user could try in the error message.
 
 """
 
@@ -355,9 +376,7 @@ async def _retry_parse_map_spec(
     )
 
     if provider == "anthropic":
-        from anthropic import AsyncAnthropic
-
-        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = get_anthropic_client()
         response = await client.messages.create(
             model=model,
             max_tokens=4096,
@@ -366,10 +385,8 @@ async def _retry_parse_map_spec(
         block = response.content[0] if response.content else None
         retry_text = getattr(block, "text", "") if block else ""
     else:
-        from openai import AsyncOpenAI
-
         base = base_url or settings.openai_base_url or "https://api.openai.com/v1"
-        client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=base)
+        client = get_openai_client(base)
         response = await client.chat.completions.create(
             model=model,
             max_tokens=4096,
@@ -481,13 +498,10 @@ async def generate_map_from_prompt(
     Returns dict with map_id, map_name, explanation, datasets_used.
     """
     provider, model, base_url = await resolve_provider(session)
-
-    # Fetch available basemaps for dynamic prompt injection
     basemap_ids = await _get_available_basemaps(session)
-    system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
-
-    # Resolve data exposure toggle once
     send_samples = await _should_send_sample_values(session)
+
+    system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
 
     # Build tool executor bound to this session/user
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
@@ -573,8 +587,8 @@ async def stream_generate_map(
     try:
         provider, model, base_url = await resolve_provider(session)
         basemap_ids = await _get_available_basemaps(session)
-        system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
         send_samples = await _should_send_sample_values(session)
+        system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
 
         # Collect progress events via a wrapper around the tool executor
         async def tool_executor(tool_name: str, tool_input: dict) -> dict:

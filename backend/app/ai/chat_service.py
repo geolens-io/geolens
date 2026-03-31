@@ -23,7 +23,6 @@ from app.sandbox import validate_and_execute, SandboxError
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Edit action tool names (everything except search_datasets)
 ERROR_MESSAGES = {
     "query_timeout": "Query took too long. Try narrowing your question to fewer features or a smaller area.",
     "table_not_accessible": "You don't have access to one of the referenced datasets.",
@@ -320,6 +319,8 @@ You are a map editing assistant. The user has a map with these layers:
 - Keep your explanations concise (1-3 sentences).
 - For raster layers (marked "[raster layer]"), only use set_opacity (with layer_id and opacity 0.0-1.0) or toggle_visibility. Do not use set_style, set_filter, set_label, or set_data_driven_style on raster layers.
 - To add a raster dataset as a layer, use search_datasets then add_layer — same as vector.
+- When the user has a dark basemap, use light colors for labels (#e5e7eb) and outlines (#d1d5db).
+  When the user has a light basemap, use dark colors for labels (#333333) and outlines (#374151).
 
 ## Query Data Responses
 When reporting query results back to the user:
@@ -329,9 +330,51 @@ When reporting query results back to the user:
 - Never show raw SQL, table structures, or row counts as bare numbers -- interpret them meaningfully.
 - If no results were found, tell the user and suggest trying different criteria.
 
+## Uncertainty
+- If you are uncertain about a column name or data interpretation, say so in your explanation.
+- Do not guess column names that are not listed in the layer info above.
+- If a user's request cannot be fulfilled with the available tools, explain what is not supported.
+
 ## Language
 Always respond in {_lang_name(language)}. Never switch to another language.
 """
+
+
+def _extract_get_refs(expr: list | None) -> set[str]:
+    """Recursively extract column names from ["get", "col"] expression nodes."""
+    if not isinstance(expr, list) or len(expr) == 0:
+        return set()
+    refs: set[str] = set()
+    if len(expr) >= 2 and expr[0] == "get" and isinstance(expr[1], str):
+        refs.add(expr[1])
+    for item in expr:
+        if isinstance(item, list):
+            refs.update(_extract_get_refs(item))
+    return refs
+
+
+def _validate_filter_columns(
+    expression: list | None, layer: ChatMapLayer | None
+) -> list | None:
+    """Validate column refs in a filter expression against layer column_info.
+
+    Returns the expression unchanged if valid, or None if invalid refs found.
+    """
+    if expression is None or layer is None:
+        return expression
+    col_names = {c.get("name") for c in (layer.column_info or []) if c.get("name")}
+    if not col_names:
+        return expression  # no column_info to validate against
+    refs = _extract_get_refs(expression)
+    invalid = refs - col_names
+    if invalid:
+        logger.warning(
+            "Filter references non-existent columns, clearing filter",
+            invalid_columns=list(invalid),
+            layer_id=layer.id,
+        )
+        return None
+    return expression
 
 
 def _validate_actions(
@@ -339,6 +382,7 @@ def _validate_actions(
 ) -> list[ChatAction]:
     """Validate layer_id references in actions. Filter out invalid ones."""
     valid_layer_ids = {layer.id for layer in layers}
+    layer_map = {layer.id: layer for layer in layers}
     validated = []
     for action in actions:
         # add_layer and search_datasets don't need layer_id validation
@@ -352,6 +396,13 @@ def _validate_actions(
                 layer_id=action.layer_id,
             )
             continue
+        # Validate column refs in filter expressions
+        if action.type == "set_filter" and action.expression is not None:
+            target_layer = layer_map.get(action.layer_id) if action.layer_id else None
+            validated_expr = _validate_filter_columns(action.expression, target_layer)
+            if validated_expr is None:
+                continue  # skip action with invalid column refs
+            action.expression = validated_expr
         validated.append(action)
     return validated
 
@@ -499,12 +550,12 @@ async def _handle_query_data(
 
     result = await validate_and_execute(sql, session, user)
     # Limit rows in tool result for token economy
+    # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
     out: dict = {
         "columns": result.columns,
         "rows": result.rows[:50],
         "row_count": result.row_count,
         "truncated": result.truncated,
-        "sql": sql,
     }
     if result.row_count == 0:
         out["note"] = (
@@ -561,6 +612,20 @@ async def _execute_chat_tool(
 
     if tool_name == "set_data_driven_style":
         return await _build_data_driven_style(tool_input, session, layers)
+
+    # Validate paint properties for set_style against geometry type
+    if tool_name == "set_style" and tool_input.get("paint"):
+        from app.ai.schemas import validate_paint_for_geometry
+
+        target = next((l for l in layers if l.id == tool_input.get("layer_id")), None)
+        if target:
+            tool_input = {
+                **tool_input,
+                "paint": validate_paint_for_geometry(
+                    tool_input["paint"], target.geometry_type
+                )
+                or {},
+            }
 
     # For all other edit tools, return tool_input as-is
     if tool_name in _EDIT_TOOLS:

@@ -20,6 +20,25 @@ from app.persistent_config import LLM_MODEL, LLM_PROVIDER, OPENAI_BASE_URL
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# Module-level client singletons to avoid per-request connection overhead
+_cached_anthropic_client: AsyncAnthropic | None = None
+_cached_openai_clients: dict[str, AsyncOpenAI] = {}
+
+
+def get_anthropic_client() -> AsyncAnthropic:
+    global _cached_anthropic_client
+    if _cached_anthropic_client is None:
+        _cached_anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return _cached_anthropic_client
+
+
+def get_openai_client(base_url: str) -> AsyncOpenAI:
+    if base_url not in _cached_openai_clients:
+        _cached_openai_clients[base_url] = AsyncOpenAI(
+            api_key=settings.openai_api_key, base_url=base_url
+        )
+    return _cached_openai_clients[base_url]
+
 # Type aliases for callbacks
 ToolExecutor = Callable[[str, dict], Awaitable[dict]]
 ActionCollector = Callable[[str, dict, dict], dict | None]
@@ -27,6 +46,15 @@ ActionCollector = Callable[[str, dict, dict], dict | None]
 
 class ToolLoopExhaustedError(Exception):
     """Raised when the tool-calling loop exceeds the maximum number of rounds."""
+
+
+def add_tool_cache_control(tools: list[dict]) -> list[dict]:
+    """Add cache_control to the last tool definition for Anthropic prompt caching."""
+    if not tools:
+        return tools
+    cached = [dict(t) for t in tools]
+    cached[-1] = {**cached[-1], "cache_control": {"type": "ephemeral"}}
+    return cached
 
 
 @dataclass
@@ -53,6 +81,7 @@ async def run_tool_loop(
     max_rounds: int = MAX_TOOL_ROUNDS,
     max_tokens: int = 4096,
     base_url: str | None = None,
+    temperature: float = 0.5,
 ) -> ToolLoopResult:
     """Run an async LLM tool-calling loop with either provider.
 
@@ -86,6 +115,7 @@ async def run_tool_loop(
             history=history,
             max_rounds=max_rounds,
             max_tokens=max_tokens,
+            temperature=temperature,
         )
     elif provider == "openai_compatible":
         if not settings.openai_api_key:
@@ -101,6 +131,7 @@ async def run_tool_loop(
             max_rounds=max_rounds,
             max_tokens=max_tokens,
             base_url=base_url,
+            temperature=temperature,
         )
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
@@ -144,12 +175,19 @@ async def _loop_anthropic(
     history: list[dict] | None,
     max_rounds: int,
     max_tokens: int,
+    temperature: float = 0.5,
 ) -> ToolLoopResult:
     """Async Anthropic tool-calling loop."""
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = get_anthropic_client()
 
     messages = build_history_messages(history)
     messages.append({"role": "user", "content": user_message})
+
+    # Enable prompt caching for system prompt and tools
+    cached_system = [
+        {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+    ]
+    cached_tools = add_tool_cache_control(tools)
 
     collected_actions: list[dict] = []
     total_input = 0
@@ -159,8 +197,9 @@ async def _loop_anthropic(
         response = await client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=system_prompt,
-            tools=tools,
+            temperature=temperature,
+            system=cached_system,
+            tools=cached_tools,
             messages=messages,
         )
 
@@ -238,10 +277,11 @@ async def _loop_openai(
     max_rounds: int,
     max_tokens: int,
     base_url: str | None = None,
+    temperature: float = 0.5,
 ) -> ToolLoopResult:
     """Async OpenAI-compatible tool-calling loop."""
     base_url_val = base_url or settings.openai_base_url or "https://api.openai.com/v1"
-    client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=base_url_val)
+    client = get_openai_client(base_url_val)
 
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(build_history_messages(history))
@@ -255,6 +295,7 @@ async def _loop_openai(
         response = await client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
+            temperature=temperature,
             tools=tools,
             messages=messages,
         )

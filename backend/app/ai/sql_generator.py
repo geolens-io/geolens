@@ -11,9 +11,10 @@ import re
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.llm_loop import get_anthropic_client, get_openai_client
 from app.ai.schemas import ChatMapLayer
 from app.config import settings
-from app.persistent_config import LLM_MODEL, LLM_PROVIDER, OPENAI_BASE_URL
+from app.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BASE_URL
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -113,14 +114,18 @@ You are a PostgreSQL/PostGIS SQL expert. Generate a single SELECT query to answe
 {layer_context}
 ## PostGIS Spatial Functions
 
-ST_Intersects(geomA, geomB) -> boolean  -- True if geometries share any space
-ST_Contains(geomA, geomB) -> boolean    -- True if A fully contains B
-ST_Within(geomA, geomB) -> boolean      -- True if A is fully within B
-ST_Buffer(geom, radius) -> geometry     -- Buffer around geometry
-ST_Area(geom) -> float                  -- Area of polygon
-ST_Distance(geomA, geomB) -> float      -- Distance between geometries
-ST_Union(geomA, geomB) -> geometry      -- Merge geometries
-ST_Centroid(geom) -> geometry           -- Center point of geometry
+ST_Intersects(geomA, geomB) -> boolean    -- True if geometries share any space
+ST_Contains(geomA, geomB) -> boolean      -- True if A fully contains B
+ST_Within(geomA, geomB) -> boolean        -- True if A is fully within B
+ST_DWithin(geogA, geogB, meters) -> bool  -- True if within distance (uses spatial index!)
+ST_Buffer(geom, radius) -> geometry       -- Buffer around geometry
+ST_Area(geom) -> float                    -- Area of polygon
+ST_Length(geom) -> float                  -- Length of a linestring
+ST_Distance(geomA, geomB) -> float        -- Distance between geometries
+ST_Union(geomA, geomB) -> geometry        -- Merge geometries
+ST_Centroid(geom) -> geometry             -- Center point of geometry
+ST_MakePoint(lon, lat) -> geometry        -- Create a point from coordinates
+ST_SetSRID(geom, srid) -> geometry        -- Set SRID on geometry
 
 ## IMPORTANT: Geography Casts for Meter-Based Results
 
@@ -174,6 +179,14 @@ WHERE ST_Intersects(
   )::geometry
 );
 
+-- Proximity by coordinates (within 5 miles of a point):
+SELECT p.name,
+  ST_Distance(p.geom_4326::geography, ST_SetSRID(ST_MakePoint(-74.006, 40.7128), 4326)::geography) / 1609.344 AS distance_miles
+FROM data.parks p
+WHERE ST_DWithin(p.geom_4326::geography, ST_SetSRID(ST_MakePoint(-74.006, 40.7128), 4326)::geography, 8046.72)
+ORDER BY distance_miles
+LIMIT 20;
+
 ## Constraints
 
 - Generate a single SELECT statement only. No INSERT, UPDATE, DELETE, CREATE, DROP, or ALTER.
@@ -182,12 +195,20 @@ WHERE ST_Intersects(
 - When querying multiple tables, always qualify column names with table alias to avoid ambiguity.
 - Use ::geography casts for distance, buffer, and area operations to get results in meters.
 - Always convert area/distance to human-friendly units (acres, miles, etc.) in the SQL using the conversion factors above.
+- For proximity filters ("within X miles/km of Y"), prefer ST_DWithin over ST_Distance < threshold — ST_DWithin uses the spatial index.
+- For ad-hoc coordinate queries, create points with: ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
+- For case-insensitive text matching, use ILIKE (e.g., WHERE name ILIKE 'california').
+- Always include LIMIT 1000 unless the query is an aggregation (GROUP BY, COUNT, SUM, etc.).
+- Use ONLY the tables and columns shown in the schema above. Do not invent names.
+- Use ONLY the PostGIS functions listed above. Do not use functions not in this reference.
+- If the question cannot be answered with the available schema, respond with: -- ERROR: Cannot answer this question with the available data.
+- If the question asks to modify, delete, or insert data, respond with: -- ERROR: Only SELECT queries are supported.
 
 ## Question
 
 {question}
 
-Respond with ONLY the SQL query. No explanation, no markdown, no code fences."""
+Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be generated). No explanation, no markdown, no code fences."""
 
 
 async def generate_sql(
@@ -215,7 +236,7 @@ async def generate_sql(
         Exception: LLM API errors propagate to the caller.
     """
     provider = await LLM_PROVIDER.get(db)
-    model = await LLM_MODEL.get(db)
+    model = await LLM_MODEL_LIGHT.get(db)
     prompt = build_sql_generation_prompt(
         question, schema_context, layer_descriptions=layer_descriptions
     )
@@ -260,12 +281,11 @@ async def generate_sql(
 
 async def _call_anthropic(prompt: str, question: str, model: str) -> str:
     """Call Anthropic API for SQL generation (async)."""
-    from anthropic import AsyncAnthropic
-
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = get_anthropic_client()
     response = await client.messages.create(
         model=model,
         max_tokens=2048,
+        temperature=0.0,
         system=prompt,
         messages=[{"role": "user", "content": question}],
     )
@@ -282,12 +302,11 @@ async def _call_anthropic(prompt: str, question: str, model: str) -> str:
 
 async def _call_openai(prompt: str, question: str, model: str, base_url: str) -> str:
     """Call OpenAI-compatible API for SQL generation (async)."""
-    from openai import AsyncOpenAI
-
-    client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=base_url)
+    client = get_openai_client(base_url)
     response = await client.chat.completions.create(
         model=model,
         max_tokens=2048,
+        temperature=0.0,
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": question},
