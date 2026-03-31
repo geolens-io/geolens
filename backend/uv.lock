@@ -912,7 +912,7 @@ wheels = [
 
 [[package]]
 name = "geolens"
-version = "0.1.0"
+version = "13.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiofiles" },
