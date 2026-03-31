@@ -21,7 +21,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { getLayerType, resolveAdapterType } from '@/components/builder/map-sync';
+import { getLayerType, resolveAdapterType, reorderBasemapLabels } from '@/components/builder/map-sync';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -40,30 +40,6 @@ interface ViewerMapProps {
   apiKey?: string;
   embedToken?: string;
   showBasemapLabels?: boolean;
-}
-
-/**
- * Move basemap symbol/label layers above data layers, or hide them.
- * Uses 'viewer-source-' prefix to identify viewer data layers so they
- * are not confused with basemap symbol layers (which use no source or a
- * non-viewer source prefix).
- */
-function reorderBasemapLabels(map: MaplibreMap, show: boolean) {
-  const style = map.getStyle();
-  if (!style?.layers) return;
-
-  const basemapSymbolLayers = style.layers.filter(
-    (l) => l.type === 'symbol' && (!('source' in l) || !String(l.source ?? '').startsWith('viewer-source-')),
-  );
-
-  for (const layer of basemapSymbolLayers) {
-    if (show) {
-      map.setLayoutProperty(layer.id, 'visibility', 'visible');
-      map.moveLayer(layer.id);
-    } else {
-      map.setLayoutProperty(layer.id, 'visibility', 'none');
-    }
-  }
 }
 
 function getSourceId(sortOrder: number) {
@@ -270,20 +246,26 @@ export function ViewerMap({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
+    let rafId = 0;
     const handleMouseMove = (e: MapMouseEvent) => {
-      const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (!map.getCanvas()) return;
+        const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
 
-      if (queryIds.length === 0) {
-        map.getCanvas().style.cursor = '';
-        return;
-      }
+        if (queryIds.length === 0) {
+          map.getCanvas().style.cursor = '';
+          return;
+        }
 
-      const features = map.queryRenderedFeatures(e.point, { layers: queryIds });
-      map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
+        const features = map.queryRenderedFeatures(e.point, { layers: queryIds });
+        map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
+      });
     };
 
     map.on('mousemove', handleMouseMove);
     return () => {
+      cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
       if (map.getCanvas()) map.getCanvas().style.cursor = '';
     };
@@ -393,7 +375,7 @@ export function ViewerMap({
     }
 
     // Keep basemap labels above data layers
-    reorderBasemapLabels(map, showBasemapLabels);
+    reorderBasemapLabels(map, showBasemapLabels, 'viewer-source-');
   }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels]);
 
   // Update tile URLs in-place when tokens refresh

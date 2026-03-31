@@ -26,11 +26,9 @@ from app.collections.service import (
     add_datasets_to_collection,
     batch_collection_dataset_counts,
     batch_collection_extents,
-    compute_collection_extent,
     create_collection,
     delete_collection,
     get_collection,
-    get_collection_dataset_count,
     get_collection_datasets,
     list_collections,
     remove_dataset_from_collection,
@@ -165,10 +163,16 @@ async def get_collection_endpoint(
         )
 
     user_roles = await get_user_roles(db, user) if user is not None else set()
-    extent_data = await compute_collection_extent(db, collection_id, user, user_roles)
-    ds_count = await get_collection_dataset_count(db, collection_id, user, user_roles)
+    coll_ids = [collection_id]
+    extent_map = await batch_collection_extents(db, coll_ids, user, user_roles)
+    count_map = await batch_collection_dataset_counts(db, coll_ids, user, user_roles)
+    default_extent = {"extent_bbox": None, "temporal_start": None, "temporal_end": None}
 
-    return _collection_to_response(collection, ds_count, extent_data)
+    return _collection_to_response(
+        collection,
+        count_map.get(collection_id, 0),
+        extent_map.get(collection_id, default_extent),
+    )
 
 
 @router.patch("/{collection_id}", response_model=CollectionResponse)
@@ -203,10 +207,16 @@ async def update_collection_endpoint(
     await invalidate_catalog_cache()
 
     user_roles = await get_user_roles(db, user)
-    extent_data = await compute_collection_extent(db, collection_id, user, user_roles)
-    ds_count = await get_collection_dataset_count(db, collection_id, user, user_roles)
+    coll_ids = [collection_id]
+    extent_map = await batch_collection_extents(db, coll_ids, user, user_roles)
+    count_map = await batch_collection_dataset_counts(db, coll_ids, user, user_roles)
+    default_extent = {"extent_bbox": None, "temporal_start": None, "temporal_end": None}
 
-    return _collection_to_response(collection, ds_count, extent_data)
+    return _collection_to_response(
+        collection,
+        count_map.get(collection_id, 0),
+        extent_map.get(collection_id, default_extent),
+    )
 
 
 @router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
