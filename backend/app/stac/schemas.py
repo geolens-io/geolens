@@ -43,6 +43,21 @@ class StacItemCollection(BaseModel):
     context: dict
 
 
+class StacCollection(BaseModel):
+    """A single STAC Collection response (permissive — allows extra STAC fields)."""
+
+    type: str = "Collection"
+    stac_version: str = "1.0.0"
+    id: str
+    title: str | None = None
+    description: str = ""
+    license: str = "proprietary"
+    extent: dict
+    links: list[StacLink]
+
+    model_config = {"extra": "allow"}
+
+
 class StacCollectionListResponse(BaseModel):
     """STAC collections list response."""
 

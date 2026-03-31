@@ -14,11 +14,6 @@ from app.cache.tiles import invalidate_catalog_cache
 from app.auth.dependencies import get_optional_user, require_permission
 from app.auth.models import User
 from app.auth.visibility import get_user_roles
-from app.services.provenance import (
-    UNKNOWN_ACTOR_LABEL,
-    derive_last_edited,
-    resolve_actor,
-)
 from app.collections.schemas import (
     AddDatasetsResponse,
     CollectionAddDatasetsRequest,
@@ -41,74 +36,11 @@ from app.collections.service import (
     remove_dataset_from_collection,
     update_collection,
 )
+from app.datasets.helpers import _dataset_to_response
 from app.datasets.schemas import DatasetListResponse, DatasetResponse
 from app.dependencies import get_db
-from app.utils.geo import extent_to_bbox
 
 router = APIRouter(prefix="/catalog/collections", tags=["Datasets"])
-
-
-def _dataset_to_response(
-    dataset, *, collections=None, actor_map=None
-) -> DatasetResponse:
-    """Convert a Dataset ORM object to a DatasetResponse schema."""
-    record = dataset.record
-    actor_map = actor_map or {}
-    created_user = actor_map.get(record.created_by) if record.created_by else None
-    updated_user = actor_map.get(record.updated_by) if record.updated_by else None
-
-    last_edited = derive_last_edited(
-        created_at=record.created_at,
-        updated_at=record.updated_at,
-        updated_by=record.updated_by,
-        updated_user=updated_user,
-    )
-    record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
-
-    return DatasetResponse(
-        id=dataset.id,
-        record_id=dataset.record_id,
-        table_name=dataset.table_name,
-        title=record.title,
-        summary=record.summary,
-        srid=dataset.srid,
-        geometry_type=dataset.geometry_type,
-        feature_count=dataset.feature_count,
-        extent_bbox=extent_to_bbox(record.spatial_extent),
-        column_info=dataset.column_info,
-        quality_detail=dataset.quality_detail,
-        license=record.license,
-        source_organization=record.source_organization,
-        data_vintage_start=record.temporal_start,
-        data_vintage_end=record.temporal_end,
-        source_format=dataset.source_format,
-        source_filename=dataset.source_filename,
-        original_srid=dataset.original_srid,
-        current_version=dataset.current_version,
-        source_url=dataset.source_url,
-        quality_statement=dataset.quality_statement,
-        visibility=record.visibility,
-        created_by=record.created_by,
-        created_by_display=resolve_actor(
-            record.created_by, created_user, missing_label=UNKNOWN_ACTOR_LABEL
-        ),
-        created_at=record.created_at,
-        updated_at=record.updated_at,
-        last_edited_by_display=last_edited.display,
-        last_edited_at=last_edited.timestamp,
-        collections=collections,
-        record_status=record.record_status,
-        lineage_summary=record.lineage_summary,
-        update_frequency=record.update_frequency,
-        usage_constraints=record.usage_constraints,
-        access_constraints=record.access_constraints,
-        sensitivity_classification=record.sensitivity_classification,
-        theme_category=record.theme_category,
-        owner_org=record.owner_org,
-        published_at=record.published_at,
-        updated_by=record.updated_by,
-        record_type=record_type,
-    )
 
 
 def _collection_to_response(
@@ -409,6 +341,6 @@ async def get_collection_datasets_endpoint(
         actor_map = {u.id: u for u in rows.scalars()}
 
     return DatasetListResponse(
-        datasets=[_dataset_to_response(d, actor_map=actor_map) for d in datasets],
+        datasets=[_dataset_to_response(d, actors_by_id=actor_map) for d in datasets],
         total=total,
     )

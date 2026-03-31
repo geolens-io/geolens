@@ -24,6 +24,7 @@ from app.raster.models import DatasetAsset, RasterAsset
 from app.search.service import _build_assets, dataset_to_ogc_record
 from app.stac.schemas import (
     StacCatalog,
+    StacCollection,
     StacCollectionListResponse,
     StacConformance,
     StacItemCollection,
@@ -324,7 +325,7 @@ async def get_collections(
     )
 
 
-@stac_router.get("/collections/{collection_id}", response_model=None)
+@stac_router.get("/collections/{collection_id}", response_model=StacCollection)
 async def get_collection(
     collection_id: uuid.UUID,
     request: Request,
