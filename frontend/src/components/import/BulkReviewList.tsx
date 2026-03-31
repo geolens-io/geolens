@@ -8,7 +8,6 @@ import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import type { FileEntry, CommitImportRequest } from '@/types/api';
 import { isRasterPreview, isFilePreview } from './utils';
-}
 
 function getLayerName(entry: FileEntry): string | undefined {
   if (!entry.previewData || !isFilePreview(entry.previewData)) return undefined;
