@@ -463,9 +463,10 @@ async def ingest_service(
                     raise
 
             # 5. Post-processing (identical to ingest_file)
-            await ensure_geom_column(session, table_name)
-            await clip_to_mercator_bounds(session, table_name)
-            await add_4326_column(session, table_name, 4326)
+            has_geom = await ensure_geom_column(session, table_name)
+            if has_geom:
+                await clip_to_mercator_bounds(session, table_name)
+                await add_4326_column(session, table_name, 4326)
             await grant_reader_access(session, table_name)
             metadata = await extract_metadata(session, table_name)
             sample_values = await get_sample_values(
@@ -982,9 +983,10 @@ async def reupload_service(
             except ValueError as exc:
                 raise IngestionError(str(exc)) from exc
 
-            await ensure_geom_column(session, staging_tn)
-            await clip_to_mercator_bounds(session, staging_tn)
-            await add_4326_column(session, staging_tn, 4326)
+            has_geom = await ensure_geom_column(session, staging_tn)
+            if has_geom:
+                await clip_to_mercator_bounds(session, staging_tn)
+                await add_4326_column(session, staging_tn, 4326)
             await grant_reader_access(session, staging_tn)
 
             metadata = await extract_metadata(session, staging_tn)

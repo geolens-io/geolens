@@ -384,12 +384,14 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
     }
 
 
-async def ensure_geom_column(session: AsyncSession, table_name: str) -> None:
+async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
     """Rename the geometry column to 'geom' if ogr2ogr used a different name.
 
     This handles edge cases where ogr2ogr creates 'wkb_geometry' instead of
     'geom' (e.g. when appending to a pre-existing table from a failed ingest,
     or when the GDAL driver ignores -lco GEOMETRY_NAME).
+
+    Returns True if the table has a geometry column, False for non-spatial tables.
     """
     _validate_table_name(table_name)
     result = await session.execute(
@@ -401,11 +403,11 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> None:
     )
     row = result.first()
     if row is None:
-        return  # Non-spatial table
+        return False  # Non-spatial table
 
     geom_col = row[0]
     if geom_col == "geom":
-        return  # Already correct
+        return True  # Already correct
 
     logger.info(
         "Renaming geometry column",
@@ -418,6 +420,7 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> None:
         text(f"ALTER TABLE data.{table_name} RENAME COLUMN {geom_col} TO geom")
     )
     await session.commit()
+    return True
 
 
 # Web Mercator (EPSG:3857) cannot represent latitudes beyond ±85.06°.
