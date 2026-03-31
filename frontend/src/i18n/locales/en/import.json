@@ -192,6 +192,8 @@
     "committed": "Committed",
     "removeFile": "Remove file",
     "importProgress": "Import Progress",
-    "uploadMore": "Upload More"
+    "uploadMore": "Upload More",
+    "rasterDatasetsReady": "{{count}} raster datasets ready",
+    "createVrtMosaic": "Create VRT Mosaic"
   }
 }

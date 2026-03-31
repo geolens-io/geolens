@@ -192,6 +192,8 @@
     "committed": "Übernommen",
     "removeFile": "Datei entfernen",
     "importProgress": "Importfortschritt",
-    "uploadMore": "Weitere hochladen"
+    "uploadMore": "Weitere hochladen",
+    "rasterDatasetsReady": "{{count}} Rasterdatensätze bereit",
+    "createVrtMosaic": "VRT-Mosaik erstellen"
   }
 }

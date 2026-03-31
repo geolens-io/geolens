@@ -192,6 +192,8 @@
     "committed": "Confirmado",
     "removeFile": "Eliminar archivo",
     "importProgress": "Progreso de importaci\u00f3n",
-    "uploadMore": "Subir m\u00e1s"
+    "uploadMore": "Subir m\u00e1s",
+    "rasterDatasetsReady": "{{count}} conjuntos de datos r\u00e1ster listos",
+    "createVrtMosaic": "Crear mosaico VRT"
   }
 }
