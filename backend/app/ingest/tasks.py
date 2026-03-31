@@ -685,7 +685,7 @@ async def reupload_file(
     job_id: str, dataset_id: str, file_path: str, user_id: str, **kwargs
 ) -> None:
     """Background task: replace dataset data via staging table swap."""
-    import hashlib
+    import asyncio
 
     from app.database import async_session
     from app.datasets.models import Dataset

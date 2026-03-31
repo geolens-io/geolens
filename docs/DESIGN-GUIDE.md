@@ -236,6 +236,7 @@ GeoLens uses Tailwind's default spacing scale. The most commonly used values:
 | Token | Value | Pixels | Common Usage |
 |-------|-------|--------|-------------|
 | `2` | 0.5rem | 8px | Tight spacing, badge padding, icon gaps |
+| `3` | 0.75rem | 12px | Tight within-section gaps, compact component internals |
 | `4` | 1rem | 16px | Card padding (compact), form field gaps |
 | `6` | 1.5rem | 24px | Page padding, section gaps, generous card padding |
 | `8` | 2rem | 32px | Large section separation |
@@ -247,9 +248,10 @@ GeoLens uses Tailwind's default spacing scale. The most commonly used values:
 | Page-level padding | `px-6 py-6` | Enforced by PageShell |
 | Card internal padding | `p-4` or `p-6` | `p-4` for compact cards, `p-6` for detail cards |
 | Between major sections | `space-y-6` | Top-level page sections |
+| Tight within sections | `space-y-3` | Compact component internals (headers, panels) |
 | Within sections | `space-y-4` | Items within a section |
 | Form field gaps | `space-y-4` | Between label+input groups |
-| Grid gaps | `gap-4` or `gap-6` | Between grid items |
+| Grid gaps | `gap-3`, `gap-4`, or `gap-6` | `gap-3` for tight grids, `gap-4`/`gap-6` for standard |
 | Inline element gaps | `gap-2` | Between badges, icons, inline items |
 
 ## 5. Icon Sizing (GUIDE-06)
@@ -279,7 +281,7 @@ Rules:
 | Variant | Classes | When to Use |
 |---------|---------|-------------|
 | `default` | `bg-primary text-primary-foreground hover:bg-primary/90` | Primary actions (save, create, submit) |
-| `destructive` | `bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60` | Dangerous actions (delete, remove) |
+| `destructive` | `bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive/60` | Dangerous actions (delete, remove) |
 | `outline` | `border bg-background shadow-xs hover:bg-accent dark:bg-input/30` | Tertiary actions, less emphasis |
 | `secondary` | `bg-secondary text-secondary-foreground hover:bg-secondary/80` | Secondary actions (cancel, back) |
 | `ghost` | `hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50` | Minimal chrome (icon buttons, inline actions) |
@@ -339,7 +341,7 @@ Cards use **shadow-only elevation** -- no border in the base component. The shad
 |---------|---------|-------------|
 | `default` | `bg-primary text-primary-foreground` | Primary category labels |
 | `secondary` | `bg-secondary text-secondary-foreground` | Neutral metadata tags |
-| `destructive` | `bg-destructive text-white dark:bg-destructive/60` | Error/failure states |
+| `destructive` | `bg-destructive text-destructive-foreground dark:bg-destructive/60` | Error/failure states |
 | `outline` | `border-border text-foreground` | Subtle, bordered tags |
 | `ghost` | (no background) | Minimal inline labels |
 | `link` | `text-primary underline-offset-4` | Clickable badge links |

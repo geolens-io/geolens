@@ -111,7 +111,7 @@ export function MapBuilderPage() {
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
   useDocumentTitle(mapData?.name ?? 'Map Builder');
-  const { isCompact } = useBuilderLayout();
+  const { isCompact, isMobile } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
@@ -244,8 +244,79 @@ export function MapBuilderPage() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
-      {/* Sidebar */}
-      <div
+      {/* Mobile sidebar as Sheet */}
+      {isMobile && (
+        <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
+          <SheetContent side="left" className="w-80 p-0 flex flex-col" showCloseButton={false}>
+            <SheetHeader className="sr-only">
+              <SheetTitle>{localName || t('mapBuilder')}</SheetTitle>
+              <SheetDescription>{t('descriptionLabel')}</SheetDescription>
+            </SheetHeader>
+            <div className="p-3 border-b space-y-2">
+              <h1 className="sr-only">{localName || t('mapBuilder')}</h1>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={localName}
+                  onChange={(e) => { setLocalName(e.target.value); layers.markDirty(); }}
+                  aria-label={t('mapNameLabel')}
+                  className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
+                  title={localName}
+                />
+                {mapData && (
+                  <Badge variant="outline" className="flex items-center gap-1 text-[10px] px-1.5 py-0 shrink-0">
+                    <VisibilityIcon visibility={mapData.visibility} />
+                    {getVisibilityLabel(t, mapData.visibility)}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1 justify-end">
+                <Button variant={layers.hasUnsavedChanges ? 'default' : 'outline'} size="sm" className="h-7 text-xs gap-1" onClick={save.handleSave} disabled={save.isSaving}>
+                  {save.isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                  {t('actions.save')}
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-4 py-3">
+              <LayerPanel
+                layers={layers.localLayers}
+                expandedLayerId={layers.expandedLayerId}
+                activeTab={layers.activeEditorTab}
+                onToggleExpand={layers.handleToggleExpand}
+                onTabChange={layers.handleTabChange}
+                onPaintChange={layers.handlePaintChange}
+                onOpacityChange={layers.handleOpacityChange}
+                onFilterChange={layers.handleFilterChange}
+                onLabelChange={layers.handleLabelChange}
+                onStyleConfigChange={layers.handleStyleConfigChange}
+                onLayoutChange={layers.handleLayoutChange}
+                onToggleVisibility={layers.handleToggleVisibility}
+                onMoveUp={layers.handleMoveUp}
+                onMoveDown={layers.handleMoveDown}
+                onReorder={layers.handleReorder}
+                onRename={layers.handleDisplayNameChange}
+                onRemove={layers.handleRemove}
+                onZoomToLayer={layers.handleZoomToLayer}
+                onToggleLegend={layers.handleToggleLegend}
+                onAddDataClick={() => dialogs.setShowAddData(true)}
+                inspectorMode={false}
+              />
+              <div className="border-t pt-3 px-2">
+                <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
+                <BasemapPicker
+                  value={layers.localBasemap}
+                  onChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
+                  showLabels={layers.showBasemapLabels}
+                  onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
+                />
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {/* Desktop sidebar */}
+      {!isMobile && <div
         className={cn(
           "relative border-r bg-background flex flex-col shrink-0 overflow-hidden",
           dialogs.sidebarCollapsed ? "w-0 border-r-0 transition-[width,border-width] duration-200 ease-out" : "",
@@ -253,7 +324,7 @@ export function MapBuilderPage() {
         )}
         style={dialogs.sidebarCollapsed ? undefined : { width: sidebarWidth }}
         onTransitionEnd={() => { mapInstanceRef.current?.resize(); }}
-        {...(dialogs.sidebarCollapsed ? { inert: true } : {})}
+        {...(dialogs.sidebarCollapsed ? { inert: true, 'aria-hidden': true } : {})}
       >
         {/* Drag handle for resize */}
         {!dialogs.sidebarCollapsed && (
@@ -277,6 +348,7 @@ export function MapBuilderPage() {
 
         {/* Header */}
         <div className="p-3 border-b space-y-2">
+          <h1 className="sr-only">{localName || t('mapBuilder')}</h1>
           <div className="flex items-center gap-1.5">
             <input
               type="text"
@@ -285,7 +357,8 @@ export function MapBuilderPage() {
                 setLocalName(e.target.value);
                 layers.markDirty();
               }}
-              className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 w-full hover:bg-accent/30 transition-colors"
+              aria-label={t('mapNameLabel')}
+              className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
               title={localName}
             />
             {mapData && (
@@ -303,7 +376,9 @@ export function MapBuilderPage() {
               layers.markDirty();
             }}
             placeholder={t('descriptionPlaceholder')}
-            className="text-xs text-muted-foreground bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 w-full placeholder:text-muted-foreground/50 hover:bg-accent/30 transition-colors"
+            aria-label={t('descriptionLabel')}
+            title={localDescription}
+            className="text-xs text-muted-foreground bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 min-h-6 w-full placeholder:text-muted-foreground/50 hover:bg-accent/30 transition-colors"
           />
           {/* Button tray */}
           <TooltipProvider delayDuration={300}>
@@ -436,7 +511,7 @@ export function MapBuilderPage() {
           </div>
 
         </div>
-      </div>
+      </div>}
 
       {/* Layer Inspector panel (wide screens only) */}
       {selectedLayer && (
@@ -459,7 +534,7 @@ export function MapBuilderPage() {
 
       {/* Map */}
       <div className="flex-1 relative">
-        {dialogs.sidebarCollapsed && (
+        {(dialogs.sidebarCollapsed || isMobile) && (
           <button
             onClick={() => dialogs.setSidebarCollapsed(false)}
             title={t('tooltips.expandSidebar')}

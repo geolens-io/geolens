@@ -108,7 +108,9 @@ def _build_layer_response(
 def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
     """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
     return [
-        _build_layer_response(layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type)
+        _build_layer_response(
+            layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type
+        )
         for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
     ]
 

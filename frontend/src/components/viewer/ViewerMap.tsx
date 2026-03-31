@@ -474,6 +474,7 @@ export function ViewerMap({
       attributionControl={false}
       minZoom={1}
       onLoad={handleLoad}
+      aria-label="Map viewer"
     >
       <NavigationControl position="top-right" />
       {popupInfo && (

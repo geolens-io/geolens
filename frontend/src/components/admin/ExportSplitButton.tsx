@@ -74,9 +74,9 @@ export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="default"
+            variant="outline"
             size="sm"
-            className="rounded-l-none border-l border-l-primary-foreground/20 px-1.5"
+            className="rounded-l-none border-l border-l-border px-1.5"
             disabled={isExporting}
             aria-label={t('audit.export.formatOptions')}
           >

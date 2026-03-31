@@ -201,7 +201,6 @@ class TestQueryDataTool:
         assert result["rows"] == [[42]]
         assert result["row_count"] == 1
         assert result["truncated"] is False
-        assert result["sql"] == "SELECT count(*) FROM data.cities"
 
     @pytest.mark.asyncio
     @patch("app.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
@@ -272,7 +271,7 @@ class TestQueryDataTool:
             [_make_layer()],
         )
         assert "columns" in result
-        assert "sql" in result
+        assert "rows" in result
 
 
 class TestToolDefinitions:

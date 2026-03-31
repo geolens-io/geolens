@@ -1,5 +1,8 @@
 {
   "title": "Constructor de mapas",
+  "mapBuilder": "Constructor de mapas",
+  "mapNameLabel": "Nombre del mapa",
+  "descriptionLabel": "Descripción del mapa",
   "loadingMap": "Cargando mapa...",
   "backToMaps": "Volver a mapas",
   "unsaved": "Sin guardar",
@@ -38,7 +41,11 @@
     "moreActions": "Más acciones",
     "expandOptions": "Expandir opciones",
     "searchColumns": "Buscar columnas...",
-    "noColumnsMatch": "No hay columnas coincidentes"
+    "noColumnsMatch": "No hay columnas coincidentes",
+    "dragToReorder": "Arrastrar para reordenar",
+    "sortableLayer": "capa ordenable",
+    "hideLegend": "Ocultar de la leyenda",
+    "showLegend": "Mostrar en la leyenda"
   },
   "style": {
     "fill": "Relleno",
@@ -152,6 +159,7 @@
   },
   "search": {
     "title": "Agregar conjunto de datos",
+    "dialogDescription": "Busca y agrega conjuntos de datos como capas a tu mapa.",
     "placeholder": "Buscar conjuntos de datos...",
     "noResults": "No se encontraron conjuntos de datos",
     "added": "(agregado)",
@@ -252,6 +260,7 @@
   },
   "info": {
     "title": "Info del mapa",
+    "dialogDescription": "Detalles y metadatos de este mapa.",
     "author": "Autor",
     "created": "Creado",
     "updated": "Actualizado",

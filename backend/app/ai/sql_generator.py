@@ -48,7 +48,11 @@ def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
 
         # Add geom_4326 column if the layer has geometry
         if layer.geometry_type:
-            geom_type_spec = layer.geometry_type.replace("Multi", "Multi") if layer.geometry_type else "Geometry"
+            geom_type_spec = (
+                layer.geometry_type.replace("Multi", "Multi")
+                if layer.geometry_type
+                else "Geometry"
+            )
             col_defs.append(f"  geom_4326 geometry({geom_type_spec}, 4326)")
 
         table_name = layer.dataset_table_name

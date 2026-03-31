@@ -27,9 +27,7 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/services", tags=["Datasets"])
 
 
-async def _fail_preview(
-    db: AsyncSession, user_id, url: str, layer: str
-) -> None:
+async def _fail_preview(db: AsyncSession, user_id, url: str, layer: str) -> None:
     """Log audit and raise 502 for a failed service preview."""
     await log_action(
         session=db,

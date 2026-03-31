@@ -47,8 +47,8 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
 }
 
 
-_HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$')
-_RGBA_RE = re.compile(r'^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[\d.]+\s*)?\)$')
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
+_RGBA_RE = re.compile(r"^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[\d.]+\s*)?\)$")
 
 
 def _is_valid_color(value: object) -> bool:
@@ -75,9 +75,11 @@ _PAINT_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 _COLOR_PROPS = {
-    "fill-color", "_outline-color",
+    "fill-color",
+    "_outline-color",
     "line-color",
-    "circle-color", "circle-stroke-color",
+    "circle-color",
+    "circle-stroke-color",
 }
 
 
@@ -98,7 +100,21 @@ def _validate_expression(expr: list) -> bool:
         return True
     if op in ("literal", "to-string", "to-number", "to-boolean"):
         return True
-    if op in ("all", "any", "!", "==", "!=", ">", "<", ">=", "<=", "in", "!in", "has", "!has"):
+    if op in (
+        "all",
+        "any",
+        "!",
+        "==",
+        "!=",
+        ">",
+        "<",
+        ">=",
+        "<=",
+        "in",
+        "!in",
+        "has",
+        "!has",
+    ):
         return True
     if op in ("concat", "downcase", "upcase", "coalesce"):
         return True

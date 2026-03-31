@@ -7,7 +7,7 @@ Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)]()
-[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![PostgreSQL 17 + PostGIS 3.6](https://img.shields.io/badge/PostGIS_3.6-PostgreSQL_17-336791.svg)](https://postgis.net/)
 [![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
@@ -177,7 +177,7 @@ The script downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), s
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (tile and query cache) |
-| Database | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm |
+| Database | PostgreSQL 17 + PostGIS 3.6 + pgvector + pg_trgm |
 | Reverse Proxy | Nginx |
 
 ## Configuration

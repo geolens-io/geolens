@@ -275,7 +275,9 @@ async def get_facet_counts(
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
-        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
+        stmt = stmt.where(
+            make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate)
+        )
 
     # Faceted filters (excluding record_type)
     if keywords:
@@ -434,7 +436,11 @@ async def get_facet_counts(
             )
             fstmt = fstmt.where(spatial_fn(Record.spatial_extent, geom))
         elif bbox and len(bbox) == 4:
-            fstmt = fstmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
+            fstmt = fstmt.where(
+                make_bbox_filter(
+                    Record.spatial_extent, bbox, predicate=spatial_predicate
+                )
+            )
         if keywords:
             _RKF = aliased(RecordKeyword)
             for kw in keywords:
@@ -757,7 +763,9 @@ async def search_datasets(
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
-        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
+        stmt = stmt.where(
+            make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate)
+        )
 
     # 4. Faceted filters
     if keywords:

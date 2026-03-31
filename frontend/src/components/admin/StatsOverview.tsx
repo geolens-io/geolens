@@ -211,7 +211,7 @@ function StatCard({
 }) {
   return (
     <Card>
-      <CardContent className="pt-6">
+      <CardContent>
         <p className="text-sm text-muted-foreground">{label}</p>
         <p className="text-3xl font-bold mt-1">{value}</p>
       </CardContent>
