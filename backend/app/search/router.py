@@ -22,6 +22,7 @@ from app.search.saved import (
     get_saved_search,
     list_saved_searches,
 )
+from app.features.service import parse_bbox
 from app.ogc.filtering import build_queryables_response, build_record_schema_response
 from app.ogc.utils import build_url
 from app.public_urls import get_public_api_url
@@ -125,13 +126,8 @@ async def _handle_search(
     bbox_parsed: list[float] | None = None
     if bbox and not geometry_geojson:
         try:
-            parts = bbox.split(",")
-            if len(parts) != 4:
-                raise ValueError("need 4 values")
-            bbox_parsed = [float(p) for p in parts]
-            if bbox_parsed[0] >= bbox_parsed[2] or bbox_parsed[1] >= bbox_parsed[3]:
-                raise ValueError("invalid bounds")
-        except (ValueError, TypeError) as e:
+            bbox_parsed = parse_bbox(bbox)
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
@@ -379,7 +375,7 @@ async def _handle_search(
     if offset > 0:
         links.append(
             OGCRecordLink(
-                rel="previous",
+                rel="prev",
                 href=_build_pagination_url(
                     public_api_url,
                     base_path,
@@ -458,13 +454,8 @@ async def search_facets_endpoint(
     bbox_parsed: list[float] | None = None
     if bbox and not geometry_geojson:
         try:
-            parts = bbox.split(",")
-            if len(parts) != 4:
-                raise ValueError("need 4 values")
-            bbox_parsed = [float(p) for p in parts]
-            if bbox_parsed[0] >= bbox_parsed[2] or bbox_parsed[1] >= bbox_parsed[3]:
-                raise ValueError("invalid bounds")
-        except (ValueError, TypeError) as e:
+            bbox_parsed = parse_bbox(bbox)
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
@@ -957,6 +948,44 @@ async def get_record_schema(
 
 # OGC sortby field -> internal sort_by mapping
 _OGC_SORT_MAP = {"title": "name", "created": "date_added", "updated": "last_updated"}
+
+
+@collections_router.get("/datasets/sortables")
+async def get_sortables(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Sortable properties for the datasets collection (OGC API Records)."""
+    public_api_url = await get_public_api_url(db, request=request)
+    return JSONResponse(
+        content={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": build_url(
+                "/collections/datasets/sortables", base_url=public_api_url
+            ),
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "title": "Title",
+                    "description": "Dataset title",
+                },
+                "created": {
+                    "type": "string",
+                    "format": "date-time",
+                    "title": "Created",
+                    "description": "Record creation timestamp",
+                },
+                "updated": {
+                    "type": "string",
+                    "format": "date-time",
+                    "title": "Updated",
+                    "description": "Record last update timestamp",
+                },
+            },
+        },
+        media_type="application/schema+json",
+    )
 
 
 @collections_router.get("/datasets/items")

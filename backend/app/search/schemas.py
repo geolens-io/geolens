@@ -32,8 +32,7 @@ class SearchParams(BaseModel):
             if len(parts) != 4:
                 raise ValueError("bbox must have exactly 4 comma-separated values")
             floats = [float(p) for p in parts]
-            if floats[0] >= floats[2]:
-                raise ValueError("bbox minx must be less than maxx")
+            # Allow antimeridian-crossing bboxes (minx > maxx)
             if floats[1] >= floats[3]:
                 raise ValueError("bbox miny must be less than maxy")
         return v
@@ -99,6 +98,7 @@ class OGCRecordResponse(BaseModel):
     type: str = "Feature"
     id: str
     conformsTo: list[str] | None = None
+    time: dict | None = None  # OGC Records temporal extent at record root
     geometry: dict | None = None  # GeoJSON bbox polygon — built dynamically
     properties: OGCRecordProperties
     links: list[OGCRecordLink]

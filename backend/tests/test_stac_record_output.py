@@ -1,7 +1,7 @@
 """Integration tests for record output fields.
 
 Verifies:
-  - properties.datetime follows STAC 1.1.0 rules
+  - properties.datetime follows STAC 1.0.0 rules
   - STAC-specific keys (stac_version, stac_extensions, stac_assets) are NOT
     present in OGC Records responses
   - _build_stac_assets helper produces correct structure

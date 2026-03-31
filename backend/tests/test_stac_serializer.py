@@ -59,7 +59,7 @@ def _make_ogc_record(
 
     record: dict = {
         "type": "Feature",
-        "stac_version": "1.1.0",
+        "stac_version": "1.0.0",
         "id": record_id,
         "properties": props,
         "links": [
@@ -116,7 +116,7 @@ class TestOgcRecordToStacItem:
         item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
 
         assert item["type"] == "Feature"
-        assert item["stac_version"] == "1.1.0"
+        assert item["stac_version"] == "1.0.0"
         assert item["id"] == record["id"]
 
     def test_datetime_present_when_single(self):
@@ -259,7 +259,7 @@ class TestOgcCollectionToStacCollection:
         )
 
         assert coll["type"] == "Collection"
-        assert coll["stac_version"] == "1.1.0"
+        assert coll["stac_version"] == "1.0.0"
         assert coll["id"] == "coll-1"
         assert coll["title"] == "My Collection"
         assert coll["description"] == "A description"

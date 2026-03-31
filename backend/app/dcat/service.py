@@ -47,6 +47,7 @@ def record_to_dcat(
 
     result["@type"] = "dcat:Dataset"
     result["@id"] = f"{base_url}/datasets/{dataset.id}"
+    result["dcterms:identifier"] = str(dataset.id)
     result["dcterms:title"] = record.title
 
     if record.summary is not None:
@@ -168,6 +169,10 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
         "dcterms:title": "GeoLens Dataset Catalog",
         "dcterms:description": "Geospatial dataset catalog managed by GeoLens",
         "dcterms:language": "en",
+        "dcterms:publisher": {
+            "@type": "foaf:Agent",
+            "foaf:name": "GeoLens",
+        },
         "dcat:dataset": [
             record_to_dcat(ds, base_url, include_context=False) for ds in datasets
         ],

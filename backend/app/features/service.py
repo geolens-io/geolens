@@ -47,14 +47,14 @@ def _validate_table_name(table_name: str) -> None:
 def parse_bbox(bbox_str: str) -> list[float]:
     """Parse a comma-separated bbox string into [minx, miny, maxx, maxy].
 
-    Raises ValueError if not exactly 4 values or bounds are invalid.
+    Allows antimeridian-crossing bboxes where minx > maxx (e.g. 170,-45,-170,-30).
+    Raises ValueError if not exactly 4 values or latitude bounds are invalid.
     """
     parts = bbox_str.split(",")
     if len(parts) != 4:
         raise ValueError("bbox must have exactly 4 comma-separated values")
     values = [float(p) for p in parts]
-    if values[0] >= values[2]:
-        raise ValueError("bbox minx must be less than maxx")
+    # Only validate latitude (lon wraps at antimeridian)
     if values[1] >= values[3]:
         raise ValueError("bbox miny must be less than maxy")
     return values
