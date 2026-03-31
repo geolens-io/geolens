@@ -462,7 +462,7 @@ export function DatasetPage() {
             {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
             {isRaster && dataset.raster?.connect && (
-              <Button variant="default" size="sm" onClick={() => downloadCog(dataset.id, dataset.title)}>
+              <Button variant="default" size="sm" onClick={() => downloadCog(dataset.id)}>
                 <Download className="mr-1 size-3" />
                 {t('actions.downloadCog', { defaultValue: 'Download COG' })}
               </Button>

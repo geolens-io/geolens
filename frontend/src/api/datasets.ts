@@ -102,7 +102,7 @@ export async function downloadExport(
   return authenticatedDownload(getExportUrl(id, format), filename);
 }
 
-export function downloadCog(id: string, _title: string): void {
+export function downloadCog(id: string): void {
   const token = useAuthStore.getState().token;
   const url = new URL(`${API_BASE}/datasets/${id}/download/cog`, window.location.origin);
   if (token) {
