@@ -43,6 +43,7 @@ from app.embeddings.service import EmbeddingUnavailableError, generate_embedding
 from app.ogc.utils import build_url
 from app.persistent_config import EMBEDDING_MODEL, SEMANTIC_SEARCH_ENABLED
 from app.services.provenance import derive_last_edited
+from app.utils.geo import make_bbox_filter
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,6 @@ async def get_facet_counts(
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
-        from app.utils.geo import make_bbox_filter
         stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
 
     # Faceted filters (excluding record_type)
@@ -434,7 +434,6 @@ async def get_facet_counts(
             )
             fstmt = fstmt.where(spatial_fn(Record.spatial_extent, geom))
         elif bbox and len(bbox) == 4:
-            from app.utils.geo import make_bbox_filter
             fstmt = fstmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
         if keywords:
             _RKF = aliased(RecordKeyword)
@@ -758,7 +757,6 @@ async def search_datasets(
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
-        from app.utils.geo import make_bbox_filter
         stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
 
     # 4. Faceted filters

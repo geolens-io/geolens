@@ -258,7 +258,14 @@ async def get_collection_items(
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset."""
+    """OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
+
+    Note: ``datetime`` is accepted per OGC API Features Core but acts as a
+    no-op for per-dataset feature queries.  Per-dataset feature tables contain
+    user-uploaded data with no standard temporal column, so the spec provision
+    "if the collection does not include temporal information, the datetime
+    parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
+    """
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)

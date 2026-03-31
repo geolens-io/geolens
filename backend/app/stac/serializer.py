@@ -139,6 +139,8 @@ def ogc_collection_to_stac_collection(
     spatial_extent: list[float] | None = None,
     temporal_extent: list[str | None] | None = None,
     stac_api_url: str,
+    keywords: list[str] | None = None,
+    summaries: dict | None = None,
 ) -> dict:
     """Build a STAC Collection dict from GeoLens collection metadata.
 
@@ -157,7 +159,7 @@ def ogc_collection_to_stac_collection(
     stac_api_url:
         Base URL for the STAC API.
     """
-    return {
+    result: dict = {
         "type": "Collection",
         "stac_version": "1.0.0",
         "id": collection_id,
@@ -195,3 +197,8 @@ def ogc_collection_to_stac_collection(
             },
         ],
     }
+    if keywords:
+        result["keywords"] = keywords
+    if summaries:
+        result["summaries"] = summaries
+    return result

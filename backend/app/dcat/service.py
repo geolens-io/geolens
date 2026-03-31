@@ -6,6 +6,7 @@ W3C DCAT 3 Recommendation: https://www.w3.org/TR/vocab-dcat-3/
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 
@@ -170,8 +171,6 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
     Returns:
         A DCAT Catalog dict with nested dataset entries (without individual @context).
     """
-    from datetime import datetime, timezone
-
     return {
         "@context": DCAT_CONTEXT,
         "@type": "dcat:Catalog",
