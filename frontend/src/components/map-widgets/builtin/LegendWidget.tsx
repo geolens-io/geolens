@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import { getRampColors } from '@/lib/color-ramps';
@@ -202,7 +203,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   );
 }
 
-function HeatmapLegend({
+const HeatmapLegend = memo(function HeatmapLegend({
   name,
   rampName,
   weightColumn,
@@ -214,8 +215,10 @@ function HeatmapLegend({
   opacity: number;
 }) {
   const { t } = useTranslation('builder');
-  const colors = getRampColors(rampName, 6);
-  const gradient = `linear-gradient(to right, ${colors.join(', ')})`;
+  const gradient = useMemo(() => {
+    const colors = getRampColors(rampName, 6);
+    return `linear-gradient(to right, ${colors.join(', ')})`;
+  }, [rampName]);
 
   return (
     <div style={opacity < 1 ? { opacity } : undefined}>
@@ -235,4 +238,4 @@ function HeatmapLegend({
       )}
     </div>
   );
-}
+});

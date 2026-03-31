@@ -105,13 +105,20 @@ export function resolveAdapterType(
   return getLayerType(geometryType);
 }
 
-/** Sync paint properties for a vector layer, skipping custom props and using JSON.stringify diff. */
+/** Check if two paint values differ. Uses strict equality for scalars, JSON.stringify for arrays/objects. */
+export function paintValueChanged(current: unknown, incoming: unknown): boolean {
+  if (current === incoming) return false;
+  if (typeof incoming !== 'object' || incoming === null) return current !== incoming;
+  return JSON.stringify(current) !== JSON.stringify(incoming);
+}
+
+/** Sync paint properties for a vector layer, skipping custom props. */
 export function syncVectorPaint(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
   for (const [prop, val] of Object.entries(rawPaint)) {
     if (CUSTOM_PAINT_PROPS.has(prop)) continue;
     try {
       const current = map.getPaintProperty(layerId, prop);
-      if (JSON.stringify(current) !== JSON.stringify(val)) {
+      if (paintValueChanged(current, val)) {
         map.setPaintProperty(layerId, prop, val);
       }
     } catch (e) {

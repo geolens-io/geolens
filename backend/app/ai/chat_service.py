@@ -42,7 +42,9 @@ _EDIT_TOOLS = {
     "set_opacity",
 }
 
-# Pre-computed color ramp palettes (no external dependency)
+# Pre-computed color ramp palettes (no external dependency).
+# NOTE: Frontend has a parallel copy in frontend/src/lib/color-ramps.ts.
+# Keep both in sync when adding or correcting ramps.
 RAMP_COLORS: dict[str, dict[str, list[str]]] = {
     "YlOrRd": {
         "5": ["#ffffb2", "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"],

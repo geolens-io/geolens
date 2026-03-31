@@ -89,6 +89,7 @@ export function ViewerMap({
   const { t } = useTranslation('common');
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
+  const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
@@ -151,7 +152,7 @@ export function ViewerMap({
           if (!cancelled) fetchTokens();
         }, refreshMs);
       } catch (err) {
-        console.warn('ViewerMap: failed to fetch tile tokens', err);
+        if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
       }
     }
 
@@ -374,8 +375,12 @@ export function ViewerMap({
       }
     }
 
-    // Keep basemap labels above data layers
-    reorderBasemapLabels(map, showBasemapLabels, 'viewer-source-');
+    // Keep basemap labels above data layers (only when order actually changes)
+    const orderKey = layers.map((l) => l.sort_order).join(',') + '|' + String(showBasemapLabels);
+    if (orderKey !== prevOrderKeyRef.current) {
+      prevOrderKeyRef.current = orderKey;
+      reorderBasemapLabels(map, showBasemapLabels, 'viewer-source-');
+    }
   }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels]);
 
   // Update tile URLs in-place when tokens refresh

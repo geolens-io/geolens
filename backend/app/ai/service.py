@@ -485,6 +485,38 @@ async def _validate_and_persist_map(
     }
 
 
+def _build_tool_executor(
+    session: AsyncSession,
+    user: User,
+    user_roles: set[str],
+    send_sample_values: bool,
+):
+    """Build a tool executor closure bound to the given session/user."""
+
+    async def tool_executor(tool_name: str, tool_input: dict) -> dict:
+        if tool_name == "search_datasets":
+            return {
+                "results": await _execute_search_tool(
+                    session,
+                    user,
+                    user_roles,
+                    tool_input,
+                    send_sample_values=send_sample_values,
+                )
+            }
+        elif tool_name == "get_dataset_details":
+            return await _execute_get_dataset_details(
+                session,
+                user,
+                user_roles,
+                tool_input,
+                send_sample_values=send_sample_values,
+            )
+        return {"error": f"Unknown tool: {tool_name}"}
+
+    return tool_executor
+
+
 async def generate_map_from_prompt(
     session: AsyncSession,
     user: User,
@@ -502,28 +534,7 @@ async def generate_map_from_prompt(
     send_samples = await _should_send_sample_values(session)
 
     system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
-
-    # Build tool executor bound to this session/user
-    async def tool_executor(tool_name: str, tool_input: dict) -> dict:
-        if tool_name == "search_datasets":
-            return {
-                "results": await _execute_search_tool(
-                    session,
-                    user,
-                    user_roles,
-                    tool_input,
-                    send_sample_values=send_samples,
-                )
-            }
-        elif tool_name == "get_dataset_details":
-            return await _execute_get_dataset_details(
-                session,
-                user,
-                user_roles,
-                tool_input,
-                send_sample_values=send_samples,
-            )
-        return {"error": f"Unknown tool: {tool_name}"}
+    tool_executor = _build_tool_executor(session, user, user_roles, send_samples)
 
     try:
         result = await run_tool_loop(
@@ -580,7 +591,7 @@ async def stream_generate_map(
 
     Tool progress events are collected during the LLM tool loop and replayed
     before the final result. True incremental streaming would require callback
-    support in run_tool_loop (TODO).
+    support in run_tool_loop.
 
     Yields progress events, then the final result or error as a done/error event.
     """
@@ -589,31 +600,9 @@ async def stream_generate_map(
         basemap_ids = await _get_available_basemaps(session)
         send_samples = await _should_send_sample_values(session)
         system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
-
-        # Collect progress events via a wrapper around the tool executor
-        async def tool_executor(tool_name: str, tool_input: dict) -> dict:
-            if tool_name == "search_datasets":
-                return {
-                    "results": await _execute_search_tool(
-                        session,
-                        user,
-                        user_roles,
-                        tool_input,
-                        send_sample_values=send_samples,
-                    )
-                }
-            elif tool_name == "get_dataset_details":
-                return await _execute_get_dataset_details(
-                    session,
-                    user,
-                    user_roles,
-                    tool_input,
-                    send_sample_values=send_samples,
-                )
-            return {"error": f"Unknown tool: {tool_name}"}
+        tool_executor = _build_tool_executor(session, user, user_roles, send_samples)
 
         tool_events: list[dict] = []
-        original_executor = tool_executor
 
         async def tracking_executor(tool_name: str, tool_input: dict) -> dict:
             tool_events.append(
@@ -623,7 +612,7 @@ async def stream_generate_map(
                     "label": tool_label(tool_name),
                 }
             )
-            result = await original_executor(tool_name, tool_input)
+            result = await tool_executor(tool_name, tool_input)
             tool_events.append(
                 {
                     "type": "tool_result",
