@@ -13,7 +13,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm_loop import resolve_provider, run_tool_loop
-from app.ai.schemas import ChatAction, ChatHistoryMessage, ChatMapLayer, ChatResponse
+from app.ai.schemas import ChatAction, ChatHistoryMessage, ChatMapLayer, ChatResponse, validate_paint_for_geometry
 from app.ai.sql_generator import build_sql_schema_context, generate_sql
 from app.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.ai.service import _execute_search_tool, _should_send_sample_values
@@ -337,6 +337,11 @@ When reporting query results back to the user:
 - Do not guess column names that are not listed in the layer info above.
 - If a user's request cannot be fulfilled with the available tools, explain what is not supported.
 
+## Error Handling
+- If a layer cannot be found by the user's name, say so and list available layer names.
+- If a column doesn't exist in a layer, say so and mention similar available columns.
+- If a user requests an unsupported operation on a raster layer, explain: "Raster layers only support opacity and visibility changes."
+
 ## Language
 Always respond in {_lang_name(language)}. Never switch to another language.
 """
@@ -617,8 +622,6 @@ async def _execute_chat_tool(
 
     # Validate paint properties for set_style against geometry type
     if tool_name == "set_style" and tool_input.get("paint"):
-        from app.ai.schemas import validate_paint_for_geometry
-
         target = next((l for l in layers if l.id == tool_input.get("layer_id")), None)
         if target:
             tool_input = {
@@ -649,6 +652,7 @@ async def _build_data_driven_style(
     ramp = tool_input.get("ramp", default_ramp)
     method = tool_input.get("method", "quantile")
     class_count = tool_input.get("class_count", 5)
+    class_count = max(2, min(class_count, 9))  # Clamp to 2-9 classes
 
     # Find the layer to get table_name and geometry_type
     target_layer = None
@@ -661,6 +665,13 @@ async def _build_data_driven_style(
         return {"error": f"Layer {layer_id} not found"}
 
     table_name = target_layer.dataset_table_name
+
+    # Validate column exists in layer
+    if target_layer.column_info:
+        col_names = {c.get("name") for c in target_layer.column_info if c.get("name")}
+        if column not in col_names:
+            return {"error": f"Column '{column}' not found in layer. Available columns: {', '.join(sorted(col_names)[:10])}"}
+
     color_prop = _get_color_property(target_layer.geometry_type)
 
     # Build allowed_tables from the validated layer set for defense-in-depth

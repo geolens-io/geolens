@@ -392,7 +392,7 @@ LLM_MODEL_LIGHT = PersistentConfig[str](
     env_default_factory=lambda: (
         "claude-haiku-4-5-20251001"
         if settings.anthropic_api_key
-        else settings.openai_model
+        else "gpt-4o-mini"
     ),
     tab="ai",
     label="Light LLM Model (SQL/Metadata)",
