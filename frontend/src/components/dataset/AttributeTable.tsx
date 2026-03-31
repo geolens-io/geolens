@@ -94,6 +94,8 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [cursor, setCursor] = useState(0);
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const editingCellRef = useRef<EditingCell | null>(null);
+  editingCellRef.current = editingCell;
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -168,8 +170,9 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       cell: (info) => {
         const rowData = info.row.original;
         const gid = rowData.gid as number;
+        const currentEdit = editingCellRef.current;
         const isEditing =
-          editingCell?.rowGid === gid && editingCell?.column === col.name;
+          currentEdit?.rowGid === gid && currentEdit?.column === col.name;
 
         if (isEditing) {
           return (
@@ -212,7 +215,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         return cellValue;
       },
     }));
-  }, [data?.columns, editingCell, canEdit, handleCellSave, updateFeature.isPending]);
+  }, [data?.columns, canEdit, handleCellSave, updateFeature.isPending]);
 
   const table = useReactTable({
     data: data?.rows ?? [],
