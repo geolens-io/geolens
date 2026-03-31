@@ -99,6 +99,41 @@ export async function downloadExport(
   URL.revokeObjectURL(objectUrl);
 }
 
+export async function downloadCog(id: string, title: string): Promise<void> {
+  const token = useAuthStore.getState().token;
+  const url = `${API_BASE}/datasets/${id}/download/cog`;
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = await response.json();
+      if (body.detail) {
+        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      }
+    } catch {
+      // body not JSON
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = `${title}.tif`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(objectUrl);
+}
+
 export async function updateDataset(
   id: string,
   data: DatasetUpdateRequest,
