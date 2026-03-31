@@ -144,7 +144,18 @@ Verify all services are healthy:
 docker compose ps
 ```
 
-For production deployment, see the [Install Guide](docs/install-guide.md).
+For production deployment, see the [Install Guide](docs/install-guide.md). For upgrading, see the [Upgrade Guide](docs/upgrade-guide.md).
+
+### Demo Mode
+
+Run a pre-populated demo instance with sample Natural Earth data:
+
+```bash
+cp .env.demo .env
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+```
+
+The demo overlay auto-seeds 20 representative datasets, sets them to public visibility, and resets data every 24 hours. See `.env.demo` for configuration.
 
 ### Seed Data
 
@@ -178,6 +189,7 @@ All configuration is managed through environment variables in `.env`. See the [C
 | Guide | Description |
 |-------|-------------|
 | [Install Guide](docs/install-guide.md) | Step-by-step deployment with Docker Compose |
+| [Upgrade Guide](docs/upgrade-guide.md) | Upgrading between versions with rollback procedures |
 | [Configuration Reference](docs/configuration-reference.md) | All environment variables and their defaults |
 | [Admin Guide](docs/admin-guide.md) | User management, datasets, system health |
 | [Cloud Deployment](docs/cloud-deployment.md) | AWS, GCP, and DigitalOcean deployment guides |

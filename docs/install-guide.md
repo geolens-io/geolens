@@ -201,6 +201,31 @@ These volumes persist across `docker compose down` (without `-v`). See [Admin Gu
 
 ## Troubleshooting
 
+### Missing `.env` file
+
+If you see a `ValidationError` with "Field required" errors on startup:
+
+```
+pydantic_core._pydantic_core.ValidationError: 3 validation errors for Settings
+```
+
+You forgot to create the `.env` file. Copy the template:
+
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+### Migration warnings on startup
+
+You may see log messages like:
+
+```
+INFO: Migrations already applied by migrate service (or database not ready yet)
+```
+
+This is expected and harmless. The dedicated `migrate` service runs Alembic migrations before the API starts. The API and worker entrypoints also attempt migrations as a safety net — when the `migrate` service has already applied them, the entrypoint logs this informational message and proceeds normally.
+
 ### Port conflicts
 
 If a port is already in use, change it in `.env`:

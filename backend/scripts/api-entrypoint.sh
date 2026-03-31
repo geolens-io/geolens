@@ -56,16 +56,17 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
 fi
 
 # Run database migrations (idempotent — safe to run on every startup)
+# The dedicated migrate service runs first; this is a safety net.
 echo "Running database migrations..."
+migration_rc=0
 if [ "$(id -u)" -eq 0 ]; then
     setpriv --reuid="${APP_UID}" --regid="${APP_GID}" --clear-groups \
-        uv run alembic upgrade head 2>&1 || {
-        echo "WARNING: Alembic migration failed (database may not be ready yet)" >&2
-    }
+        uv run alembic upgrade head 2>&1 || migration_rc=$?
 else
-    uv run alembic upgrade head 2>&1 || {
-        echo "WARNING: Alembic migration failed (database may not be ready yet)" >&2
-    }
+    uv run alembic upgrade head 2>&1 || migration_rc=$?
+fi
+if [ "${migration_rc}" -ne 0 ]; then
+    echo "WARNING: alembic upgrade head exited with code ${migration_rc} — migrations may already be applied by the migrate service, or a real error occurred. Check migrate service logs if the API fails to start." >&2
 fi
 
 if [ "$#" -eq 0 ]; then
