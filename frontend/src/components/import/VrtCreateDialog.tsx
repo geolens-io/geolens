@@ -13,9 +13,10 @@ interface VrtCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialSourceId?: string;
+  initialSourceIds?: string[];
 }
 
-export function VrtCreateDialog({ open, onOpenChange, initialSourceId }: VrtCreateDialogProps) {
+export function VrtCreateDialog({ open, onOpenChange, initialSourceId, initialSourceIds }: VrtCreateDialogProps) {
   const { t } = useTranslation('import');
   const openCountRef = useRef(0);
 
@@ -36,6 +37,7 @@ export function VrtCreateDialog({ open, onOpenChange, initialSourceId }: VrtCrea
         <VrtCreatorForm
           key={openCountRef.current}
           initialSourceId={initialSourceId}
+          initialSourceIds={initialSourceIds}
           onCancel={() => onOpenChange(false)}
         />
       </DialogContent>
