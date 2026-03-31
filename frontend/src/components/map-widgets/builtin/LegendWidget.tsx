@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import { getRampColors } from '@/lib/color-ramps';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
 import type { WidgetContext } from '../types';
 
@@ -53,7 +54,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                             className={cn('w-3 h-3 rounded-sm shrink-0', !strokeDisabled && 'border')}
                             style={{
                               backgroundColor: cat.color,
-                              ...(!strokeDisabled ? { borderColor: outlineColor ?? 'rgba(0,0,0,0.2)' } : {}),
+                              ...(!strokeDisabled ? { borderColor: outlineColor ?? MAP_COLORS.legendOutline } : {}),
                               ...(opacity < 1 ? { opacity } : {}),
                             }}
                           />
@@ -72,7 +73,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
 
                         // Size legend for radius (proportional circles)
                         if (target === 'radius' && sc.sizes) {
-                          const circleColor = (layer.paint?.['circle-color'] as string | undefined) ?? '#888';
+                          const circleColor = (layer.paint?.['circle-color'] as string | undefined) ?? MAP_COLORS.fallback;
                           return (
                             <ul className="space-y-0.5">
                               {sc.sizes.map((size, i) => {
@@ -93,7 +94,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                                         r={r}
                                         fill={circleColor}
                                         fillOpacity={0.8}
-                                        stroke={outlineColor ?? 'rgba(0,0,0,0.2)'}
+                                        stroke={outlineColor ?? MAP_COLORS.legendOutline}
                                         strokeWidth={strokeDisabled ? 0 : 1}
                                       />
                                     </svg>
@@ -107,7 +108,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
 
                         // Size legend for width (weighted lines)
                         if (target === 'width' && sc.sizes) {
-                          const lineColor = (layer.paint?.['line-color'] as string | undefined) ?? '#888';
+                          const lineColor = (layer.paint?.['line-color'] as string | undefined) ?? MAP_COLORS.fallback;
                           return (
                             <ul className="space-y-0.5">
                               {sc.sizes.map((size, i) => {
@@ -158,7 +159,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                                     className={cn('w-3 h-3 rounded-sm shrink-0', !strokeDisabled && 'border')}
                                     style={{
                                       backgroundColor: color,
-                                      ...(!strokeDisabled ? { borderColor: outlineColor ?? 'rgba(0,0,0,0.2)' } : {}),
+                                      ...(!strokeDisabled ? { borderColor: outlineColor ?? MAP_COLORS.legendOutline } : {}),
                                       ...(opacity < 1 ? { opacity } : {}),
                                     }}
                                   />

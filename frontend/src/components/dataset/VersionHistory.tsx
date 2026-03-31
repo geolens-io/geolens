@@ -4,7 +4,8 @@ import { useDatasetVersions } from '@/hooks/use-dataset';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/format';
-import { GitBranch, Loader2 } from 'lucide-react';
+import { GitBranch } from 'lucide-react';
+import { LoadingState } from '@/components/layout/LoadingState';
 import type { DatasetResponse, DatasetVersionResponse } from '@/types/api';
 import { getGeometryTypeLabel, getSourceFormatLabel } from '@/i18n/labels';
 
@@ -58,9 +59,7 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <LoadingState className="py-6" />
         ) : versions.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('versionHistory.noVersions')}</p>
         ) : (

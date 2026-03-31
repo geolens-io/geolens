@@ -2,7 +2,8 @@ import { useTranslation } from 'react-i18next';
 import { useDatasetHistory } from '@/hooks/use-dataset';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
-import { History, Loader2 } from 'lucide-react';
+import { History } from 'lucide-react';
+import { LoadingState } from '@/components/layout/LoadingState';
 import type { AuditLogResponse } from '@/types/api';
 
 interface ChangeHistoryProps {
@@ -46,9 +47,7 @@ export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="flex items-center justify-center py-6">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
+          <LoadingState className="py-6" />
         ) : entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('changeHistory.noChanges')}</p>
         ) : (

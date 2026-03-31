@@ -67,14 +67,19 @@ export function DrawingToolbar({
 
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+      {/* Screen reader mode announcement */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {t('drawing.modeActive', { defaultValue: '{{mode}} mode active', mode: activeMode })}
+      </span>
       {/* Main toolbar */}
-      <div className="rounded-lg shadow-lg border bg-background p-1 flex items-center gap-1">
+      <div role="toolbar" aria-label={t('drawing.toolbar', { defaultValue: 'Drawing tools' })} className="rounded-lg shadow-lg border bg-background p-1 flex items-center gap-1">
         {/* Select button */}
         <Button
           variant={activeMode === 'select' ? 'default' : 'outline'}
           size="sm"
           title={t('drawing.select')}
           aria-label={t('drawing.select')}
+          aria-pressed={activeMode === 'select'}
           onClick={() => handleModeChange('select')}
         >
           <MousePointer className="h-4 w-4" />
@@ -91,6 +96,7 @@ export function DrawingToolbar({
             size="sm"
             title={t(labelKey)}
             aria-label={t(labelKey)}
+            aria-pressed={activeMode === mode}
             onClick={() => handleModeChange(mode)}
           >
             <Icon className="h-4 w-4" />

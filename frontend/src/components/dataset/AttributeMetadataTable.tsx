@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
+import { LoadingState } from '@/components/layout/LoadingState';
 import { Loader2 } from 'lucide-react';
 import type { AttributeMetadataResponse, AttributeMetadataUpdate } from '@/types/api';
 
@@ -91,13 +91,7 @@ export function AttributeMetadataTable({ datasetId, canEdit }: AttributeMetadata
   );
 
   if (isLoading) {
-    return (
-      <div className="space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full" />
-        ))}
-      </div>
-    );
+    return <LoadingState className="py-6" />;
   }
 
   const currentAttributes = (data?.attributes ?? [])
