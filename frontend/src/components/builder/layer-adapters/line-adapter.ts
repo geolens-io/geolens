@@ -35,7 +35,7 @@ export const lineAdapter: LayerAdapter = {
       });
       finalizeLayer(map, layerId, rawPaint, 'line', opacity ?? 1, filter, hasExpressions);
     } catch (e) {
-      console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
+      if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
     }
   },
 

@@ -103,7 +103,7 @@ export function useMapLayers({
 
         vectorLayersAdded.current = true;
       } catch (e) {
-        console.warn('addVectorLayers: failed to add sources/layers', e);
+        if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
     [tableName, geometryType, tileConfigCdnBaseUrl, tileToken, tileVersion],
@@ -129,7 +129,7 @@ export function useMapLayers({
         });
         rasterLayersAdded.current = true;
       } catch (e) {
-        console.warn('addRasterLayers: failed', e);
+        if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
     [rasterTileUrl],
@@ -190,7 +190,7 @@ export function useMapLayers({
         },
       });
     } catch (e) {
-      console.warn('addOverlaySource: failed to add sources/layers', e);
+      if (import.meta.env.DEV) console.warn('addOverlaySource: failed to add sources/layers', e);
     }
   }, []);
 

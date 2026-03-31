@@ -5,7 +5,7 @@ let cache: WidgetDefinition[] | null = null;
 
 export function registerWidget(def: WidgetDefinition): void {
   if (registry.has(def.id)) {
-    console.warn(`Widget "${def.id}" already registered, overwriting.`);
+    if (import.meta.env.DEV) console.warn(`Widget "${def.id}" already registered, overwriting.`);
   }
   registry.set(def.id, def);
   cache = null;

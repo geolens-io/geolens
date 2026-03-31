@@ -108,7 +108,7 @@ export function BuilderMap({
           return; // Expected no-data tile, suppress
         }
         // Non-tile errors: let MapLibre default handling proceed
-        console.warn('[BuilderMap] Map error:', e.error);
+        if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
       });
 
       onMapRef?.(map);
@@ -347,6 +347,7 @@ export function BuilderMap({
       style={{ width: '100%', height: '100%' }}
       minZoom={1}
       onLoad={handleLoad}
+      aria-label="Map builder"
     >
       <NavigationControl position="top-right" />
       {popupInfo && (
