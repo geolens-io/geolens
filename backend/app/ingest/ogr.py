@@ -342,7 +342,7 @@ async def run_ogr2ogr(
                 "-lco",
                 "GEOMETRY_NAME=geom",
                 "-lco",
-                "SPATIAL_INDEX=GIST",
+                "SPATIAL_INDEX=NONE",
             ]
         )
 
@@ -413,7 +413,7 @@ async def run_ogr2ogr_service(
         "-lco",
         "PRECISION=NO",
         "-lco",
-        "SPATIAL_INDEX=GIST",
+        "SPATIAL_INDEX=NONE",
         "-t_srs",
         "EPSG:4326",
         "--config",
