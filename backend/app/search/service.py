@@ -274,11 +274,8 @@ async def get_facet_counts(
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
-        envelope = func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)
-        spatial_fn = (
-            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
-        )
-        stmt = stmt.where(spatial_fn(Record.spatial_extent, envelope))
+        from app.utils.geo import make_bbox_filter
+        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
 
     # Faceted filters (excluding record_type)
     if keywords:
@@ -437,11 +434,8 @@ async def get_facet_counts(
             )
             fstmt = fstmt.where(spatial_fn(Record.spatial_extent, geom))
         elif bbox and len(bbox) == 4:
-            envelope = func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)
-            spatial_fn = (
-                func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
-            )
-            fstmt = fstmt.where(spatial_fn(Record.spatial_extent, envelope))
+            from app.utils.geo import make_bbox_filter
+            fstmt = fstmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
         if keywords:
             _RKF = aliased(RecordKeyword)
             for kw in keywords:
@@ -764,11 +758,8 @@ async def search_datasets(
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif bbox and len(bbox) == 4:
-        envelope = func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)
-        spatial_fn = (
-            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
-        )
-        stmt = stmt.where(spatial_fn(Record.spatial_extent, envelope))
+        from app.utils.geo import make_bbox_filter
+        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate))
 
     # 4. Faceted filters
     if keywords:
@@ -1193,6 +1184,7 @@ def dataset_to_ogc_record(
             "license": record.license,
             "source_organization": record.source_organization,
             "quality_detail": dataset.quality_detail,
+            "quality_statement": dataset.quality_statement,
             "record_status": record.record_status,
             "has_quicklook": dataset.quicklook_256_uri is not None,
             # Enriched OGC properties (Phase 10-02)

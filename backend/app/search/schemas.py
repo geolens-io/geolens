@@ -57,6 +57,7 @@ class OGCRecordProperties(BaseModel):
     license: str | None = None
     source_organization: str | None = None
     quality_detail: dict | None = None
+    quality_statement: str | None = None
     formats: list[str] | None = None
     language: str | None = None
     themes: list[dict] | None = None

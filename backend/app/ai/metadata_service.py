@@ -303,7 +303,13 @@ SUMMARY_SYSTEM = (
     "describe what the dataset contains, its geographic scope (use the bounding box "
     "to describe the coverage area in human terms, e.g., 'continental United States'), "
     "temporal scope if apparent, intended audience, and potential uses. "
-    "Write 2-4 sentences."
+    "Write 2-4 sentences.\n\n"
+    "Example:\n"
+    "Input: US Census Blocks, 2020 decennial census, ~8M blocks, demographic attributes.\n"
+    "Output: Tabulated demographic data for the 2020 U.S. Decennial Census at the census "
+    "block level, covering all 50 states plus territories. Contains approximately 8 million "
+    "geographic features with attributes on population, age, income, and housing. Suitable "
+    "for demographic analysis, redistricting studies, and community planning."
 )
 
 KEYWORD_SYSTEM = (
@@ -314,7 +320,15 @@ KEYWORD_SYSTEM = (
     "applicable (e.g., transportation, boundaries, elevation, environment, "
     "inlandWaters, structure, planningCadastre, society, biota, climatologyMeteorologyAtmosphere). "
     "Also prefer keywords from the existing catalog vocabulary when appropriate. "
-    "Return lowercase keywords."
+    "Return lowercase keywords.\n\n"
+    "Example:\n"
+    "Input: National Parks polygons, US extent, established dates, acreage.\n"
+    "Output: [{\"keyword\": \"environment\", \"keyword_type\": \"theme\"}, "
+    "{\"keyword\": \"planningCadastre\", \"keyword_type\": \"theme\"}, "
+    "{\"keyword\": \"protected areas\", \"keyword_type\": \"theme\"}, "
+    "{\"keyword\": \"national parks\", \"keyword_type\": \"theme\"}, "
+    "{\"keyword\": \"united states\", \"keyword_type\": \"place\"}, "
+    "{\"keyword\": \"2024\", \"keyword_type\": \"temporal\"}]"
 )
 
 LINEAGE_SYSTEM = (
@@ -325,7 +339,12 @@ LINEAGE_SYSTEM = (
     "if the source format differs from PostGIS, note the format conversion. "
     "Do NOT speculate about cleaning, filtering, validation, or other processing steps "
     "unless explicitly stated in the source metadata. "
-    "Write 1-3 sentences."
+    "Write 1-3 sentences.\n\n"
+    "Example:\n"
+    "Input: Source format: Shapefile, Original SRID: 2263, Current SRID: 4326.\n"
+    "Output: Data originally provided as ESRI Shapefile in NAD83 / New York Long Island "
+    "(EPSG:2263). Reprojected to WGS 84 (EPSG:4326) and converted to PostGIS format "
+    "during ingestion."
 )
 
 QUALITY_STATEMENT_SYSTEM = (
@@ -337,7 +356,13 @@ QUALITY_STATEMENT_SYSTEM = (
     "Address: completeness (feature count, attribute population), logical "
     "consistency (if geometry validity data is provided), and coordinate "
     "reference system. Do NOT claim specific accuracy levels without evidence. "
-    "Write 2-4 sentences."
+    "Write 2-4 sentences.\n\n"
+    "Example:\n"
+    "Input: 12,500 features, 98.2% geometry validity, CRS: EPSG:4326, "
+    "attribute completeness: 94%.\n"
+    "Output: Dataset contains 12,500 features with 98.2% valid geometries and 94% "
+    "attribute completeness. Data is stored in WGS 84 (EPSG:4326). A small number "
+    "of geometries (1.8%) have validity issues that may affect spatial operations."
 )
 
 

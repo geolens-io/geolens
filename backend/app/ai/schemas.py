@@ -1,5 +1,7 @@
 """Schemas for AI map generation."""
 
+import re
+
 import structlog
 from pydantic import BaseModel, Field
 
@@ -45,6 +47,64 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
 }
 
 
+_HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$')
+_RGBA_RE = re.compile(r'^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[\d.]+\s*)?\)$')
+
+
+def _is_valid_color(value: object) -> bool:
+    """Check if a value is a valid MapLibre color (hex or rgba)."""
+    if isinstance(value, list):
+        return True  # expression — validated separately
+    if not isinstance(value, str):
+        return False
+    return bool(_HEX_COLOR_RE.match(value) or _RGBA_RE.match(value))
+
+
+_PAINT_BOUNDS: dict[str, tuple[float, float]] = {
+    "fill-opacity": (0.0, 1.0),
+    "line-opacity": (0.0, 1.0),
+    "line-width": (0.0, 50.0),
+    "line-gap-width": (0.0, 50.0),
+    "line-blur": (0.0, 50.0),
+    "line-offset": (-50.0, 50.0),
+    "circle-opacity": (0.0, 1.0),
+    "circle-radius": (0.0, 200.0),
+    "circle-blur": (0.0, 50.0),
+    "circle-stroke-opacity": (0.0, 1.0),
+    "circle-stroke-width": (0.0, 20.0),
+}
+
+_COLOR_PROPS = {
+    "fill-color", "_outline-color",
+    "line-color",
+    "circle-color", "circle-stroke-color",
+}
+
+
+def _validate_expression(expr: list) -> bool:
+    """Lightweight MapLibre expression syntax check."""
+    if not isinstance(expr, list) or len(expr) < 2:
+        return False
+    op = expr[0]
+    if op == "get" and len(expr) == 2 and isinstance(expr[1], str):
+        return True
+    if op == "match" and len(expr) >= 4:
+        return True  # ["match", getter, val1, out1, ..., fallback]
+    if op == "step" and len(expr) >= 4:
+        return True  # ["step", getter, default, stop1, out1, ...]
+    if op == "interpolate" and len(expr) >= 5:
+        return True  # ["interpolate", method, getter, stop1, out1, ...]
+    if op == "case" and len(expr) >= 3:
+        return True
+    if op in ("literal", "to-string", "to-number", "to-boolean"):
+        return True
+    if op in ("all", "any", "!", "==", "!=", ">", "<", ">=", "<=", "in", "!in", "has", "!has"):
+        return True
+    if op in ("concat", "downcase", "upcase", "coalesce"):
+        return True
+    return False
+
+
 def validate_paint_for_geometry(
     paint: dict | None, geometry_type: str | None
 ) -> dict | None:
@@ -67,15 +127,39 @@ def validate_paint_for_geometry(
     valid_props = _VALID_PAINT_PROPS[layer_type]
     cleaned = {}
     for key, value in paint.items():
-        if key in valid_props:
-            cleaned[key] = value
-        else:
+        if key not in valid_props:
             logger.warning(
                 "Removed invalid paint property for geometry type",
                 property=key,
                 geometry_type=geometry_type,
                 layer_type=layer_type,
             )
+            continue
+
+        # Validate color properties
+        if key in _COLOR_PROPS and not _is_valid_color(value):
+            logger.warning(
+                "Invalid color value, removing property",
+                property=key,
+                value=str(value)[:50],
+            )
+            continue
+
+        # Clamp numeric properties to valid bounds
+        if key in _PAINT_BOUNDS and isinstance(value, (int, float)):
+            lo, hi = _PAINT_BOUNDS[key]
+            value = max(lo, min(hi, float(value)))
+
+        # Validate expression syntax for color expressions
+        if key in _COLOR_PROPS and isinstance(value, list):
+            if not _validate_expression(value):
+                logger.warning(
+                    "Invalid MapLibre expression, removing property",
+                    property=key,
+                )
+                continue
+
+        cleaned[key] = value
     return cleaned or None
 
 

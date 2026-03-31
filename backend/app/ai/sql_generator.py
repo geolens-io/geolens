@@ -48,7 +48,8 @@ def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
 
         # Add geom_4326 column if the layer has geometry
         if layer.geometry_type:
-            col_defs.append("  geom_4326 geometry")
+            geom_type_spec = layer.geometry_type.replace("Multi", "Multi") if layer.geometry_type else "Geometry"
+            col_defs.append(f"  geom_4326 geometry({geom_type_spec}, 4326)")
 
         table_name = layer.dataset_table_name
         if col_defs:
@@ -126,6 +127,9 @@ ST_Union(geomA, geomB) -> geometry        -- Merge geometries
 ST_Centroid(geom) -> geometry             -- Center point of geometry
 ST_MakePoint(lon, lat) -> geometry        -- Create a point from coordinates
 ST_SetSRID(geom, srid) -> geometry        -- Set SRID on geometry
+ST_Collect(geom) -> geometry             -- Aggregate geometries into a collection
+ST_AsGeoJSON(geom) -> text               -- Convert geometry to GeoJSON string
+ST_Transform(geom, srid) -> geometry     -- Reproject geometry to target SRID
 
 ## IMPORTANT: Geography Casts for Meter-Based Results
 
@@ -145,6 +149,32 @@ Without ::geography, distance/buffer/area use DEGREES (not meters)!
 - Meters to feet:                ST_Distance(...::geography, ...::geography) * 3.28084
 
 Always convert to human-friendly units in the SQL. Default to acres for area and miles for distance in the US.
+
+## Text Search
+
+For case-insensitive matching: column ILIKE '%pattern%'
+For fuzzy matching (requires pg_trgm): similarity(column, 'text') returns 0.0-1.0
+For pattern matching: column ~ 'regex_pattern' (case-sensitive), column ~* 'regex_pattern' (case-insensitive)
+
+## NULL Handling
+
+- Use IS NULL or IS NOT NULL (never = NULL or != NULL)
+- COALESCE(column, default_value) to replace NULLs
+- COUNT(*) includes NULLs; COUNT(column) does not
+- NULLs sort last by default; use NULLS FIRST/LAST to control
+
+## Aggregation & Grouping
+
+All non-aggregated columns MUST appear in GROUP BY.
+Common aggregates: COUNT(*), SUM(col), AVG(col), MIN(col), MAX(col), ARRAY_AGG(col)
+For spatial aggregation: ST_Collect(geom_4326) to merge geometries, ST_Union(geom_4326) to dissolve boundaries.
+
+## Date & Time Functions
+
+- EXTRACT(YEAR FROM date_col), EXTRACT(MONTH FROM date_col)
+- DATE_TRUNC('month', timestamp_col) for grouping by time period
+- AGE(date1, date2) for intervals
+- NOW() for current timestamp
 
 ## Example Queries
 
@@ -187,6 +217,25 @@ WHERE ST_DWithin(p.geom_4326::geography, ST_SetSRID(ST_MakePoint(-74.006, 40.712
 ORDER BY distance_miles
 LIMIT 20;
 
+-- Aggregation with GROUP BY:
+SELECT p.zone_type, COUNT(*) AS count, AVG(ST_Area(p.geom_4326::geography) / 4046.8564224) AS avg_acres
+FROM data.parcels p
+GROUP BY p.zone_type
+ORDER BY count DESC;
+
+-- Case-insensitive text search:
+SELECT name, population
+FROM data.cities c
+WHERE c.name ILIKE '%spring%'
+ORDER BY population DESC
+LIMIT 20;
+
+-- Common Mistakes to Avoid:
+-- WRONG: ST_Distance(a.geom_4326, b.geom_4326) → returns DEGREES, not meters
+-- CORRECT: ST_Distance(a.geom_4326::geography, b.geom_4326::geography) → meters
+-- WRONG: WHERE column = NULL → always false; use WHERE column IS NULL
+-- WRONG: SELECT name, COUNT(*) FROM data.t → missing GROUP BY name
+
 ## Constraints
 
 - Generate a single SELECT statement only. No INSERT, UPDATE, DELETE, CREATE, DROP, or ALTER.
@@ -201,6 +250,8 @@ LIMIT 20;
 - Always include LIMIT 1000 unless the query is an aggregation (GROUP BY, COUNT, SUM, etc.).
 - Use ONLY the tables and columns shown in the schema above. Do not invent names.
 - Use ONLY the PostGIS functions listed above. Do not use functions not in this reference.
+- Queries are limited to 30 seconds. Prefer indexed operations (ST_DWithin) over unindexed scans (ST_Distance < X).
+- You may use CTEs (WITH clauses) and subqueries. All referenced tables must be from the schema above.
 - If the question cannot be answered with the available schema, respond with: -- ERROR: Cannot answer this question with the available data.
 - If the question asks to modify, delete, or insert data, respond with: -- ERROR: Only SELECT queries are supported.
 

@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 DCAT_CONTEXT = {
     "dcat": "http://www.w3.org/ns/dcat#",
     "dcterms": "http://purl.org/dc/terms/",
+    "dqv": "http://www.w3.org/ns/dqv#",
     "foaf": "http://xmlns.com/foaf/0.1/",
+    "oa": "http://www.w3.org/ns/oa#",
     "skos": "http://www.w3.org/2004/02/skos/core#",
     "vcard": "http://www.w3.org/2006/vcard/ns#",
     "xsd": "http://www.w3.org/2001/XMLSchema#",
@@ -73,6 +75,12 @@ def record_to_dcat(
 
     if record.access_constraints is not None:
         result["dcterms:accessRights"] = record.access_constraints
+
+    if dataset.quality_statement is not None:
+        result["dqv:hasQualityAnnotation"] = {
+            "@type": "dqv:QualityAnnotation",
+            "oa:bodyValue": dataset.quality_statement,
+        }
 
     if record.contacts:
         result["dcat:contactPoint"] = [_contact_to_dcat(c) for c in record.contacts]
@@ -162,12 +170,15 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
     Returns:
         A DCAT Catalog dict with nested dataset entries (without individual @context).
     """
+    from datetime import datetime, timezone
+
     return {
         "@context": DCAT_CONTEXT,
         "@type": "dcat:Catalog",
         "@id": f"{base_url}/datasets/dcat",
         "dcterms:title": "GeoLens Dataset Catalog",
         "dcterms:description": "Geospatial dataset catalog managed by GeoLens",
+        "dcterms:issued": datetime.now(timezone.utc).isoformat(),
         "dcterms:language": "en",
         "dcterms:publisher": {
             "@type": "foaf:Agent",
