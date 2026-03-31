@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DatasetResponse } from '@/types/api';
 import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
@@ -14,7 +15,6 @@ export interface DetailPanelProps {
   dataset: DatasetResponse;
   canEdit: boolean;
   capabilities: DatasetEditCapabilities;
-  datasetId: string;
   activeTab: string;
   onTabChange: (tab: string) => void;
   resolveDraftValue: (field: PendingDraftField) => string;
@@ -31,7 +31,6 @@ export function DetailPanel(props: DetailPanelProps) {
     dataset,
     canEdit,
     capabilities,
-    datasetId,
     activeTab,
     onTabChange,
     resolveDraftValue,
@@ -53,7 +52,7 @@ export function DetailPanel(props: DetailPanelProps) {
   const showSources = isVrt;
   const showMembers = isCollection;
 
-  const draftValues = {
+  const draftValues = useMemo(() => ({
     lineage_summary: resolveDraftValue('lineage_summary'),
     source_url: resolveDraftValue('source_url'),
     source_organization: resolveDraftValue('source_organization'),
@@ -62,7 +61,7 @@ export function DetailPanel(props: DetailPanelProps) {
     access_constraints: resolveDraftValue('access_constraints'),
     sensitivity_classification: resolveDraftValue('sensitivity_classification'),
     quality_statement: resolveDraftValue('quality_statement'),
-  };
+  }), [resolveDraftValue]);
 
   return (
     <Tabs value={activeTab} onValueChange={onTabChange}>
@@ -84,7 +83,7 @@ export function DetailPanel(props: DetailPanelProps) {
           summaryValue={resolveDraftValue('summary')}
           onSummaryDraftSave={(value) => stagePendingDraft('summary', value)}
           onSummaryDirtyChange={(isDirty) => handleDraftDirtyChange('summary', isDirty)}
-          datasetId={datasetId}
+          datasetId={dataset.id}
           onNavigateToValidationField={onNavigateToValidationField}
         />
       </TabsContent>
@@ -104,7 +103,7 @@ export function DetailPanel(props: DetailPanelProps) {
       {showData && (
         <TabsContent value="data" className="space-y-6">
           <DataTab
-            datasetId={datasetId}
+            datasetId={dataset.id}
             canEdit={canEdit}
             expanded={isTableExpanded}
             onToggleExpand={onToggleTableExpand}
@@ -115,7 +114,7 @@ export function DetailPanel(props: DetailPanelProps) {
       {showStructure && (
         <TabsContent value="structure" className="space-y-6">
           <StructureTab
-            datasetId={datasetId}
+            datasetId={dataset.id}
             canEdit={canEdit}
             columnInfo={dataset.column_info}
             capability={capabilities.theme_category}
@@ -127,7 +126,7 @@ export function DetailPanel(props: DetailPanelProps) {
 
       {showSources && (
         <TabsContent value="sources" className="space-y-6">
-          <SourcesTab dataset={dataset} canEdit={canEdit} datasetId={datasetId} />
+          <SourcesTab dataset={dataset} canEdit={canEdit} datasetId={dataset.id} />
         </TabsContent>
       )}
 
@@ -140,7 +139,7 @@ export function DetailPanel(props: DetailPanelProps) {
       )}
 
       <TabsContent value="access" className="space-y-6">
-        <AccessTab dataset={dataset} datasetId={datasetId} />
+        <AccessTab dataset={dataset} datasetId={dataset.id} />
       </TabsContent>
     </Tabs>
   );

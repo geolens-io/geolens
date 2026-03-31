@@ -173,7 +173,8 @@
     "filter": "Filtern...",
     "noResults": "Keine passenden Zeilen gefunden.",
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
-    "rowsPerPage": "Zeilen pro Seite"
+    "rowsPerPage": "Zeilen pro Seite",
+    "columns": "Spalten"
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",

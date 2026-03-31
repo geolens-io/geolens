@@ -572,7 +572,6 @@ export function DatasetPage() {
         dataset={dataset}
         canEdit={isEditor}
         capabilities={capabilities}
-        datasetId={id!}
         activeTab={activeTab}
         onTabChange={handleTabChange}
         resolveDraftValue={resolveDraftValue}
@@ -590,7 +589,7 @@ export function DatasetPage() {
 
       <PendingEditsBar
         pendingCount={metadataPendingCount}
-        onSaveAll={() => { savePendingDrafts(); }}
+        onSaveAll={savePendingDrafts}
         onCancelAll={discardPendingDrafts}
         isSaving={isSavingPendingEdits}
       />

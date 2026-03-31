@@ -173,7 +173,8 @@
     "filter": "Filtrer...",
     "noResults": "Aucune ligne correspondante trouvée.",
     "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
-    "rowsPerPage": "Lignes par page"
+    "rowsPerPage": "Lignes par page",
+    "columns": "Colonnes"
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",

@@ -173,7 +173,8 @@
     "editFailed": "Failed to update cell",
     "noResults": "No matching rows found.",
     "showingExact": "Showing {{start}}-{{end}} of {{total}} rows",
-    "rowsPerPage": "Rows per page"
+    "rowsPerPage": "Rows per page",
+    "columns": "Columns"
   },
   "changeHistory": {
     "title": "Change History ({{count}})",
