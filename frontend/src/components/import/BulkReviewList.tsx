@@ -20,6 +20,45 @@ function isFilePreview(
   return 'layers' in data || 'layer_name' in data;
 }
 
+function getLayerName(entry: FileEntry): string | undefined {
+  if (!entry.previewData || !isFilePreview(entry.previewData)) return undefined;
+  const { layers, layer_name } = entry.previewData;
+  return layers && layers.length > 1 ? layer_name : undefined;
+}
+
+function ReviewFormBlock({
+  entry,
+  isCommitting,
+  onCommitSingle,
+}: {
+  entry: FileEntry;
+  isCommitting: boolean;
+  onCommitSingle: (entryId: string, request: CommitImportRequest) => void;
+}) {
+  const preview = entry.previewData!;
+  const raster = isRasterPreview(preview);
+  const file = isFilePreview(preview);
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <ImportPreview preview={preview} />
+      <ImportMetadataForm
+        defaultName={preview.source_filename ?? entry.fileName}
+        detectedCrs={raster ? preview.crs_epsg : (preview as FilePreviewResponse).crs}
+        onCommit={(req) => {
+          const layerName = getLayerName(entry);
+          onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
+        }}
+        isCommitting={isCommitting}
+        isRaster={raster}
+        previewData={raster ? preview : undefined}
+        previewColumns={file ? (preview as FilePreviewResponse).columns : undefined}
+        detectedGeometryColumns={file ? (preview as FilePreviewResponse).detected_geometry_columns : undefined}
+      />
+    </div>
+  );
+}
+
 interface BulkReviewListProps {
   entries: FileEntry[];
   onCommitSingle: (entryId: string, request: CommitImportRequest) => void;
@@ -120,33 +159,11 @@ export function BulkReviewList({
 
           {(entry.status === 'preview' || entry.status === 'committing') &&
             entry.previewData && (
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <ImportPreview preview={entry.previewData} />
-                <ImportMetadataForm
-                  defaultName={
-                    entry.previewData.source_filename ?? entry.fileName
-                  }
-                  detectedCrs={
-                    isRasterPreview(entry.previewData)
-                      ? entry.previewData.crs_epsg
-                      : entry.previewData.crs
-                  }
-                  onCommit={(req) => {
-                    const hasMultiSheet = isFilePreview(entry.previewData!) && entry.previewData!.layers && entry.previewData!.layers.length > 1;
-                    const layerName = hasMultiSheet && isFilePreview(entry.previewData!) ? (entry.previewData as FilePreviewResponse).layer_name : undefined;
-                    onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
-                  }}
-                  isCommitting={entry.status === 'committing'}
-                  isRaster={isRasterPreview(entry.previewData)}
-                  previewData={
-                    isRasterPreview(entry.previewData)
-                      ? entry.previewData
-                      : undefined
-                  }
-                  previewColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).columns : undefined}
-                  detectedGeometryColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).detected_geometry_columns : undefined}
-                />
-              </div>
+              <ReviewFormBlock
+                entry={entry}
+                isCommitting={entry.status === 'committing'}
+                onCommitSingle={onCommitSingle}
+              />
             )}
 
           {entry.status === 'commit-failed' && entry.previewData && (
@@ -154,33 +171,11 @@ export function BulkReviewList({
               {entry.error && (
                 <p className="text-sm text-destructive">{entry.error}</p>
               )}
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <ImportPreview preview={entry.previewData} />
-                <ImportMetadataForm
-                  defaultName={
-                    entry.previewData.source_filename ?? entry.fileName
-                  }
-                  detectedCrs={
-                    isRasterPreview(entry.previewData)
-                      ? entry.previewData.crs_epsg
-                      : entry.previewData.crs
-                  }
-                  onCommit={(req) => {
-                    const hasMultiSheet = isFilePreview(entry.previewData!) && entry.previewData!.layers && entry.previewData!.layers.length > 1;
-                    const layerName = hasMultiSheet && isFilePreview(entry.previewData!) ? (entry.previewData as FilePreviewResponse).layer_name : undefined;
-                    onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req);
-                  }}
-                  isCommitting={false}
-                  isRaster={isRasterPreview(entry.previewData)}
-                  previewData={
-                    isRasterPreview(entry.previewData)
-                      ? entry.previewData
-                      : undefined
-                  }
-                  previewColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).columns : undefined}
-                  detectedGeometryColumns={isFilePreview(entry.previewData) ? (entry.previewData as FilePreviewResponse).detected_geometry_columns : undefined}
-                />
-              </div>
+              <ReviewFormBlock
+                entry={entry}
+                isCommitting={false}
+                onCommitSingle={onCommitSingle}
+              />
             </div>
           )}
 
