@@ -5,8 +5,6 @@
   "descriptionLabel": "Map description",
   "loadingMap": "Loading map...",
   "backToMaps": "Back to Maps",
-  "unsaved": "Unsaved",
-  "downloadPng": "Download PNG",
   "aiChat": "AI Chat",
   "layers": {
     "title": "Layers",
@@ -214,6 +212,7 @@
     "updateFailed": "Failed to save changes"
   },
   "chat": {
+    "experimental": "Experimental",
     "emptyState": "Describe changes to your map using natural language.",
     "placeholder": "Describe a map change...",
     "thinking": "Thinking...",

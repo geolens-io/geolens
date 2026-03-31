@@ -5,8 +5,6 @@
   "descriptionLabel": "Description de la carte",
   "loadingMap": "Chargement de la carte...",
   "backToMaps": "Retour aux cartes",
-  "unsaved": "Non enregistré",
-  "downloadPng": "Télécharger en PNG",
   "aiChat": "Chat IA",
   "layers": {
     "title": "Couches",
@@ -214,6 +212,7 @@
     "updateFailed": "Échec de la sauvegarde"
   },
   "chat": {
+    "experimental": "Expérimental",
     "emptyState": "Décrivez les modifications à apporter à votre carte en langage naturel.",
     "placeholder": "Décrivez une modification de carte...",
     "thinking": "Réflexion...",

@@ -105,6 +105,14 @@ export function resolveAdapterType(
   return getLayerType(geometryType);
 }
 
+/** Sync visibility for a single layer (used by circle, line, heatmap adapters). */
+export function syncSingleLayerVisibility(map: MaplibreMap, layerId: string, visible: boolean): void {
+  const vis = visible ? 'visible' : 'none';
+  if (map.getLayer(layerId)) {
+    map.setLayoutProperty(layerId, 'visibility', vis);
+  }
+}
+
 /** Check if two paint values differ. Uses strict equality for scalars, JSON.stringify for arrays/objects. */
 export function paintValueChanged(current: unknown, incoming: unknown): boolean {
   if (current === incoming) return false;

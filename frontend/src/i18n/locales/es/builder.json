@@ -5,8 +5,6 @@
   "descriptionLabel": "Descripción del mapa",
   "loadingMap": "Cargando mapa...",
   "backToMaps": "Volver a mapas",
-  "unsaved": "Sin guardar",
-  "downloadPng": "Descargar PNG",
   "aiChat": "Chat de IA",
   "layers": {
     "title": "Capas",
@@ -214,6 +212,7 @@
     "updateFailed": "No se pudieron guardar los cambios"
   },
   "chat": {
+    "experimental": "Experimental",
     "emptyState": "Describa cambios en su mapa usando lenguaje natural.",
     "placeholder": "Describa un cambio en el mapa...",
     "thinking": "Pensando...",

@@ -66,110 +66,13 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
 
                   {layer.style_config.mode === 'graduated' &&
                     layer.style_config.breaks && (
-                      (() => {
-                        const sc = layer.style_config;
-                        const breaks = sc.breaks!;
-                        const target = sc.target;
-
-                        // Size legend for radius (proportional circles)
-                        if (target === 'radius' && sc.sizes) {
-                          const circleColor = (layer.paint?.['circle-color'] as string | undefined) ?? MAP_COLORS.fallback;
-                          return (
-                            <ul className="space-y-0.5">
-                              {sc.sizes.map((size, i) => {
-                                const label = breakLabel(i, breaks);
-                                const r = Math.min(size, 12);
-                                return (
-                                  <li key={i} className="flex items-center gap-1.5">
-                                    <svg
-                                      viewBox="0 0 24 24"
-                                      width="24"
-                                      height="24"
-                                      className="shrink-0"
-                                      style={{ opacity: opacity < 1 ? opacity : undefined }}
-                                    >
-                                      <circle
-                                        cx="12"
-                                        cy="12"
-                                        r={r}
-                                        fill={circleColor}
-                                        fillOpacity={0.8}
-                                        stroke={outlineColor ?? MAP_COLORS.legendOutline}
-                                        strokeWidth={strokeDisabled ? 0 : 1}
-                                      />
-                                    </svg>
-                                    <span className="text-muted-foreground truncate">{label}</span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          );
-                        }
-
-                        // Size legend for width (weighted lines)
-                        if (target === 'width' && sc.sizes) {
-                          const lineColor = (layer.paint?.['line-color'] as string | undefined) ?? MAP_COLORS.fallback;
-                          return (
-                            <ul className="space-y-0.5">
-                              {sc.sizes.map((size, i) => {
-                                const label = breakLabel(i, breaks);
-                                const sw = Math.min(size, 8);
-                                return (
-                                  <li key={i} className="flex items-center gap-1.5">
-                                    <svg
-                                      width="24"
-                                      height="16"
-                                      className="shrink-0"
-                                      style={{ opacity: opacity < 1 ? opacity : undefined }}
-                                    >
-                                      <line
-                                        x1="0"
-                                        y1="8"
-                                        x2="24"
-                                        y2="8"
-                                        stroke={lineColor}
-                                        strokeWidth={sw}
-                                        strokeLinecap="round"
-                                      />
-                                    </svg>
-                                    <span className="text-muted-foreground truncate">{label}</span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          );
-                        }
-
-                        // Default: color legend (target === 'color' or no target)
-                        if (!sc.colors) return null;
-                        return (
-                          <ul className="space-y-0.5">
-                            {sc.colors.map((color, i) => {
-                              let label: string;
-                              if (i === 0) {
-                                label = `< ${breaks[0]}`;
-                              } else if (i === breaks.length) {
-                                label = `>= ${breaks[breaks.length - 1]}`;
-                              } else {
-                                label = `${breaks[i - 1]} - ${breaks[i]}`;
-                              }
-                              return (
-                                <li key={i} className="flex items-center gap-1.5">
-                                  <div
-                                    className={cn('w-3 h-3 rounded-sm shrink-0', !strokeDisabled && 'border')}
-                                    style={{
-                                      backgroundColor: color,
-                                      ...(!strokeDisabled ? { borderColor: outlineColor ?? MAP_COLORS.legendOutline } : {}),
-                                      ...(opacity < 1 ? { opacity } : {}),
-                                    }}
-                                  />
-                                  <span className="text-muted-foreground truncate">{label}</span>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        );
-                      })()
+                      <GraduatedLegend
+                        styleConfig={layer.style_config}
+                        paint={layer.paint ?? {}}
+                        opacity={opacity}
+                        outlineColor={outlineColor}
+                        strokeDisabled={strokeDisabled}
+                      />
                     )}
                 </>
               ) : (
@@ -201,6 +104,73 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
         );
       })}
     </div>
+  );
+}
+
+function GraduatedLegend({
+  styleConfig,
+  paint,
+  opacity,
+  outlineColor,
+  strokeDisabled,
+}: {
+  styleConfig: { breaks?: number[]; target?: string; sizes?: number[]; colors?: string[] };
+  paint: Record<string, unknown>;
+  opacity: number;
+  outlineColor?: string;
+  strokeDisabled: boolean;
+}) {
+  const breaks = styleConfig.breaks!;
+
+  if (styleConfig.target === 'radius' && styleConfig.sizes) {
+    const circleColor = (paint['circle-color'] as string | undefined) ?? MAP_COLORS.fallback;
+    return (
+      <ul className="space-y-0.5">
+        {styleConfig.sizes.map((size, i) => (
+          <li key={i} className="flex items-center gap-1.5">
+            <svg viewBox="0 0 24 24" width="24" height="24" className="shrink-0" style={{ opacity: opacity < 1 ? opacity : undefined }}>
+              <circle cx="12" cy="12" r={Math.min(size, 12)} fill={circleColor} fillOpacity={0.8} stroke={outlineColor ?? MAP_COLORS.legendOutline} strokeWidth={strokeDisabled ? 0 : 1} />
+            </svg>
+            <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (styleConfig.target === 'width' && styleConfig.sizes) {
+    const lineColor = (paint['line-color'] as string | undefined) ?? MAP_COLORS.fallback;
+    return (
+      <ul className="space-y-0.5">
+        {styleConfig.sizes.map((size, i) => (
+          <li key={i} className="flex items-center gap-1.5">
+            <svg width="24" height="16" className="shrink-0" style={{ opacity: opacity < 1 ? opacity : undefined }}>
+              <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
+            </svg>
+            <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (!styleConfig.colors) return null;
+  return (
+    <ul className="space-y-0.5">
+      {styleConfig.colors.map((color, i) => (
+        <li key={i} className="flex items-center gap-1.5">
+          <div
+            className={cn('w-3 h-3 rounded-sm shrink-0', !strokeDisabled && 'border')}
+            style={{
+              backgroundColor: color,
+              ...(!strokeDisabled ? { borderColor: outlineColor ?? MAP_COLORS.legendOutline } : {}),
+              ...(opacity < 1 ? { opacity } : {}),
+            }}
+          />
+          <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

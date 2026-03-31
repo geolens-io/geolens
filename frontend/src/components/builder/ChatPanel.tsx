@@ -9,7 +9,7 @@ import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, Sty
 import { ChatInput } from './ChatInput';
 import { getSmartSuggestions } from './chat-suggestions';
 
-const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
 interface ChatMessage {
   id: string;

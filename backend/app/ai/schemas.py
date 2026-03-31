@@ -222,6 +222,15 @@ class ChatHistoryMessage(BaseModel):
     content: str
 
 
+def history_to_dicts(
+    history: list[ChatHistoryMessage] | None,
+) -> list[dict] | None:
+    """Convert ChatHistoryMessage list to plain dicts for the LLM loop."""
+    if not history:
+        return None
+    return [{"role": h.role, "content": h.content} for h in history]
+
+
 class ChatMapLayer(BaseModel):
     """Layer state sent from frontend for chat context."""
 

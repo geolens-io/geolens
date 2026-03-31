@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { CUSTOM_PAINT_PROPS, paintValueChanged } from './shared';
+import { CUSTOM_PAINT_PROPS, paintValueChanged, syncSingleLayerVisibility } from './shared';
 import { getRampColors } from '@/lib/color-ramps';
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
@@ -95,11 +95,7 @@ export const heatmapAdapter: LayerAdapter = {
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible } = input;
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayer(layerId)) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
+    syncSingleLayerVisibility(map, input.layerId, input.visible);
   },
 
   getLayerIds(layerId: string): string[] {

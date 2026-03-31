@@ -1,5 +1,6 @@
 """Shared embedding helpers used across AI, search, admin, and ingest modules."""
 
+import time
 import uuid
 
 import structlog
@@ -16,13 +17,27 @@ logger = structlog.stdlib.get_logger(__name__)
 # Module-level client cache keyed by base_url (matches llm_loop.py pattern)
 _cached_openai_clients: dict[str, OpenAI] = {}
 
+# Short-lived cache for has_embeddings check (avoids DB round-trip per search)
+_has_embeddings_cache: tuple[bool, float] | None = None
+_HAS_EMBEDDINGS_TTL = 30.0  # seconds
+
 
 async def has_embeddings(session: AsyncSession) -> bool:
-    """Check whether any rows exist in catalog.record_embeddings."""
+    """Check whether any rows exist in catalog.record_embeddings.
+
+    Result is cached in-memory for 30 seconds to avoid a DB round-trip
+    on every semantic search call.
+    """
+    global _has_embeddings_cache
+    now = time.monotonic()
+    if _has_embeddings_cache and (now - _has_embeddings_cache[1]) < _HAS_EMBEDDINGS_TTL:
+        return _has_embeddings_cache[0]
     result = await session.execute(
         text("SELECT EXISTS(SELECT 1 FROM catalog.record_embeddings)")
     )
-    return result.scalar_one()
+    value = result.scalar_one()
+    _has_embeddings_cache = (value, now)
+    return value
 
 
 async def get_nearest_record_ids(
