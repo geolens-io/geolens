@@ -54,6 +54,11 @@ from app.ingest.tasks import (
     regenerate_vrt,
 )
 from app.ingest.validation import validate_file_content
+from app.persistent_config import (
+    UPLOAD_ALLOWED_EXTENSIONS,
+    UPLOAD_MAX_SIZE_MB,
+    get_allowed_extensions_list,
+)
 from app.raster.validation import validate_sources
 from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
 from app.storage import get_storage
@@ -71,8 +76,6 @@ async def get_upload_config(
     db: AsyncSession = Depends(get_db),
 ) -> UploadConfigResponse:
     """Return upload configuration including presigned upload availability."""
-    from app.persistent_config import UPLOAD_ALLOWED_EXTENSIONS, UPLOAD_MAX_SIZE_MB
-
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     allowed_exts = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
     return UploadConfigResponse(
@@ -102,10 +105,7 @@ async def request_presigned_upload(
             detail="Presigned uploads only available in S3 mode",
         )
 
-    from app.persistent_config import UPLOAD_ALLOWED_EXTENSIONS, UPLOAD_MAX_SIZE_MB
-
-    allowed_ext_str = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
-    allowed_list = [e.strip() for e in allowed_ext_str.split(",")]
+    allowed_list = await get_allowed_extensions_list(db)
     validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time
@@ -227,10 +227,7 @@ async def upload_file(
     to staging. Does NOT auto-queue ingestion -- use preview then commit.
     """
     try:
-        from app.persistent_config import UPLOAD_ALLOWED_EXTENSIONS
-
-        allowed_ext_str = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
-        allowed_list = [e.strip() for e in allowed_ext_str.split(",")]
+        allowed_list = await get_allowed_extensions_list(db)
         validate_file_extension(file.filename, allowed_list)
 
         job = await create_ingest_job(db, file.filename, "", user.id)

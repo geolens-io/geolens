@@ -428,6 +428,13 @@ UPLOAD_ALLOWED_EXTENSIONS = PersistentConfig[str](
     label="Allowed Upload Extensions",
 )
 
+
+async def get_allowed_extensions_list(db: AsyncSession) -> list[str]:
+    """Return the allowed upload extensions as a parsed list."""
+    raw = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
+    return [e.strip() for e in raw.split(",")]
+
+
 TILE_CACHE_TTL = PersistentConfig[int](
     key="tile_cache_ttl",
     env_default_factory=lambda: settings.tile_cache_ttl,

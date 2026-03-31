@@ -496,7 +496,7 @@
       "maxSizeMb": "Tamaño máximo de archivo (MB)",
       "maxSizeMbDescription": "Tamaño máximo en megabytes (1-10,000). Los cambios surten efecto en la siguiente subida.",
       "allowedExtensions": "Extensiones permitidas",
-      "allowedExtensionsDescription": "Lista separada por comas de extensiones permitidas (ej. .zip,.gpkg,.geojson,.json,.csv).",
+      "allowedExtensionsDescription": "Lista separada por comas de extensiones permitidas (ej. .zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls).",
       "tileCacheTtl": "TTL de caché de teselas (segundos)",
       "tileCacheTtlDescription": "Tiempo en segundos antes de que expiren las entradas de caché de teselas (0 = sin caché).",
       "saved": "Configuración de subida guardada",
