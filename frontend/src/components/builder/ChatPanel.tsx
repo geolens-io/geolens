@@ -377,7 +377,7 @@ export function ChatPanel({
               >
                 <p className="whitespace-pre-wrap">{msg.content}</p>
                 {msg.actions && msg.actions.length > 0 && (
-                  <p className="text-xs mt-1 opacity-70">
+                  <p className="text-xs mt-1 text-muted-foreground">
                     {t('chat.appliedChanges', { count: msg.actions.length })}
                   </p>
                 )}

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { listRelationships, getRelatedRecords } from '@/api/datasets';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ErrorState } from '@/components/layout/ErrorState';
 import { cn } from '@/lib/utils';
 import type { DatasetRelationship, DatasetRowsResponse } from '@/types/api';
 
@@ -113,11 +114,7 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
   }
 
   if (isError) {
-    return (
-      <div className="border rounded-lg bg-card p-3">
-        <p className="text-sm text-muted-foreground">{t('relatedRecords.error')}</p>
-      </div>
-    );
+    return <ErrorState message={t('relatedRecords.error')} />;
   }
 
   if (!relationships || relationships.length === 0) {

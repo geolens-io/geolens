@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Loader2, Search, FileX, X } from 'lucide-react';
+import { Search, FileX, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/layout/Pagination';
+import { LoadingState } from '@/components/layout/LoadingState';
+import { EmptyState } from '@/components/layout/EmptyState';
+import { ErrorState } from '@/components/layout/ErrorState';
 import { useCollectionDatasets } from '@/hooks/use-collections';
 import { getGeometryTypeLabel } from '@/i18n/labels';
-
 
 interface CollectionDatasetListProps {
   collectionId: string;
@@ -24,31 +26,21 @@ export function CollectionDatasetList({ collectionId, onRemove }: CollectionData
   const { data, isLoading, error } = useCollectionDatasets(collectionId, skip, PAGE_SIZE);
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 gap-3">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">{t('datasetList.loading')}</p>
-      </div>
-    );
+    return <LoadingState message={t('datasetList.loading')} className="py-12" />;
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-center">
-        <p className="text-sm text-destructive">
-          {t('datasetList.errorMessage', { error: error.message })}
-        </p>
-      </div>
-    );
+    return <ErrorState message={t('datasetList.errorMessage', { error: error.message })} />;
   }
 
   if (!data || data.total === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
-        <FileX className="size-10" />
-        <p className="text-base font-medium">{t('datasetList.emptyTitle')}</p>
-        <p className="text-sm">{t('datasetList.emptyDescription')}</p>
-      </div>
+      <EmptyState
+        icon={FileX}
+        title={t('datasetList.emptyTitle')}
+        description={t('datasetList.emptyDescription')}
+        className="py-12"
+      />
     );
   }
 

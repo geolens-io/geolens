@@ -120,7 +120,7 @@ export function SearchPage() {
       <PageShell maxWidth="wide" className="space-y-6 pb-8 pt-6 sm:pt-8">
         {isLanding && (
           <section className="rounded-[28px] border border-border/60 bg-muted/20 px-4 py-6 sm:px-6 sm:py-7 md:px-8 lg:px-10">
-            <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
+            <div className="mx-auto max-w-4xl space-y-4 md:space-y-6">
               <div className="space-y-2 text-center">
                 <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('title')}</h1>
                 <p className="mx-auto max-w-2xl text-sm text-muted-foreground">
@@ -148,7 +148,7 @@ export function SearchPage() {
 
         {/* Loading state (initial) */}
         {isLoading && !data && (
-          <div className="grid gap-3">
+          <div className="grid gap-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <DatasetCardSkeleton key={i} />
             ))}
@@ -181,7 +181,7 @@ export function SearchPage() {
 
         {/* Results list */}
         {data && data.features.length > 0 && (
-          <section className="space-y-3">
+          <section className="space-y-4" role="region" aria-label={t('results', { defaultValue: 'Search results' })}>
             {data.features.map((feature) => (
               <SearchResultCard key={feature.id} feature={feature} />
             ))}

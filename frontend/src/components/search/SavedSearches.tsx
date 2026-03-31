@@ -145,7 +145,7 @@ export function SavedSearches({ className }: { className?: string }) {
               defaultValue: 'Remove saved search',
             })}
             onClick={(e) => handleDelete(e, search.id)}
-            className="rounded-full bg-background/75 p-1 opacity-60 transition-colors hover:bg-destructive/15 hover:text-destructive hover:opacity-100"
+            className="rounded-full bg-background/75 p-1 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
           >
             <X className="size-3" />
           </button>

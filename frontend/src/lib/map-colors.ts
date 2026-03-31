@@ -41,6 +41,8 @@ export const MAP_COLORS = {
   },
   /** Data-driven style fallback color */
   fallback: '#cccccc',
+  /** Legend outline fallback when no explicit outline-color is set */
+  legendOutline: 'rgba(0,0,0,0.15)',
   /** Select mode handle/midpoint colors */
   handle: {
     point: '#ffffff',

@@ -5,8 +5,8 @@ import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Copy, Check } from 'lucide-react';
+import { LoadingState } from '@/components/layout/LoadingState';
 import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
@@ -130,13 +130,7 @@ export function DistributionsList({ recordId }: DistributionsListProps) {
   const publicApiUrl = tileConfig?.public_api_url ?? tileConfig?.public_base_url;
 
   if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 w-full" />
-        ))}
-      </div>
-    );
+    return <LoadingState className="py-6" />;
   }
 
   const distributions = data?.distributions ?? [];

@@ -61,7 +61,7 @@ export function LoginPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             {t('geospatialDataCatalog')}
           </p>
-          <h1 className="mt-6 text-3xl font-semibold tracking-tight sm:text-4xl">
+          <h1 className="mt-6 text-3xl font-bold tracking-tight">
             {t('loginHeadline', {
               defaultValue: 'Access your geospatial workspace.',
             })}
@@ -72,7 +72,7 @@ export function LoginPage() {
             })}
           </p>
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border bg-background/80 p-4 text-left shadow-sm backdrop-blur">
               <Bookmark className="size-4 text-primary" />
               <p className="mt-3 text-sm font-medium">

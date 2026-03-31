@@ -71,7 +71,7 @@ When styling a component, reach for tokens in this order:
 | `--secondary` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-secondary` | Secondary surfaces |
 | `--secondary-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | `text-secondary-foreground` | Text on secondary |
 | `--muted` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-muted` | Muted backgrounds |
-| `--muted-foreground` | `oklch(0.556 0 0)` | `oklch(0.708 0 0)` | `text-muted-foreground` | De-emphasized text, captions |
+| `--muted-foreground` | `oklch(0.45 0 0)` | `oklch(0.708 0 0)` | `text-muted-foreground` | De-emphasized text, captions |
 | `--accent` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-accent` | Hover/focus highlight |
 | `--accent-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | `text-accent-foreground` | Text on accent |
 | `--destructive` | `oklch(0.577 0.245 27.325)` | `oklch(0.704 0.191 22.216)` | `bg-destructive`, `text-destructive` | Danger actions, error states |
@@ -81,8 +81,8 @@ When styling a component, reach for tokens in this order:
 
 | Token | Light Value | Dark Value | Tailwind Utility | Usage |
 |-------|------------|------------|------------------|-------|
-| `--border` | `oklch(0.922 0 0)` | `oklch(1 0 0 / 10%)` | `border-border` | Default border color |
-| `--input` | `oklch(0.922 0 0)` | `oklch(1 0 0 / 15%)` | `border-input` | Form input borders |
+| `--border` | `oklch(0.87 0 0)` | `oklch(1 0 0 / 10%)` | `border-border` | Default border color |
+| `--input` | `oklch(0.87 0 0)` | `oklch(1 0 0 / 15%)` | `border-input` | Form input borders |
 | `--ring` | `oklch(0.55 0.18 250)` | `oklch(0.72 0.17 250)` | `ring-ring` | Focus ring color |
 | `--radius` | `0.625rem` | `0.625rem` | `rounded-sm/md/lg/xl` | Border radius scale base |
 
@@ -484,7 +484,7 @@ Wraps all standard pages with consistent max-width and padding.
 
 | Prop | Type | Default | Effect |
 |------|------|---------|--------|
-| `maxWidth` | `'default' \| 'narrow'` | `'default'` | `'default'` = `max-w-7xl` (80rem), `'narrow'` = `max-w-4xl` (56rem) |
+| `maxWidth` | `'default' \| 'narrow' \| 'wide'` | `'default'` | `'default'` = `max-w-7xl` (80rem), `'narrow'` = `max-w-4xl` (56rem), `'wide'` = `max-w-screen-2xl` |
 | `className` | `string?` | -- | Merged via `cn()` |
 
 **Base classes:** `mx-auto w-full px-6 py-6 space-y-6`
@@ -655,9 +655,9 @@ MapLibre GL cannot consume CSS custom properties at runtime. These hex constants
 **Picker source:** `frontend/src/components/builder/BasemapPicker.tsx`
 **Utils source:** `frontend/src/lib/basemap-utils.ts`
 
-**Thumbnail approach:** Inline SVG data URIs (`data:image/svg+xml,...`) for basemap thumbnails. No external PNG assets. Thumbnails defined for: `carto-positron`, `carto-dark-matter`, `carto-voyager`, `osm-standard`. Unknown basemaps get a generic gray grid fallback.
+**Thumbnail approach:** Imported PNG assets for built-in basemaps (`positron.png`, `dark.png`, `osm.png`, `bright.png`). Unknown/custom basemaps get a generic gray grid fallback SVG data URI. Thumbnails defined for: `openfreemap-positron`, `openfreemap-dark`, `openstreetmap`, `openfreemap-bright`.
 
-**Picker layout:** `grid grid-cols-3 gap-2` of thumbnail buttons. Active basemap highlighted with `ring-2 ring-primary bg-accent`.
+**Picker layout:** `grid grid-cols-4 gap-2` of thumbnail buttons. Active basemap highlighted with `ring-2 ring-primary bg-accent`.
 
 **Basemap utility functions:**
 
@@ -714,9 +714,10 @@ A contributor adding a new component or page should verify ALL of the following:
 ## 10. Anti-Patterns
 
 1. **DO NOT use hardcoded Tailwind palette colors for status semantics.** Use `@/lib/status-colors.ts` maps (`jobStatusColors`, `visibilityColors`, etc.).
-2. **DO NOT use inline color hex values in components** -- except in MapLibre paint properties where CSS vars are not supported. Use `MAP_COLORS` from `@/lib/map-colors.ts` for map colors.
+2. **DO NOT use inline color hex values in components** -- except in MapLibre paint properties where CSS vars are not supported (use `MAP_COLORS` from `@/lib/map-colors.ts`) and third-party brand identity SVGs (e.g., OAuth provider logos).
 3. **DO NOT create a `tailwind.config.js` file.** Tailwind v4 is CSS-first. All theme config lives in `index.css` via `@theme inline`.
 4. **DO NOT use `@theme` without `inline`.** The `inline` directive is required for reactive `var()` references. Without it, Tailwind bakes values at build time, breaking opacity modifiers.
 5. **DO NOT use `transition-all`.** Use targeted property-list transitions: `transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out`. `transition-all` causes layout thrash by animating width, height, padding, and margin.
 6. **DO use Tailwind `shadow-sm`/`shadow-md`/`shadow-lg`.** The `@theme inline` bridge in `index.css` maps these utilities through elevation tokens automatically (`--shadow-sm: var(--elevation-sm)`), so dark mode higher-opacity shadows work out of the box.
 7. **DO NOT add page-level max-width or padding inline.** Use the `PageShell` component.
+8. **Builder sidebar panels may use compact `p-3` / `py-3` spacing** for dense control layouts. This is an intentional exception to the `p-4` minimum documented in Spacing Conventions.
