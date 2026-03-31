@@ -331,6 +331,27 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 Path(file_path).unlink(missing_ok=True)
 
 
+def _resolve_service_type(raw: str) -> tuple[str, str]:
+    """Map raw service_type string to (service_type, source_format)."""
+    from app.ingest.ogr import IngestionError
+
+    if raw.startswith("ArcGIS"):
+        return "arcgis_featureserver", "arcgis_featureserver"
+    elif raw.startswith("WFS"):
+        return "wfs", "wfs"
+    raise IngestionError(
+        f"Unrecognized service type '{raw}'. "
+        f"Expected a type starting with 'ArcGIS' or 'WFS'."
+    )
+
+
+def _enrich_source_url(base_url: str, layer_id: int | str | None) -> str:
+    """Append layer_id to source_url for multi-layer service idempotency."""
+    if layer_id is not None:
+        return f"{base_url}/{layer_id}"
+    return base_url
+
+
 @task_app.task(queue="ingest", retry=2)
 async def ingest_service(
     job_id: str,
@@ -384,18 +405,7 @@ async def ingest_service(
             um = job.user_metadata or {}
             service_type_raw = um.get("service_type", "")
             layer_id = um.get("layer_id")
-
-            if service_type_raw.startswith("ArcGIS"):
-                service_type = "arcgis_featureserver"
-                source_format = "arcgis_featureserver"
-            elif service_type_raw.startswith("WFS"):
-                service_type = "wfs"
-                source_format = "wfs"
-            else:
-                raise IngestionError(
-                    f"Unrecognized service type '{service_type_raw}'. "
-                    f"Expected a type starting with 'ArcGIS' or 'WFS'."
-                )
+            service_type, source_format = _resolve_service_type(service_type_raw)
 
             # 3. Build GDAL source string
             object_id_field = um.get("object_id_field") or "OBJECTID"
@@ -463,6 +473,7 @@ async def ingest_service(
             )
 
             # 6. Create Dataset record with source_format and source_url
+            dataset_source_url = _enrich_source_url(source_url, layer_id)
             dataset_name = um.get("title") or job.source_filename or table_name
             dataset = await create_dataset(
                 session,
@@ -479,7 +490,7 @@ async def ingest_service(
                 source_format=source_format,
                 source_filename=job.source_filename,
                 original_srid=metadata.get("srid"),
-                source_url=source_url,
+                source_url=dataset_source_url,
                 visibility=um.get("visibility", "private"),
             )
 
@@ -924,17 +935,7 @@ async def reupload_service(
                     "Missing service source URL for re-upload commit job."
                 )
 
-            if service_type_raw.startswith("ArcGIS"):
-                service_type = "arcgis_featureserver"
-                source_format = "arcgis_featureserver"
-            elif service_type_raw.startswith("WFS"):
-                service_type = "wfs"
-                source_format = "wfs"
-            else:
-                raise IngestionError(
-                    f"Unrecognized service type '{service_type_raw}'. "
-                    "Expected a type starting with 'ArcGIS' or 'WFS'."
-                )
+            service_type, source_format = _resolve_service_type(service_type_raw)
 
             db_conn_str = build_pg_conn_str()
             reupload_oid_field = um.get("object_id_field") or "OBJECTID"
@@ -993,6 +994,7 @@ async def reupload_service(
                 metadata.get("column_info", []),
             )
 
+            reupload_source_url = _enrich_source_url(source_url_value, layer_id)
             await _apply_reupload_swap(
                 session,
                 dataset=dataset,
@@ -1003,7 +1005,7 @@ async def reupload_service(
                 source_filename=job.source_filename or source_layer_value,
                 source_format=source_format,
                 original_srid=metadata.get("srid"),
-                source_url=source_url_value,
+                source_url=reupload_source_url,
             )
 
             job.status = "complete"

@@ -18,11 +18,24 @@ Usage:
     # Import from a different org
     python scripts/seed-ago-data.py --org-url https://otherorg.maps.arcgis.com --api-key <key>
 
+    # Import secured services with an ArcGIS token
+    python scripts/seed-ago-data.py --api-key <key> --token <arcgis-token>
+
     # Update existing datasets from their source AGO services
     python scripts/seed-ago-data.py --api-key <key> --update
 
+    # Import only layers matching a regex filter
+    python scripts/seed-ago-data.py --api-key <key> --filter "parcels|zoning"
+
     # Control parallelism
     python scripts/seed-ago-data.py --api-key <key> --concurrency 5
+
+    # Override search query (for Enterprise portals)
+    python scripts/seed-ago-data.py --org-url https://gis.example.com/portal \\
+        --org-search-query "orgid:{org_id}" --token <token> --api-key <key>
+
+    # Include additional AGO item types
+    python scripts/seed-ago-data.py --api-key <key> --item-types "OGC Feature Layer"
 """
 
 import argparse
@@ -51,9 +64,12 @@ DEFAULT_ORG_URL = "https://njhighlands.maps.arcgis.com"
 DEFAULT_BASE_URL = "http://localhost:8080"
 
 # Item types that contain downloadable spatial data
-DOWNLOADABLE_TYPES = {"Feature Service", "Map Service"}
+DEFAULT_ITEM_TYPES = {"Feature Service", "Map Service"}
 
 SERVICE_TYPE = "ArcGIS FeatureServer"
+
+DISCOVERY_MAX_RETRIES = 3
+DISCOVERY_BACKOFF_BASE = 2  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -61,34 +77,147 @@ SERVICE_TYPE = "ArcGIS FeatureServer"
 # ---------------------------------------------------------------------------
 
 
-async def get_org_id(client: httpx.AsyncClient, org_url: str) -> tuple[str, str]:
+async def detect_hub_site(client: httpx.AsyncClient, org_url: str) -> bool:
+    """Check if a URL is an ArcGIS Hub/Open Data site (not a portal)."""
+    try:
+        resp = await client.get(f"{org_url}/api/v3")
+        if resp.status_code == 200:
+            data = resp.json()
+            return "resources" in data
+    except Exception:
+        pass
+    return False
+
+
+async def resolve_org_url(
+    client: httpx.AsyncClient, org_url: str
+) -> str:
+    """Resolve a Hub/Open Data site URL to its underlying AGO portal URL.
+
+    ArcGIS Hub sites (e.g. data.gis.ny.gov) aggregate data from multiple
+    orgs and don't expose /sharing/rest. This detects Hub sites and attempts
+    to resolve them via the ArcGIS portals API.
+    """
+    # Try the portal self endpoint first — if it returns JSON, it's a portal
+    try:
+        resp = await client.get(
+            f"{org_url}/sharing/rest/portals/self", params={"f": "json"}
+        )
+        if resp.status_code == 200 and "application/json" in resp.headers.get(
+            "content-type", ""
+        ):
+            data = resp.json()
+            if "id" in data:
+                return org_url  # Already a valid portal URL
+    except Exception:
+        pass
+
+    # Check if it's a Hub site
+    if not await detect_hub_site(client, org_url):
+        return org_url  # Not a Hub — let get_org_id fail with a clear error
+
+    # Hub site detected — extract the owning org's ID from the site HTML.
+    # Every Hub embeds its owning org's ID as "orgId":"..." in the page source.
+    owning_org_id = None
+    try:
+        page_resp = await client.get(org_url)
+        if page_resp.status_code == 200:
+            match = re.search(r'"orgId"\s*:\s*"([^"]+)"', page_resp.text)
+            if match:
+                owning_org_id = match.group(1)
+    except Exception:
+        pass
+
+    if owning_org_id:
+        # Resolve orgId to portal URL via ArcGIS.com
+        try:
+            portal_resp = await client.get(
+                f"https://www.arcgis.com/sharing/rest/portals/{owning_org_id}",
+                params={"f": "json"},
+            )
+            if portal_resp.status_code == 200:
+                portal_data = portal_resp.json()
+                url_key = portal_data.get("urlKey")
+                base = portal_data.get("customBaseUrl", "maps.arcgis.com")
+                if url_key:
+                    candidate = f"https://{url_key}.{base}"
+                    print(f"Resolved Hub site → {candidate}")
+                    return candidate
+        except Exception:
+            pass
+
+    # Could not auto-resolve — provide a helpful error
+    print(
+        f"Error: {org_url} is an ArcGIS Hub/Open Data site, not an AGO portal.\n"
+        f"  Could not auto-resolve the owning organization.\n"
+        f"  Use the underlying AGO portal URL instead:\n"
+        f"    --org-url https://orgname.maps.arcgis.com",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+async def get_org_id(
+    client: httpx.AsyncClient, org_url: str, token: str | None = None
+) -> tuple[str, str]:
     """Return (org_id, org_name) from the portal self endpoint."""
+    params: dict = {"f": "json"}
+    if token:
+        params["token"] = token
     resp = await client.get(
-        f"{org_url}/sharing/rest/portals/self", params={"f": "json"}
+        f"{org_url}/sharing/rest/portals/self", params=params
     )
     resp.raise_for_status()
+
+    content_type = resp.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        print(
+            f"Error: {org_url} does not appear to be an ArcGIS portal.\n"
+            f"  Got content-type: {content_type}\n"
+            f"  If this is a Hub/Open Data site, try the underlying AGO org URL\n"
+            f"  (e.g. https://orgname.maps.arcgis.com)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     data = resp.json()
+    if "id" not in data:
+        print(
+            f"Error: {org_url} did not return a valid portal response.\n"
+            f"  If this is a Hub/Open Data site, use the underlying AGO org URL.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     return data["id"], data.get("name", "Unknown")
 
 
 async def search_public_items(
-    client: httpx.AsyncClient, org_url: str, org_id: str
+    client: httpx.AsyncClient,
+    org_url: str,
+    org_id: str,
+    search_query: str | None = None,
+    token: str | None = None,
 ) -> list[dict]:
     """Paginate the ArcGIS search API for all public items in the org."""
     items: list[dict] = []
     start = 1
+    query = search_query or f"accountid:{org_id} access:public"
 
     while True:
+        params: dict = {
+            "q": query,
+            "num": 100,
+            "start": start,
+            "sortField": "title",
+            "sortOrder": "asc",
+            "f": "json",
+        }
+        if token:
+            params["token"] = token
         resp = await client.get(
             f"{org_url}/sharing/rest/search",
-            params={
-                "q": f"accountid:{org_id} access:public",
-                "num": 100,
-                "start": start,
-                "sortField": "title",
-                "sortOrder": "asc",
-                "f": "json",
-            },
+            params=params,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -107,15 +236,51 @@ async def search_public_items(
 
 
 async def get_service_layers(
-    client: httpx.AsyncClient, service_url: str
+    client: httpx.AsyncClient,
+    service_url: str,
+    token: str | None = None,
 ) -> list[dict]:
-    """Get all layers (and tables) from a Feature/Map Service."""
-    resp = await client.get(service_url.rstrip("/"), params={"f": "json"})
-    resp.raise_for_status()
-    data = resp.json()
-    layers = data.get("layers") or []
-    tables = data.get("tables") or []
-    return layers + tables
+    """Get all layers (and tables) from a Feature/Map Service.
+
+    Retries on transient errors (429, 498, 5xx) with exponential backoff.
+    """
+    params: dict = {"f": "json"}
+    if token:
+        params["token"] = token
+
+    def _backoff(attempt: int) -> float:
+        delay = DISCOVERY_BACKOFF_BASE * (2 ** (attempt - 1))
+        return delay * (0.5 + random.random())
+
+    for attempt in range(1, DISCOVERY_MAX_RETRIES + 1):
+        resp = await client.get(service_url.rstrip("/"), params=params)
+
+        # Handle AGO rate limiting (429) and token expiry (498)
+        if resp.status_code in (429, 498) or resp.status_code >= 500:
+            if attempt < DISCOVERY_MAX_RETRIES:
+                await asyncio.sleep(_backoff(attempt))
+                continue
+            resp.raise_for_status()
+
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Check for AGO JSON-level errors (some return 200 with error body)
+        if isinstance(data, dict) and data.get("error"):
+            error = data["error"]
+            code = error.get("code", 0)
+            if code in (429, 498, 499) and attempt < DISCOVERY_MAX_RETRIES:
+                await asyncio.sleep(_backoff(attempt))
+                continue
+            raise RuntimeError(
+                f"ArcGIS error {code}: {error.get('message', 'Unknown')}"
+            )
+
+        layers = data.get("layers") or []
+        tables = data.get("tables") or []
+        return layers + tables
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -124,23 +289,41 @@ async def get_service_layers(
 
 
 async def discover_layers(
-    client: httpx.AsyncClient, org_url: str
+    client: httpx.AsyncClient,
+    org_url: str,
+    item_types: set[str] | None = None,
+    search_query: str | None = None,
+    token: str | None = None,
 ) -> tuple[list[dict], str]:
     """Discover all downloadable layers in an ArcGIS Online organization.
 
     Returns (layers_manifest, org_name) where each entry has:
         service_title, layer_name, layer_id, service_url, summary
     """
-    org_id, org_name = await get_org_id(client, org_url)
+    downloadable = item_types or DEFAULT_ITEM_TYPES
+
+    # Resolve Hub/Open Data sites to their underlying AGO portal
+    resolved_org_url = await resolve_org_url(client, org_url)
+
+    org_id, org_name = await get_org_id(client, resolved_org_url, token=token)
     print(f"Organization: {org_name} (ID: {org_id})")
 
-    items = await search_public_items(client, org_url, org_id)
+    # Support {org_id} placeholder in custom search queries
+    resolved_query = (
+        search_query.replace("{org_id}", org_id) if search_query else None
+    )
 
-    spatial_items = [i for i in items if i.get("type") in DOWNLOADABLE_TYPES]
-    other_items = [i for i in items if i.get("type") not in DOWNLOADABLE_TYPES]
+    items = await search_public_items(
+        client, resolved_org_url, org_id,
+        search_query=resolved_query,
+        token=token,
+    )
+
+    spatial_items = [i for i in items if i.get("type") in downloadable]
+    other_items = [i for i in items if i.get("type") not in downloadable]
 
     print(f"\nFound {len(items)} public items:")
-    print(f"  {len(spatial_items)} downloadable (Feature/Map Services)")
+    print(f"  {len(spatial_items)} downloadable ({', '.join(sorted(downloadable))})")
     print(f"  {len(other_items)} non-spatial (skipped)")
     if other_items:
         type_counts: dict[str, int] = {}
@@ -166,7 +349,7 @@ async def discover_layers(
             continue
 
         try:
-            layers = await get_service_layers(client, item_url)
+            layers = await get_service_layers(client, item_url, token=token)
         except Exception as e:
             print(f"Skipping {title} — failed to get layers: {e}")
             continue
@@ -230,19 +413,12 @@ async def fetch_existing_datasets(
                         "id": ds_id,
                         "source_filename": ds.get("source_filename"),
                     }
-                # Also index by source_filename for backward compat
-                fname = ds.get("source_filename")
-                if fname and ds_id:
-                    existing[f"file:{fname}"] = {
-                        "id": ds_id,
-                        "source_url": source_url,
-                    }
             total = data.get("total", 0)
             skip += limit
             if skip >= total or not datasets:
                 break
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-        print(f"Warning: Failed to fetch existing datasets: {exc}")
+        print(f"Warning: Failed to fetch existing datasets: {exc}", file=sys.stderr)
         return {}
 
     return existing
@@ -292,6 +468,7 @@ async def ingest_via_service(
     layer_id: int,
     display_name: str,
     summary: str = "",
+    token: str | None = None,
     timeout: int = 1200,
 ) -> dict:
     """Ingest a layer via the GeoLens service connector API.
@@ -302,16 +479,19 @@ async def ingest_via_service(
     headers = {"X-Api-Key": api_key}
 
     # Step 1 — Service preview (creates IngestJob with source_url)
+    preview_body: dict = {
+        "url": service_url,
+        "service_type": SERVICE_TYPE,
+        "layer_name": layer_name,
+        "layer_title": display_name,
+        "layer_id": layer_id,
+    }
+    if token:
+        preview_body["token"] = token
     preview_resp = await client.post(
         f"{base_url}/api/services/preview/",
         headers=headers,
-        json={
-            "url": service_url,
-            "service_type": SERVICE_TYPE,
-            "layer_name": layer_name,
-            "layer_title": display_name,
-            "layer_id": layer_id,
-        },
+        json=preview_body,
     )
     preview_resp.raise_for_status()
     job_id = str(preview_resp.json()["job_id"])
@@ -323,6 +503,8 @@ async def ingest_via_service(
     }
     if summary:
         commit_body["summary"] = summary
+    if token:
+        commit_body["token"] = token
     commit_resp = await client.post(
         f"{base_url}/api/ingest/commit/{job_id}",
         headers=headers,
@@ -348,6 +530,7 @@ async def update_via_service(
     layer_name: str,
     layer_id: int,
     display_name: str,
+    token: str | None = None,
     timeout: int = 1200,
 ) -> dict:
     """Update an existing dataset by re-importing from its source service.
@@ -357,25 +540,31 @@ async def update_via_service(
     headers = {"X-Api-Key": api_key}
 
     # Step 1 — Reupload service preview
+    preview_body: dict = {
+        "url": service_url,
+        "service_type": SERVICE_TYPE,
+        "layer_name": layer_name,
+        "layer_title": display_name,
+        "layer_id": layer_id,
+    }
+    if token:
+        preview_body["token"] = token
     preview_resp = await client.post(
         f"{base_url}/api/datasets/{dataset_id}/reupload/service/preview",
         headers=headers,
-        json={
-            "url": service_url,
-            "service_type": SERVICE_TYPE,
-            "layer_name": layer_name,
-            "layer_title": display_name,
-            "layer_id": layer_id,
-        },
+        json=preview_body,
     )
     preview_resp.raise_for_status()
     job_id = str(preview_resp.json()["job_id"])
 
-    # Step 2 — Commit reupload
+    # Step 2 — Commit reupload (no title/visibility — dataset keeps existing values)
+    commit_body: dict = {}
+    if token:
+        commit_body["token"] = token
     commit_resp = await client.post(
         f"{base_url}/api/datasets/{dataset_id}/reupload/{job_id}/commit",
         headers=headers,
-        json={},
+        json=commit_body,
     )
     commit_resp.raise_for_status()
 
@@ -413,7 +602,7 @@ async def enrich_metadata(
                 json=patch_body,
             )
         except Exception as exc:
-            print(f"  Warning: metadata enrichment failed for {dataset_id}: {exc}")
+            print(f"  Warning: metadata enrichment failed for {dataset_id}: {exc}", file=sys.stderr)
 
     # Get the record_id for keyword assignment
     tags = entry.get("tags") or []
@@ -429,14 +618,16 @@ async def enrich_metadata(
         if not record_id:
             return
 
-        for tag in tags:
-            await client.post(
+        await asyncio.gather(*(
+            client.post(
                 f"{base_url}/api/records/{record_id}/keywords/",
                 headers=headers,
                 json={"keyword": tag, "keyword_type": "theme"},
             )
+            for tag in tags
+        ))
     except Exception as exc:
-        print(f"  Warning: keyword assignment failed for {dataset_id}: {exc}")
+        print(f"  Warning: keyword assignment failed for {dataset_id}: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +637,15 @@ async def enrich_metadata(
 
 MAX_RETRIES = 3
 BACKOFF_BASE = 5  # seconds
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as mm:ss or hh:mm:ss."""
+    m, s = divmod(int(seconds), 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
 async def process_one(
@@ -459,7 +659,9 @@ async def process_one(
     existing: dict[str, dict],
     update_mode: bool,
     results: list[dict],
+    token: str | None = None,
     timeout: int = 1200,
+    start_time: float | None = None,
 ) -> None:
     """Import or update one layer via the service connector."""
     layer_name = entry["layer_name"]
@@ -467,7 +669,11 @@ async def process_one(
     service_url = entry["service_url"]
     summary = entry.get("summary", "")
     display_name = layer_name.replace("_", " ").title()
-    tag = f"[{index}/{total}]"
+
+    elapsed = ""
+    if start_time is not None:
+        elapsed = f" {_format_elapsed(time.monotonic() - start_time)}"
+    tag = f"[{index}/{total}{elapsed}]"
 
     # Check if already exists
     existing_entry = existing.get(service_url + f"/{layer_id}")
@@ -500,6 +706,7 @@ async def process_one(
                             layer_name,
                             layer_id,
                             display_name,
+                            token=token,
                             timeout=timeout,
                         )
                     else:
@@ -514,6 +721,7 @@ async def process_one(
                             layer_id,
                             display_name,
                             summary=summary,
+                            token=token,
                             timeout=timeout,
                         )
 
@@ -526,7 +734,7 @@ async def process_one(
                     action = "updated" if (existing_entry and update_mode) else "succeeded"
 
                     # Enrich with AGO metadata (source org, license, tags)
-                    if dataset_id and action == "succeeded":
+                    if dataset_id:
                         await enrich_metadata(client, base_url, api_key, dataset_id, entry)
 
                     results.append(
@@ -588,7 +796,7 @@ async def create_or_get_collection(
             if coll["name"] == name:
                 return coll["id"]
 
-    print(f"Warning: Failed to create/find collection {name!r}: HTTP {resp.status_code}")
+    print(f"Warning: Failed to create/find collection {name!r}: HTTP {resp.status_code}", file=sys.stderr)
     return None
 
 
@@ -623,7 +831,7 @@ async def assign_collection(
 
     try:
         resp = await client.post(
-            f"{base_url}/api/catalog/collections/{coll_id}/datasets",
+            f"{base_url}/api/catalog/collections/{coll_id}/datasets/",
             headers=headers,
             json={"dataset_ids": dataset_ids},
         )
@@ -643,13 +851,11 @@ async def assign_collection(
 
 
 def print_summary(
-    total: int, results: list[dict], update_mode: bool
+    total: int, results: list[dict], update_mode: bool, elapsed: float
 ) -> None:
     succeeded = sum(1 for r in results if r["status"] == "succeeded")
     updated = sum(1 for r in results if r["status"] == "updated")
-    skipped = sum(
-        1 for r in results if r["status"] in ("skipped", "skipped_empty")
-    )
+    skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = sum(1 for r in results if r["status"] == "failed")
     failures = [
         {"name": r["name"], "error": r.get("error", "")}
@@ -666,6 +872,7 @@ def print_summary(
     print(f"  Skipped:   {skipped}")
     print(f"  Failed:    {failed}")
     print(f"  Total:     {total}")
+    print(f"  Elapsed:   {_format_elapsed(elapsed)}")
 
     if failures:
         print()
@@ -699,6 +906,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"GeoLens base URL (default: {DEFAULT_BASE_URL})",
     )
     parser.add_argument(
+        "--token",
+        default=os.environ.get("ARCGIS_TOKEN"),
+        help="ArcGIS token for secured services (or set ARCGIS_TOKEN env var)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="List discoverable layers without downloading or importing",
@@ -707,6 +919,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--update",
         action="store_true",
         help="Upsert mode: import new layers and refresh existing ones from source",
+    )
+    parser.add_argument(
+        "--filter",
+        dest="layer_filter",
+        help="Regex filter on layer names — only import matching layers",
+    )
+    parser.add_argument(
+        "--org-search-query",
+        help=(
+            "Override the AGO search query (default: 'accountid:{org_id} access:public'). "
+            "Use {org_id} as a placeholder for the discovered org ID."
+        ),
+    )
+    parser.add_argument(
+        "--item-types",
+        nargs="+",
+        help=(
+            "Additional AGO item types to include "
+            "(default: 'Feature Service' 'Map Service')"
+        ),
     )
     parser.add_argument(
         "--concurrency",
@@ -731,16 +963,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 async def main(args: argparse.Namespace) -> None:
     base_url = args.base_url.rstrip("/")
     api_key = args.api_key
+    arcgis_token = args.token
+
+    # Build item types set
+    item_types = set(DEFAULT_ITEM_TYPES)
+    if args.item_types:
+        item_types.update(args.item_types)
 
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(660.0, connect=30.0),
         follow_redirects=True,
     ) as client:
         # Discover layers from ArcGIS
-        manifest, org_name = await discover_layers(client, args.org_url)
+        manifest, org_name = await discover_layers(
+            client,
+            args.org_url,
+            item_types=item_types,
+            search_query=args.org_search_query,
+            token=arcgis_token,
+        )
 
         if not manifest:
             print("No layers found to import")
+            return
+
+        # Apply layer name filter
+        if args.layer_filter:
+            pattern = re.compile(args.layer_filter, re.IGNORECASE)
+            before = len(manifest)
+            manifest = [
+                e for e in manifest if pattern.search(e["layer_name"])
+            ]
+            print(f"Filter matched {len(manifest)}/{before} layers")
+
+        if not manifest:
+            print("No layers match the filter")
             return
 
         if args.dry_run:
@@ -770,16 +1027,11 @@ async def main(args: argparse.Namespace) -> None:
             ds_ids = {v["id"] for v in existing.values() if "id" in v}
             print(f"Found {len(ds_ids)} existing dataset(s) in catalog")
 
-        # Build lookup by service_url/layer_id
-        existing_by_layer: dict[str, dict] = {}
-        for key, val in existing.items():
-            if not key.startswith("file:"):
-                existing_by_layer[key] = val
-
         # Bounded concurrency
         results: list[dict] = []
         sem = asyncio.Semaphore(args.concurrency)
         total = len(manifest)
+        import_start = time.monotonic()
 
         action = "Updating" if args.update else "Importing"
         print(f"\n{action} {total} layers...")
@@ -787,11 +1039,13 @@ async def main(args: argparse.Namespace) -> None:
         async with asyncio.TaskGroup() as tg:
             for i, entry in enumerate(manifest, 1):
                 # Build the lookup key matching source_url stored by ingest_service
+                # (enriched format: {service_url}/{layer_id})
                 lookup_key = f"{entry['service_url']}/{entry['layer_id']}"
-                # Also check the base service URL (ingest_service stores it without layer suffix)
-                lookup_existing = existing_by_layer.get(
+                # Fallback to bare service URL for datasets imported before
+                # the layer_id enrichment was added. Remove after re-seeding.
+                lookup_existing = existing.get(
                     lookup_key
-                ) or existing_by_layer.get(entry["service_url"])
+                ) or existing.get(entry["service_url"])
 
                 tg.create_task(
                     process_one(
@@ -805,18 +1059,21 @@ async def main(args: argparse.Namespace) -> None:
                         existing={lookup_key: lookup_existing} if lookup_existing else {},
                         update_mode=args.update,
                         results=results,
+                        token=arcgis_token,
                         timeout=args.timeout,
+                        start_time=import_start,
                     )
                 )
 
-        # Summary
-        print_summary(total, results, args.update)
+        elapsed = time.monotonic() - import_start
 
-        # Assign to collection (skip for update-only runs)
-        if not args.update:
-            print()
-            print("--- Collection Assignment ---")
-            await assign_collection(client, base_url, api_key, org_name, results)
+        # Summary
+        print_summary(total, results, args.update, elapsed)
+
+        # Assign to collection
+        print()
+        print("--- Collection Assignment ---")
+        await assign_collection(client, base_url, api_key, org_name, results)
 
 
 if __name__ == "__main__":

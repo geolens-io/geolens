@@ -274,10 +274,15 @@ Progress: [░░░░░░░░░░] 0%
 | 260330-ltj | Enhance map creator with heatmap and visualization capabilities | 2026-03-30 | 0d8e4d08 | Verified | [260330-ltj-enhance-map-creator-with-heatmap-and-vis](./quick/260330-ltj-enhance-map-creator-with-heatmap-and-vis/) |
 | 260330-qey | Public users should be able to see public maps | 2026-03-30 | a22e31f3 | Verified | [260330-qey-as-a-public-user-i-should-be-able-to-see](./quick/260330-qey-as-a-public-user-i-should-be-able-to-see/) |
 | 260331-9wb | Add raster extensions to default allowed upload extensions | 2026-03-31 | 3c69f9a8 | Verified | [260331-9wb-add-raster-extensions-to-default-allowed](./quick/260331-9wb-add-raster-extensions-to-default-allowed/) |
+| 260331-apr | Fix COG Download COG buttons error - file wasnt available | 2026-03-31 | 41b949cb | Verified | [260331-apr-fix-cog-download-cog-buttons-error-file-](./quick/260331-apr-fix-cog-download-cog-buttons-error-file-/) |
+| 260331-azj | Add Create VRT button for multiple imported COGs on tracking page | 2026-03-31 | f62630ba | Verified | [260331-azj-add-create-vrt-button-for-multiple-impor](./quick/260331-azj-add-create-vrt-button-for-multiple-impor/) |
+| 260331-cuw | Full table view on dataset details page (horizontal scroll, expand/collapse, UX polish) | 2026-03-31 | eb95a83d | Verified | [260331-cuw-address-the-lack-of-ability-to-view-the-](./quick/260331-cuw-address-the-lack-of-ability-to-view-the-/) |
+| 260331-hs3 | Evaluate seed-ago-data.py and import flow - gaps, issues, flexibility, enhancements | 2026-03-31 | b1fc2952 | Verified | [260331-hs3-evaluate-seed-ago-data-py-and-import-flo](./quick/260331-hs3-evaluate-seed-ago-data-py-and-import-flo/) |
+| 260331-izv | Fix 502 errors on imports using seed-ago-data.py script | 2026-03-31 | 1940b04f | Verified | [260331-izv-fix-502-errors-on-imports-using-seed-ago](./quick/260331-izv-fix-502-errors-on-imports-using-seed-ago/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-31 - Completed quick task 260331-9wb: Add raster extensions to default allowed upload extensions
+Last activity: 2026-03-31 - Completed quick task 260331-izv: Fix 502 errors on ArcGIS service imports
 Last session: 2026-03-31T17:46:51.080Z
 Stopped at: Completed quick task 260331-izv: Fix 502 errors on ArcGIS service imports
 Resume file: None
