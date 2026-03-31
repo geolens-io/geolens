@@ -95,6 +95,8 @@ export function DatasetPage() {
   const selectedFeatureGid = useDrawingStore((s) => s.selectedFeature?.gid ?? null);
   const [readOnlyFeatureGid, setReadOnlyFeatureGid] = useState<number | null>(null);
   const [isHeroExpanded, setIsHeroExpanded] = useState(true);
+  const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
+  const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
   const effectiveGid = selectedFeatureGid ?? readOnlyFeatureGid;
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
@@ -137,6 +139,9 @@ export function DatasetPage() {
   const handleTabChange = useCallback((value: string) => {
     setActiveTab(value);
     window.location.hash = value;
+    if (value !== 'data') {
+      setIsDataTabExpanded(false);
+    }
   }, []);
 
   const updateDataset = useUpdateDataset();
@@ -491,7 +496,7 @@ export function DatasetPage() {
       )}
 
       {/* Hero Map -- visible for all spatial dataset types */}
-      {!isTable && (
+      {!isDataTabExpanded && !isTable && (
         <div
           ref={mapContainerRef}
           data-field-anchor="dataset_map"
@@ -542,7 +547,7 @@ export function DatasetPage() {
       )}
 
       {/* Raster Quick Facts Strip */}
-      {dataset.record_type === 'raster_dataset' && dataset.raster && (
+      {!isDataTabExpanded && dataset.record_type === 'raster_dataset' && dataset.raster && (
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30 text-sm overflow-x-auto">
           {dataset.raster.band_count != null && (
             <div><span className="text-muted-foreground">Bands</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
@@ -574,6 +579,8 @@ export function DatasetPage() {
         stagePendingDraft={stagePendingDraft}
         handleDraftDirtyChange={handleDraftDirtyChange}
         onNavigateToValidationField={handleNavigateToValidationField}
+        isTableExpanded={isDataTabExpanded}
+        onToggleTableExpand={toggleDataTabExpand}
       />
 
       {/* Related records panel -- shown when a feature is selected (editing or read-only) */}
