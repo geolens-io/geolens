@@ -313,7 +313,6 @@ function MobileNav() {
 }
 
 export function Navbar() {
-  const { can } = usePermissions();
   const { t } = useTranslation();
 
   return (
