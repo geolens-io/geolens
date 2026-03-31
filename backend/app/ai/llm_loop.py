@@ -9,9 +9,13 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+import httpx
 import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
+
+# Timeout for individual LLM API calls (prevents indefinite hangs)
+_LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 from app.ai.constants import MAX_TOOL_ROUNDS
 from app.ai.tool_call_parser import parse_xml_tool_calls
@@ -28,14 +32,16 @@ _cached_openai_clients: dict[str, AsyncOpenAI] = {}
 def get_anthropic_client() -> AsyncAnthropic:
     global _cached_anthropic_client
     if _cached_anthropic_client is None:
-        _cached_anthropic_client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        _cached_anthropic_client = AsyncAnthropic(
+            api_key=settings.anthropic_api_key, timeout=_LLM_TIMEOUT
+        )
     return _cached_anthropic_client
 
 
 def get_openai_client(base_url: str) -> AsyncOpenAI:
     if base_url not in _cached_openai_clients:
         _cached_openai_clients[base_url] = AsyncOpenAI(
-            api_key=settings.openai_api_key, base_url=base_url
+            api_key=settings.openai_api_key, base_url=base_url, timeout=_LLM_TIMEOUT
         )
     return _cached_openai_clients[base_url]
 
