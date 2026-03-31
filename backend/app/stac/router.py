@@ -9,7 +9,11 @@ from __future__ import annotations
 import json
 import uuid
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
+from starlette.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,10 +21,11 @@ from sqlalchemy.orm import joinedload
 
 from app.collections.models import Collection, CollectionDataset
 from app.config import settings
-from app.datasets.models import Dataset, Record
+from app.datasets.models import Dataset, Record, RecordKeyword
 from app.dependencies import get_db
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
+from app.utils.geo import make_bbox_filter
 from app.search.service import _build_assets, dataset_to_ogc_record
 from app.stac.schemas import (
     StacCatalog,
@@ -43,6 +48,14 @@ stac_router = APIRouter(prefix="/stac", tags=["STAC"])
 _STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
 
 
+def _published_raster_filters():
+    """Return WHERE clauses for published raster/VRT records."""
+    return (
+        Record.record_type.in_(_STAC_RECORD_TYPES),
+        Record.record_status == "published",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -55,6 +68,14 @@ async def _resolve_urls(
     public_api_url = await get_public_api_url(db, request=request)
     stac_api_url = f"{public_api_url.rstrip('/')}/stac"
     return stac_api_url, public_api_url
+
+
+def _stac_page_url(base_href: str, offset: int, limit: int, extra: dict | None = None) -> str:
+    """Build a STAC pagination URL preserving active query params."""
+    params: dict[str, str] = {"offset": str(offset), "limit": str(limit)}
+    if extra:
+        params.update(extra)
+    return f"{base_href}?{urlencode(params)}"
 
 
 def _parse_extent_row(
@@ -299,8 +320,7 @@ async def get_collections(
         .join(Dataset, Dataset.record_id == Record.id)
         .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
         .where(
-            Record.record_type.in_(["raster_dataset", "vrt_dataset"]),
-            Record.record_status == "published",
+            *_published_raster_filters(),
         )
         .group_by(CollectionDataset.collection_id)
     )
@@ -309,18 +329,70 @@ async def get_collections(
     for row in ext_rows.all():
         extent_map[str(row[0])] = row[1:]
 
+    # Batch-fetch keywords per collection
+    kw_stmt = (
+        select(
+            CollectionDataset.collection_id,
+            func.array_agg(func.distinct(RecordKeyword.keyword)),
+        )
+        .select_from(RecordKeyword)
+        .join(Record, RecordKeyword.record_id == Record.id)
+        .join(Dataset, Dataset.record_id == Record.id)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .where(
+            *_published_raster_filters(),
+        )
+        .group_by(CollectionDataset.collection_id)
+    )
+    kw_rows = await db.execute(kw_stmt)
+    keywords_map: dict[str, list[str]] = {}
+    for row in kw_rows.all():
+        kws = row[1]
+        if kws:
+            keywords_map[str(row[0])] = sorted([k for k in kws if k])
+
+    # Batch-fetch summaries: distinct epsg codes per collection
+    epsg_stmt = (
+        select(
+            CollectionDataset.collection_id,
+            func.array_agg(func.distinct(RasterAsset.epsg)),
+        )
+        .select_from(RasterAsset)
+        .join(Dataset, Dataset.id == RasterAsset.dataset_id)
+        .join(Record, Record.id == Dataset.record_id)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .where(
+            *_published_raster_filters(),
+            RasterAsset.epsg.isnot(None),
+        )
+        .group_by(CollectionDataset.collection_id)
+    )
+    epsg_rows = await db.execute(epsg_stmt)
+    epsg_map: dict[str, list[int]] = {}
+    for row in epsg_rows.all():
+        codes = row[1]
+        if codes:
+            epsg_map[str(row[0])] = sorted([c for c in codes if c])
+
     stac_collections = []
     for coll in collections:
-        ext_row = extent_map.get(str(coll.id))
+        coll_key = str(coll.id)
+        ext_row = extent_map.get(coll_key)
         spatial_extent, temporal_extent = _parse_extent_row(ext_row)
 
+        summaries = {}
+        if coll_key in epsg_map:
+            summaries["proj:epsg"] = epsg_map[coll_key]
+
         stac_coll = ogc_collection_to_stac_collection(
-            str(coll.id),
+            coll_key,
             coll.name,
             coll.description,
             spatial_extent=spatial_extent,
             temporal_extent=temporal_extent,
             stac_api_url=stac_api_url,
+            keywords=keywords_map.get(coll_key),
+            summaries=summaries or None,
         )
         stac_collections.append(stac_coll)
 
@@ -368,12 +440,42 @@ async def get_collection(
         .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
         .where(
             CollectionDataset.collection_id == collection_id,
-            Record.record_type.in_(["raster_dataset", "vrt_dataset"]),
-            Record.record_status == "published",
+            *_published_raster_filters(),
         )
     )
     ext_row = (await db.execute(extent_stmt)).one_or_none()
     spatial_extent, temporal_extent = _parse_extent_row(ext_row)
+
+    # Keywords for this collection
+    kw_stmt = (
+        select(func.distinct(RecordKeyword.keyword))
+        .select_from(RecordKeyword)
+        .join(Record, RecordKeyword.record_id == Record.id)
+        .join(Dataset, Dataset.record_id == Record.id)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .where(
+            CollectionDataset.collection_id == collection_id,
+            *_published_raster_filters(),
+        )
+    )
+    kw_result = await db.execute(kw_stmt)
+    coll_keywords = sorted([r[0] for r in kw_result.all() if r[0]]) or None
+
+    # Summaries: distinct EPSG codes
+    epsg_stmt = (
+        select(func.distinct(RasterAsset.epsg))
+        .join(Dataset, Dataset.id == RasterAsset.dataset_id)
+        .join(Record, Record.id == Dataset.record_id)
+        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+        .where(
+            CollectionDataset.collection_id == collection_id,
+            *_published_raster_filters(),
+            RasterAsset.epsg.isnot(None),
+        )
+    )
+    epsg_result = await db.execute(epsg_stmt)
+    epsg_codes = sorted([r[0] for r in epsg_result.all() if r[0]])
+    summaries = {"proj:epsg": epsg_codes} if epsg_codes else None
 
     return ogc_collection_to_stac_collection(
         str(coll.id),
@@ -382,11 +484,15 @@ async def get_collection(
         spatial_extent=spatial_extent,
         temporal_extent=temporal_extent,
         stac_api_url=stac_api_url,
+        keywords=coll_keywords,
+        summaries=summaries,
     )
 
 
 @stac_router.get(
-    "/collections/{collection_id}/items", response_model=StacItemCollection
+    "/collections/{collection_id}/items",
+    response_class=JSONResponse,
+    responses={200: {"content": {"application/geo+json": {}}}},
 )
 async def get_collection_items(
     collection_id: uuid.UUID,
@@ -396,9 +502,9 @@ async def get_collection_items(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-) -> StacItemCollection:
+) -> JSONResponse:
     """List STAC Items within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
 
@@ -420,7 +526,7 @@ async def get_collection_items(
         )
     )
 
-    # Filter by bbox
+    # Filter by bbox (antimeridian-aware)
     if bbox:
         try:
             parts = bbox.split(",")
@@ -432,14 +538,7 @@ async def get_collection_items(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
             )
-        stmt = stmt.where(
-            func.ST_Intersects(
-                Record.spatial_extent,
-                func.ST_MakeEnvelope(
-                    bbox_vals[0], bbox_vals[1], bbox_vals[2], bbox_vals[3], 4326
-                ),
-            )
-        )
+        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox_vals))
 
     # Filter by datetime
     if datetime_param:
@@ -476,6 +575,12 @@ async def get_collection_items(
         features.append(item)
 
     base_href = f"{stac_api_url}/collections/{collection_id}/items"
+    active_params: dict[str, str] = {}
+    if bbox:
+        active_params["bbox"] = bbox
+    if datetime_param:
+        active_params["datetime"] = datetime_param
+
     links = [
         StacLink(rel="self", href=base_href, type="application/geo+json"),
         StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
@@ -489,17 +594,90 @@ async def get_collection_items(
         links.append(
             StacLink(
                 rel="next",
-                href=f"{base_href}?offset={offset + limit}&limit={limit}",
+                href=_stac_page_url(base_href, offset + limit, limit, active_params),
+                type="application/geo+json",
+            )
+        )
+    if offset > 0:
+        links.append(
+            StacLink(
+                rel="prev",
+                href=_stac_page_url(base_href, max(0, offset - limit), limit, active_params),
                 type="application/geo+json",
             )
         )
 
-    return StacItemCollection(
+    result = StacItemCollection(
         features=features,
         links=links,
         numberMatched=total,
         numberReturned=len(features),
         context={"limit": limit, "returned": len(features), "matched": total},
+    )
+    return Response(content=result.model_dump_json(), media_type="application/geo+json")
+
+
+async def _build_item_response(
+    db: AsyncSession,
+    dataset: Dataset,
+    public_api_url: str,
+    stac_api_url: str,
+    *,
+    collection_id: str | None = None,
+) -> JSONResponse:
+    """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
+    asset_rows = await _fetch_dataset_asset_rows(db, [dataset.id])
+    raster_meta = await _fetch_raster_meta(db, [dataset.id])
+
+    item = await _dataset_to_stac_item(
+        db,
+        dataset,
+        public_api_url,
+        stac_api_url,
+        stac_asset_rows=asset_rows.get(str(dataset.id)),
+        raster_meta=raster_meta.get(str(dataset.id)),
+        collection_id=collection_id,
+    )
+    return JSONResponse(content=item, media_type="application/geo+json")
+
+
+@stac_router.get("/collections/{collection_id}/items/{item_id}", response_model=None)
+async def get_collection_item(
+    collection_id: uuid.UUID,
+    item_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Get a single STAC Item within a collection."""
+    stac_api_url, public_api_url = await _resolve_urls(db, request)
+
+    # Verify collection exists
+    coll_result = await db.execute(
+        select(Collection).where(Collection.id == collection_id)
+    )
+    if coll_result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
+        )
+
+    # Fetch published raster/VRT dataset within this collection
+    stmt = _base_published_raster_query().where(
+        Dataset.id == item_id,
+        Dataset.id.in_(
+            select(CollectionDataset.dataset_id).where(
+                CollectionDataset.collection_id == collection_id
+            )
+        ),
+    )
+    result = await db.execute(stmt)
+    dataset = result.unique().scalar_one_or_none()
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found in collection"
+        )
+
+    return await _build_item_response(
+        db, dataset, public_api_url, stac_api_url, collection_id=str(collection_id)
     )
 
 
@@ -508,32 +686,19 @@ async def get_item(
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
 
-    # Fetch published raster/VRT dataset
     stmt = _base_published_raster_query().where(Dataset.id == item_id)
     result = await db.execute(stmt)
     dataset = result.unique().scalar_one_or_none()
     if dataset is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Item not found",
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
         )
 
-    # Fetch asset rows and raster metadata
-    asset_rows = await _fetch_dataset_asset_rows(db, [dataset.id])
-    raster_meta = await _fetch_raster_meta(db, [dataset.id])
-
-    return await _dataset_to_stac_item(
-        db,
-        dataset,
-        public_api_url,
-        stac_api_url,
-        stac_asset_rows=asset_rows.get(str(dataset.id)),
-        raster_meta=raster_meta.get(str(dataset.id)),
-    )
+    return await _build_item_response(db, dataset, public_api_url, stac_api_url)
 
 
 async def _execute_search(
@@ -548,7 +713,7 @@ async def _execute_search(
     intersects: str | dict | None = None,
     limit: int = 10,
     offset: int = 0,
-) -> StacItemCollection:
+) -> JSONResponse:
     """Shared STAC Item Search logic for GET and POST endpoints.
 
     Parameters accept both string (from GET query params) and native types
@@ -631,7 +796,7 @@ async def _execute_search(
                     raise ValueError("need 4 values")
                 bbox_vals = [float(p) for p in parts]
             else:
-                bbox_vals = bbox
+                bbox_vals = list(bbox)
                 if len(bbox_vals) != 4:
                     raise ValueError("need 4 values")
         except (ValueError, TypeError) as e:
@@ -639,14 +804,7 @@ async def _execute_search(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
             )
-        stmt = stmt.where(
-            func.ST_Intersects(
-                Record.spatial_extent,
-                func.ST_MakeEnvelope(
-                    bbox_vals[0], bbox_vals[1], bbox_vals[2], bbox_vals[3], 4326
-                ),
-            )
-        )
+        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox_vals))
 
     # Filter by datetime
     if datetime_str:
@@ -692,10 +850,24 @@ async def _execute_search(
         )
         features.append(item)
 
+    # Build active params for pagination link preservation
+    search_href = f"{stac_api_url}/search"
+    active_params: dict[str, str] = {}
+    if bbox:
+        active_params["bbox"] = bbox if isinstance(bbox, str) else ",".join(str(v) for v in bbox)
+    if datetime_str:
+        active_params["datetime"] = datetime_str
+    if collections:
+        active_params["collections"] = collections if isinstance(collections, str) else ",".join(collections)
+    if ids:
+        active_params["ids"] = ids if isinstance(ids, str) else ",".join(ids)
+    if intersects:
+        active_params["intersects"] = intersects if isinstance(intersects, str) else json.dumps(intersects)
+
     # Build links
     links = [
         StacLink(
-            rel="self", href=f"{stac_api_url}/search", type="application/geo+json"
+            rel="self", href=search_href, type="application/geo+json"
         ),
         StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
     ]
@@ -703,21 +875,34 @@ async def _execute_search(
         links.append(
             StacLink(
                 rel="next",
-                href=f"{stac_api_url}/search?offset={offset + limit}&limit={limit}",
+                href=_stac_page_url(search_href, offset + limit, limit, active_params),
+                type="application/geo+json",
+            )
+        )
+    if offset > 0:
+        links.append(
+            StacLink(
+                rel="prev",
+                href=_stac_page_url(search_href, max(0, offset - limit), limit, active_params),
                 type="application/geo+json",
             )
         )
 
-    return StacItemCollection(
+    result = StacItemCollection(
         features=features,
         links=links,
         numberMatched=total,
         numberReturned=len(features),
         context={"limit": limit, "returned": len(features), "matched": total},
     )
+    return Response(content=result.model_dump_json(), media_type="application/geo+json")
 
 
-@stac_router.get("/search", response_model=StacItemCollection)
+@stac_router.get(
+    "/search",
+    response_class=JSONResponse,
+    responses={200: {"content": {"application/geo+json": {}}}},
+)
 async def search_get(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -730,9 +915,9 @@ async def search_get(
     intersects: str | None = Query(
         None, description="GeoJSON geometry for spatial intersection"
     ),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-):
+) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
     return await _execute_search(
@@ -761,12 +946,16 @@ class StacSearchBody(BaseModel):
     offset: int = 0
 
 
-@stac_router.post("/search", response_model=StacItemCollection)
+@stac_router.post(
+    "/search",
+    response_class=JSONResponse,
+    responses={200: {"content": {"application/geo+json": {}}}},
+)
 async def search_post(
     body: StacSearchBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
 
@@ -779,7 +968,7 @@ async def search_post(
         collections=body.collections,
         ids=body.ids,
         intersects=body.intersects,
-        limit=max(1, min(body.limit, 100)),
+        limit=max(1, min(body.limit, 1000)),
         offset=max(0, body.offset),
     )
 

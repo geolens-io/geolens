@@ -510,7 +510,7 @@ async def search_datasets_endpoint(
         description="Sort: relevance, date_added, name, last_updated",
     ),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(10, ge=1, le=100, description="Page size"),
+    limit: int = Query(10, ge=1, le=1000, description="Page size"),
     datetime_param: str | None = Query(
         None,
         alias="datetime",
@@ -1008,7 +1008,7 @@ async def collection_items(
     sort_by: str = Query("relevance"),
     sortby: str | None = Query(None, description="OGC sortby: +field or -field"),
     offset: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=1000),
     cql_filter: str | None = Query(
         None, alias="filter", description="CQL2 filter expression"
     ),
@@ -1031,10 +1031,47 @@ async def collection_items(
     geometry: str | None = Query(
         None, description="GeoJSON geometry for spatial filter"
     ),
+    external_id: str | None = Query(
+        None,
+        alias="externalId",
+        description="OGC Records external identifier filter (matches dataset UUID)",
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Records items endpoint -- mirrors /search/datasets."""
+    # OGC externalId -> fetch single record by UUID
+    if external_id:
+        try:
+            record_uuid = uuid.UUID(external_id)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "code": "InvalidParameterValue",
+                    "description": f"Invalid externalId: {external_id}",
+                },
+            )
+        from sqlalchemy.orm import joinedload as _jl_ext
+
+        ext_result = await db.execute(
+            select(Dataset)
+            .options(
+                _jl_ext(Dataset.record).joinedload(Record.keywords),
+                _jl_ext(Dataset.record).joinedload(Record.contacts),
+                _jl_ext(Dataset.record).joinedload(Record.distributions),
+            )
+            .where(Dataset.id == record_uuid)
+        )
+        dataset = ext_result.unique().scalar_one_or_none()
+        if dataset is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+        public_api_url = await get_public_api_url(db, request=request)
+        return JSONResponse(
+            content=dataset_to_ogc_record(dataset, public_api_url),
+            media_type="application/geo+json",
+        )
+
     # OGC type param -> record_type
     if type_param and not record_type:
         record_type = type_param

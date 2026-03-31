@@ -91,9 +91,16 @@ async def get_features(
     bind_values: dict = {}
 
     if bbox is not None and has_geometry:
-        where_clauses.append(
-            "ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
-        )
+        if bbox[0] > bbox[2]:
+            # Antimeridian-crossing: split into two envelopes
+            where_clauses.append(
+                "(ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326))"
+                " OR ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)))"
+            )
+        else:
+            where_clauses.append(
+                "ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
+            )
         bind_values["minx"] = bbox[0]
         bind_values["miny"] = bbox[1]
         bind_values["maxx"] = bbox[2]
