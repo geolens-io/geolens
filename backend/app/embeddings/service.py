@@ -1,5 +1,6 @@
 """Embedding generation service: provider-agnostic vector generation via OpenAI-compatible API."""
 
+import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timezone
@@ -65,7 +66,8 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     client = build_openai_client(base_url)
 
     try:
-        response = client.embeddings.create(
+        response = await asyncio.to_thread(
+            client.embeddings.create,
             model=model,
             input=text,
             dimensions=dims,
@@ -97,7 +99,8 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
     client = build_openai_client(base_url)
 
     try:
-        response = client.embeddings.create(
+        response = await asyncio.to_thread(
+            client.embeddings.create,
             model=model,
             input="dimension probe",
         )

@@ -13,6 +13,9 @@ from app.persistent_config import EMBEDDING_BASE_URL, OPENAI_BASE_URL
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# Module-level client cache keyed by base_url (matches llm_loop.py pattern)
+_cached_openai_clients: dict[str, OpenAI] = {}
+
 
 async def has_embeddings(session: AsyncSession) -> bool:
     """Check whether any rows exist in catalog.record_embeddings."""
@@ -67,8 +70,12 @@ async def resolve_embedding_base_url(session: AsyncSession) -> str:
 
 
 def build_openai_client(base_url: str) -> OpenAI:
-    """Build an OpenAI client with the given base URL."""
-    return OpenAI(api_key=settings.openai_api_key, base_url=base_url)
+    """Return a cached OpenAI client for the given base URL."""
+    if base_url not in _cached_openai_clients:
+        _cached_openai_clients[base_url] = OpenAI(
+            api_key=settings.openai_api_key, base_url=base_url
+        )
+    return _cached_openai_clients[base_url]
 
 
 async def defer_embedding(dataset) -> None:
