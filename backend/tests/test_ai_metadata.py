@@ -91,7 +91,12 @@ def test_schema_models_importable():
     summary = SummaryDraftResponse(draft="A test summary.")
     assert summary.draft
 
-    keywords = KeywordSuggestionsResponse(keywords=["water", "rivers"])
+    keywords = KeywordSuggestionsResponse(
+        keywords=[
+            {"keyword": "water", "keyword_type": "theme"},
+            {"keyword": "rivers", "keyword_type": "theme"},
+        ]
+    )
     assert len(keywords.keywords) == 2
 
     lineage = LineageDraftResponse(draft="Sourced from open data.")
@@ -169,7 +174,13 @@ async def test_keywords_endpoint_returns_suggestions(
     ds = await _create_test_dataset(test_db_session, user_id)
     await test_db_session.commit()
 
-    mock_response = KeywordSuggestionsResponse(keywords=["parks", "recreation", "nyc"])
+    mock_response = KeywordSuggestionsResponse(
+        keywords=[
+            {"keyword": "parks", "keyword_type": "theme"},
+            {"keyword": "recreation", "keyword_type": "theme"},
+            {"keyword": "nyc", "keyword_type": "place"},
+        ]
+    )
 
     with (
         patch(

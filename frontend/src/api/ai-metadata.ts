@@ -4,8 +4,13 @@ export interface SummaryDraftResponse {
   draft: string;
 }
 
+export interface KeywordSuggestion {
+  keyword: string;
+  keyword_type: string; // 'theme' | 'place' | 'temporal'
+}
+
 export interface KeywordSuggestionsResponse {
-  keywords: string[];
+  keywords: KeywordSuggestion[];
 }
 
 export interface LineageDraftResponse {

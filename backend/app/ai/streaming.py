@@ -4,8 +4,6 @@ import json
 from collections.abc import AsyncGenerator
 
 import structlog
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.chat_service import (
@@ -15,7 +13,13 @@ from app.ai.chat_service import (
 )
 from app.ai.constants import MAX_TOOL_ROUNDS, tool_label
 from app.ai.tool_call_parser import parse_xml_tool_calls
-from app.ai.llm_loop import build_history_messages, resolve_provider
+from app.ai.llm_loop import (
+    add_tool_cache_control,
+    get_anthropic_client,
+    get_openai_client,
+    build_history_messages,
+    resolve_provider,
+)
 from app.ai.schemas import ChatHistoryMessage
 from app.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.auth.models import User
@@ -36,10 +40,16 @@ async def _stream_anthropic_chat(
     history: list[dict] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = get_anthropic_client()
 
     messages = build_history_messages(history)
     messages.append({"role": "user", "content": message})
+
+    # Enable prompt caching for system prompt and tools
+    cached_system = [
+        {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+    ]
+    cached_tools = add_tool_cache_control(CHAT_TOOLS_ANTHROPIC)
 
     collected_actions: list[dict] = []
     total_input = 0
@@ -52,8 +62,9 @@ async def _stream_anthropic_chat(
         async with client.messages.stream(
             model=model,
             max_tokens=4096,
-            system=system_prompt,
-            tools=CHAT_TOOLS_ANTHROPIC,
+            temperature=0.5,
+            system=cached_system,
+            tools=cached_tools,
             messages=messages,
         ) as stream:
             async for event in stream:
@@ -186,7 +197,7 @@ async def _stream_openai_chat(
     history: list[dict] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
-    client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=base_url)
+    client = get_openai_client(base_url)
 
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(build_history_messages(history))
@@ -198,6 +209,7 @@ async def _stream_openai_chat(
         response_stream = await client.chat.completions.create(
             model=model,
             max_tokens=4096,
+            temperature=0.5,
             tools=CHAT_TOOLS_OPENAI,
             messages=messages,
             stream=True,

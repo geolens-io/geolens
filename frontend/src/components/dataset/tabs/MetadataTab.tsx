@@ -70,9 +70,11 @@ export function MetadataTab({
                           keyword.keyword.toLowerCase(),
                         ),
                       );
-                      const novel = response.keywords.filter(
-                        (keyword) => !existing.has(keyword.toLowerCase()),
-                      );
+                      const novel = response.keywords
+                        .map((kw) => kw.keyword)
+                        .filter(
+                          (keyword) => !existing.has(keyword.toLowerCase()),
+                        );
                       if (novel.length === 0) {
                         toast.info(t('ai.keywordsNoneSuggested'));
                       } else {

@@ -21,6 +21,46 @@ from app.sandbox.schemas import SandboxError, ValidatedQuery
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# Functions blocked in LLM-generated SQL for defense-in-depth.
+# READ ONLY transactions prevent most damage, but these can still
+# leak server metadata or waste connections.
+_BLOCKED_FUNCTIONS: set[str] = {
+    # Filesystem access
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_ls_dir",
+    "pg_stat_file",
+    # Large object operations
+    "lo_import",
+    "lo_export",
+    "lo_create",
+    "lo_unlink",
+    # External connections
+    "dblink",
+    "dblink_exec",
+    "dblink_connect",
+    "dblink_send_query",
+    # Server info disclosure
+    "current_setting",
+    "set_config",
+    "inet_server_addr",
+    "inet_server_port",
+    "inet_client_addr",
+    "inet_client_port",
+    # DoS / admin
+    "pg_sleep",
+    "pg_terminate_backend",
+    "pg_cancel_backend",
+    "pg_reload_conf",
+    # Advisory locks (connection-held resource)
+    "pg_advisory_lock",
+    "pg_advisory_unlock",
+    "pg_try_advisory_lock",
+    # Copy
+    "copy_to",
+    "copy_from",
+}
+
 
 def validate_sql(sql: str) -> ValidatedQuery:
     """Parse and validate SQL. Returns validated query or raises SandboxError.
@@ -54,6 +94,16 @@ def validate_sql(sql: str) -> ValidatedQuery:
     if stmt.find(exp.Into):
         logger.info("sandbox.select_into", sql=sql)
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
+
+    # Check for blocked function calls (single AST walk — Anonymous is a Func subclass)
+    for func in stmt.find_all(exp.Func):
+        if isinstance(func, exp.Anonymous):
+            fn_name = func.name.lower() if hasattr(func, "name") else ""
+        else:
+            fn_name = func.sql_name().lower() if hasattr(func, "sql_name") else ""
+        if fn_name in _BLOCKED_FUNCTIONS:
+            logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
+            raise SandboxError("invalid_query", "Query uses a disallowed function")
 
     # Extract CTE names to exclude from table validation
     cte_names: set[str] = set()
