@@ -110,8 +110,7 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
         storage = get_storage()
         safe_name = Path(file.filename).name  # strip path traversal
         s3_key = f"staging/{job_id}/{safe_name}"
-        content = await file.read()
-        await storage.put(s3_key, content)
+        await storage.put(s3_key, file.file)
         return s3_key
 
     staging_dir = Path(settings.upload_staging_dir)
