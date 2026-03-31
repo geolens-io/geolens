@@ -21,6 +21,8 @@ export interface DetailPanelProps {
   stagePendingDraft: (field: PendingDraftField, value: string) => void;
   handleDraftDirtyChange: (field: PendingDraftField, isDirty: boolean) => void;
   onNavigateToValidationField: (field: string) => void;
+  isTableExpanded?: boolean;
+  onToggleTableExpand?: () => void;
 }
 
 export function DetailPanel(props: DetailPanelProps) {
@@ -36,6 +38,8 @@ export function DetailPanel(props: DetailPanelProps) {
     stagePendingDraft,
     handleDraftDirtyChange,
     onNavigateToValidationField,
+    isTableExpanded,
+    onToggleTableExpand,
   } = props;
 
   const recordType = dataset.record_type;
@@ -99,7 +103,12 @@ export function DetailPanel(props: DetailPanelProps) {
 
       {showData && (
         <TabsContent value="data" className="space-y-6">
-          <DataTab datasetId={datasetId} canEdit={canEdit} />
+          <DataTab
+            datasetId={datasetId}
+            canEdit={canEdit}
+            expanded={isTableExpanded}
+            onToggleExpand={onToggleTableExpand}
+          />
         </TabsContent>
       )}
 
