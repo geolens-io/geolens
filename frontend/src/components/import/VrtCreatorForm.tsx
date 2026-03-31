@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { AlertCircle, X, Search, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/api/client';
@@ -132,10 +132,11 @@ function errorMessage(
 
 interface VrtCreatorFormProps {
   initialSourceId?: string;
+  initialSourceIds?: string[];
   onCancel?: () => void;
 }
 
-export function VrtCreatorForm({ initialSourceId, onCancel }: VrtCreatorFormProps) {
+export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: VrtCreatorFormProps) {
   const { t } = useTranslation('import');
   const createVrtMutation = useCreateVrt();
 
@@ -150,6 +151,7 @@ export function VrtCreatorForm({ initialSourceId, onCancel }: VrtCreatorFormProp
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const multiInitializedRef = useRef(false);
 
   // Pre-select source from query param
   const { data: initialSource } = useQuery({
@@ -168,6 +170,29 @@ export function VrtCreatorForm({ initialSourceId, onCancel }: VrtCreatorFormProp
       setSelectedSources([initialSource]);
     }
   }, [initialSource]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-select multiple sources when initialSourceIds is provided (multi-source flow)
+  const multiSourceQueries = useQueries({
+    queries: (initialSourceIds && !initialSourceId ? initialSourceIds : []).map((id) => ({
+      queryKey: queryKeys.ogcRecords.detail(id),
+      queryFn: () => apiFetch<OGCRecordResponse>(`/collections/datasets/items/${id}`),
+      enabled: true,
+    })),
+  });
+
+  useEffect(() => {
+    if (!initialSourceIds || initialSourceIds.length === 0 || initialSourceId) return;
+    if (multiInitializedRef.current) return;
+    const allDone = multiSourceQueries.every((q) => q.isSuccess);
+    if (!allDone) return;
+    const rasterSources = multiSourceQueries
+      .map((q) => q.data)
+      .filter((d): d is OGCRecordResponse => !!d && d.properties.record_type === 'raster_dataset');
+    if (rasterSources.length > 0 && selectedSources.length === 0) {
+      multiInitializedRef.current = true;
+      setSelectedSources(rasterSources);
+    }
+  }, [multiSourceQueries, initialSourceIds, initialSourceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce search query
   useEffect(() => {
