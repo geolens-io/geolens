@@ -136,7 +136,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             </Button>
             {isRasterEntry && (
               <>
-                <Button variant="outline" size="sm" onClick={() => downloadCog(job.dataset_id!, job.source_filename ?? 'download')}>
+                <Button variant="outline" size="sm" onClick={() => downloadCog(job.dataset_id!)}>
                   <Download className="mr-1 size-3" />
                   Download COG
                 </Button>
