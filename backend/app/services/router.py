@@ -71,7 +71,7 @@ async def probe_service_url(
         await db.commit()
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Step 2-3: Probe with httpx client
+    # Step 2: Probe with httpx client
     # NOTE: No default Authorization header on the client. Each probe function
     # handles auth its own way (ArcGIS via &token= query param, WFS via
     # per-request header). Sending Bearer headers to ArcGIS breaks auth.
@@ -185,7 +185,7 @@ async def probe_service_url(
         await db.commit()
         raise HTTPException(status_code=422, detail=str(exc))
 
-    # Step 5: Audit log on success
+    # Step 3: Audit log on success
     logger.info(
         "Probe success",
         url=request.url,
