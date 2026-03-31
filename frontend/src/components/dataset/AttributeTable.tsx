@@ -24,7 +24,7 @@ import {
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { formatNumber } from '@/lib/format';
 import { Loader2, ArrowUpDown, Settings2 } from 'lucide-react';
 
@@ -129,7 +129,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     setColumnFilters((prev) => ({ ...prev, [colName]: value }));
   }, []);
 
-  const handleCellSave = async (rowGid: number, column: string, newValue: string) => {
+  const handleCellSave = useCallback(async (rowGid: number, column: string, newValue: string) => {
     setEditingCell(null);
     try {
       await updateFeature.mutateAsync({
@@ -141,7 +141,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     } catch {
       toast.error(t('attributes.editFailed'));
     }
-  };
+  }, [datasetId, updateFeature, t]);
 
   const handleNextPage = useCallback(() => {
     if (data?.next_cursor != null) {
@@ -196,27 +196,23 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           );
         }
 
-        // Tooltip for long values
         if (cellValue.length > 30) {
           return (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="block truncate">{cellValue}</span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-sm break-all">
-                  {cellValue}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="block truncate">{cellValue}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-sm break-all">
+                {cellValue}
+              </TooltipContent>
+            </Tooltip>
           );
         }
 
         return cellValue;
       },
     }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.columns, editingCell, canEdit, updateFeature.isPending]);
+  }, [data?.columns, editingCell, canEdit, handleCellSave, updateFeature.isPending]);
 
   const table = useReactTable({
     data: data?.rows ?? [],
@@ -261,7 +257,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
               <Settings2 className="h-3.5 w-3.5" />
-              Columns
+              {t('attributes.columns')}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">

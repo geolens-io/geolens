@@ -16,22 +16,26 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
   const { t } = useTranslation('dataset');
   const [compact, setCompact] = useState(false);
 
+  const densityToggle = (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-7 w-7 p-0"
+      onClick={() => setCompact((v) => !v)}
+      aria-label={compact ? 'Switch to comfortable density' : 'Switch to compact density'}
+      title={compact ? 'Comfortable' : 'Compact'}
+    >
+      {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
+    </Button>
+  );
+
   if (expanded) {
     return (
       <div className="flex flex-col h-[calc(100vh-10rem)]">
         <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30 shrink-0">
           <span className="text-sm font-medium">{t('page.attributeData')}</span>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setCompact((v) => !v)}
-              aria-label={compact ? 'Switch to comfortable density' : 'Switch to compact density'}
-              title={compact ? 'Comfortable' : 'Compact'}
-            >
-              {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
-            </Button>
+            {densityToggle}
             <Button
               variant="ghost"
               size="sm"
@@ -55,16 +59,7 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-base">{t('page.attributeData')}</CardTitle>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => setCompact((v) => !v)}
-            aria-label={compact ? 'Switch to comfortable density' : 'Switch to compact density'}
-            title={compact ? 'Comfortable' : 'Compact'}
-          >
-            {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
-          </Button>
+          {densityToggle}
           {onToggleExpand && (
             <Button
               variant="ghost"
