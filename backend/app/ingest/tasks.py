@@ -408,7 +408,7 @@ async def ingest_service(
             service_type, source_format = _resolve_service_type(service_type_raw)
 
             # 3. Build GDAL source string
-            object_id_field = um.get("object_id_field") or "OBJECTID"
+            object_id_field = um.get("object_id_field") or None
             gdal_source, layer_arg = build_gdal_source(
                 service_type_raw,
                 source_url,
@@ -938,7 +938,7 @@ async def reupload_service(
             service_type, source_format = _resolve_service_type(service_type_raw)
 
             db_conn_str = build_pg_conn_str()
-            reupload_oid_field = um.get("object_id_field") or "OBJECTID"
+            reupload_oid_field = um.get("object_id_field") or None
 
             # Drop stale staging table from prior failed attempt
             await session.execute(
