@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v13.0
 milestone_name: Open-Core Pre-Release
 status: verifying
-stopped_at: Completed 260329-lnd-PLAN.md
-last_updated: "2026-03-29T19:55:00.000Z"
-last_activity: 2026-03-29
+stopped_at: "Completed quick task 260331-izv: Fix 502 errors on ArcGIS service imports"
+last_updated: "2026-03-31T17:46:51.083Z"
+last_activity: "2026-03-31 - Completed quick task 260331-9wb: Add raster extensions to default allowed upload extensions"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 12
+  completed_phases: 3
+  total_plans: 6
   completed_plans: 10
   percent: 0
 ---
@@ -278,6 +278,6 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last activity: 2026-03-31 - Completed quick task 260331-9wb: Add raster extensions to default allowed upload extensions
-Last session: 2026-03-29T12:29:00.489Z
-Stopped at: Completed 260329-bn7-PLAN.md
+Last session: 2026-03-31T17:46:51.080Z
+Stopped at: Completed quick task 260331-izv: Fix 502 errors on ArcGIS service imports
 Resume file: None
