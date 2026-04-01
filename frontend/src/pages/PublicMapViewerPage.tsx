@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
+import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { MapPinOff } from 'lucide-react';
 import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
@@ -50,7 +51,10 @@ export function PublicMapViewerPage() {
   );
 
   const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
-    useViewerLayers(data?.layers);
+    useViewerLayers(layers);
+
+  const [basemapId, setBasemapId] = useState<string | null>(null);
+  const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
   if (isLoading) {
     return (
@@ -67,7 +71,7 @@ export function PublicMapViewerPage() {
         <div className="flex flex-col items-center gap-3 text-center">
           <MapPinOff className="size-10 text-muted-foreground" />
           <h1 className="text-2xl font-semibold text-foreground">
-            {isNotFound ? t('viewer.mapNotFound') : t('viewer.loadFailed', 'Unable to load map')}
+            {isNotFound ? t('viewer.mapNotFound') : t('viewer.loadFailed')}
           </h1>
           <p className="text-sm text-muted-foreground max-w-sm">
             {t('viewer.mapNotFoundDescription')}
@@ -86,24 +90,32 @@ export function PublicMapViewerPage() {
   };
 
   return (
-    <div className="w-full h-screen relative overflow-hidden">
+    <main id="map-viewport" className="w-full h-[calc(100dvh-3.5rem-1px)] relative overflow-hidden">
       <ViewerMap
         layers={layers}
-        basemapStyle={data.basemap_style}
+        basemapStyle={basemapId ?? data.basemap_style}
+        basemapOverride={basemapId !== null}
         showBasemapLabels={data.show_basemap_labels ?? true}
         initialViewState={viewState}
         visibleLayers={visibleLayers}
       />
 
-      <MapTitlePill name={data.name} />
+      <MapTitlePill name={data.name} description={data.description} />
 
       <LayerLegend
         layers={layers}
         visibleLayers={visibleLayers}
         onToggleVisibility={handleToggleVisibility}
         isOpen={isLegendOpen}
-        onToggle={() => setIsLegendOpen((prev) => !prev)}
+        onToggle={handleLegendToggle}
       />
-    </div>
+
+      <BasemapToggle
+        value={basemapId ?? data.basemap_style}
+        onChange={setBasemapId}
+        title={t('viewer.changeBasemap')}
+        className="absolute bottom-8 left-3 z-10"
+      />
+    </main>
   );
 }

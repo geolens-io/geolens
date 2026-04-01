@@ -89,14 +89,21 @@
       "title": "Layers",
       "show": "Show legend",
       "hide": "Hide legend",
-      "showLayer": "Show layer",
-      "hideLayer": "Hide layer",
+      "showLayer": "Show {{name}}",
+      "hideLayer": "Hide {{name}}",
       "geometry": {
         "point": "Point",
         "line": "Line",
         "polygon": "Polygon"
       }
-    }
+    },
+    "heatmapLow": "Low",
+    "heatmapHigh": "High",
+    "skipToMap": "Skip to map",
+    "showDescription": "Show map description",
+    "hideDescription": "Hide map description",
+    "changeBasemap": "Change basemap",
+    "loadFailed": "Unable to load map"
   },
   "errors": {
     "unexpected": "An unexpected error occurred",
