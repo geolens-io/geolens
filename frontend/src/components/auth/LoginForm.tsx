@@ -76,7 +76,7 @@ export function LoginForm() {
                 placeholder={t('enterPassword')}
                 required
                 autoComplete="current-password"
-                className="pr-11"
+                className="pe-11"
               />
               <button
                 type="button"

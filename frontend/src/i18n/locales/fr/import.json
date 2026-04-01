@@ -32,6 +32,12 @@
     "submit": "Créer un Raster Virtuel",
     "submitting": "Création en cours...",
     "submitFailed": "Échec de la création du VRT",
+    "crsMismatch": "Incohérence CRS : {{src}} vs {{first}}",
+    "bandMismatch": "Incohérence du nombre de bandes : {{src}} vs {{first}}",
+    "dtypeMismatch": "Incohérence du type de données : {{src}} vs {{first}}",
+    "nodataMismatch": "Valeur NoData incohérente",
+    "gridMismatch": "Les dimensions de la grille ne correspondent pas (largeur, hauteur ou résolution différente)",
+    "removeSource": "Supprimer {{title}}",
     "errors": {
       "crs_mismatch": "Écart de CRS : {{source}} vs {{expected}}",
       "band_count_mismatch": "Écart du nombre de bandes : {{source}} vs {{expected}}",
@@ -116,7 +122,16 @@
   },
   "preview": {
     "title": "Aperçu du fichier",
-    "crs": "SCR",
+    "raster": "Raster",
+    "crs": "CRS :",
+    "bands": "Bandes :",
+    "size": "Taille :",
+    "type": "Type :",
+    "resolution": "Résolution :",
+    "cog": "COG :",
+    "date": "Date :",
+    "validCog": "COG valide",
+    "willConvert": "Sera converti",
     "geometryType": "Type de géométrie",
     "featureCount": "Nombre d'entités",
     "layerName": "Nom de la couche",
@@ -178,7 +193,11 @@
     "retrying": "Nouvelle tentative...",
     "startOver": "Recommencer",
     "retrySuccess": "Tâche remise en file d'attente",
-    "retryFailed": "Échec de la nouvelle tentative : {{message}}"
+    "retryFailed": "Échec de la nouvelle tentative : {{message}}",
+    "copiedCogUrl": "URL COG copiée",
+    "copiedXyzUrl": "URL tuile XYZ copiée",
+    "copyCogUrl": "Copier l'URL COG",
+    "copyXyzUrl": "Copier l'URL tuile XYZ"
   },
   "bulk": {
     "uploading_one": "Téléchargement de {{count}} fichier...",

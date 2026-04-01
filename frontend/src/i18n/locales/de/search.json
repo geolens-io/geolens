@@ -124,6 +124,9 @@
   "quality": {
     "label": "Qualität: {{score}}%"
   },
+  "qualityBadge": {
+    "tooltip": "Metadaten-Vollständigkeitsbewertung basierend auf Titel, Beschreibung, Schlüsselwörtern, CRS und zeitlicher Ausdehnung"
+  },
   "create": {
     "button": "Datensatz erstellen",
     "title": "Neuen Datensatz erstellen",

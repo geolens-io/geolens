@@ -276,10 +276,10 @@ export function SpatialFilterPanel({
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="w-full max-w-[420px] gap-0 border-l border-border/50 p-0 shadow-xl sm:max-w-[420px]"
+        className="w-full max-w-[420px] gap-0 border-s border-border/50 p-0 shadow-xl sm:max-w-[420px]"
       >
         <div className="flex h-full flex-col overflow-y-auto">
-          <SheetHeader className="border-b border-border/40 pb-3 pr-14">
+          <SheetHeader className="border-b border-border/40 pb-3 pe-14">
             <SheetTitle className="text-sm">
               {t('spatial.title', { defaultValue: 'Search area' })}
             </SheetTitle>
@@ -308,11 +308,11 @@ export function SpatialFilterPanel({
               className="mb-3 mt-4 w-full"
             >
               <ToggleGroupItem value="rectangle" className="flex-1 text-xs">
-                <Square className="mr-1 size-3" />
+                <Square className="me-1 size-3" />
                 {t('spatial.rectangle', { defaultValue: 'Rectangle' })}
               </ToggleGroupItem>
               <ToggleGroupItem value="polygon" className="flex-1 text-xs">
-                <Pentagon className="mr-1 size-3" />
+                <Pentagon className="me-1 size-3" />
                 {t('spatial.polygon', { defaultValue: 'Polygon' })}
               </ToggleGroupItem>
             </ToggleGroup>

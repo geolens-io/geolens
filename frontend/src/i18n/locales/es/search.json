@@ -124,6 +124,9 @@
   "quality": {
     "label": "Calidad: {{score}}%"
   },
+  "qualityBadge": {
+    "tooltip": "Puntuación de completitud de metadatos basada en título, descripción, palabras clave, CRS y extensión temporal"
+  },
   "create": {
     "button": "Crear conjunto de datos",
     "title": "Crear nuevo conjunto de datos",

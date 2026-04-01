@@ -587,6 +587,37 @@
     "error": "Error al cargar relaciones",
     "loadError": "Error al cargar registros relacionados"
   },
+  "overview": {
+    "allChecksPassed": "Todas las comprobaciones superadas",
+    "bandStack": "Pila de bandas",
+    "mosaic": "Mosaico",
+    "unknown": "Desconocido"
+  },
+  "sources": {
+    "system": "Sistema",
+    "user": "Usuario",
+    "elapsed": "Transcurrido: {{seconds}}s"
+  },
+  "data": {
+    "collapseTable": "Contraer tabla",
+    "expandTable": "Expandir tabla",
+    "switchComfortable": "Cambiar a densidad cómoda",
+    "switchCompact": "Cambiar a densidad compacta",
+    "comfortable": "Cómoda",
+    "compact": "Compacta"
+  },
+  "raster": {
+    "noTiles": "No hay teselas ráster disponibles",
+    "previewUnavailable": "Vista previa no disponible",
+    "retry": "Reintentar",
+    "tilesProcessing": "Las teselas pueden estar aún en proceso",
+    "bands": "Bandas",
+    "resolution": "Resolución",
+    "dimensions": "Dimensiones",
+    "format": "Formato",
+    "bandStack": "Pila de bandas",
+    "mosaic": "Mosaico"
+  },
   "sections": {
     "identity": "Identidad",
     "summary": "Resumen",

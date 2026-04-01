@@ -22,8 +22,8 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
       size="sm"
       className="h-7 w-7 p-0"
       onClick={() => setCompact((v) => !v)}
-      aria-label={compact ? 'Switch to comfortable density' : 'Switch to compact density'}
-      title={compact ? 'Comfortable' : 'Compact'}
+      aria-label={compact ? t('data.switchComfortable') : t('data.switchCompact')}
+      title={compact ? t('data.comfortable') : t('data.compact')}
     >
       {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
     </Button>
@@ -41,7 +41,7 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
               size="sm"
               className="h-7 w-7 p-0"
               onClick={onToggleExpand}
-              aria-label="Collapse table"
+              aria-label={t('data.collapseTable')}
             >
               <Minimize2 className="h-4 w-4" />
             </Button>
@@ -66,7 +66,7 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
               size="sm"
               className="h-7 w-7 p-0"
               onClick={onToggleExpand}
-              aria-label="Expand table"
+              aria-label={t('data.expandTable')}
             >
               <Maximize2 className="h-4 w-4" />
             </Button>

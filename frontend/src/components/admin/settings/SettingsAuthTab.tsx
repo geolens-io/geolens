@@ -320,7 +320,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
             onClick={openAddDialog}
             disabled={envOnly}
           >
-            <Plus className="mr-1 h-4 w-4" />
+            <Plus className="me-1 h-4 w-4" />
             {t('settings.oauth.addProvider')}
           </Button>
         </div>
@@ -338,7 +338,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 <TableHead>{t('settings.oauth.provider')}</TableHead>
                 <TableHead>{t('settings.oauth.type')}</TableHead>
                 <TableHead>{t('settings.oauth.status')}</TableHead>
-                <TableHead className="text-right">{t('settings.oauth.actions')}</TableHead>
+                <TableHead className="text-end">{t('settings.oauth.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -355,7 +355,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                       {provider.enabled ? t('settings.oauth.enabled') : t('settings.oauth.disabled')}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <div className="flex items-center justify-end gap-1">
                       <Button
                         variant="ghost"
@@ -480,7 +480,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   <Label htmlFor="client-secret">
                     {t('settings.oauth.clientSecret')}
                     {editingProvider && (
-                      <span className="ml-1 text-xs text-muted-foreground font-normal">
+                      <span className="ms-1 text-xs text-muted-foreground font-normal">
                         ({t('settings.oauth.clientSecretKeep')})
                       </span>
                     )}
@@ -542,7 +542,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                       <Label htmlFor="sp-entity-id">{t('settings.oauth.saml.spEntityId')}</Label>
                       <div className="flex gap-2">
                         <Input id="sp-entity-id" value={editingProvider.sp_entity_id} readOnly disabled aria-readonly="true" className="flex-1" />
-                        <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(editingProvider.sp_entity_id!); toast.success(t('settings.oauth.saml.copiedToClipboard')); }} aria-label="Copy SP Entity ID">
+                        <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(editingProvider.sp_entity_id!); toast.success(t('settings.oauth.saml.copiedToClipboard')); }} aria-label={t('settings.copySPEntityId')}>
                           <Copy className="size-4" />
                         </Button>
                       </div>
@@ -552,7 +552,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                       <Label htmlFor="acs-url">{t('settings.oauth.saml.acsUrl')}</Label>
                       <div className="flex gap-2">
                         <Input id="acs-url" value={`${window.location.origin}/api/auth/saml/${editingProvider.slug}/acs`} readOnly disabled aria-readonly="true" className="flex-1" />
-                        <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/auth/saml/${editingProvider.slug}/acs`); toast.success(t('settings.oauth.saml.copiedToClipboard')); }} aria-label="Copy ACS URL">
+                        <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/auth/saml/${editingProvider.slug}/acs`); toast.success(t('settings.oauth.saml.copiedToClipboard')); }} aria-label={t('settings.copyAcsUrl')}>
                           <Copy className="size-4" />
                         </Button>
                       </div>

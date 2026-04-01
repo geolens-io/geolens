@@ -31,7 +31,7 @@ import { AuthPrompt } from '@/components/auth/AuthPrompt';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
-import { formatRelativeDate } from '@/lib/format';
+import { formatRelativeDate, formatNumber } from '@/lib/format';
 import { getRecordStatusLabel, getGeometryTypeLabel } from '@/i18n/labels';
 import { Button } from '@/components/ui/button';
 import {
@@ -103,7 +103,7 @@ export function DatasetPage() {
   const capabilities = useDatasetEditCapabilities();
   const isDrawing = useDrawingStore((s) => s.isDrawing);
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
-  useDocumentTitle(dataset?.title ?? 'Dataset');
+  useDocumentTitle(dataset?.title ?? t('common:pageTitle.dataset'));
 
   const {
     stagePendingDraft,
@@ -337,7 +337,7 @@ export function DatasetPage() {
             {dataset.feature_count != null && (
               <>
                 <Sep />
-                <span>{dataset.feature_count.toLocaleString()} {isTable ? 'rows' : 'features'}</span>
+                <span>{formatNumber(dataset.feature_count)} {isTable ? 'rows' : 'features'}</span>
               </>
             )}
             {dataset.srid && (
@@ -352,7 +352,7 @@ export function DatasetPage() {
             {dataset.raster?.band_count != null && (
               <>
                 <Sep />
-                <span>{dataset.raster.band_count} bands</span>
+                <span>{dataset.raster.band_count} {t('raster.bands').toLowerCase()}</span>
               </>
             )}
             {dataset.raster?.gsd != null && (
@@ -373,7 +373,7 @@ export function DatasetPage() {
             {dataset.raster?.vrt_type && (
               <>
                 <Sep />
-                <span>{dataset.raster.vrt_type === 'band_stack' ? 'Band Stack' : 'Mosaic'}</span>
+                <span>{dataset.raster.vrt_type === 'band_stack' ? t('raster.bandStack') : t('raster.mosaic')}</span>
               </>
             )}
             {dataset.raster?.source_count != null && (
@@ -401,7 +401,7 @@ export function DatasetPage() {
         <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
         <Sep />
         <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
-          {dataset.visibility === 'public' ? <Eye className="mr-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="mr-1 h-3 w-3" /> : <EyeOff className="mr-1 h-3 w-3" />}
+          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
           {dataset.visibility}
         </Badge>
         <Sep />
@@ -463,7 +463,7 @@ export function DatasetPage() {
             {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
             {isRaster && dataset.raster?.connect && (
               <Button variant="default" size="sm" onClick={() => downloadCog(dataset.id)}>
-                <Download className="mr-1 size-3" />
+                <Download className="me-1 size-3" />
                 {t('actions.downloadCog', { defaultValue: 'Download COG' })}
               </Button>
             )}
@@ -529,17 +529,17 @@ export function DatasetPage() {
           />
           {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
             <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
-              No raster tiles available
+              {t('raster.noTiles')}
             </div>
           )}
           {isRasterOrVrt && heroState === 'error' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
               <AlertTriangle className="size-8 text-destructive mb-2" />
-              <p className="text-sm text-muted-foreground mb-3">Preview unavailable</p>
+              <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>
               {retryCount < 3 ? (
-                <Button size="sm" onClick={handleRetry}>Retry</Button>
+                <Button size="sm" onClick={handleRetry}>{t('raster.retry')}</Button>
               ) : (
-                <p className="text-xs text-muted-foreground">Tiles may still be processing</p>
+                <p className="text-xs text-muted-foreground">{t('raster.tilesProcessing')}</p>
               )}
             </div>
           )}
@@ -550,19 +550,19 @@ export function DatasetPage() {
       {!isDataTabExpanded && dataset.record_type === 'raster_dataset' && dataset.raster && (
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30 text-sm overflow-x-auto">
           {dataset.raster.band_count != null && (
-            <div><span className="text-muted-foreground">Bands</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
+            <div><span className="text-muted-foreground">{t('raster.bands')}</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
           )}
           {(dataset.raster.res_x != null || dataset.raster.gsd != null) && (
             <div>
-              <span className="text-muted-foreground">Resolution</span>{' '}
+              <span className="text-muted-foreground">{t('raster.resolution')}</span>{' '}
               <span className="font-medium">{dataset.raster.gsd ? `${dataset.raster.gsd} m` : `${dataset.raster.res_x?.toFixed(6)}`}</span>
             </div>
           )}
           {dataset.raster.width != null && dataset.raster.height != null && (
-            <div><span className="text-muted-foreground">Dimensions</span> <span className="font-medium">{dataset.raster.width} x {dataset.raster.height} px</span></div>
+            <div><span className="text-muted-foreground">{t('raster.dimensions')}</span> <span className="font-medium">{dataset.raster.width} x {dataset.raster.height} px</span></div>
           )}
           {dataset.raster.compression && (
-            <div><span className="text-muted-foreground">Format</span> <span className="font-medium">{dataset.raster.compression}</span></div>
+            <div><span className="text-muted-foreground">{t('raster.format')}</span> <span className="font-medium">{dataset.raster.compression}</span></div>
           )}
         </div>
       )}

@@ -549,6 +549,37 @@
       "utilitiesCommunication": "Utilities & Communication"
     }
   },
+  "overview": {
+    "allChecksPassed": "All checks passed",
+    "bandStack": "Band Stack",
+    "mosaic": "Mosaic",
+    "unknown": "Unknown"
+  },
+  "sources": {
+    "system": "System",
+    "user": "User",
+    "elapsed": "Elapsed: {{seconds}}s"
+  },
+  "data": {
+    "collapseTable": "Collapse table",
+    "expandTable": "Expand table",
+    "switchComfortable": "Switch to comfortable density",
+    "switchCompact": "Switch to compact density",
+    "comfortable": "Comfortable",
+    "compact": "Compact"
+  },
+  "raster": {
+    "noTiles": "No raster tiles available",
+    "previewUnavailable": "Preview unavailable",
+    "retry": "Retry",
+    "tilesProcessing": "Tiles may still be processing",
+    "bands": "Bands",
+    "resolution": "Resolution",
+    "dimensions": "Dimensions",
+    "format": "Format",
+    "bandStack": "Band Stack",
+    "mosaic": "Mosaic"
+  },
   "sections": {
     "identity": "Identity",
     "summary": "Summary",

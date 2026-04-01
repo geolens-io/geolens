@@ -147,7 +147,7 @@ export function SliderRow({ label, value, min, max, step, display, format, onCha
         onValueChange={([v]) => onChange(v)}
         className="flex-1"
       />
-      <span className="text-xs text-muted-foreground w-10 text-right">
+      <span className="text-xs text-muted-foreground w-10 text-end">
         {display ?? formatValue(value, format)}
       </span>
     </div>

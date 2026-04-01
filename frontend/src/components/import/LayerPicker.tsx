@@ -13,6 +13,7 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { getGeometryTypeLabel } from '@/i18n/labels';
+import { formatNumber } from '@/lib/format';
 
 interface LayerPickerProps {
   probeResult: ProbeResponse;
@@ -80,7 +81,7 @@ export function LayerPicker({ probeResult, onSelect, onBack, error }: LayerPicke
                     </TableCell>
                     <TableCell>
                       {layer.feature_count !== null
-                        ? layer.feature_count.toLocaleString()
+                        ? formatNumber(layer.feature_count)
                         : '-'}
                     </TableCell>
                   </TableRow>

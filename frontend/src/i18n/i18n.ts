@@ -5,12 +5,17 @@ import { detectionOptions, defaultNS, fallbackLng, namespaces, supportedLngs } f
 import { getBrowserI18nOptions } from './options';
 import { loadLocaleResources, resources } from './resources';
 
+const rtlLanguages = new Set(['ar', 'he', 'fa', 'ur']);
+
 function updateDocumentLanguage(lng?: string) {
   if (typeof document === 'undefined') {
     return;
   }
 
-  document.documentElement.lang = lng ?? fallbackLng;
+  const resolvedLng = lng ?? fallbackLng;
+  document.documentElement.lang = resolvedLng;
+  // Set dir attribute for RTL support
+  document.documentElement.dir = rtlLanguages.has(resolvedLng) ? 'rtl' : 'ltr';
 }
 
 function normalizeLanguage(value?: string | null) {

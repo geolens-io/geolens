@@ -159,7 +159,7 @@ export function UserList() {
                 options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
               />
               <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-                <UserPlus className="mr-2 h-4 w-4" /> {t('users.addUser')}
+                <UserPlus className="me-2 h-4 w-4" /> {t('users.addUser')}
               </Button>
             </div>
           </div>
@@ -235,24 +235,24 @@ export function UserList() {
                           {user.status === 'pending' && (
                             <>
                               <DropdownMenuItem onClick={() => handleApprove(user)}>
-                                <Check className="mr-2 h-4 w-4" /> {t('users.actions.approve')}
+                                <Check className="me-2 h-4 w-4" /> {t('users.actions.approve')}
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleReject(user)} className="text-destructive">
-                                <X className="mr-2 h-4 w-4" /> {t('users.actions.reject')}
+                                <X className="me-2 h-4 w-4" /> {t('users.actions.reject')}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                             </>
                           )}
                           <DropdownMenuItem onClick={() => setEditingUser(user)}>
-                            <Edit className="mr-2 h-4 w-4" /> {t('common:edit')}
+                            <Edit className="me-2 h-4 w-4" /> {t('common:edit')}
                           </DropdownMenuItem>
                           {user.is_active ? (
                             <DropdownMenuItem onClick={() => handleDeactivate(user)} className="text-destructive">
-                              <UserX className="mr-2 h-4 w-4" /> {t('users.actions.deactivate')}
+                              <UserX className="me-2 h-4 w-4" /> {t('users.actions.deactivate')}
                             </DropdownMenuItem>
                           ) : null}
                           <DropdownMenuItem onClick={() => setDeletingUser(user)} className="text-destructive">
-                            <Trash className="mr-2 h-4 w-4" /> {t('common:delete')}
+                            <Trash className="me-2 h-4 w-4" /> {t('common:delete')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

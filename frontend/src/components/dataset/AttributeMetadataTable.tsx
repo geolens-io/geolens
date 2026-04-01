@@ -129,7 +129,7 @@ export function AttributeMetadataTable({ datasetId, canEdit }: AttributeMetadata
         <button
           type="button"
           onClick={() => startEditing(attr, field)}
-          className="w-full text-left rounded px-1 -mx-1 hover:bg-accent/50 transition-colors text-xs min-h-[1.75rem] flex items-center"
+          className="w-full text-start rounded px-1 -mx-1 hover:bg-accent/50 transition-colors text-xs min-h-[1.75rem] flex items-center"
           title={t('attributeMetadata.clickToEdit')}
         >
           {value || (

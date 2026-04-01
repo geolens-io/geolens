@@ -54,7 +54,7 @@ const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
 
 export function AdminSettingsPage() {
   const { t } = useTranslation('admin');
-  useDocumentTitle('Admin Settings');
+  useDocumentTitle(t('common:pageTitle.adminSettings'));
   const { tab } = useParams<{ tab: string }>();
   const { data: allSettings, isLoading, isError, error } = useAllSettings();
   const { data: configMode } = useConfigMode();

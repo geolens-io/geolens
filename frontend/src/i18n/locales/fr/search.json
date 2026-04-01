@@ -124,6 +124,9 @@
   "quality": {
     "label": "Qualité : {{score}} %"
   },
+  "qualityBadge": {
+    "tooltip": "Score de complétude des métadonnées basé sur le titre, la description, les mots-clés, le CRS et l'étendue temporelle"
+  },
   "create": {
     "button": "Créer un jeu de données",
     "title": "Créer un nouveau jeu de données",

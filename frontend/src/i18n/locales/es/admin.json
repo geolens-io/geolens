@@ -6,7 +6,9 @@
     "admin": "Administrador"
   },
   "overview": {
-    "title": "Resumen"
+    "title": "Resumen",
+    "healthy": "Saludable",
+    "degraded": "Degradado"
   },
   "stats": {
     "loading": "Cargando estadísticas del catálogo...",
@@ -346,6 +348,8 @@
     "bulkRevokeFailed": "No se pudieron revocar los tokens de insercion"
   },
   "settings": {
+    "copySPEntityId": "Copiar ID de entidad SP",
+    "copyAcsUrl": "Copiar URL ACS",
     "actions": {
       "discard": "Descartar cambios",
       "resetDefaults": "Restablecer valores predeterminados"

@@ -33,7 +33,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
           alt={current?.label ?? t('basemap.title')}
           className="w-8 h-8 rounded border"
         />
-        <span className="text-sm flex-1 text-left truncate">
+        <span className="text-sm flex-1 text-start truncate">
           {current?.label ?? t('basemap.title')}
         </span>
         <ChevronDown

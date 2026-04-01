@@ -43,7 +43,7 @@ export function AiDraftPreview({ draft, onAccept, onDiscard }: AiDraftPreviewPro
   const [editedText, setEditedText] = useState(draft);
 
   return (
-    <div className="border-l-4 border-muted bg-muted/30 rounded-r-md p-3 space-y-2">
+    <div className="border-s-4 border-muted bg-muted/30 rounded-e-md p-3 space-y-2">
       <Badge variant="secondary" className="text-xs">
         {t('ai.draft')}
       </Badge>
@@ -88,7 +88,7 @@ export function AiKeywordSuggestions({ keywords, onAccept, onDiscard }: AiKeywor
   }
 
   return (
-    <div className="border-l-4 border-muted bg-muted/30 rounded-r-md p-3 space-y-2">
+    <div className="border-s-4 border-muted bg-muted/30 rounded-e-md p-3 space-y-2">
       <Badge variant="secondary" className="text-xs">
         {t('ai.draft')}
       </Badge>

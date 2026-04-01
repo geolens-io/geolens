@@ -247,7 +247,7 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
                       {cardSpecs.map((item, index) => (
                         <span key={item.label} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
                           {index > 0 && (
-                            <span className="mr-1 text-muted-foreground/40">&middot;</span>
+                            <span className="me-1 text-muted-foreground/40">&middot;</span>
                           )}
                           <item.icon className="size-3 shrink-0" />
                           {item.label}

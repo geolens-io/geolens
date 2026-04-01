@@ -301,7 +301,7 @@ export function LayerFilterEditor({
           onClick={handleRawModeToggle}
           title={t('filters.rawJson')}
         >
-          <Code className="h-3 w-3 mr-1" />
+          <Code className="h-3 w-3 me-1" />
           {t('filters.rawJson')}
         </Button>
       </div>
@@ -335,7 +335,7 @@ export function LayerFilterEditor({
             className="h-7 text-xs"
             onClick={handleEnableRawMode}
           >
-            <Code className="h-3 w-3 mr-1" />
+            <Code className="h-3 w-3 me-1" />
             {t('filters.rawJson')}
           </Button>
         </div>
@@ -421,7 +421,7 @@ export function LayerFilterEditor({
           })}
 
           <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={addCondition}>
-            <Plus className="h-3 w-3 mr-1" />
+            <Plus className="h-3 w-3 me-1" />
             {t('filters.addFilter')}
           </Button>
         </>

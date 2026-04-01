@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n/i18n';
 import { Popup } from '@vis.gl/react-maplibre';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
@@ -51,8 +52,8 @@ export function FeaturePopup({
     if (typeof value === 'boolean') return value ? t('featurePopup.booleanTrue') : t('featurePopup.booleanFalse');
     if (typeof value === 'number') {
       return Number.isInteger(value)
-        ? value.toLocaleString()
-        : value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+        ? value.toLocaleString(i18n.language)
+        : value.toLocaleString(i18n.language, { maximumFractionDigits: 4 });
     }
     return String(value);
   }
@@ -148,7 +149,7 @@ export function FeaturePopup({
                     }}
                     title={t('featurePopup.clickToCopy')}
                   >
-                    <td className="pr-2 py-0.5 font-medium text-muted-foreground whitespace-nowrap align-top">
+                    <td className="pe-2 py-0.5 font-medium text-muted-foreground whitespace-nowrap align-top">
                       {humanizeKey(key)}
                     </td>
                     <td className="py-0.5 text-foreground">
@@ -193,7 +194,7 @@ function ValueDisplay({
         onClick={(e) => e.stopPropagation()}
       >
         {value.length > MAX_VALUE_LENGTH && !expanded
-          ? value.slice(0, MAX_VALUE_LENGTH) + '...'
+          ? Array.from(value).slice(0, MAX_VALUE_LENGTH).join('') + '...'
           : value}
       </a>
     );
@@ -203,9 +204,9 @@ function ValueDisplay({
   if (formatted.length > MAX_VALUE_LENGTH && !expanded) {
     return (
       <span className="break-words">
-        {formatted.slice(0, MAX_VALUE_LENGTH)}
+        {Array.from(formatted).slice(0, MAX_VALUE_LENGTH).join('')}
         <button
-          className="text-primary ml-0.5"
+          className="text-primary ms-0.5"
           onClick={(e) => {
             e.stopPropagation();
             setExpanded(true);

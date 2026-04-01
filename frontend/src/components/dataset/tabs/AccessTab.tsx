@@ -116,7 +116,7 @@ export function AccessTab({ dataset, datasetId }: AccessTabProps) {
                 'bg-muted text-muted-foreground border-border'
               }
             >
-              <Eye className="h-3 w-3 mr-1" />
+              <Eye className="h-3 w-3 me-1" />
               {dataset.visibility}
             </Badge>
           </div>

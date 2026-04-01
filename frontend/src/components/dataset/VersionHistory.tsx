@@ -52,7 +52,7 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
         <CardTitle className="flex items-center gap-2">
           <GitBranch className="h-5 w-5" />
           {t('versionHistory.title')}
-          <Badge variant="secondary" className="ml-1">
+          <Badge variant="secondary" className="ms-1">
             {dataset.current_version}
           </Badge>
         </CardTitle>
@@ -85,7 +85,7 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
               return (
                 <div
                   key={version.id}
-                  className="border-l-2 border-muted pl-4 space-y-0.5"
+                  className="border-s-2 border-muted ps-4 space-y-0.5"
                 >
                   <p className="text-sm font-medium flex items-center gap-2">
                     {t('versionHistory.version', { number: version.version_number })}

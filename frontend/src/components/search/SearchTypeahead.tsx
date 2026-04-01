@@ -123,7 +123,7 @@ export function SearchTypeahead({
                 selectResult(feature.id);
               }}
               onMouseEnter={() => setActiveIndex(index)}
-              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors duration-150 ${
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-start text-sm transition-colors duration-150 ${
                 index === activeIndex
                   ? 'bg-accent text-accent-foreground'
                   : 'hover:bg-accent/50'

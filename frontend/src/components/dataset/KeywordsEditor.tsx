@@ -71,7 +71,7 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
               <button
                 type="button"
                 onClick={() => handleDelete(kw.id)}
-                className="ml-0.5 hover:text-destructive transition-colors"
+                className="ms-0.5 hover:text-destructive transition-colors"
               >
                 <X className="h-3 w-3" />
               </button>

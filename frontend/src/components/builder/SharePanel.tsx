@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { ApiError } from '@/api/client';
+import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -271,7 +272,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     role="radio"
                     aria-checked={isActive}
                     className={cn(
-                      'w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                      'w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors',
                       isActive
                         ? 'ring-2 ring-primary border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',
@@ -316,7 +317,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                         className="flex-1"
                         onClick={handleCopyShareLink}
                       >
-                        <Copy className="h-3.5 w-3.5 mr-1.5" />
+                        <Copy className="h-3.5 w-3.5 me-1.5" />
                         {t('share.copyLink')}
                       </Button>
                       <Button
@@ -324,7 +325,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                         size="sm"
                         onClick={() => window.open(getShareUrl(), '_blank')}
                       >
-                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                        <ExternalLink className="h-3.5 w-3.5 me-1.5" />
                         {t('share.open')}
                       </Button>
                     </div>
@@ -338,7 +339,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     )}
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <span className={isExpired ? 'text-destructive' : undefined}>
-                        {t('share.summaryExpires')}: {shareExpires ? new Date(shareExpires).toLocaleDateString() : t('share.summaryNever')}
+                        {t('share.summaryExpires')}: {shareExpires ? formatDate(shareExpires) : t('share.summaryNever')}
                       </span>
                       {configDomains && (
                         <>
@@ -368,7 +369,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                       </button>
 
                       {showSettings && (
-                        <div className="space-y-4 pl-4 border-l-2 border-border">
+                        <div className="space-y-4 ps-4 border-s-2 border-border">
                           {/* Expiration */}
                           <div className="space-y-1.5">
                             <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
@@ -451,9 +452,9 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                               disabled={revokeShareToken.isPending}
                             >
                               {revokeShareToken.isPending ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                                <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
                               ) : (
-                                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                <Trash2 className="h-3.5 w-3.5 me-1.5" />
                               )}
                               {t('share.revokeShareLink')}
                             </Button>
@@ -471,9 +472,9 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     disabled={createShareToken.isPending}
                   >
                     {createShareToken.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
                     ) : (
-                      <LinkIcon className="h-3.5 w-3.5 mr-1.5" />
+                      <LinkIcon className="h-3.5 w-3.5 me-1.5" />
                     )}
                     {t('share.generateShareLink')}
                   </Button>
@@ -514,7 +515,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                   )}
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground">{t('share.customizeTitle')}</p>
-                    <ul className="text-xs text-muted-foreground space-y-0.5 ml-3">
+                    <ul className="text-xs text-muted-foreground space-y-0.5 ms-3">
                       <li><code className="bg-muted px-1 rounded text-[11px]">zoom=N</code> {t('share.customizeZoom')}</li>
                       <li><code className="bg-muted px-1 rounded text-[11px]">center=lng,lat</code> {t('share.customizeCenter')}</li>
                       <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>

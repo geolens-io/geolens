@@ -20,7 +20,7 @@ export function QualityBadge({ score }: { score: number | null | undefined }) {
         </span>
       </TooltipTrigger>
       <TooltipContent>
-        <p className="text-xs">Metadata completeness score based on title, description, keywords, CRS, and temporal extent</p>
+        <p className="text-xs">{t('qualityBadge.tooltip')}</p>
       </TooltipContent>
     </Tooltip>
   );

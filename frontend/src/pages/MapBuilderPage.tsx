@@ -110,7 +110,7 @@ export function MapBuilderPage() {
   const removeLayer = useRemoveLayer();
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
-  useDocumentTitle(mapData?.name ?? 'Map Builder');
+  useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
   const { isCompact, isMobile } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
@@ -259,7 +259,7 @@ export function MapBuilderPage() {
                   value={localName}
                   onChange={(e) => { setLocalName(e.target.value); layers.markDirty(); }}
                   aria-label={t('mapNameLabel')}
-                  className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
+                  className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
                   title={localName}
                 />
                 {mapData && (
@@ -317,8 +317,8 @@ export function MapBuilderPage() {
       {/* Desktop sidebar */}
       {!isMobile && <div
         className={cn(
-          "relative border-r bg-background flex flex-col shrink-0 overflow-hidden",
-          dialogs.sidebarCollapsed ? "w-0 border-r-0 transition-[width,border-width] duration-200 ease-out" : "",
+          "relative border-e bg-background flex flex-col shrink-0 overflow-hidden",
+          dialogs.sidebarCollapsed ? "w-0 border-e-0 transition-[width,border-width] duration-200 ease-out" : "",
           !dialogs.sidebarCollapsed && !isDraggingRef.current ? "transition-[width,border-width] duration-200 ease-out" : ""
         )}
         style={dialogs.sidebarCollapsed ? undefined : { width: sidebarWidth }}
@@ -339,7 +339,7 @@ export function MapBuilderPage() {
             onClick={() => dialogs.setSidebarCollapsed(true)}
             title={t('tooltips.collapseSidebar')}
             aria-label={t('tooltips.collapseSidebar')}
-            className="absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center h-10 w-7 rounded-r-md bg-background border border-l-0 shadow-sm hover:bg-accent/50 transition-colors"
+            className="absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center h-10 w-7 rounded-e-md bg-background border border-s-0 shadow-sm hover:bg-accent/50 transition-colors"
           >
             <PanelLeftClose className="h-4 w-4 text-foreground/70 hover:text-foreground transition-colors" />
           </button>
@@ -357,7 +357,7 @@ export function MapBuilderPage() {
                 layers.markDirty();
               }}
               aria-label={t('mapNameLabel')}
-              className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
+              className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
               title={localName}
             />
             {mapData && (
@@ -377,7 +377,7 @@ export function MapBuilderPage() {
             placeholder={t('descriptionPlaceholder')}
             aria-label={t('descriptionLabel')}
             title={localDescription}
-            className="text-xs text-muted-foreground bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ml-1 min-h-6 w-full placeholder:text-muted-foreground/50 hover:bg-accent/30 transition-colors"
+            className="text-xs text-muted-foreground bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-6 w-full placeholder:text-muted-foreground/50 hover:bg-accent/30 transition-colors"
           />
           {/* Button tray */}
           <TooltipProvider delayDuration={300}>
@@ -419,20 +419,20 @@ export function MapBuilderPage() {
                   <DropdownMenuContent align="end">
                     {id && (
                       <DropdownMenuItem onClick={() => dialogs.setShowShare(true)}>
-                        <Share2 className="h-3.5 w-3.5 mr-2" />
+                        <Share2 className="h-3.5 w-3.5 me-2" />
                         {t('tooltips.share')}
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuItem onClick={() => dialogs.setShowInfo(true)}>
-                      <Info className="h-3.5 w-3.5 mr-2" />
+                      <Info className="h-3.5 w-3.5 me-2" />
                       {t('tooltips.mapInfo')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={save.handleExportPNG}>
-                      <Download className="h-3.5 w-3.5 mr-2" />
+                      <Download className="h-3.5 w-3.5 me-2" />
                       {t('tooltips.downloadPng')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={save.handleFork} disabled={save.isForkPending}>
-                      <Copy className="h-3.5 w-3.5 mr-2" />
+                      <Copy className="h-3.5 w-3.5 me-2" />
                       {t('tooltips.duplicateMap')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -514,7 +514,7 @@ export function MapBuilderPage() {
 
       {/* Layer Inspector panel (wide screens only) */}
       {selectedLayer && (
-        <div className="w-72 border-r bg-background flex flex-col shrink-0 overflow-hidden">
+        <div className="w-72 border-e bg-background flex flex-col shrink-0 overflow-hidden">
           <LayerInspector
             layer={selectedLayer}
             activeTab={layers.activeEditorTab}
@@ -538,7 +538,7 @@ export function MapBuilderPage() {
             onClick={() => dialogs.setSidebarCollapsed(false)}
             title={t('tooltips.expandSidebar')}
             aria-label={t('tooltips.expandSidebar')}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-10 w-7 rounded-r-md bg-background/95 backdrop-blur-sm border border-l-0 shadow-md hover:bg-accent/50 transition-colors"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-10 w-7 rounded-e-md bg-background/95 backdrop-blur-sm border border-s-0 shadow-md hover:bg-accent/50 transition-colors"
           >
             <PanelLeftOpen className="h-4 w-4 text-foreground/70 hover:text-foreground transition-colors" />
           </button>
@@ -575,7 +575,7 @@ export function MapBuilderPage() {
         </Sheet>
       )}
       {!isCompact && dialogs.showChat && id && (
-        <div className="w-80 border-l bg-background flex flex-col shrink-0 overflow-hidden">
+        <div className="w-80 border-s bg-background flex flex-col shrink-0 overflow-hidden">
           <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
         </div>
       )}

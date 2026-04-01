@@ -32,6 +32,12 @@
     "submit": "Virtuellen Raster erstellen",
     "submitting": "Wird erstellt...",
     "submitFailed": "VRT konnte nicht erstellt werden",
+    "crsMismatch": "CRS-Abweichung: {{src}} vs. {{first}}",
+    "bandMismatch": "Bandanzahl-Abweichung: {{src}} vs. {{first}}",
+    "dtypeMismatch": "Datentyp-Abweichung: {{src}} vs. {{first}}",
+    "nodataMismatch": "NoData-Wert stimmt nicht überein",
+    "gridMismatch": "Rasterabmessungen stimmen nicht überein (Breite, Höhe oder Auflösung unterschiedlich)",
+    "removeSource": "{{title}} entfernen",
     "errors": {
       "crs_mismatch": "CRS-Abweichung: {{source}} vs {{expected}}",
       "band_count_mismatch": "Bandanzahl-Abweichung: {{source}} vs {{expected}}",
@@ -116,7 +122,16 @@
   },
   "preview": {
     "title": "Dateivorschau",
-    "crs": "CRS",
+    "raster": "Raster",
+    "crs": "CRS:",
+    "bands": "Bänder:",
+    "size": "Größe:",
+    "type": "Typ:",
+    "resolution": "Auflösung:",
+    "cog": "COG:",
+    "date": "Datum:",
+    "validCog": "Gültiges COG",
+    "willConvert": "Wird konvertiert",
     "geometryType": "Geometrietyp",
     "featureCount": "Feature-Anzahl",
     "layerName": "Layer-Name",
@@ -178,7 +193,11 @@
     "retrying": "Wird wiederholt...",
     "startOver": "Neu beginnen",
     "retrySuccess": "Auftrag erneut eingereiht",
-    "retryFailed": "Wiederholung fehlgeschlagen: {{message}}"
+    "retryFailed": "Wiederholung fehlgeschlagen: {{message}}",
+    "copiedCogUrl": "COG-URL kopiert",
+    "copiedXyzUrl": "XYZ-Tile-URL kopiert",
+    "copyCogUrl": "COG-URL kopieren",
+    "copyXyzUrl": "XYZ-Tile-URL kopieren"
   },
   "bulk": {
     "uploading_one": "{{count}} Datei wird hochgeladen...",

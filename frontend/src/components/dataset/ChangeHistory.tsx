@@ -57,7 +57,7 @@ export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
               return (
                 <div
                   key={log.id}
-                  className="border-l-2 border-muted pl-4 space-y-0.5"
+                  className="border-s-2 border-muted ps-4 space-y-0.5"
                 >
                   <p className="text-sm font-medium">{getActionLabel(log.action)}</p>
                   <p className="text-xs text-muted-foreground">

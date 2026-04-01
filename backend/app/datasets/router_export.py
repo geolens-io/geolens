@@ -31,6 +31,7 @@ from app.dcat.service import catalog_to_dcat, record_to_dcat
 from app.datasets.models import Dataset as DatasetModel, DatasetGrant, Record
 from app.datasets.service import get_dataset
 from app.dependencies import get_db
+from app.export.service import safe_content_disposition
 from app.public_urls import get_public_api_url
 from app.storage import get_storage
 
@@ -242,5 +243,5 @@ async def download_cog(
     return StreamingResponse(
         io.BytesIO(data),
         media_type="image/tiff",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": safe_content_disposition(filename)},
     )

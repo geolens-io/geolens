@@ -23,6 +23,7 @@ from app.config_ops.service import (
     validate_connectivity,
 )
 from app.dependencies import get_db
+from app.export.service import safe_content_disposition
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -43,9 +44,8 @@ async def export_configuration(
     data = await export_config(db)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    headers = {
-        "Content-Disposition": f'attachment; filename="geolens-config-{timestamp}.json"'
-    }
+    filename = f"geolens-config-{timestamp}.json"
+    headers = {"Content-Disposition": safe_content_disposition(filename)}
     return JSONResponse(content=data, headers=headers)
 
 

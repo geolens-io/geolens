@@ -15,7 +15,7 @@ export function CollectionCardSkeleton() {
           <Skeleton className="h-4 w-24 rounded-full" />
         </div>
       </div>
-      <div className="sm:w-48 sm:flex-shrink-0 p-3 sm:p-4 sm:border-l border-t sm:border-t-0 border-border/50">
+      <div className="sm:w-48 sm:flex-shrink-0 p-3 sm:p-4 sm:border-s border-t sm:border-t-0 border-border/50">
         <Skeleton className="w-full aspect-square rounded" />
       </div>
     </Card>

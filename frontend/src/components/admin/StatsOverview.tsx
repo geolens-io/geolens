@@ -30,10 +30,11 @@ import type { ProviderHealth } from '@/types/api';
 import type { LucideIcon } from 'lucide-react';
 
 function StatusDot({ status }: { status: string }) {
+  const { t } = useTranslation('admin');
   return (
     <span
       role="img"
-      aria-label={status === 'ok' ? 'Healthy' : 'Degraded'}
+      aria-label={status === 'ok' ? t('overview.healthy') : t('overview.degraded')}
       className={`inline-block h-2.5 w-2.5 rounded-full ${
         status === 'ok' ? 'bg-success' : 'bg-destructive'
       }`}
@@ -58,7 +59,7 @@ function ServiceRow({
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium">{label}</span>
         {detail && (
-          <span className="text-xs text-muted-foreground ml-2">{detail}</span>
+          <span className="text-xs text-muted-foreground ms-2">{detail}</span>
         )}
       </div>
       <code className="text-xs text-muted-foreground tabular-nums">
@@ -172,7 +173,7 @@ function SystemHealthCard() {
             <Layers className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <span className="text-sm font-medium">{t('infrastructure.tileCache')}</span>
-              <span className="text-xs text-muted-foreground ml-2">
+              <span className="text-xs text-muted-foreground ms-2">
                 {formatInfraType(data.config.tile_cache)} &middot; TTL {data.config.tile_cache_ttl}s
               </span>
             </div>

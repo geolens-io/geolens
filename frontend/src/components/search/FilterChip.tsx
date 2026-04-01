@@ -10,12 +10,12 @@ interface FilterChipProps {
 export function FilterChip({ label, onRemove }: FilterChipProps) {
   const { t } = useTranslation('search');
   return (
-    <Badge variant="secondary" className="gap-1 pr-1">
+    <Badge variant="secondary" className="gap-1 pe-1">
       {label}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20 transition-colors duration-150"
+        className="ms-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20 transition-colors duration-150"
         aria-label={t('filters.removeFilter', { label })}
       >
         <X className="size-3" />

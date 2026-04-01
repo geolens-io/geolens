@@ -48,7 +48,7 @@ export function WidgetToolbar() {
                 <button
                   key={w.id}
                   onClick={() => toggle(w.id)}
-                  className={`flex items-center gap-2 w-full rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                  className={`flex items-center gap-2 w-full rounded px-2 py-1.5 text-start text-xs transition-colors ${
                     isActive
                       ? 'bg-accent text-accent-foreground'
                       : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'

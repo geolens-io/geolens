@@ -32,6 +32,12 @@
     "submit": "Create Virtual Raster",
     "submitting": "Creating...",
     "submitFailed": "Failed to create VRT",
+    "crsMismatch": "CRS mismatch: {{src}} vs {{first}}",
+    "bandMismatch": "Band count mismatch: {{src}} vs {{first}}",
+    "dtypeMismatch": "Data type mismatch: {{src}} vs {{first}}",
+    "nodataMismatch": "NoData value mismatch",
+    "gridMismatch": "Grid dimensions do not match (width, height, or resolution differs)",
+    "removeSource": "Remove {{title}}",
     "errors": {
       "crs_mismatch": "CRS mismatch: {{source}} vs {{expected}}",
       "band_count_mismatch": "Band count mismatch: {{source}} vs {{expected}}",
@@ -116,7 +122,16 @@
   },
   "preview": {
     "title": "File Preview",
-    "crs": "CRS",
+    "raster": "Raster",
+    "crs": "CRS:",
+    "bands": "Bands:",
+    "size": "Size:",
+    "type": "Type:",
+    "resolution": "Resolution:",
+    "cog": "COG:",
+    "date": "Date:",
+    "validCog": "Valid COG",
+    "willConvert": "Will convert",
     "geometryType": "Geometry Type",
     "featureCount": "Feature Count",
     "layerName": "Layer Name",
@@ -178,7 +193,11 @@
     "retrying": "Retrying...",
     "startOver": "Start Over",
     "retrySuccess": "Job re-queued",
-    "retryFailed": "Retry failed: {{message}}"
+    "retryFailed": "Retry failed: {{message}}",
+    "copiedCogUrl": "Copied COG URL",
+    "copiedXyzUrl": "Copied XYZ Tile URL",
+    "copyCogUrl": "Copy COG URL",
+    "copyXyzUrl": "Copy XYZ Tile URL"
   },
   "bulk": {
     "uploading_one": "Uploading {{count}} file...",

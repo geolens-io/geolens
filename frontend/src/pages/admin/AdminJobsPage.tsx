@@ -5,7 +5,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 
 export function AdminJobsPage() {
   const { t } = useTranslation('admin');
-  useDocumentTitle('Admin Jobs');
+  useDocumentTitle(t('common:pageTitle.adminJobs'));
 
   return (
     <>

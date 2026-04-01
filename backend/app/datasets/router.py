@@ -372,6 +372,7 @@ async def update_dataset_metadata(
             owner_org=meta.owner_org,
             quality_statement=meta.quality_statement,
             source_url=meta.source_url,
+            language=meta.language,
         )
     except ValueError as e:
         msg = str(e)

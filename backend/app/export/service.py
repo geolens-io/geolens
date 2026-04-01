@@ -4,10 +4,18 @@ import os
 import re
 import uuid
 import zipfile
+from urllib.parse import quote
 
 from app.config import settings
 from app.export.ogr import FORMAT_MAP, run_ogr2ogr_export
 from app.runtime.staging import ensure_staging_ready
+
+
+def safe_content_disposition(filename: str) -> str:
+    """Build Content-Disposition header with RFC 5987 encoding for non-ASCII filenames."""
+    ascii_name = filename.encode("ascii", "replace").decode()
+    encoded = quote(filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
 # SQL keywords to ignore during where-clause column validation
 _SQL_KEYWORDS = frozenset(

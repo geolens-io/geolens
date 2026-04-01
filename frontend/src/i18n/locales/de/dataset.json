@@ -587,6 +587,37 @@
     "error": "Beziehungen konnten nicht geladen werden",
     "loadError": "Verknuepfte Datensaetze konnten nicht geladen werden"
   },
+  "overview": {
+    "allChecksPassed": "Alle Prüfungen bestanden",
+    "bandStack": "Bandstapel",
+    "mosaic": "Mosaik",
+    "unknown": "Unbekannt"
+  },
+  "sources": {
+    "system": "System",
+    "user": "Benutzer",
+    "elapsed": "Vergangen: {{seconds}}s"
+  },
+  "data": {
+    "collapseTable": "Tabelle einklappen",
+    "expandTable": "Tabelle ausklappen",
+    "switchComfortable": "Zu komfortabler Dichte wechseln",
+    "switchCompact": "Zu kompakter Dichte wechseln",
+    "comfortable": "Komfortabel",
+    "compact": "Kompakt"
+  },
+  "raster": {
+    "noTiles": "Keine Rasterkacheln verfügbar",
+    "previewUnavailable": "Vorschau nicht verfügbar",
+    "retry": "Erneut versuchen",
+    "tilesProcessing": "Kacheln werden möglicherweise noch verarbeitet",
+    "bands": "Bänder",
+    "resolution": "Auflösung",
+    "dimensions": "Abmessungen",
+    "format": "Format",
+    "bandStack": "Bandstapel",
+    "mosaic": "Mosaik"
+  },
   "sections": {
     "identity": "Identität",
     "summary": "Zusammenfassung",

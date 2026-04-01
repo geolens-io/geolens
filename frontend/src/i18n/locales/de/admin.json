@@ -6,7 +6,9 @@
     "admin": "Administrator"
   },
   "overview": {
-    "title": "Übersicht"
+    "title": "Übersicht",
+    "healthy": "Gesund",
+    "degraded": "Beeinträchtigt"
   },
   "stats": {
     "loading": "Katalogstatistiken werden geladen...",
@@ -346,6 +348,8 @@
     "bulkRevokeFailed": "Einbettungstokens konnten nicht widerrufen werden"
   },
   "settings": {
+    "copySPEntityId": "SP-Entitäts-ID kopieren",
+    "copyAcsUrl": "ACS-URL kopieren",
     "actions": {
       "discard": "Änderungen verwerfen",
       "resetDefaults": "Auf Standardwerte zurücksetzen"

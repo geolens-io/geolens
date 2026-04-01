@@ -5,6 +5,7 @@ import { useJobStatus, useRetryJob } from '@/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Copy, Download, Link2, Map } from 'lucide-react';
 import { jobStatusColors } from '@/lib/status-colors';
+import { formatDateTimeSmart } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,11 +25,12 @@ interface JobProgressProps {
 }
 
 function ConnectDropdownInline({ datasetId }: { datasetId: string }) {
+  const { t } = useTranslation('import');
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm">
-          <Link2 className="mr-1 size-3" />
+          <Link2 className="me-1 size-3" />
           Connect
         </Button>
       </DropdownMenuTrigger>
@@ -38,22 +40,22 @@ function ConnectDropdownInline({ datasetId }: { datasetId: string }) {
             navigator.clipboard.writeText(
               `${window.location.origin}/api/datasets/${datasetId}/download/cog`,
             );
-            toast.success('Copied COG URL');
+            toast.success(t('jobProgress.copiedCogUrl'));
           }}
         >
-          <Copy className="mr-2 size-3.5" />
-          Copy COG URL
+          <Copy className="me-2 size-3.5" />
+          {t('jobProgress.copyCogUrl')}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => {
             navigator.clipboard.writeText(
               `${window.location.origin}/raster-tiles/${datasetId}/tiles/{z}/{x}/{y}.png`,
             );
-            toast.success('Copied XYZ Tile URL');
+            toast.success(t('jobProgress.copiedXyzUrl'));
           }}
         >
-          <Copy className="mr-2 size-3.5" />
-          Copy XYZ Tile URL
+          <Copy className="me-2 size-3.5" />
+          {t('jobProgress.copyXyzUrl')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -128,9 +130,9 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
         </div>
 
         <div className="text-xs text-muted-foreground space-y-1">
-          <p>{t('jobProgress.created')} {new Date(job.created_at).toLocaleString()}</p>
-          {job.started_at && <p>{t('jobProgress.started')} {new Date(job.started_at).toLocaleString()}</p>}
-          {job.completed_at && <p>{t('jobProgress.completed')} {new Date(job.completed_at).toLocaleString()}</p>}
+          <p>{t('jobProgress.created')} {formatDateTimeSmart(job.created_at)}</p>
+          {job.started_at && <p>{t('jobProgress.started')} {formatDateTimeSmart(job.started_at)}</p>}
+          {job.completed_at && <p>{t('jobProgress.completed')} {formatDateTimeSmart(job.completed_at)}</p>}
         </div>
 
         {job.status === 'complete' && job.dataset_id && (
@@ -141,12 +143,12 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             {isRasterEntry && (
               <>
                 <Button variant="outline" size="sm" onClick={() => downloadCog(job.dataset_id!)}>
-                  <Download className="mr-1 size-3" />
+                  <Download className="me-1 size-3" />
                   Download COG
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <Link to={`/datasets/${job.dataset_id}`}>
-                    <Map className="mr-1 size-3" />
+                    <Map className="me-1 size-3" />
                     Add to Map
                   </Link>
                 </Button>

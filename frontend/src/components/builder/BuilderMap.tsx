@@ -6,6 +6,7 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
+import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import { syncLayersToMap, reorderDataLayers, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
@@ -35,6 +36,7 @@ export function BuilderMap({
   onMapRef,
   showBasemapLabels = true,
 }: BuilderMapProps) {
+  const { t } = useTranslation('builder');
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const [mapReady, setMapReady] = useState(false);
@@ -172,7 +174,7 @@ export function BuilderMap({
             const matchedLayer = layers.find((l) => l.id === layerId);
             return {
               properties: (feature.properties ?? {}) as Record<string, unknown>,
-              layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || 'Feature',
+              layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('common:viewer.featureFallback'),
               columnInfo: matchedLayer?.dataset_column_info ?? null,
             };
           }),

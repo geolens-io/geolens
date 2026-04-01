@@ -152,7 +152,7 @@ export function ValidationTroubleshootPanel({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="space-y-4 max-h-[70vh] overflow-y-auto pe-1">
           <div className="space-y-2" data-testid="validation-troubleshoot-next-steps">
             <p className="text-sm font-medium">{t('validation.troubleshoot.likelyNextSteps')}</p>
             {remediationGroups.length === 0 ? (

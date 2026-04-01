@@ -102,7 +102,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               onValueChange={([v]) => update({ fontSize: v })}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground w-10 text-right">
+            <span className="text-xs text-muted-foreground w-10 text-end">
               {labelConfig.fontSize}px
             </span>
           </div>
@@ -130,7 +130,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               onValueChange={([v]) => update({ haloWidth: v })}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground w-10 text-right">
+            <span className="text-xs text-muted-foreground w-10 text-end">
               {labelConfig.haloWidth ?? 1.5}px
             </span>
           </div>
@@ -190,7 +190,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                   onValueChange={([v]) => update({ textOffset: [v, labelConfig.textOffset?.[1] ?? 0] })}
                   className="flex-1"
                 />
-                <span className="text-xs text-muted-foreground w-10 text-right">
+                <span className="text-xs text-muted-foreground w-10 text-end">
                   {(labelConfig.textOffset?.[0] ?? 0).toFixed(1)}
                 </span>
               </div>
@@ -204,7 +204,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                   onValueChange={([v]) => update({ textOffset: [labelConfig.textOffset?.[0] ?? 0, v] })}
                   className="flex-1"
                 />
-                <span className="text-xs text-muted-foreground w-10 text-right">
+                <span className="text-xs text-muted-foreground w-10 text-end">
                   {(labelConfig.textOffset?.[1] ?? 0).toFixed(1)}
                 </span>
               </div>
@@ -233,7 +233,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               onValueChange={([v]) => update({ minZoom: v })}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground w-10 text-right">
+            <span className="text-xs text-muted-foreground w-10 text-end">
               {labelConfig.minZoom ?? 0}
             </span>
           </div>
@@ -247,7 +247,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               onValueChange={([v]) => update({ maxZoom: v })}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground w-10 text-right">
+            <span className="text-xs text-muted-foreground w-10 text-end">
               {labelConfig.maxZoom ?? 22}
             </span>
           </div>

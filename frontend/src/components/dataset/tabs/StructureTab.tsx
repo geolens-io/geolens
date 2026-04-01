@@ -45,7 +45,7 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability, table
               size="sm"
               onClick={() => setSchemaOpen(true)}
             >
-              <Settings className="h-4 w-4 mr-1" />
+              <Settings className="h-4 w-4 me-1" />
               {t('metadata.manageColumns')}
             </Button>
           )}

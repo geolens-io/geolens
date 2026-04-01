@@ -196,4 +196,5 @@ def _dataset_to_response(
         record_type=record_type,
         raster=raster_metadata,
         stac_assets=stac_assets,
+        language=getattr(record, "language", None),
     )

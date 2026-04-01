@@ -10,6 +10,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     -- NOTE: If you have an existing pgdata volume, init-db.sh will NOT re-run.
     -- Run this manually: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
     CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    CREATE EXTENSION IF NOT EXISTS unaccent;
 
     -- Schemas
     CREATE SCHEMA IF NOT EXISTS catalog;

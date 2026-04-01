@@ -23,7 +23,7 @@ export function SettingsFormActions({ dirty, hasDirty, envOnly, isSaving, onSave
   return (
     <div className="flex items-center gap-3 pt-2">
       <Button onClick={() => onSave(dirty)} disabled={!hasDirty || envOnly || isSaving}>
-        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {isSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
         {t('common:save')}
       </Button>
       <Button variant="outline" onClick={onDiscard} disabled={!hasDirty || isSaving}>

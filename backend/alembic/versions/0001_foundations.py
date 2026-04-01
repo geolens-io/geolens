@@ -22,7 +22,7 @@ def upgrade() -> None:
     # Schema created by env.py (required before Alembic version table)
 
     # Verify required extensions exist (created by init-db.sh / conftest.py)
-    for ext in ("postgis", "pg_trgm", "vector"):
+    for ext in ("postgis", "pg_trgm", "vector", "unaccent"):
         op.execute(
             f"DO $$ BEGIN "
             f"IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = '{ext}') THEN "

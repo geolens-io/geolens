@@ -214,7 +214,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
               onClick={handleAddColumn}
               disabled={addColumnMutation.isPending || !newName}
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-4 w-4 me-1" />
               {t('schema.add')}
             </Button>
           </div>

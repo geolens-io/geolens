@@ -37,7 +37,7 @@ export function ColorRampPicker({ rampName, onChange, mode }: ColorRampPickerPro
             onClick={() => onChange(ramp.name)}
             aria-label={ramp.label}
             className={cn(
-              'flex items-center gap-2 w-full px-1.5 py-1 rounded text-left transition-colors',
+              'flex items-center gap-2 w-full px-1.5 py-1 rounded text-start transition-colors',
               isSelected
                 ? 'bg-accent ring-1 ring-primary'
                 : 'hover:bg-accent/50',

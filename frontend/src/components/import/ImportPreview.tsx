@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { FilePreviewResponse, RasterPreviewResponse } from '@/types/api';
+import { formatNumber } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -32,36 +33,36 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
             variant="outline"
             className={semanticBadgeColors.success}
           >
-            Raster
+            {t('preview.raster')}
           </Badge>
           <span className="text-sm font-medium">{preview.source_filename}</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
           <div>
-            <span className="text-muted-foreground">CRS:</span>{' '}
-            {preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : 'Unknown'}
+            <span className="text-muted-foreground">{t('preview.crs')}</span>{' '}
+            {preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : t('preview.unknown')}
           </div>
           <div>
-            <span className="text-muted-foreground">Bands:</span> {preview.band_count}
+            <span className="text-muted-foreground">{t('preview.bands')}</span> {preview.band_count}
           </div>
           <div>
-            <span className="text-muted-foreground">Size:</span> {preview.width} x{' '}
+            <span className="text-muted-foreground">{t('preview.size')}</span> {preview.width} x{' '}
             {preview.height} px
           </div>
           <div>
-            <span className="text-muted-foreground">Type:</span> {preview.dtype}
+            <span className="text-muted-foreground">{t('preview.type')}</span> {preview.dtype}
           </div>
           <div>
-            <span className="text-muted-foreground">Resolution:</span>{' '}
+            <span className="text-muted-foreground">{t('preview.resolution')}</span>{' '}
             {preview.res_x.toFixed(6)} x {preview.res_y.toFixed(6)}
           </div>
           <div>
-            <span className="text-muted-foreground">COG:</span>{' '}
-            {preview.is_cog_compliant ? 'Valid COG' : 'Will convert'}
+            <span className="text-muted-foreground">{t('preview.cog')}</span>{' '}
+            {preview.is_cog_compliant ? t('preview.validCog') : t('preview.willConvert')}
           </div>
           {preview.temporal_start && (
             <div>
-              <span className="text-muted-foreground">Date:</span>{' '}
+              <span className="text-muted-foreground">{t('preview.date')}</span>{' '}
               {preview.temporal_start}
             </div>
           )}
@@ -116,7 +117,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
             <p className="text-xs text-muted-foreground">{t('preview.featureCount')}</p>
             <Badge variant="secondary">
               {preview.feature_count !== null
-                ? preview.feature_count.toLocaleString()
+                ? formatNumber(preview.feature_count)
                 : t('preview.unknown')}
             </Badge>
           </div>
@@ -132,7 +133,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
             <p className="mb-2 text-sm font-medium">
               {t('preview.sampleData')}
               {extraCount > 0 && (
-                <span className="ml-2 text-xs text-muted-foreground">
+                <span className="ms-2 text-xs text-muted-foreground">
                   {t('preview.moreColumns', { count: extraCount })}
                 </span>
               )}
@@ -144,7 +145,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
                     {visibleColumns.map((col) => (
                       <TableHead key={col.name} className="whitespace-nowrap">
                         {col.name}
-                        <span className="ml-1 font-normal text-muted-foreground">
+                        <span className="ms-1 font-normal text-muted-foreground">
                           ({col.type})
                         </span>
                       </TableHead>

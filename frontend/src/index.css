@@ -359,7 +359,7 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  right: 4px;
+  inset-inline-end: 4px;
   top: 4px;
 }
 .maplibregl-popup-close-button:hover {
@@ -367,6 +367,11 @@
 }
 
 /* ── Reduced Motion ───────────────────────────────── */
+/* RTL: Mirror directional icons */
+[dir="rtl"] .rtl-mirror {
+  transform: scaleX(-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

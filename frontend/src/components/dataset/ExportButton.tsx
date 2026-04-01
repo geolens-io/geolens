@@ -60,9 +60,9 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
         </select>
         <Button onClick={handleExport} disabled={loading} className="shrink-0">
           {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            <Loader2 className="h-4 w-4 animate-spin me-2" />
           ) : (
-            <Download className="h-4 w-4 mr-2" />
+            <Download className="h-4 w-4 me-2" />
           )}
           {t('export.button')}
         </Button>

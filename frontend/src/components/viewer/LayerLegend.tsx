@@ -92,7 +92,7 @@ export function LayerLegend({
 
                 {/* Data-driven legend entries */}
                 {sc?.column && isVisible && (
-                  <div className="mt-1.5 ml-6 space-y-0.5">
+                  <div className="mt-1.5 ms-6 space-y-0.5">
                     {sc.mode === 'categorical' && sc.categories && (
                       <>
                         {sc.categories.map((cat, i) => (

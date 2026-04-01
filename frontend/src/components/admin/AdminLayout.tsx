@@ -15,7 +15,7 @@ export function AdminLayout() {
       <AdminSidebar />
       <SidebarInset>
         <header className="flex items-center gap-2 border-b px-4 h-10 md:hidden">
-          <SidebarTrigger className="-ml-1" />
+          <SidebarTrigger className="-ms-1" />
           <Separator orientation="vertical" className="h-4" />
           <span className="text-sm font-medium">{t('adminNav.admin')}</span>
         </header>
