@@ -6,7 +6,9 @@ from pydantic import BaseModel, EmailStr, Field
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
-    refresh_token: str = Field(description="Opaque token used to obtain a new access token")
+    refresh_token: str = Field(
+        description="Opaque token used to obtain a new access token"
+    )
     token_type: str = "bearer"
     expires_in: int = Field(description="Seconds until the access token expires")
 
@@ -14,7 +16,9 @@ class TokenResponse(BaseModel):
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=150, description="Unique login name")
     password: str = Field(min_length=8, description="Plaintext password (min 8 chars)")
-    email: EmailStr | None = Field(default=None, max_length=320, description="Optional email address")
+    email: EmailStr | None = Field(
+        default=None, max_length=320, description="Optional email address"
+    )
 
 
 class RegisterResponse(BaseModel):
@@ -22,7 +26,9 @@ class RegisterResponse(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    registration_enabled: bool = Field(description="Whether self-service registration is open")
+    registration_enabled: bool = Field(
+        description="Whether self-service registration is open"
+    )
 
 
 class UserResponse(BaseModel):
@@ -33,7 +39,9 @@ class UserResponse(BaseModel):
     status: str = Field(description="Account status: active, pending, disabled")
     last_login_at: datetime | None
     created_at: datetime
-    roles: list[str] = Field(description="Assigned role names, e.g. ['admin', 'editor']")
+    roles: list[str] = Field(
+        description="Assigned role names, e.g. ['admin', 'editor']"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -48,11 +56,15 @@ class RefreshRequest(BaseModel):
 
 
 class PermissionsResponse(BaseModel):
-    permissions: dict[str, bool] = Field(description="Map of permission names to granted/denied")
+    permissions: dict[str, bool] = Field(
+        description="Map of permission names to granted/denied"
+    )
 
 
 class ApiKeyCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255, description="Human-readable label for the API key")
+    name: str = Field(
+        min_length=1, max_length=255, description="Human-readable label for the API key"
+    )
 
 
 class ApiKeyCreateResponse(BaseModel):

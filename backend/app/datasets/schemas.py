@@ -54,8 +54,13 @@ def _nfc(v: str | None) -> str | None:
 
 class DatasetCreate(BaseModel):
     title: str
-    summary: str | None = Field(default=None, description="Brief abstract of the dataset")
-    visibility: Visibility = Field(default="private", description="Access level: private, restricted, internal, or public")
+    summary: str | None = Field(
+        default=None, description="Brief abstract of the dataset"
+    )
+    visibility: Visibility = Field(
+        default="private",
+        description="Access level: private, restricted, internal, or public",
+    )
 
     @field_validator("title", "summary", mode="before")
     @classmethod
@@ -66,34 +71,60 @@ class DatasetCreate(BaseModel):
 class RasterBandInfo(BaseModel):
     index: int = Field(description="1-based band index")
     dtype: str = Field(description="Pixel data type, e.g. uint8, float32")
-    nodata: str | None = Field(default=None, description="Nodata sentinel value for this band")
-    color_interp: str | None = Field(default=None, description="Color interpretation, e.g. Red, Green, Gray")
+    nodata: str | None = Field(
+        default=None, description="Nodata sentinel value for this band"
+    )
+    color_interp: str | None = Field(
+        default=None, description="Color interpretation, e.g. Red, Green, Gray"
+    )
 
 
 class RasterConnect(BaseModel):
-    download_url: str | None = Field(default=None, description="Direct file download URL")
+    download_url: str | None = Field(
+        default=None, description="Direct file download URL"
+    )
     tile_url: str = Field(description="Titiler tile endpoint for this raster")
-    s3_uri: str | None = Field(default=None, description="S3 object URI, e.g. s3://bucket/key.tif")
+    s3_uri: str | None = Field(
+        default=None, description="S3 object URI, e.g. s3://bucket/key.tif"
+    )
 
 
 class RasterMetadata(BaseModel):
     epsg: int | None = Field(default=None, description="EPSG code of the raster CRS")
-    res_x: float | None = Field(default=None, description="Pixel resolution in X (CRS units)")
-    res_y: float | None = Field(default=None, description="Pixel resolution in Y (CRS units)")
+    res_x: float | None = Field(
+        default=None, description="Pixel resolution in X (CRS units)"
+    )
+    res_y: float | None = Field(
+        default=None, description="Pixel resolution in Y (CRS units)"
+    )
     band_count: int | None = None
     nodata: str | None = Field(default=None, description="Global nodata sentinel value")
-    compression: str | None = Field(default=None, description="Internal compression, e.g. DEFLATE, LZW")
+    compression: str | None = Field(
+        default=None, description="Internal compression, e.g. DEFLATE, LZW"
+    )
     width: int | None = Field(default=None, description="Raster width in pixels")
     height: int | None = Field(default=None, description="Raster height in pixels")
-    size_bytes: int | None = Field(default=None, description="File size on disk in bytes")
-    quicklook_url: str | None = Field(default=None, description="URL to a preview thumbnail image")
+    size_bytes: int | None = Field(
+        default=None, description="File size on disk in bytes"
+    )
+    quicklook_url: str | None = Field(
+        default=None, description="URL to a preview thumbnail image"
+    )
     tile_url: str | None = Field(default=None, description="Titiler XYZ tile endpoint")
     bands: list[RasterBandInfo] = []
     connect: RasterConnect | None = None
-    status: str | None = Field(default=None, description="Processing status, e.g. ready, failed")
-    vrt_type: str | None = Field(default=None, description="VRT variant: mosaic or timeseries")
-    source_count: int | None = Field(default=None, description="Number of source rasters in a VRT mosaic")
-    resolution_strategy: str | None = Field(default=None, description="VRT resolution strategy, e.g. highest, average")
+    status: str | None = Field(
+        default=None, description="Processing status, e.g. ready, failed"
+    )
+    vrt_type: str | None = Field(
+        default=None, description="VRT variant: mosaic or timeseries"
+    )
+    source_count: int | None = Field(
+        default=None, description="Number of source rasters in a VRT mosaic"
+    )
+    resolution_strategy: str | None = Field(
+        default=None, description="VRT resolution strategy, e.g. highest, average"
+    )
 
 
 class StacAsset(BaseModel):
@@ -111,23 +142,45 @@ class DatasetResponse(BaseModel):
     table_name: str = Field(description="Internal PostGIS table name")
     title: str
     summary: str | None
-    srid: int | None = Field(default=None, description="Current EPSG SRID of stored geometry")
-    geometry_type: str | None = Field(default=None, description="OGC geometry type, e.g. MultiPolygon")
+    srid: int | None = Field(
+        default=None, description="Current EPSG SRID of stored geometry"
+    )
+    geometry_type: str | None = Field(
+        default=None, description="OGC geometry type, e.g. MultiPolygon"
+    )
     feature_count: int | None
-    extent_bbox: list[float] | None = Field(default=None, description="Bounding box [minx, miny, maxx, maxy]")
-    column_info: list[dict] | None = Field(default=None, description="Column names, types, and stats")
+    extent_bbox: list[float] | None = Field(
+        default=None, description="Bounding box [minx, miny, maxx, maxy]"
+    )
+    column_info: list[dict] | None = Field(
+        default=None, description="Column names, types, and stats"
+    )
     license: str | None = None
     source_organization: str | None = None
-    data_vintage_start: date | None = Field(default=None, description="Start of temporal coverage")
-    data_vintage_end: date | None = Field(default=None, description="End of temporal coverage")
-    quality_detail: dict | None = Field(default=None, description="Automated quality assessment results")
-    source_format: str | None = Field(default=None, description="Original file format, e.g. GPKG, SHP")
+    data_vintage_start: date | None = Field(
+        default=None, description="Start of temporal coverage"
+    )
+    data_vintage_end: date | None = Field(
+        default=None, description="End of temporal coverage"
+    )
+    quality_detail: dict | None = Field(
+        default=None, description="Automated quality assessment results"
+    )
+    source_format: str | None = Field(
+        default=None, description="Original file format, e.g. GPKG, SHP"
+    )
     source_filename: str | None
-    original_srid: int | None = Field(default=None, description="EPSG SRID of the uploaded source file")
+    original_srid: int | None = Field(
+        default=None, description="EPSG SRID of the uploaded source file"
+    )
     current_version: int = Field(default=1, description="Monotonic version counter")
-    source_url: str | None = Field(default=None, description="URL the data was originally fetched from")
+    source_url: str | None = Field(
+        default=None, description="URL the data was originally fetched from"
+    )
     quality_statement: str | None = None
-    visibility: str = Field(description="Access level: private, restricted, internal, public")
+    visibility: str = Field(
+        description="Access level: private, restricted, internal, public"
+    )
     created_by: uuid.UUID | None
     created_by_display: str
     created_at: datetime
@@ -136,21 +189,39 @@ class DatasetResponse(BaseModel):
     last_edited_at: datetime | None = None
     collections: list[dict] | None = None
     # ISO governance fields
-    record_status: str | None = Field(default=None, description="Lifecycle status: draft, ready, published")
-    lineage_summary: str | None = Field(default=None, description="Free-text provenance / lineage statement")
-    update_frequency: str | None = Field(default=None, description="ISO maintenance frequency code")
+    record_status: str | None = Field(
+        default=None, description="Lifecycle status: draft, ready, published"
+    )
+    lineage_summary: str | None = Field(
+        default=None, description="Free-text provenance / lineage statement"
+    )
+    update_frequency: str | None = Field(
+        default=None, description="ISO maintenance frequency code"
+    )
     usage_constraints: str | None = None
     access_constraints: str | None = None
-    sensitivity_classification: str | None = Field(default=None, description="e.g. public, confidential, restricted")
-    theme_category: list[str] | None = Field(default=None, description="ISO topic category codes")
+    sensitivity_classification: str | None = Field(
+        default=None, description="e.g. public, confidential, restricted"
+    )
+    theme_category: list[str] | None = Field(
+        default=None, description="ISO topic category codes"
+    )
     owner_org: str | None = Field(default=None, description="Owning organization name")
     published_at: datetime | None = None
     updated_by: uuid.UUID | None = None
-    record_type: str = Field(default="vector_dataset", description="vector_dataset or raster_dataset")
-    raster: RasterMetadata | None = Field(default=None, description="Raster-specific metadata (null for vectors)")
-    stac_assets: dict[str, StacAsset] | None = Field(default=None, description="STAC-style asset dictionary")
+    record_type: str = Field(
+        default="vector_dataset", description="vector_dataset or raster_dataset"
+    )
+    raster: RasterMetadata | None = Field(
+        default=None, description="Raster-specific metadata (null for vectors)"
+    )
+    stac_assets: dict[str, StacAsset] | None = Field(
+        default=None, description="STAC-style asset dictionary"
+    )
     stac_extensions: list[str] | None = None
-    language: str | None = Field(default=None, description="ISO 639-1 language code, e.g. en, fr")
+    language: str | None = Field(
+        default=None, description="ISO 639-1 language code, e.g. en, fr"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -173,7 +244,9 @@ class StatusUpdate(BaseModel):
 
 
 class DatasetDeleteRequest(BaseModel):
-    confirm_title: str = Field(description="Must match the dataset title to confirm deletion")
+    confirm_title: str = Field(
+        description="Must match the dataset title to confirm deletion"
+    )
 
 
 class BulkDeleteItem(BaseModel):
@@ -182,7 +255,9 @@ class BulkDeleteItem(BaseModel):
 
 
 class BulkDeleteRequest(BaseModel):
-    datasets: list[BulkDeleteItem] = Field(..., min_length=1, max_length=100, description="1-100 datasets to delete")
+    datasets: list[BulkDeleteItem] = Field(
+        ..., min_length=1, max_length=100, description="1-100 datasets to delete"
+    )
 
 
 class BulkDeleteResultItem(BaseModel):
@@ -200,26 +275,51 @@ class BulkDeleteResponse(BaseModel):
 class DatasetMeta(BaseModel):
     title: str | None = None
     summary: str | None = None
-    visibility: Visibility | None = Field(default=None, description="Access level: private, restricted, internal, or public")
+    visibility: Visibility | None = Field(
+        default=None,
+        description="Access level: private, restricted, internal, or public",
+    )
     license: str | None = None
     source_organization: str | None = None
-    data_vintage_start: date | None = Field(default=None, description="Start of temporal coverage")
-    data_vintage_end: date | None = Field(default=None, description="End of temporal coverage")
+    data_vintage_start: date | None = Field(
+        default=None, description="Start of temporal coverage"
+    )
+    data_vintage_end: date | None = Field(
+        default=None, description="End of temporal coverage"
+    )
     # ISO governance fields
-    lineage_summary: str | None = Field(default=None, description="Free-text provenance / lineage statement")
-    update_frequency: str | None = Field(default=None, description="ISO maintenance frequency code")
+    lineage_summary: str | None = Field(
+        default=None, description="Free-text provenance / lineage statement"
+    )
+    update_frequency: str | None = Field(
+        default=None, description="ISO maintenance frequency code"
+    )
     usage_constraints: str | None = None
     access_constraints: str | None = None
-    sensitivity_classification: str | None = Field(default=None, description="e.g. public, confidential, restricted")
-    theme_category: list[str] | None = Field(default=None, description="ISO topic category codes")
-    record_status: str | None = Field(default=None, description="Lifecycle status: draft, ready, published")
+    sensitivity_classification: str | None = Field(
+        default=None, description="e.g. public, confidential, restricted"
+    )
+    theme_category: list[str] | None = Field(
+        default=None, description="ISO topic category codes"
+    )
+    record_status: str | None = Field(
+        default=None, description="Lifecycle status: draft, ready, published"
+    )
     owner_org: str | None = Field(default=None, description="Owning organization name")
     quality_statement: str | None = None
-    source_url: str | None = Field(default=None, description="URL the data was originally fetched from")
-    language: str | None = Field(default=None, description="ISO 639-1 language code, e.g. en, fr")
+    source_url: str | None = Field(
+        default=None, description="URL the data was originally fetched from"
+    )
+    language: str | None = Field(
+        default=None, description="ISO 639-1 language code, e.g. en, fr"
+    )
 
     @field_validator(
-        "title", "summary", "lineage_summary", "quality_statement", "source_organization",
+        "title",
+        "summary",
+        "lineage_summary",
+        "quality_statement",
+        "source_organization",
         mode="before",
     )
     @classmethod
@@ -233,8 +333,12 @@ class DatasetListResponse(BaseModel):
 
 
 class SchemaDiff(BaseModel):
-    columns_added: list[dict] = Field(description="Columns present in new but not old schema")
-    columns_removed: list[dict] = Field(description="Columns present in old but not new schema")
+    columns_added: list[dict] = Field(
+        description="Columns present in new but not old schema"
+    )
+    columns_removed: list[dict] = Field(
+        description="Columns present in old but not new schema"
+    )
     type_changes: list[dict] = Field(description="Columns whose data type changed")
     row_count_old: int | None
     row_count_new: int | None
@@ -304,8 +408,12 @@ class DatasetVersionListResponse(BaseModel):
 class DatasetRowsResponse(BaseModel):
     columns: list[dict]
     rows: list[dict]
-    approximate_total: int = Field(description="Estimated total row count (may use pg stats)")
-    next_cursor: int | None = Field(default=None, description="Cursor value for the next page, null if last")
+    approximate_total: int = Field(
+        description="Estimated total row count (may use pg stats)"
+    )
+    next_cursor: int | None = Field(
+        default=None, description="Cursor value for the next page, null if last"
+    )
 
 
 class ColumnValuesResponse(BaseModel):
@@ -330,12 +438,22 @@ class AttributeMetadataResponse(BaseModel):
     data_type: str | None
     units: str | None
     domain_type: str | None
-    semantic_role: str | None = Field(default=None, description="Inferred role: geometry, identifier, measure, etc.")
-    example_values: list | None = Field(default=None, description="Sample values from the column")
-    ordinal_position: int | None = Field(default=None, description="Column position in the table (1-based)")
+    semantic_role: str | None = Field(
+        default=None, description="Inferred role: geometry, identifier, measure, etc."
+    )
+    example_values: list | None = Field(
+        default=None, description="Sample values from the column"
+    )
+    ordinal_position: int | None = Field(
+        default=None, description="Column position in the table (1-based)"
+    )
     is_nullable: bool | None = None
-    is_current: bool = Field(description="False if column was removed in a later version")
-    user_modified_fields: list[str] = Field(description="Field names manually edited by a user")
+    is_current: bool = Field(
+        description="False if column was removed in a later version"
+    )
+    user_modified_fields: list[str] = Field(
+        description="Field names manually edited by a user"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -392,11 +510,19 @@ class VrtGenerationListResponse(BaseModel):
 
 
 class AttributeMetadataUpdate(BaseModel):
-    title: str | None = Field(default=None, description="Human-friendly column display name")
+    title: str | None = Field(
+        default=None, description="Human-friendly column display name"
+    )
     description: str | None = None
-    units: str | None = Field(default=None, description="Measurement units, e.g. meters, kg")
-    semantic_role: SEMANTIC_ROLES | None = Field(default=None, description="Column role: geometry, identifier, measure, etc.")
-    domain_type: DOMAIN_TYPES | None = Field(default=None, description="Value domain: continuous, categorical, coded, etc.")
+    units: str | None = Field(
+        default=None, description="Measurement units, e.g. meters, kg"
+    )
+    semantic_role: SEMANTIC_ROLES | None = Field(
+        default=None, description="Column role: geometry, identifier, measure, etc."
+    )
+    domain_type: DOMAIN_TYPES | None = Field(
+        default=None, description="Value domain: continuous, categorical, coded, etc."
+    )
 
 
 class RelatedDatasetItem(BaseModel):
@@ -422,8 +548,12 @@ class AttributeMetadataListResponse(BaseModel):
 class DatasetRelationshipCreate(BaseModel):
     target_dataset_id: uuid.UUID = Field(description="UUID of the dataset to link to")
     source_column: str = Field(description="Join column in the source dataset")
-    target_column: str = Field(default="gid", description="Join column in the target dataset")
-    label: str | None = Field(default=None, description="Optional display label for this relationship")
+    target_column: str = Field(
+        default="gid", description="Join column in the target dataset"
+    )
+    label: str | None = Field(
+        default=None, description="Optional display label for this relationship"
+    )
 
 
 class DatasetRelationshipResponse(BaseModel):

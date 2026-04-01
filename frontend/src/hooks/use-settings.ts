@@ -57,6 +57,7 @@ export function useAllSettings(options?: { enabled?: boolean }) {
     queryKey: queryKeys.settings.allSettings,
     queryFn: getAllSettings,
     enabled: options?.enabled,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -71,6 +72,7 @@ export function useApiKeyStatus() {
   return useQuery({
     queryKey: queryKeys.settings.apiKeyStatus,
     queryFn: getApiKeyStatus,
+    staleTime: 5 * 60_000,
   });
 }
 

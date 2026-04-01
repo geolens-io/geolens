@@ -279,10 +279,11 @@ Progress: [░░░░░░░░░░] 0%
 | 260331-cuw | Full table view on dataset details page (horizontal scroll, expand/collapse, UX polish) | 2026-03-31 | eb95a83d | Verified | [260331-cuw-address-the-lack-of-ability-to-view-the-](./quick/260331-cuw-address-the-lack-of-ability-to-view-the-/) |
 | 260331-hs3 | Evaluate seed-ago-data.py and import flow - gaps, issues, flexibility, enhancements | 2026-03-31 | b1fc2952 | Verified | [260331-hs3-evaluate-seed-ago-data-py-and-import-flo](./quick/260331-hs3-evaluate-seed-ago-data-py-and-import-flo/) |
 | 260331-izv | Fix 502 errors on imports using seed-ago-data.py script | 2026-03-31 | 1940b04f | Verified | [260331-izv-fix-502-errors-on-imports-using-seed-ago](./quick/260331-izv-fix-502-errors-on-imports-using-seed-ago/) |
+| 260331-o2b | Run all CI checks locally - fix any issues then commit and push | 2026-03-31 | 023db2a0 | Verified | [260331-o2b-run-all-ci-checks-locally-fix-any-issues](./quick/260331-o2b-run-all-ci-checks-locally-fix-any-issues/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-31 - Completed quick task 260331-izv: Fix 502 errors on ArcGIS service imports
+Last activity: 2026-03-31 - Completed quick task 260331-o2b: Run all CI checks locally - fix issues and push
 Last session: 2026-03-31T17:46:51.080Z
 Stopped at: Completed quick task 260331-izv: Fix 502 errors on ArcGIS service imports
 Resume file: None

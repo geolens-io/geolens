@@ -1,3 +1,4 @@
+import React from 'react';
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +13,21 @@ import { getGeometryTypeLabel } from '@/i18n/labels';
 import { useQuicklook } from '@/hooks/use-quicklook';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import type { OGCRecordResponse } from '@/types/api';
+
+const statusStyles: Record<string, string> = {
+  draft: `text-xs ${ingestionStatusColors.draft}`,
+  ready: `text-xs ${ingestionStatusColors.ready}`,
+  internal: `text-xs ${ingestionStatusColors.internal}`,
+  archived: 'text-xs',
+  deprecated: 'text-xs text-muted-foreground',
+};
+const statusVariants: Record<string, 'outline' | 'secondary'> = {
+  draft: 'outline',
+  ready: 'outline',
+  internal: 'outline',
+  archived: 'secondary',
+  deprecated: 'outline',
+};
 
 function formatGsd(gsd: number, crs?: string | null): string {
   // For geographic CRS (degree-based), don't show GSD — it's meaningless as a distance
@@ -121,7 +137,7 @@ function buildAutoDescription(
   return t('card.autoDesc.fallback');
 }
 
-export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
+export const SearchResultCard = React.memo(function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const { t, i18n } = useTranslation('search');
   const { properties } = feature;
   const recordType = properties.record_type ?? 'vector_dataset';
@@ -168,20 +184,6 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
 
   // Footer status badge — only for non-collection, non-published records
   const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
-  const statusStyles: Record<string, string> = {
-    draft: `text-xs ${ingestionStatusColors.draft}`,
-    ready: `text-xs ${ingestionStatusColors.ready}`,
-    internal: `text-xs ${ingestionStatusColors.internal}`,
-    archived: 'text-xs',
-    deprecated: 'text-xs text-muted-foreground',
-  };
-  const statusVariants: Record<string, 'outline' | 'secondary'> = {
-    draft: 'outline',
-    ready: 'outline',
-    internal: 'outline',
-    archived: 'secondary',
-    deprecated: 'outline',
-  };
 
   return (
     <Link to={linkPath} className="group block" data-testid="search-result-card">
@@ -350,4 +352,4 @@ export function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
       </Card>
     </Link>
   );
-}
+});

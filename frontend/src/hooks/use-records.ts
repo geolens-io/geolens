@@ -17,6 +17,7 @@ export function useContacts(recordId: string | undefined) {
     queryKey: queryKeys.records.contacts(recordId),
     queryFn: () => listContacts(recordId!),
     enabled: !!recordId,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -47,6 +48,7 @@ export function useKeywords(recordId: string | undefined) {
     queryKey: queryKeys.records.keywords(recordId),
     queryFn: () => listKeywords(recordId!),
     enabled: !!recordId,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -77,6 +79,7 @@ export function useDistributions(recordId: string | undefined) {
     queryKey: queryKeys.records.distributions(recordId),
     queryFn: () => listDistributions(recordId!),
     enabled: !!recordId,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -85,6 +88,7 @@ export function useRelatedDatasets(datasetId: string) {
     queryKey: queryKeys.datasets.related(datasetId),
     queryFn: () => fetchRelatedDatasets(datasetId),
     enabled: !!datasetId,
+    staleTime: 5 * 60_000,
     retry: false,
   });
 }

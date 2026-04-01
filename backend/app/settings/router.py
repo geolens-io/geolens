@@ -210,7 +210,7 @@ async def reset_settings(
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-@router.get("/api-key-status/")
+@router.get("/api-key-status/", response_model=ApiKeyStatusResponse)
 async def get_api_key_status(
     _user: User = Depends(require_permission("manage_settings")),
 ) -> ApiKeyStatusResponse:
@@ -221,7 +221,7 @@ async def get_api_key_status(
     )
 
 
-@router.post("/detect-embedding-dims/")
+@router.post("/detect-embedding-dims/", response_model=DetectEmbeddingDimsResponse)
 async def detect_embedding_dims(
     _user: User = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
@@ -242,7 +242,7 @@ async def detect_embedding_dims(
     return DetectEmbeddingDimsResponse(dimensions=dims)
 
 
-@router.get("/config-mode/")
+@router.get("/config-mode/", response_model=ConfigModeResponse)
 async def get_config_mode() -> ConfigModeResponse:
     """Return whether the app is in env-only config mode (public, no auth)."""
     return ConfigModeResponse(env_only=_is_env_only())
@@ -402,7 +402,7 @@ async def get_map_defaults(
     return MapDefaultsResponse(**stored)
 
 
-@router.get("/enabled-widgets/")
+@router.get("/enabled-widgets/", response_model=list[str] | None)
 async def get_enabled_widgets(
     db: AsyncSession = Depends(get_db),
 ) -> list[str] | None:

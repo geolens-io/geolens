@@ -70,7 +70,7 @@ router = APIRouter(prefix="/ingest", tags=["Datasets"])
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
 
-@router.get("/upload/config")
+@router.get("/upload/config", response_model=UploadConfigResponse)
 async def get_upload_config(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -321,7 +321,7 @@ async def upload_file(
 
 @router.post(
     "/preview/{job_id}",
-    response_model=None,
+    response_model=PreviewResponse | RasterPreviewResponse,
 )
 async def preview_file(
     job_id: uuid.UUID,

@@ -157,7 +157,7 @@ async def dataset_maps(
     user: User | None = Depends(get_optional_user),
 ):
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
-    from app.maps.schemas import MapListResponse
+    from app.maps.schemas import MapListResponse  # noqa: F811
     from app.maps.service import get_maps_for_dataset
 
     user_id = user.id if user else None

@@ -391,7 +391,7 @@ async def get_feature_related_records(
     after: int = Query(0, ge=0),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> dict:
     """Get related records for a feature via FK relationship."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:

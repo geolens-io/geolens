@@ -102,6 +102,54 @@ function ChatPanelContent({
   );
 }
 
+function SidebarContent({
+  layers,
+  inspectorMode,
+  onAddDataClick,
+}: {
+  layers: ReturnType<typeof useBuilderLayers>;
+  inspectorMode: boolean;
+  onAddDataClick: () => void;
+}) {
+  const { t } = useTranslation('builder');
+  return (
+    <div className="flex-1 overflow-y-auto space-y-4 py-3">
+      <LayerPanel
+        layers={layers.localLayers}
+        expandedLayerId={layers.expandedLayerId}
+        activeTab={layers.activeEditorTab}
+        onToggleExpand={layers.handleToggleExpand}
+        onTabChange={layers.handleTabChange}
+        onPaintChange={layers.handlePaintChange}
+        onOpacityChange={layers.handleOpacityChange}
+        onFilterChange={layers.handleFilterChange}
+        onLabelChange={layers.handleLabelChange}
+        onStyleConfigChange={layers.handleStyleConfigChange}
+        onLayoutChange={layers.handleLayoutChange}
+        onToggleVisibility={layers.handleToggleVisibility}
+        onMoveUp={layers.handleMoveUp}
+        onMoveDown={layers.handleMoveDown}
+        onReorder={layers.handleReorder}
+        onRename={layers.handleDisplayNameChange}
+        onRemove={layers.handleRemove}
+        onZoomToLayer={layers.handleZoomToLayer}
+        onToggleLegend={layers.handleToggleLegend}
+        onAddDataClick={onAddDataClick}
+        inspectorMode={inspectorMode}
+      />
+      <div className="border-t pt-3 px-2">
+        <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
+        <BasemapPicker
+          value={layers.localBasemap}
+          onChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
+          showLabels={layers.showBasemapLabels}
+          onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
@@ -276,40 +324,7 @@ export function MapBuilderPage() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto space-y-4 py-3">
-              <LayerPanel
-                layers={layers.localLayers}
-                expandedLayerId={layers.expandedLayerId}
-                activeTab={layers.activeEditorTab}
-                onToggleExpand={layers.handleToggleExpand}
-                onTabChange={layers.handleTabChange}
-                onPaintChange={layers.handlePaintChange}
-                onOpacityChange={layers.handleOpacityChange}
-                onFilterChange={layers.handleFilterChange}
-                onLabelChange={layers.handleLabelChange}
-                onStyleConfigChange={layers.handleStyleConfigChange}
-                onLayoutChange={layers.handleLayoutChange}
-                onToggleVisibility={layers.handleToggleVisibility}
-                onMoveUp={layers.handleMoveUp}
-                onMoveDown={layers.handleMoveDown}
-                onReorder={layers.handleReorder}
-                onRename={layers.handleDisplayNameChange}
-                onRemove={layers.handleRemove}
-                onZoomToLayer={layers.handleZoomToLayer}
-                onToggleLegend={layers.handleToggleLegend}
-                onAddDataClick={() => dialogs.setShowAddData(true)}
-                inspectorMode={false}
-              />
-              <div className="border-t pt-3 px-2">
-                <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
-                <BasemapPicker
-                  value={layers.localBasemap}
-                  onChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
-                  showLabels={layers.showBasemapLabels}
-                  onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
-                />
-              </div>
-            </div>
+            <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={() => dialogs.setShowAddData(true)} />
           </SheetContent>
         </Sheet>
       )}
@@ -471,45 +486,7 @@ export function MapBuilderPage() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto space-y-4 py-3">
-          <LayerPanel
-            layers={layers.localLayers}
-            expandedLayerId={layers.expandedLayerId}
-            activeTab={layers.activeEditorTab}
-            onToggleExpand={layers.handleToggleExpand}
-            onTabChange={layers.handleTabChange}
-            onPaintChange={layers.handlePaintChange}
-            onOpacityChange={layers.handleOpacityChange}
-            onFilterChange={layers.handleFilterChange}
-            onLabelChange={layers.handleLabelChange}
-            onStyleConfigChange={layers.handleStyleConfigChange}
-            onLayoutChange={layers.handleLayoutChange}
-            onToggleVisibility={layers.handleToggleVisibility}
-            onMoveUp={layers.handleMoveUp}
-            onMoveDown={layers.handleMoveDown}
-            onReorder={layers.handleReorder}
-            onRename={layers.handleDisplayNameChange}
-            onRemove={layers.handleRemove}
-            onZoomToLayer={layers.handleZoomToLayer}
-            onToggleLegend={layers.handleToggleLegend}
-            onAddDataClick={() => dialogs.setShowAddData(true)}
-            inspectorMode={useInspector}
-          />
-
-          <div className="border-t pt-3 px-2">
-            <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
-            <BasemapPicker
-              value={layers.localBasemap}
-              onChange={(key) => {
-                layers.setLocalBasemap(key);
-                layers.markDirty();
-              }}
-              showLabels={layers.showBasemapLabels}
-              onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
-            />
-          </div>
-
-        </div>
+        <SidebarContent layers={layers} inspectorMode={useInspector} onAddDataClick={() => dialogs.setShowAddData(true)} />
       </div>}
 
       {/* Layer Inspector panel (wide screens only) */}

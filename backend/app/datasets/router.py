@@ -354,25 +354,8 @@ async def update_dataset_metadata(
         dataset = await update_user_metadata(
             db,
             dataset_id,
+            meta,
             actor_id=user.id,
-            title=meta.title,
-            summary=meta.summary,
-            visibility=meta.visibility,
-            license=meta.license,
-            source_organization=meta.source_organization,
-            data_vintage_start=meta.data_vintage_start,
-            data_vintage_end=meta.data_vintage_end,
-            lineage_summary=meta.lineage_summary,
-            update_frequency=meta.update_frequency,
-            usage_constraints=meta.usage_constraints,
-            access_constraints=meta.access_constraints,
-            sensitivity_classification=meta.sensitivity_classification,
-            theme_category=meta.theme_category,
-            record_status=meta.record_status,
-            owner_org=meta.owner_org,
-            quality_statement=meta.quality_statement,
-            source_url=meta.source_url,
-            language=meta.language,
         )
     except ValueError as e:
         msg = str(e)

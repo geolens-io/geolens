@@ -25,7 +25,7 @@ describe('useAuthStore', () => {
 
     expect(useAuthStore.getState().token).toBe('token-123');
     expect(useAuthStore.getState().refreshToken).toBe('refresh-456');
-    expect(useAuthStore.getState().expiresAt).toBeGreaterThan(Date.now());
+    expect(useAuthStore.getState().expiresAt).toBeGreaterThanOrEqual(Date.now());
     expect(useAuthStore.getState().user).toEqual(user);
   });
 

@@ -17,6 +17,7 @@ def safe_content_disposition(filename: str) -> str:
     encoded = quote(filename)
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
+
 # SQL keywords to ignore during where-clause column validation
 _SQL_KEYWORDS = frozenset(
     {

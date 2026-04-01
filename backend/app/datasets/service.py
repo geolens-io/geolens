@@ -3,11 +3,16 @@
 Handles CRUD operations for dataset records in the catalog.
 """
 
+from __future__ import annotations
+
 import re
 import uuid
-from datetime import date
+from typing import TYPE_CHECKING
 
 import logging
+
+if TYPE_CHECKING:
+    from app.datasets.schemas import DatasetMeta
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -368,8 +373,6 @@ async def update_user_metadata(
     explicitly set (not None). Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
     """
-    from app.datasets.schemas import DatasetMeta  # noqa: F811
-
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
