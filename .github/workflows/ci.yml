@@ -135,6 +135,7 @@ jobs:
             CREATE EXTENSION IF NOT EXISTS postgis;
             CREATE EXTENSION IF NOT EXISTS pg_trgm;
             CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
             CREATE SCHEMA IF NOT EXISTS catalog;
             CREATE SCHEMA IF NOT EXISTS data;
             ALTER DATABASE geolens_test SET search_path TO catalog, data, public;
