@@ -77,10 +77,12 @@ class TestBboxToTiles:
         assert tiles == [(0, 0, 0)]
 
     def test_small_city_bbox_z10_reasonable_count(self):
-        # A small city-sized bbox (~0.2 degrees) at z=10 should yield ~tens of tiles
-        tiles = list(bbox_to_tiles(-74.1, 40.65, -73.9, 40.85, z=10))
+        # A metro-area-sized bbox (~2 degrees) at z=10 should yield ~tens of tiles.
+        # A 0.2-degree bbox only spans ~0.57 tiles wide at z=10, so use a larger
+        # region (NYC metro area, ~2x1.5 degrees) to get a meaningful count.
+        tiles = list(bbox_to_tiles(-75, 40, -73, 41.5, z=10))
         count = len(tiles)
-        assert 5 <= count <= 500, f"Expected ~tens of tiles, got {count}"
+        assert 20 <= count <= 500, f"Expected ~tens of tiles, got {count}"
         # All should be at zoom 10
         assert all(t[0] == 10 for t in tiles)
 
