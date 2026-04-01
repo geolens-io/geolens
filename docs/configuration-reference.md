@@ -18,7 +18,7 @@ All environment variables used by GeoLens, their defaults, and descriptions. Set
 |---|---|---|---|
 | `JWT_SECRET_KEY` | None (required) | Yes | Secret key for signing JWT tokens. Generate with `openssl rand -hex 32`. |
 | `JWT_ALGORITHM` | `HS256` | No | JWT signing algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | No | JWT token lifetime in minutes |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | No | JWT token lifetime in minutes |
 | `GEOLENS_ADMIN_USERNAME` | None (required) | Yes | Username for the automatically created admin account |
 | `GEOLENS_ADMIN_PASSWORD` | None (required) | Yes | Password for the initial admin account |
 | `REGISTRATION_ENABLED` | `false` | No | Whether self-registration is enabled. When `false`, only admins can create users. |
@@ -76,11 +76,77 @@ If this command fails, fix ownership/permissions on the mounted path or set `UPL
 | `TILE_SIGNING_SECRET` | None (falls back to `JWT_SECRET_KEY`) | No | Secret for signing tile request URLs. Set separately when you want to rotate tile secrets without invalidating JWT tokens. |
 | `CDN_BASE_URL` | None | No | CDN origin URL for tile delivery. When set, the frontend requests tiles from this URL instead of the API. |
 
+## Logging
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `LOG_JSON` | `false` | No | Output logs in structured JSON format. Recommended for production. When enabled, Swagger UI (`/api/docs`) is disabled. |
+| `LOG_LEVEL` | `INFO` | No | Log level. Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+
+## Storage Provider
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `STORAGE_PROVIDER` | `local` | No | Storage backend for uploaded files. Options: `local`, `s3`. |
+| `S3_ENDPOINT` | None | When `s3` | S3-compatible endpoint URL. Leave unset for AWS S3. For MinIO: `http://minio:9000`. |
+| `S3_BUCKET` | None | When `s3` | S3 bucket name. |
+| `S3_ACCESS_KEY_ID` | None | When `s3` | S3 access key ID. |
+| `S3_SECRET_ACCESS_KEY` | None | When `s3` | S3 secret access key. |
+| `S3_REGION` | `us-east-1` | No | S3 region. |
+| `S3_ALLOW_HTTP` | `false` | No | Allow HTTP (non-TLS) connections to S3 endpoint. Enable for local MinIO. |
+| `S3_ADDRESSING_STYLE` | `auto` | No | S3 addressing style. Options: `auto`, `path`, `virtual`. Use `path` for MinIO. |
+
+## Managed Database / SSL
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `DATABASE_URL_OVERRIDE` | None | No | Full PostgreSQL connection URL for managed databases (RDS, Cloud SQL). Overrides individual `POSTGRES_*` variables. |
+| `DATABASE_SSL_MODE` | `prefer` | No | Database SSL mode. Options: `disable`, `prefer`, `require`, `verify-full`. |
+| `DATABASE_SSL_CA_CERT` | None | When `verify-full` | Path to CA certificate file for database SSL verification. |
+| `DATABASE_POOL_PRE_PING` | `false` | No | Enable connection pool pre-ping. Recommended for managed databases to detect broken connections. |
+| `DB_USE_EXTERNAL_POOLER` | `false` | No | Enable external connection pooler mode (PgBouncer, RDS Proxy). Disables prepared statements. |
+
+## Connection Pool Tuning
+
+These variables control the SQLAlchemy connection pool. Ignored when `DB_USE_EXTERNAL_POOLER` is `true`.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `DB_POOL_SIZE` | `10` | No | Maximum number of persistent connections in the pool. |
+| `DB_MAX_OVERFLOW` | `5` | No | Maximum number of additional connections beyond `DB_POOL_SIZE`. |
+| `DB_POOL_TIMEOUT` | `30` | No | Seconds to wait for a connection from the pool before raising an error. |
+| `DB_POOL_RECYCLE` | `1800` | No | Seconds after which a connection is recycled (replaced). Prevents stale connections with managed databases. |
+| `TILE_POOL_MIN_SIZE` | `2` | No | Minimum connections in the dedicated asyncpg tile query pool. |
+| `TILE_POOL_MAX_SIZE` | `10` | No | Maximum connections in the dedicated asyncpg tile query pool. |
+
+## Cache
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `REDIS_URL` | None | No | Redis/Valkey connection URL for cross-instance caching. Leave unset for in-memory caching (single-instance default). Example: `redis://valkey:6379/0`. |
+
+## Backup
+
+These variables configure the `backup` service (enable with `docker compose --profile backup up -d`).
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `BACKUP_SCHEDULE` | `0 2 * * *` | No | Cron expression for automated database backups. Default: daily at 2:00 AM UTC. |
+| `BACKUP_RETENTION_DAILY` | `7` | No | Number of daily backups to retain locally. |
+| `BACKUP_RETENTION_WEEKLY` | `4` | No | Number of weekly (Sunday) backups to retain locally. |
+| `BACKUP_S3_ENABLED` | `false` | No | Enable off-site backup upload to S3-compatible storage. Uses `S3_*` credentials. |
+
 ## Worker
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `WORKER_SHUTDOWN_TIMEOUT` | `30` | No | Graceful shutdown timeout for the background worker in seconds |
+
+## Authentication (Additional)
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | No | JWT refresh token lifetime in days. |
 
 ## Enterprise Extensions
 
@@ -163,7 +229,7 @@ These are fixed inside Docker containers and are not configurable:
 | FastAPI (`api`) | 8000 | HTTP |
 | Worker (`worker`) | 8001 | HTTP (health only) |
 | Titiler (`titiler`) | 8000 | HTTP |
-| Frontend (`frontend`) | 8080 | HTTP |
+| Frontend (`frontend`) | 5173 | HTTP (Vite dev server) |
 
 ## Docker Volumes
 

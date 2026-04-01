@@ -3,20 +3,20 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # --- Contacts ---
 
 
 class ContactCreate(BaseModel):
-    role: str  # Validated by DB CHECK constraint (full ISO CI_RoleCode codelist)
+    role: str = Field(description="ISO CI_RoleCode, e.g. pointOfContact, author")
     name: str | None = None
     email: EmailStr | None = None
     organization: str | None = None
     phone: str | None = None
-    extra_json: dict[str, Any] | None = None  # JSONB for unmapped/extra fields
-    sort_order: int = 0
+    extra_json: dict[str, Any] | None = Field(default=None, description="Arbitrary extra fields stored as JSON")
+    sort_order: int = Field(default=0, description="Display ordering (lower first)")
 
 
 class ContactUpdate(BaseModel):
@@ -53,9 +53,10 @@ class ContactListResponse(BaseModel):
 
 class KeywordCreate(BaseModel):
     keyword: str
-    vocabulary_uri: str | None = None
-    keyword_type: str = (
-        "theme"  # DB CHECK: full ISO MD_KeywordTypeCode codelist (15 values)
+    vocabulary_uri: str | None = Field(default=None, description="URI of the controlled vocabulary")
+    keyword_type: str = Field(
+        default="theme",
+        description="ISO MD_KeywordTypeCode, e.g. theme, place, discipline",
     )
 
 
@@ -78,14 +79,14 @@ class KeywordListResponse(BaseModel):
 
 
 class DistributionCreate(BaseModel):
-    distribution_type: str
-    format: str
-    url: str
+    distribution_type: str = Field(description="e.g. download, api, ogc_wms, ogc_wfs")
+    format: str = Field(description="File or service format, e.g. GeoJSON, SHP, WMS")
+    url: str = Field(description="Access URL for this distribution")
     title: str | None = None
     description: str | None = None
-    protocol: str | None = None
-    media_type: str | None = None
-    is_primary: bool = False
+    protocol: str | None = Field(default=None, description="Transfer protocol, e.g. HTTPS, OGC:WFS")
+    media_type: str | None = Field(default=None, description="IANA media type, e.g. application/geo+json")
+    is_primary: bool = Field(default=False, description="Mark as the preferred distribution")
 
 
 class DistributionUpdate(BaseModel):
@@ -110,7 +111,7 @@ class DistributionResponse(BaseModel):
     protocol: str | None
     media_type: str | None
     is_primary: bool
-    auto_generated: bool
+    auto_generated: bool = Field(description="True if created automatically by the system")
 
     model_config = ConfigDict(from_attributes=True)
 

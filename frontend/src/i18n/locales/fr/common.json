@@ -13,6 +13,7 @@
   "submit": "Soumettre",
   "edit": "Modifier",
   "create": "Créer",
+  "reload": "Recharger la page",
   "noResults": "Aucun résultat trouvé",
   "notAvailable": "N/D",
   "yesterday": "Hier, {{time}}",

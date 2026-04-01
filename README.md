@@ -7,7 +7,7 @@ Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)]()
-[![PostgreSQL 17 + PostGIS 3.6](https://img.shields.io/badge/PostGIS_3.6-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
 [![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
@@ -98,7 +98,7 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 
 - JWT authentication with refresh tokens
 - API key management per user
-- OAuth 2.0 / OIDC support (SAML SSO available via enterprise extension)
+- OAuth 2.0 / OIDC support (Google, Microsoft, generic providers)
 - Role-based access control (RBAC) with per-dataset permissions
 - Audit logging for all administrative actions
 - Internationalization: English, Spanish, French, German
@@ -177,8 +177,8 @@ The script downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), s
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (tile and query cache) |
-| Database | PostgreSQL 17 + PostGIS 3.6 + pgvector + pg_trgm |
-| Reverse Proxy | Nginx |
+| Database | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm |
+| Reverse Proxy | Nginx (production) / Vite dev proxy (development) |
 
 ## Configuration
 
@@ -196,6 +196,7 @@ All configuration is managed through environment variables in `.env`. See the [C
 | [AI Map Features](docs/llm-map-features.md) | Chat-driven map building with LLMs |
 | [AI Data Features](docs/llm-data-features.md) | Semantic search and auto-generated metadata |
 | [Widget Development](docs/widget-development.md) | Build custom map builder widgets |
+| [API Reference](docs/install-guide.md#verify-services) | Interactive Swagger UI at `/api/docs` |
 
 ## Community
 

@@ -66,12 +66,12 @@ This builds and starts the following services:
 
 | Service | Description | Internal Port | Host Port |
 |---|---|---|---|
-| `db` | PostgreSQL 17 + PostGIS 3.6 | 5432 | `$DB_PORT` (5434) |
+| `db` | PostgreSQL 17 + PostGIS 3.5 | 5432 | `$DB_PORT` (5434) |
 | `migrate` | Alembic migrations (runs once, then exits) | -- | -- |
 | `api` | FastAPI backend (Uvicorn) | 8000 | `$API_PORT` (8001) |
 | `worker` | Background ingestion worker | 8001 | -- |
 | `titiler` | Raster tile server (COG/GeoTIFF) | 8000 | -- |
-| `frontend` | Static SPA (nginx proxy) | 8080 | `$FRONTEND_PORT` (8080) |
+| `frontend` | React SPA (Vite dev server) | 5173 | `$FRONTEND_PORT` (8080) |
 
 On first start, the `migrate` service runs Alembic migrations to set up the database schema. It exits after completion, and the API waits for it to finish before starting.
 

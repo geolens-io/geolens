@@ -456,6 +456,7 @@ async def get_map_share_token_endpoint(
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse | None:
+    """Return the active share token for a map, or null if none exists."""
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(

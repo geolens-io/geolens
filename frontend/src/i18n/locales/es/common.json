@@ -13,6 +13,7 @@
   "submit": "Enviar",
   "edit": "Editar",
   "create": "Crear",
+  "reload": "Recargar página",
   "noResults": "No se encontraron resultados",
   "notAvailable": "N/D",
   "yesterday": "Ayer, {{time}}",

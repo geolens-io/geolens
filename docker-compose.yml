@@ -218,7 +218,7 @@ services:
     # Production backup scripts live in geolens-deploy repo.
     # Enable locally with: docker compose --profile backup up -d
     profiles: ["backup"]
-    image: postgis/postgis:17-3.6
+    image: postgis/postgis:17-3.5
     restart: unless-stopped
     volumes:
       - ./scripts:/scripts:ro

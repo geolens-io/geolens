@@ -6,6 +6,7 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
+import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import { syncLayersToMap, reorderDataLayers, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
@@ -339,28 +340,40 @@ export function BuilderMap({
     pitch: initialViewState?.pitch ?? 0,
   };
 
+  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
+
   return (
-    <MapGL
-      initialViewState={defaultView}
-      mapStyle={styleValue as string}
-      styleDiffing={false}
-      // Required for thumbnail capture via canvas.toBlob()
-      canvasContextAttributes={{ preserveDrawingBuffer: true }}
-      style={{ width: '100%', height: '100%' }}
-      minZoom={1}
-      onLoad={handleLoad}
-      aria-label="Map builder"
-    >
-      <NavigationControl position="top-right" />
-      {popupInfo && (
-        <FeaturePopup
-          key={`${popupInfo.longitude}-${popupInfo.latitude}`}
-          longitude={popupInfo.longitude}
-          latitude={popupInfo.latitude}
-          features={popupInfo.features}
-          onClose={() => setPopupInfo(null)}
-        />
+    <div className="relative h-full w-full">
+      <MapGL
+        initialViewState={defaultView}
+        mapStyle={styleValue as string}
+        styleDiffing={false}
+        // Required for thumbnail capture via canvas.toBlob()
+        canvasContextAttributes={{ preserveDrawingBuffer: true }}
+        style={{ width: '100%', height: '100%' }}
+        minZoom={1}
+        onLoad={handleLoad}
+        aria-label="Map builder"
+      >
+        <NavigationControl position="top-right" />
+        {popupInfo && (
+          <FeaturePopup
+            key={`${popupInfo.longitude}-${popupInfo.latitude}`}
+            longitude={popupInfo.longitude}
+            latitude={popupInfo.latitude}
+            features={popupInfo.features}
+            onClose={() => setPopupInfo(null)}
+          />
+        )}
+      </MapGL>
+      {contextLost && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+          <div className="text-center space-y-2">
+            <p className="text-sm text-muted-foreground">{t('errors.mapMessage')}</p>
+            <button onClick={reload} className="text-sm underline text-primary">{t('common.reload')}</button>
+          </div>
+        </div>
       )}
-    </MapGL>
+    </div>
   );
 }

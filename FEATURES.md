@@ -44,8 +44,8 @@ Manage users with an approval workflow and role-based access control (viewer, ed
 
 ## Security
 
-JWT authentication with refresh token rotation. Magic byte file validation and zip bomb detection on upload. SSRF protection on service imports. Signed tile URLs. SQL sandbox with AST validation for AI queries. Rate limiting, Prometheus metrics, and Trivy CI scanning. Automated S3 backups with retention policies and a Redis circuit breaker for cache resilience.
+JWT authentication with refresh token rotation. Magic byte file validation and zip bomb detection on upload. SSRF protection on service imports. Signed tile URLs. SQL sandbox with AST validation for AI queries. Rate limiting, Prometheus metrics, and Trivy CI scanning. Automated S3 backups with retention policies and a Valkey/Redis circuit breaker for cache resilience.
 
 ## Deployment
 
-A single `docker compose up` launches four services: API, background worker, PostGIS, and Titiler. Storage is provider-agnostic (local filesystem or S3 with presigned uploads). Caching supports in-memory or Redis backends. The frontend offers dark and light themes, i18n support, route-based code splitting, and WCAG AA accessibility (touch targets, keyboard navigation, screen reader landmarks). Structured JSON logging with correlation IDs provides production observability.
+A single `docker compose up` launches six services: database (PostGIS), migration runner, API, background worker, Titiler (raster tiles), and frontend. Storage is provider-agnostic (local filesystem or S3 with presigned uploads). Caching supports in-memory or Redis backends. The frontend offers dark and light themes, i18n support, route-based code splitting, and WCAG AA accessibility (touch targets, keyboard navigation, screen reader landmarks). Structured JSON logging with correlation IDs provides production observability.

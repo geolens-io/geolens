@@ -13,6 +13,7 @@
   "submit": "Absenden",
   "edit": "Bearbeiten",
   "create": "Erstellen",
+  "reload": "Seite neu laden",
   "noResults": "Keine Ergebnisse gefunden",
   "notAvailable": "k. A.",
   "yesterday": "Gestern, {{time}}",

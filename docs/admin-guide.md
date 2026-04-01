@@ -573,3 +573,230 @@ docker compose down
 docker run --rm -v geolens_pgdata:/data -v $(pwd):/backup alpine sh -c "rm -rf /data/* && tar xzf /backup/pgdata_backup.tar.gz -C /data"
 docker compose up -d
 ```
+
+---
+
+## 10. OAuth / OIDC Single Sign-On
+
+GeoLens supports external identity providers via OAuth 2.0 / OpenID Connect. Supported provider types are **Google**, **Microsoft (Entra ID)**, and **generic OIDC**. SAML is available in the Enterprise edition.
+
+All OAuth flows use **PKCE** (Proof Key for Code Exchange, S256) automatically. Client secrets are encrypted at rest using Fernet encryption derived from the application's `JWT_SECRET_KEY`.
+
+### How it works
+
+1. A user clicks an OAuth provider button on the login page
+2. GeoLens redirects to the IdP authorization endpoint with PKCE parameters
+3. The IdP authenticates the user and redirects back to `/api/auth/oauth/{slug}/callback`
+4. GeoLens exchanges the authorization code for tokens, fetches user info, and either links to an existing account (by email match) or creates a new local user
+5. A GeoLens JWT is issued and the user is redirected to the frontend
+
+### Configuring providers via the Admin UI
+
+The simplest way to configure OAuth is through the admin settings panel:
+
+1. Navigate to **Admin > Settings > Authentication**
+2. Scroll to the **OAuth Providers** section
+3. Click **Add Provider**
+4. Select the provider type, fill in the required fields, and click **Create**
+
+Providers can be enabled, disabled, edited, or deleted from the same panel.
+
+### Configuring providers via the API
+
+Providers can also be managed programmatically. All endpoints require the `manage_settings` permission (admin role).
+
+#### Create a provider
+
+```bash
+curl -X POST http://localhost:8080/api/settings/oauth-providers/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "google",
+    "display_name": "Google",
+    "provider_type": "google",
+    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "client_secret": "YOUR_CLIENT_SECRET",
+    "discovery_url": "https://accounts.google.com/.well-known/openid-configuration",
+    "scopes": "openid profile email",
+    "default_role": "viewer",
+    "enabled": true
+  }'
+```
+
+#### List providers
+
+```bash
+curl http://localhost:8080/api/settings/oauth-providers/ \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The response never includes the `client_secret`. Secrets are write-only.
+
+#### Update a provider
+
+```bash
+curl -X PATCH http://localhost:8080/api/settings/oauth-providers/{provider_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+Only include `client_secret` in the update payload if you need to rotate it. Omitting it preserves the existing secret.
+
+#### Delete a provider
+
+```bash
+curl -X DELETE http://localhost:8080/api/settings/oauth-providers/{provider_id} \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Deleting a provider also removes all linked OAuth accounts for that provider.
+
+### Provider configuration reference
+
+| Field | Required | Description |
+|---|---|---|
+| `slug` | Yes | URL-safe identifier used in callback URLs (e.g. `google`, `azure-ad`) |
+| `display_name` | Yes | Label shown on the login page button |
+| `provider_type` | Yes | One of: `google`, `microsoft`, `oidc`, `saml` |
+| `client_id` | Yes* | OAuth client ID from the IdP (*not required for SAML) |
+| `client_secret` | Yes* | OAuth client secret (*not required for SAML) |
+| `discovery_url` | No | OIDC discovery URL (`.well-known/openid-configuration`). Auto-populates for Google and Microsoft |
+| `authorize_url` | No | Authorization endpoint (only needed if `discovery_url` is not set) |
+| `token_url` | No | Token endpoint (only needed if `discovery_url` is not set) |
+| `userinfo_url` | No | Userinfo endpoint (only needed if `discovery_url` is not set) |
+| `scopes` | No | Space-separated scopes. Default: `openid profile email` |
+| `default_role` | No | Role assigned to new users: `viewer`, `editor`, or `admin`. Default: `viewer` |
+| `group_claim` | No | JWT claim containing group memberships (e.g. `groups`) |
+| `group_role_mapping` | No | JSON object mapping IdP group names to GeoLens roles |
+| `enabled` | No | Whether the provider appears on the login page. Default: `true` |
+
+### Step-by-step: Google OAuth
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Create a new **OAuth 2.0 Client ID** (application type: Web application)
+3. Add the authorized redirect URI:
+   ```
+   https://your-geolens-host/api/auth/oauth/google/callback
+   ```
+4. Copy the **Client ID** and **Client Secret**
+5. In GeoLens, create the provider (UI or API):
+
+```bash
+curl -X POST http://localhost:8080/api/settings/oauth-providers/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "google",
+    "display_name": "Google",
+    "provider_type": "google",
+    "client_id": "123456789.apps.googleusercontent.com",
+    "client_secret": "GOCSPX-xxxxxxxxxxxx",
+    "discovery_url": "https://accounts.google.com/.well-known/openid-configuration",
+    "scopes": "openid profile email",
+    "default_role": "viewer",
+    "enabled": true
+  }'
+```
+
+6. The "Sign in with Google" button will appear on the login page immediately
+
+### Step-by-step: Microsoft Entra ID
+
+1. In the [Azure Portal](https://portal.azure.com), go to **Microsoft Entra ID > App registrations > New registration**
+2. Set the redirect URI to:
+   ```
+   https://your-geolens-host/api/auth/oauth/microsoft/callback
+   ```
+3. Under **Certificates & secrets**, create a new client secret
+4. Note your **Application (client) ID**, **Directory (tenant) ID**, and the secret value
+5. Create the provider in GeoLens:
+
+```bash
+curl -X POST http://localhost:8080/api/settings/oauth-providers/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "microsoft",
+    "display_name": "Microsoft",
+    "provider_type": "microsoft",
+    "client_id": "YOUR_APPLICATION_CLIENT_ID",
+    "client_secret": "YOUR_CLIENT_SECRET_VALUE",
+    "discovery_url": "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0/.well-known/openid-configuration",
+    "scopes": "openid profile email",
+    "default_role": "viewer",
+    "enabled": true
+  }'
+```
+
+### Step-by-step: Generic OIDC
+
+For any OIDC-compliant provider (Keycloak, Okta, Auth0, etc.):
+
+1. Register a new application in your IdP
+2. Set the redirect URI to:
+   ```
+   https://your-geolens-host/api/auth/oauth/{slug}/callback
+   ```
+   Replace `{slug}` with whatever slug you plan to use (e.g. `keycloak`, `okta`)
+3. If the IdP publishes a discovery document, use `discovery_url`. Otherwise, provide `authorize_url`, `token_url`, and `userinfo_url` explicitly:
+
+```bash
+curl -X POST http://localhost:8080/api/settings/oauth-providers/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "keycloak",
+    "display_name": "Keycloak",
+    "provider_type": "oidc",
+    "client_id": "geolens",
+    "client_secret": "your-keycloak-secret",
+    "discovery_url": "https://keycloak.example.com/realms/main/.well-known/openid-configuration",
+    "scopes": "openid profile email",
+    "default_role": "editor",
+    "enabled": true
+  }'
+```
+
+### Group-to-role mapping
+
+If your IdP includes group memberships in the ID token or userinfo response, you can map those groups to GeoLens roles automatically.
+
+1. Set `group_claim` to the name of the claim containing group names (commonly `groups`)
+2. Set `group_role_mapping` to a JSON object mapping group names to roles:
+
+```json
+{
+  "GeoLens-Admins": "admin",
+  "GeoLens-Editors": "editor",
+  "GeoLens-Viewers": "viewer"
+}
+```
+
+The first matching group wins. If no groups match, the `default_role` is used.
+
+Example with the API:
+
+```bash
+curl -X PATCH http://localhost:8080/api/settings/oauth-providers/{provider_id} \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "group_claim": "groups",
+    "group_role_mapping": {
+      "GIS-Admins": "admin",
+      "GIS-Staff": "editor"
+    }
+  }'
+```
+
+### User account linking
+
+When a user signs in via OAuth:
+
+- If they have previously signed in with the same provider and subject ID, they are logged in to the existing account
+- If no prior OAuth link exists but a local user has the same email address (case-insensitive), the OAuth identity is linked to that existing user
+- Otherwise, a new user account is created with a username derived from the email prefix or display name
+
+This means existing local users can start using OAuth without losing their data -- as long as the email addresses match.

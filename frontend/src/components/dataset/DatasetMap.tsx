@@ -14,6 +14,7 @@ import { useTileToken } from '@/hooks/use-tile-token';
 import { useMapLayers, getSourceLayerName } from '@/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { useAuthStore } from '@/stores/auth-store';
+import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { MAP_COLORS } from '@/lib/map-colors';
 import {
   AlertDialog,
@@ -70,7 +71,7 @@ export function DatasetMap({
   onTileError,
   onFeatureClick,
 }: DatasetMapProps) {
-  const { t } = useTranslation('dataset');
+  const { t } = useTranslation(['dataset', 'common']);
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
@@ -101,6 +102,7 @@ export function DatasetMap({
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
+  const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
 
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
     tableName,
@@ -789,6 +791,15 @@ export function DatasetMap({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {contextLost && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+          <div className="text-center space-y-2">
+            <p className="text-sm text-muted-foreground">{t('common:errors.mapMessage')}</p>
+            <button onClick={reload} className="text-sm underline text-primary">{t('common:reload')}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

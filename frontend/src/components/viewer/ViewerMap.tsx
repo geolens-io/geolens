@@ -12,6 +12,7 @@ import {
   DARK_PRESET_ID,
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { getTileTokenWithApiKey } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
 import { getEnvConfig } from '@/lib/env';
@@ -466,26 +467,38 @@ export function ViewerMap({
     pitch: initialViewState.pitch,
   };
 
+  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
+
   return (
-    <MapGL
-      initialViewState={defaultView}
-      mapStyle={styleValue as string}
-      style={{ width: '100%', height: '100%' }}
-      attributionControl={false}
-      minZoom={1}
-      onLoad={handleLoad}
-      aria-label="Map viewer"
-    >
-      <NavigationControl position="top-right" />
-      {popupInfo && (
-        <FeaturePopup
-          key={`${popupInfo.longitude}-${popupInfo.latitude}`}
-          longitude={popupInfo.longitude}
-          latitude={popupInfo.latitude}
-          features={popupInfo.features}
-          onClose={() => setPopupInfo(null)}
-        />
+    <div className="relative h-full w-full">
+      <MapGL
+        initialViewState={defaultView}
+        mapStyle={styleValue as string}
+        style={{ width: '100%', height: '100%' }}
+        attributionControl={false}
+        minZoom={1}
+        onLoad={handleLoad}
+        aria-label="Map viewer"
+      >
+        <NavigationControl position="top-right" />
+        {popupInfo && (
+          <FeaturePopup
+            key={`${popupInfo.longitude}-${popupInfo.latitude}`}
+            longitude={popupInfo.longitude}
+            latitude={popupInfo.latitude}
+            features={popupInfo.features}
+            onClose={() => setPopupInfo(null)}
+          />
+        )}
+      </MapGL>
+      {contextLost && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+          <div className="text-center space-y-2">
+            <p className="text-sm text-muted-foreground">{t('errors.mapMessage')}</p>
+            <button onClick={reload} className="text-sm underline text-primary">{t('common.reload')}</button>
+          </div>
+        </div>
       )}
-    </MapGL>
+    </div>
   );
 }
