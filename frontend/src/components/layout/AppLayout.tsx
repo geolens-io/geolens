@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Navbar } from './Navbar';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
+import { SkipToContent } from './SkipToContent';
 
 const GEOLENS_GITHUB_URL = 'https://github.com/geolens-io/geolens';
 const GEOLENS_DISCUSSIONS_URL = 'https://github.com/geolens-io/geolens/discussions';
@@ -17,6 +18,7 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <SkipToContent />
       <Navbar />
       <main className="flex-1 animate-fade-in">
         <Outlet />

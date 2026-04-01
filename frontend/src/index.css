@@ -349,18 +349,19 @@
   border-bottom-color: var(--popover);
 }
 
-/* Popup close button */
+/* Popup close button — 32×32 visible, 44×44 touch target via padding */
 .maplibregl-popup-close-button {
   color: var(--popover-foreground);
   font-size: 18px;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius);
-  inset-inline-end: 4px;
-  top: 4px;
+  inset-inline-end: 2px;
+  top: 2px;
 }
 .maplibregl-popup-close-button:hover {
   background-color: var(--muted);

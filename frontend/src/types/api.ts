@@ -635,6 +635,10 @@ export interface StyleConfig {
   sizes?: number[];
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
+  /** Render mode override — when 'heatmap', the layer renders as a heatmap instead of styled points */
+  render_mode?: 'heatmap';
+  /** Saved circle paint config from before switching to heatmap mode */
+  savedCirclePaint?: Record<string, unknown>;
 }
 
 export interface ColumnValuesResponse {

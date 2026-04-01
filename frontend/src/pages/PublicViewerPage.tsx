@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
+import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { Clock, MapPinOff } from 'lucide-react';
 import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
@@ -48,13 +49,13 @@ export function PublicViewerPage() {
 
   const { data, isLoading, isError, error } = useSharedMap(token, apiKey);
 
-  const effectiveShowLegend = useMemo(() => {
-    if (legendParam !== null) return legendParam === 'true';
-    return !isEmbed;
-  }, [legendParam, isEmbed]);
+  const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed;
 
   const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
     useViewerLayers(data?.layers, { showLegend: effectiveShowLegend });
+
+  const [basemapId, setBasemapId] = useState<string | null>(null);
+  const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
   if (isLoading) {
     return (
@@ -103,11 +104,12 @@ export function PublicViewerPage() {
   };
 
   return (
-    <div className="w-full h-screen relative overflow-hidden">
+    <main id="map-viewport" className="w-full h-screen relative overflow-hidden">
       {/* Full-viewport map */}
       <ViewerMap
         layers={data.layers}
-        basemapStyle={data.basemap_style}
+        basemapStyle={basemapId ?? data.basemap_style}
+        basemapOverride={basemapId !== null}
         showBasemapLabels={data.show_basemap_labels ?? true}
         initialViewState={viewState}
         visibleLayers={visibleLayers}
@@ -115,7 +117,7 @@ export function PublicViewerPage() {
         embedToken={embedToken}
       />
 
-      <MapTitlePill name={data.name} />
+      <MapTitlePill name={data.name} description={data.description} />
 
       {/* Legend overlay */}
       {effectiveShowLegend && (
@@ -124,7 +126,17 @@ export function PublicViewerPage() {
           visibleLayers={visibleLayers}
           onToggleVisibility={handleToggleVisibility}
           isOpen={isLegendOpen}
-          onToggle={() => setIsLegendOpen((prev) => !prev)}
+          onToggle={handleLegendToggle}
+        />
+      )}
+
+      {/* Basemap switcher */}
+      {!isEmbed && (
+        <BasemapToggle
+          value={basemapId ?? data.basemap_style}
+          onChange={setBasemapId}
+          title={t('viewer.changeBasemap')}
+          className="absolute bottom-8 left-3 z-10"
         />
       )}
 
@@ -141,6 +153,6 @@ export function PublicViewerPage() {
           </a>
         </div>
       )}
-    </div>
+    </main>
   );
 }

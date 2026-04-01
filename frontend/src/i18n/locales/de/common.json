@@ -162,14 +162,21 @@
       "title": "Ebenen",
       "show": "Legende anzeigen",
       "hide": "Legende ausblenden",
-      "showLayer": "Ebene anzeigen",
-      "hideLayer": "Ebene ausblenden",
+      "showLayer": "{{name}} anzeigen",
+      "hideLayer": "{{name}} ausblenden",
       "geometry": {
         "point": "Punkt",
         "line": "Linie",
         "polygon": "Polygon"
       }
-    }
+    },
+    "heatmapLow": "Niedrig",
+    "heatmapHigh": "Hoch",
+    "skipToMap": "Zur Karte springen",
+    "showDescription": "Kartenbeschreibung anzeigen",
+    "hideDescription": "Kartenbeschreibung ausblenden",
+    "changeBasemap": "Grundkarte ändern",
+    "loadFailed": "Karte konnte nicht geladen werden"
   },
   "maps": {
     "title": "Karten",

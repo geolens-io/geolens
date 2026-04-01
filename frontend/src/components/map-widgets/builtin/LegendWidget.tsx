@@ -1,21 +1,23 @@
-import { memo, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
-import { getRampColors } from '@/lib/color-ramps';
+import {
+  CategoricalLegend,
+  GraduatedColorLegend,
+  GraduatedRadiusLegend,
+  GraduatedWidthLegend,
+  HeatmapLegend,
+} from '@/components/map/LegendEntries';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { cn } from '@/lib/utils';
 import type { WidgetContext } from '../types';
-
-function breakLabel(i: number, breaks: number[]): string {
-  if (i === 0) return `< ${breaks[0]}`;
-  if (i === breaks.length) return `>= ${breaks[breaks.length - 1]}`;
-  return `${breaks[i - 1]} - ${breaks[i]}`;
-}
 
 export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   const { t } = useTranslation('builder');
 
-  const legendLayers = ctx.layers.filter((l) => l.visible && l.show_in_legend !== false);
+  const legendLayers = useMemo(
+    () => ctx.layers.filter((l) => l.visible && l.show_in_legend !== false),
+    [ctx.layers],
+  );
 
   if (legendLayers.length === 0) {
     return (
@@ -29,16 +31,21 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
         const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
         const strokeDisabled = !!layer.paint?.['_stroke-disabled'];
         const opacity = layer.opacity ?? 1;
+        const swatchStyle = { outlineColor, strokeDisabled, opacity };
+        const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
 
         return (
           <div key={layer.id}>
             <div className="p-1 text-xs">
-              {(layer.style_config as Record<string, unknown> | undefined)?.render_mode === 'heatmap' ? (
+              {layer.style_config?.render_mode === 'heatmap' ? (
                 <HeatmapLegend
                   name={layer.display_name ?? layer.dataset_name}
                   rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? 'YlOrRd'}
-                  weightColumn={(layer.paint?.['_heatmap-weight-column'] as string) ?? undefined}
+                  weightColumn={weightCol}
                   opacity={opacity}
+                  lowLabel={t('widgets.legend.low')}
+                  highLabel={t('widgets.legend.high')}
+                  weightedByLabel={weightCol ? t('widgets.legend.weightedBy', { column: weightCol }) : undefined}
                 />
               ) : layer.style_config?.column ? (
                 <>
@@ -47,31 +54,18 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                   </div>
 
                   {layer.style_config.mode === 'categorical' && layer.style_config.categories && (
-                    <ul className="space-y-0.5">
-                      {layer.style_config.categories.map((cat, i) => (
-                        <li key={i} className="flex items-center gap-1.5">
-                          <div
-                            className={cn('w-3 h-3 rounded-sm shrink-0', !strokeDisabled && 'border')}
-                            style={{
-                              backgroundColor: cat.color,
-                              ...(!strokeDisabled ? { borderColor: outlineColor ?? MAP_COLORS.legendOutline } : {}),
-                              ...(opacity < 1 ? { opacity } : {}),
-                            }}
-                          />
-                          <span className="text-muted-foreground truncate">{cat.value}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <CategoricalLegend
+                      categories={layer.style_config.categories}
+                      style={swatchStyle}
+                    />
                   )}
 
                   {layer.style_config.mode === 'graduated' &&
                     layer.style_config.breaks && (
-                      <GraduatedLegend
+                      <GraduatedLegendSwitch
                         styleConfig={layer.style_config}
                         paint={layer.paint ?? {}}
-                        opacity={opacity}
-                        outlineColor={outlineColor}
-                        strokeDisabled={strokeDisabled}
+                        style={swatchStyle}
                       />
                     )}
                 </>
@@ -107,106 +101,49 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   );
 }
 
-function GraduatedLegend({
+/** Picks the right graduated sub-legend based on target (color/radius/width). */
+function GraduatedLegendSwitch({
   styleConfig,
   paint,
-  opacity,
-  outlineColor,
-  strokeDisabled,
+  style,
 }: {
   styleConfig: { breaks?: number[]; target?: string; sizes?: number[]; colors?: string[] };
   paint: Record<string, unknown>;
-  opacity: number;
-  outlineColor?: string;
-  strokeDisabled: boolean;
+  style: { outlineColor?: string; strokeDisabled: boolean; opacity: number };
 }) {
   const breaks = styleConfig.breaks!;
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     const circleColor = (paint['circle-color'] as string | undefined) ?? MAP_COLORS.fallback;
     return (
-      <ul className="space-y-0.5">
-        {styleConfig.sizes.map((size, i) => (
-          <li key={i} className="flex items-center gap-1.5">
-            <svg viewBox="0 0 24 24" width="24" height="24" className="shrink-0" style={{ opacity: opacity < 1 ? opacity : undefined }}>
-              <circle cx="12" cy="12" r={Math.min(size, 12)} fill={circleColor} fillOpacity={0.8} stroke={outlineColor ?? MAP_COLORS.legendOutline} strokeWidth={strokeDisabled ? 0 : 1} />
-            </svg>
-            <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
-          </li>
-        ))}
-      </ul>
+      <GraduatedRadiusLegend
+        sizes={styleConfig.sizes}
+        breaks={breaks}
+        circleColor={circleColor}
+        style={style}
+      />
     );
   }
 
   if (styleConfig.target === 'width' && styleConfig.sizes) {
     const lineColor = (paint['line-color'] as string | undefined) ?? MAP_COLORS.fallback;
     return (
-      <ul className="space-y-0.5">
-        {styleConfig.sizes.map((size, i) => (
-          <li key={i} className="flex items-center gap-1.5">
-            <svg width="24" height="16" className="shrink-0" style={{ opacity: opacity < 1 ? opacity : undefined }}>
-              <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
-            </svg>
-            <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
-          </li>
-        ))}
-      </ul>
+      <GraduatedWidthLegend
+        sizes={styleConfig.sizes}
+        breaks={breaks}
+        lineColor={lineColor}
+        style={style}
+      />
     );
   }
 
   if (!styleConfig.colors) return null;
   return (
-    <ul className="space-y-0.5">
-      {styleConfig.colors.map((color, i) => (
-        <li key={i} className="flex items-center gap-1.5">
-          <div
-            className={cn('w-3 h-3 rounded-sm shrink-0', !strokeDisabled && 'border')}
-            style={{
-              backgroundColor: color,
-              ...(!strokeDisabled ? { borderColor: outlineColor ?? MAP_COLORS.legendOutline } : {}),
-              ...(opacity < 1 ? { opacity } : {}),
-            }}
-          />
-          <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
-        </li>
-      ))}
-    </ul>
+    <GraduatedColorLegend
+      colors={styleConfig.colors}
+      breaks={breaks}
+      style={style}
+    />
   );
 }
 
-const HeatmapLegend = memo(function HeatmapLegend({
-  name,
-  rampName,
-  weightColumn,
-  opacity,
-}: {
-  name: string;
-  rampName: string;
-  weightColumn?: string;
-  opacity: number;
-}) {
-  const { t } = useTranslation('builder');
-  const gradient = useMemo(() => {
-    const colors = getRampColors(rampName, 6);
-    return `linear-gradient(to right, ${colors.join(', ')})`;
-  }, [rampName]);
-
-  return (
-    <div style={opacity < 1 ? { opacity } : undefined}>
-      <div className="font-medium text-foreground mb-1 truncate">{name}</div>
-      <div
-        className="h-3 rounded-sm w-full"
-        style={{ background: gradient }}
-      />
-      <div className="flex justify-between mt-0.5">
-        <span className="text-[10px] text-muted-foreground">{t('widgets.legend.low')}</span>
-        <span className="text-[10px] text-muted-foreground">{t('widgets.legend.high')}</span>
-      </div>
-      {weightColumn && (
-        <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
-          {t('widgets.legend.weightedBy', { column: weightColumn })}
-        </div>
-      )}
-    </div>
-  );
-});

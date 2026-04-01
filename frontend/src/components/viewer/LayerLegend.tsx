@@ -1,8 +1,10 @@
+import { useEffect, useMemo, useRef } from 'react';
 import type { SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { breakLabel } from '@/lib/legend-utils';
+import { HeatmapLegend } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
-import { getGeometryFamilyLabel } from '@/i18n/labels';
 
 interface LayerLegendProps {
   layers: SharedLayerResponse[];
@@ -22,9 +24,26 @@ function getSwatchColor(layer: SharedLayerResponse): string {
   else if (gt.includes('LINE')) colorVal = paint['line-color'];
   else colorVal = paint['fill-color'];
 
-  // If data-driven (expression array), return fallback
-  if (Array.isArray(colorVal)) return MAP_COLORS.default.fill;
-  return (colorVal as string) ?? MAP_COLORS.default.fill;
+  // If data-driven (expression array or object), return fallback
+  if (typeof colorVal !== 'string') return MAP_COLORS.default.fill;
+  return colorVal;
+}
+
+/** Accessible swatch + label used inside a <dl> */
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <dt className="sr-only">{label}</dt>
+      <dd className="flex items-center gap-1.5">
+        <div
+          className="w-3.5 h-3.5 rounded-sm flex-shrink-0 border border-black/10"
+          style={{ backgroundColor: color }}
+          aria-hidden="true"
+        />
+        <span className="text-[11px] text-muted-foreground truncate">{label}</span>
+      </dd>
+    </div>
+  );
 }
 
 export function LayerLegend({
@@ -35,9 +54,25 @@ export function LayerLegend({
   onToggle,
 }: LayerLegendProps) {
   const { t } = useTranslation('common');
-  const sorted = [...layers]
-    .filter((l) => l.show_in_legend !== false)
-    .sort((a, b) => a.sort_order - b.sort_order);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const sorted = useMemo(
+    () =>
+      [...layers]
+        .filter((l) => l.show_in_legend !== false)
+        .sort((a, b) => a.sort_order - b.sort_order),
+    [layers],
+  );
+
+  // Dismiss on Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onToggle();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onToggle]);
 
   return (
     <>
@@ -45,15 +80,21 @@ export function LayerLegend({
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls="layer-legend-panel"
+        aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
         className="absolute left-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors"
-        title={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
       >
-        {isOpen ? <X className="w-4 h-4" /> : <Layers className="w-4 h-4" />}
+        {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
 
       {/* Legend panel — shown when open */}
       <div
-        className={`absolute left-3 top-14 z-10 w-56 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50 transition-[opacity,transform] duration-200 ease-out ${
+        ref={panelRef}
+        id="layer-legend-panel"
+        role="region"
+        aria-label={t('viewer.legend.title')}
+        className={`absolute left-3 top-14 z-10 w-64 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50 transition-[opacity,transform] duration-200 ease-out ${
           isOpen
             ? 'opacity-100 translate-y-0'
             : 'opacity-0 -translate-y-2 pointer-events-none'
@@ -65,72 +106,57 @@ export function LayerLegend({
         <ul className="divide-y divide-border/50">
           {sorted.map((layer) => {
             const isVisible = visibleLayers.has(layer.sort_order);
-            const color = getSwatchColor(layer);
             const sc = layer.style_config;
+            const isHeatmap = sc?.render_mode === 'heatmap';
+            const color = isHeatmap ? null : getSwatchColor(layer);
+            const layerName = layer.display_name || layer.dataset_name;
             return (
               <li key={layer.sort_order} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-4 h-4 rounded-sm flex-shrink-0"
-                    style={{ backgroundColor: color }}
-                  />
-                  <span className="text-xs text-muted-foreground flex-shrink-0 w-12">
-                    {getGeometryFamilyLabel(t, layer.geometry_type)}
-                  </span>
-                  <span className="text-sm text-foreground truncate flex-1" title={layer.dataset_name}>
-                    {layer.dataset_name}
+                  {color && (
+                    <div
+                      className="w-4 h-4 rounded-sm flex-shrink-0 border border-black/10"
+                      style={{ backgroundColor: color }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="text-sm text-foreground flex-1 line-clamp-2" title={layerName}>
+                    {layerName}
                   </span>
                   <button
                     type="button"
                     onClick={() => onToggleVisibility(layer.sort_order)}
-                    className="flex-shrink-0 text-muted-foreground hover:text-foreground"
-                    title={isVisible ? t('viewer.legend.hideLayer') : t('viewer.legend.showLayer')}
+                    className="flex-shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                    aria-label={isVisible
+                      ? t('viewer.legend.hideLayer', { name: layerName })
+                      : t('viewer.legend.showLayer', { name: layerName })}
                   >
-                    {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    {isVisible ? <Eye className="w-4 h-4" aria-hidden="true" /> : <EyeOff className="w-4 h-4" aria-hidden="true" />}
                   </button>
                 </div>
 
                 {/* Data-driven legend entries */}
                 {sc?.column && isVisible && (
-                  <div className="mt-1.5 ms-6 space-y-0.5">
-                    {sc.mode === 'categorical' && sc.categories && (
-                      <>
-                        {sc.categories.map((cat, i) => (
-                          <div key={i} className="flex items-center gap-1.5">
-                            <div
-                              className="w-3 h-3 rounded-sm flex-shrink-0"
-                              style={{ backgroundColor: cat.color }}
-                            />
-                            <span className="text-[11px] text-muted-foreground truncate">{cat.value}</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                    {sc.mode === 'graduated' && sc.breaks && sc.colors && (
-                      <>
-                        {sc.colors.map((clr, i) => {
-                          const breaks = sc.breaks!;
-                          let label: string;
-                          if (i === 0) {
-                            label = `< ${breaks[0]}`;
-                          } else if (i === breaks.length) {
-                            label = `>= ${breaks[breaks.length - 1]}`;
-                          } else {
-                            label = `${breaks[i - 1]} - ${breaks[i]}`;
-                          }
-                          return (
-                            <div key={i} className="flex items-center gap-1.5">
-                              <div
-                                className="w-3 h-3 rounded-sm flex-shrink-0"
-                                style={{ backgroundColor: clr }}
-                              />
-                              <span className="text-[11px] text-muted-foreground truncate">{label}</span>
-                            </div>
-                          );
-                        })}
-                      </>
-                    )}
-                  </div>
+                  sc?.render_mode === 'heatmap' ? (
+                    <div className="mt-1.5 ms-6">
+                      <HeatmapLegend
+                        name=""
+                        rampName={((layer.paint as Record<string, unknown>)?.['_heatmap-ramp'] as string) ?? sc.ramp ?? 'YlOrRd'}
+                        opacity={layer.opacity ?? 1}
+                        lowLabel={t('viewer.heatmapLow')}
+                        highLabel={t('viewer.heatmapHigh')}
+                      />
+                    </div>
+                  ) : (
+                    <dl className="mt-1.5 ms-6 space-y-0.5">
+                      {sc.mode === 'categorical' && sc.categories?.map((cat, i) => (
+                        <LegendSwatch key={i} color={cat.color} label={cat.value} />
+                      ))}
+                      {sc.mode === 'graduated' && sc.breaks && sc.colors?.map((clr, i) => (
+                        <LegendSwatch key={i} color={clr} label={breakLabel(i, sc.breaks!)} />
+                      ))}
+                    </dl>
+                  )
                 )}
               </li>
             );

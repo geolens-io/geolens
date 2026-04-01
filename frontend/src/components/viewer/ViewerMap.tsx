@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Map as MapGL, NavigationControl } from '@vis.gl/react-maplibre';
+import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useTileConfig } from '@/hooks/use-settings';
 import {
@@ -17,7 +17,7 @@ import { getTileTokenWithApiKey } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
 import { getEnvConfig } from '@/lib/env';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
-import type { MapLibreEvent, MapMouseEvent, StyleSpecification } from 'maplibre-gl';
+import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
@@ -41,6 +41,8 @@ interface ViewerMapProps {
   apiKey?: string;
   embedToken?: string;
   showBasemapLabels?: boolean;
+  /** When true, basemapStyle was explicitly chosen by the user — skip theme auto-switching */
+  basemapOverride?: boolean;
 }
 
 function getSourceId(sortOrder: number) {
@@ -86,6 +88,7 @@ export function ViewerMap({
   apiKey,
   embedToken,
   showBasemapLabels = true,
+  basemapOverride = false,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -106,9 +109,9 @@ export function ViewerMap({
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
   const resolvedId = resolveBasemapId(basemapStyle);
-  // For default basemaps (positron/dark-matter), auto-switch with theme.
-  // For explicitly chosen non-default basemaps, respect the saved choice.
-  const isDefaultBasemap = resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID;
+  // For default basemaps (positron/dark-matter), auto-switch with theme —
+  // but only when the basemap comes from the saved map data, not a user override.
+  const isDefaultBasemap = !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
   const effectiveBasemap = isDefaultBasemap
     ? getThemeBasemap(basemaps ?? [], resolvedTheme)
     : findBasemapById(basemaps ?? [], basemapStyle);
@@ -126,19 +129,16 @@ export function ViewerMap({
     let cancelled = false;
 
     async function fetchTokens() {
-      const uniqueIds = layerDatasetIds;
-      if (uniqueIds.length === 0) return;
-
       try {
         const results = await Promise.all(
-          uniqueIds.map((id) => getTileTokenWithApiKey(id, apiKey!)),
+          layerDatasetIds.map((id) => getTileTokenWithApiKey(id, apiKey!)),
         );
 
         if (cancelled) return;
 
         const newMap = new Map<string, TileToken>();
-        for (let i = 0; i < uniqueIds.length; i++) {
-          newMap.set(uniqueIds[i], results[i]);
+        for (let i = 0; i < layerDatasetIds.length; i++) {
+          newMap.set(layerDatasetIds[i], results[i]);
         }
         setTokenMap(newMap);
 
@@ -278,20 +278,22 @@ export function ViewerMap({
     setPopupInfo(null);
   }, [visibleLayers]);
 
-  // Sync layers to map
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+  // Ref to hold current sync inputs so the style.load callback can access them
+  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels });
+  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels };
 
+  /** Imperative: add/sync all data layers to the map */
+  const syncAllLayers = useCallback((map: MaplibreMap) => {
+    const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
     const currentSources = new Set(managedSourcesRef.current);
     const desiredSources = new Set<string>();
-    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
+    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url;
 
-    for (const layer of layers) {
+    for (const layer of ls) {
       const sourceId = getSourceId(layer.sort_order);
-      const token = tokenMap.get(layer.dataset_id) ?? null;
+      const token = tm.get(layer.dataset_id) ?? null;
       const tileUrl = buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
-      const adapterInput = toAdapterInput(layer, visibleLayers, tileUrl);
+      const adapterInput = toAdapterInput(layer, vl, tileUrl);
 
       desiredSources.add(sourceId);
 
@@ -311,7 +313,6 @@ export function ViewerMap({
         adapter.syncPaint(map, adapterInput);
       }
 
-      // Apply per-layer zoom range from custom layout props (main + outline companion)
       const layerLayout = (layer.layout ?? {}) as Record<string, unknown>;
       const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
       const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
@@ -324,14 +325,13 @@ export function ViewerMap({
         map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
       }
 
-      // Label layer management (adapters do not handle labels)
       const labelId = getLabelLayerId(layer.sort_order);
       if (map.getSource(sourceId)) {
         if (layer.label_config?.column) {
           const lc = layer.label_config;
           const geomType = getLayerType(layer.geometry_type);
           const sl = `data.${layer.table_name}`;
-          const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
+          const vis = vl.has(layer.sort_order) ? 'visible' : 'none';
 
           if (!map.getLayer(labelId)) {
             map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer: sl, lc, geomType, visibility: vis }));
@@ -345,13 +345,11 @@ export function ViewerMap({
             }
           }
         } else if (map.getLayer(labelId)) {
-          // Remove label layer when config cleared
           map.removeLayer(labelId);
         }
       }
     }
 
-    // Remove stale layers/sources
     for (const sourceId of currentSources) {
       if (!desiredSources.has(sourceId)) {
         const order = parseInt(sourceId.replace('viewer-source-', ''), 10);
@@ -367,22 +365,24 @@ export function ViewerMap({
 
     managedSourcesRef.current = desiredSources;
 
-    // Ensure label layers sit above all data/outline layers so labels
-    // from lower layers aren't obscured by data layers above them.
-    for (const layer of layers) {
+    for (const layer of ls) {
       const labelId = getLabelLayerId(layer.sort_order);
-      if (map.getLayer(labelId)) {
-        map.moveLayer(labelId);
-      }
+      if (map.getLayer(labelId)) map.moveLayer(labelId);
     }
 
-    // Keep basemap labels above data layers (only when order actually changes)
-    const orderKey = layers.map((l) => l.sort_order).join(',') + '|' + String(showBasemapLabels);
+    const orderKey = ls.map((l) => l.sort_order).join(',') + '|' + String(sbl);
     if (orderKey !== prevOrderKeyRef.current) {
       prevOrderKeyRef.current = orderKey;
-      reorderBasemapLabels(map, showBasemapLabels, 'viewer-source-');
+      reorderBasemapLabels(map, sbl, 'viewer-source-');
     }
-  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels]);
+  }, []);
+
+  // Sync layers to map (on data/visibility changes)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    syncAllLayers(map);
+  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, syncAllLayers]);
 
   // Update tile URLs in-place when tokens refresh
   useEffect(() => {
@@ -396,7 +396,7 @@ export function ViewerMap({
       if (source && 'setTiles' in source) {
         const token = tokenMap.get(layer.dataset_id) ?? null;
         const newUrl = buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
-        (source as maplibregl.VectorTileSource).setTiles([newUrl]);
+        (source as VectorTileSource).setTiles([newUrl]);
       }
     }
   }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url, embedToken]);
@@ -421,36 +421,29 @@ export function ViewerMap({
     }
   }, [visibleLayers, layers, mapReady]);
 
-  // Theme-aware basemap switching -- preserve custom sources/layers
-  const prevBasemapUrlRef = useRef(effectiveBasemap?.url ?? fallbackUrl);
+  // Re-add data layers after any basemap/style change.
+  // <MapGL styleDiffing={false}> calls map.setStyle() when mapStyle prop changes,
+  // which wipes all custom sources/layers. Listen for the style.load event to
+  // clear tracked state and re-sync layers immediately (mirrors BuilderMap pattern).
   useEffect(() => {
     const map = mapRef.current;
-    const currentUrl = effectiveBasemap?.url ?? fallbackUrl;
-    if (!map || currentUrl === prevBasemapUrlRef.current) return;
-    prevBasemapUrlRef.current = currentUrl;
+    if (!map) return;
 
-    const newStyle = toMaplibreStyle(currentUrl);
-    map.setStyle(newStyle, {
-      transformStyle: (_prev: StyleSpecification | undefined, next: StyleSpecification) => {
-        const customSources: Record<string, unknown> = {};
-        const customLayers: unknown[] = [];
-        if (_prev) {
-          for (const [id, src] of Object.entries(_prev.sources || {})) {
-            if (id === 'basemap' || next.sources?.[id]) continue;
-            customSources[id] = src;
-          }
-          for (const layer of _prev.layers || []) {
-            if (!next.layers?.some((l) => l.id === layer.id)) customLayers.push(layer);
-          }
-        }
-        return {
-          ...next,
-          sources: { ...next.sources, ...customSources },
-          layers: [...next.layers, ...customLayers],
-        } as StyleSpecification;
-      },
-    });
-  }, [effectiveBasemap?.url, basemaps]);
+    const onStyleLoad = () => {
+      managedSourcesRef.current = new Set();
+      prevOrderKeyRef.current = '';
+      // Guard: if layers haven't loaded yet, skip — the sync effect will
+      // run when layers arrive via its own dependency on the layers prop.
+      if (syncInputsRef.current.layers.length > 0) {
+        syncAllLayers(map);
+      }
+    };
+
+    map.on('style.load', onStyleLoad);
+    return () => {
+      map.off('style.load', onStyleLoad);
+    };
+  }, [mapReady, syncAllLayers]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -470,17 +463,21 @@ export function ViewerMap({
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
 
   return (
-    <div className="relative h-full w-full">
+    <div className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}>
       <MapGL
         initialViewState={defaultView}
         mapStyle={styleValue as string}
+        styleDiffing={false}
         style={{ width: '100%', height: '100%' }}
         attributionControl={false}
         minZoom={1}
         onLoad={handleLoad}
-        aria-label="Map viewer"
+        aria-label={t('viewer.legend.title')}
       >
         <NavigationControl position="top-right" />
+        <FullscreenControl position="top-right" />
+        <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
+        <AttributionControl position="bottom-right" compact={true} />
         {popupInfo && (
           <FeaturePopup
             key={`${popupInfo.longitude}-${popupInfo.latitude}`}
@@ -494,8 +491,8 @@ export function ViewerMap({
       {contextLost && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
-            <p className="text-sm text-muted-foreground">{t('errors.mapMessage')}</p>
-            <button onClick={reload} className="text-sm underline text-primary">{t('common.reload')}</button>
+            <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
+            <button onClick={reload} className="text-sm underline text-primary">{t('reload')}</button>
           </div>
         </div>
       )}

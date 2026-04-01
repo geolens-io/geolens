@@ -162,14 +162,21 @@
       "title": "Capas",
       "show": "Mostrar leyenda",
       "hide": "Ocultar leyenda",
-      "showLayer": "Mostrar capa",
-      "hideLayer": "Ocultar capa",
+      "showLayer": "Mostrar {{name}}",
+      "hideLayer": "Ocultar {{name}}",
       "geometry": {
         "point": "Punto",
         "line": "Línea",
         "polygon": "Polígono"
       }
-    }
+    },
+    "heatmapLow": "Bajo",
+    "heatmapHigh": "Alto",
+    "skipToMap": "Ir al mapa",
+    "showDescription": "Mostrar descripción del mapa",
+    "hideDescription": "Ocultar descripción del mapa",
+    "changeBasemap": "Cambiar mapa base",
+    "loadFailed": "No se pudo cargar el mapa"
   },
   "maps": {
     "title": "Mapas",

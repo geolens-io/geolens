@@ -162,14 +162,21 @@
       "title": "Couches",
       "show": "Afficher la légende",
       "hide": "Masquer la légende",
-      "showLayer": "Afficher la couche",
-      "hideLayer": "Masquer la couche",
+      "showLayer": "Afficher {{name}}",
+      "hideLayer": "Masquer {{name}}",
       "geometry": {
         "point": "Point",
         "line": "Ligne",
         "polygon": "Polygone"
       }
-    }
+    },
+    "heatmapLow": "Faible",
+    "heatmapHigh": "Élevé",
+    "skipToMap": "Aller à la carte",
+    "showDescription": "Afficher la description",
+    "hideDescription": "Masquer la description",
+    "changeBasemap": "Changer le fond de carte",
+    "loadFailed": "Impossible de charger la carte"
   },
   "maps": {
     "title": "Cartes",
