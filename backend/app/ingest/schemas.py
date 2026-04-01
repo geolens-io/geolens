@@ -70,7 +70,9 @@ class CommitResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    table_name: str = Field(max_length=63, description="PostgreSQL table name (max 63 chars)")
+    table_name: str = Field(
+        max_length=63, description="PostgreSQL table name (max 63 chars)"
+    )
     title: str = Field(max_length=500, description="Human-readable dataset title")
     summary: str | None = Field(default=None, max_length=5000)
     visibility: Visibility = "private"

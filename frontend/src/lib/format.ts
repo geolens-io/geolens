@@ -1,4 +1,5 @@
 import i18n from '@/i18n/i18n';
+import { formatProvenanceTime } from '@/lib/provenance-attribution';
 
 export function formatDate(dateString: string | null): string {
   if (!dateString) return i18n.t('common:notAvailable');
@@ -60,22 +61,12 @@ export function formatBytes(bytes: number | null): string {
 }
 
 export function formatRelativeDate(dateString: string | null): string {
-  if (!dateString) return i18n.t('common:notAvailable');
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return i18n.t('common:notAvailable');
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const rtf = new Intl.RelativeTimeFormat(i18n.language, { numeric: 'auto' });
-    const seconds = Math.abs(diffMs) / 1000;
-    const dir = diffMs >= 0 ? -1 : 1;
-    if (seconds < 60) return rtf.format(0, 'second');
-    if (seconds < 3600) return rtf.format(dir * Math.round(seconds / 60), 'minute');
-    if (seconds < 86400) return rtf.format(dir * Math.round(seconds / 3600), 'hour');
-    if (seconds < 2592000) return rtf.format(dir * Math.round(seconds / 86400), 'day');
-    if (seconds < 31536000) return rtf.format(dir * Math.round(seconds / 2592000), 'month');
-    return rtf.format(dir * Math.round(seconds / 31536000), 'year');
-  } catch {
-    return i18n.t('common:notAvailable');
-  }
+  const fallback = i18n.t('common:notAvailable');
+  if (!dateString) return fallback;
+  const result = formatProvenanceTime(dateString, {
+    fallbackRelative: fallback,
+    fallbackAbsolute: fallback,
+    locale: i18n.language,
+  });
+  return result.relative;
 }

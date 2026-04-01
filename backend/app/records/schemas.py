@@ -15,7 +15,9 @@ class ContactCreate(BaseModel):
     email: EmailStr | None = None
     organization: str | None = None
     phone: str | None = None
-    extra_json: dict[str, Any] | None = Field(default=None, description="Arbitrary extra fields stored as JSON")
+    extra_json: dict[str, Any] | None = Field(
+        default=None, description="Arbitrary extra fields stored as JSON"
+    )
     sort_order: int = Field(default=0, description="Display ordering (lower first)")
 
 
@@ -53,7 +55,9 @@ class ContactListResponse(BaseModel):
 
 class KeywordCreate(BaseModel):
     keyword: str
-    vocabulary_uri: str | None = Field(default=None, description="URI of the controlled vocabulary")
+    vocabulary_uri: str | None = Field(
+        default=None, description="URI of the controlled vocabulary"
+    )
     keyword_type: str = Field(
         default="theme",
         description="ISO MD_KeywordTypeCode, e.g. theme, place, discipline",
@@ -84,9 +88,15 @@ class DistributionCreate(BaseModel):
     url: str = Field(description="Access URL for this distribution")
     title: str | None = None
     description: str | None = None
-    protocol: str | None = Field(default=None, description="Transfer protocol, e.g. HTTPS, OGC:WFS")
-    media_type: str | None = Field(default=None, description="IANA media type, e.g. application/geo+json")
-    is_primary: bool = Field(default=False, description="Mark as the preferred distribution")
+    protocol: str | None = Field(
+        default=None, description="Transfer protocol, e.g. HTTPS, OGC:WFS"
+    )
+    media_type: str | None = Field(
+        default=None, description="IANA media type, e.g. application/geo+json"
+    )
+    is_primary: bool = Field(
+        default=False, description="Mark as the preferred distribution"
+    )
 
 
 class DistributionUpdate(BaseModel):
@@ -111,7 +121,9 @@ class DistributionResponse(BaseModel):
     protocol: str | None
     media_type: str | None
     is_primary: bool
-    auto_generated: bool = Field(description="True if created automatically by the system")
+    auto_generated: bool = Field(
+        description="True if created automatically by the system"
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

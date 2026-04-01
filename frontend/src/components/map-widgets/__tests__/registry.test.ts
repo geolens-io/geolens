@@ -7,7 +7,7 @@ import { registerWidget, getWidgets, getWidget } from '../registry';
 
 describe('widget registry', () => {
   const testWidget = {
-    id: `test-widget-${Date.now()}`,
+    id: 'test-widget-registry-spec',
     labelKey: 'Test Widget',
     icon: LayoutGrid,
     placement: { mode: 'floating' as const, anchor: 'top-right' as const },

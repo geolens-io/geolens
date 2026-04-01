@@ -114,7 +114,7 @@ export function useFeatureEditing({
       try {
         await createFeature.mutateAsync({
           datasetId,
-          geometry: geometry as unknown as Record<string, unknown>,
+          geometry: geometry as Geometry,
           properties,
         });
         toast.success(t('map.featureSaved'));
@@ -183,7 +183,7 @@ export function useFeatureEditing({
       await updateFeatureMutation.mutateAsync({
         datasetId,
         gid: sf.gid,
-        geometry: feature.geometry as unknown as Record<string, unknown>,
+        geometry: feature.geometry as Geometry,
       });
       toast.success(t('map.featureUpdated'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
@@ -276,11 +276,11 @@ export function useFeatureEditing({
         }
 
         const singleGeometry = extractSingleGeometry(fullFeature.geometry);
-        const modeName = getModeName(singleGeometry.type as string);
+        const modeName = getModeName(singleGeometry.type);
 
         const result = addFeatures([{
           type: 'Feature',
-          geometry: singleGeometry as unknown as Feature['geometry'],
+          geometry: singleGeometry,
           properties: { mode: modeName },
         }]);
 

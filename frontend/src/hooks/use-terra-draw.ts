@@ -12,7 +12,7 @@ import {
 import type { GeoJSONStoreFeatures, GeoJSONStoreGeometries } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { Feature } from 'geojson';
+import type { Feature, Geometry } from 'geojson';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 /**
@@ -56,17 +56,15 @@ export function getModeName(geometryType: string): string {
  * Extract a single-part geometry from a potentially Multi-type geometry.
  * Terra Draw operates on single geometries, so we decompose Multi to single.
  */
-export function extractSingleGeometry(geometry: Record<string, unknown>): Record<string, unknown> {
-  const type = geometry.type as string;
-  const coords = geometry.coordinates as unknown[];
-  if (type === 'MultiPoint' && Array.isArray(coords) && coords.length > 0) {
-    return { type: 'Point', coordinates: coords[0] };
+export function extractSingleGeometry(geometry: Geometry): Geometry {
+  if (geometry.type === 'MultiPoint' && geometry.coordinates.length > 0) {
+    return { type: 'Point', coordinates: geometry.coordinates[0] };
   }
-  if (type === 'MultiLineString' && Array.isArray(coords) && coords.length > 0) {
-    return { type: 'LineString', coordinates: coords[0] };
+  if (geometry.type === 'MultiLineString' && geometry.coordinates.length > 0) {
+    return { type: 'LineString', coordinates: geometry.coordinates[0] };
   }
-  if (type === 'MultiPolygon' && Array.isArray(coords) && coords.length > 0) {
-    return { type: 'Polygon', coordinates: coords[0] };
+  if (geometry.type === 'MultiPolygon' && geometry.coordinates.length > 0) {
+    return { type: 'Polygon', coordinates: geometry.coordinates[0] };
   }
   return geometry;
 }
@@ -75,12 +73,9 @@ export function extractSingleGeometry(geometry: Record<string, unknown>): Record
  * Returns true if the geometry has multiple parts (e.g., MultiPolygon with 2+ polygons).
  * Single-part Multi* geometries (coordinates.length === 1) return false -- they are safe to edit.
  */
-export function isMultiPartGeometry(geometry: Record<string, unknown>): boolean {
-  const type = geometry.type as string;
-  const coords = geometry.coordinates as unknown[];
-  if (!Array.isArray(coords)) return false;
-  if (type === 'MultiPoint' || type === 'MultiLineString' || type === 'MultiPolygon') {
-    return coords.length > 1;
+export function isMultiPartGeometry(geometry: Geometry): boolean {
+  if (geometry.type === 'MultiPoint' || geometry.type === 'MultiLineString' || geometry.type === 'MultiPolygon') {
+    return Array.isArray(geometry.coordinates) && geometry.coordinates.length > 1;
   }
   return false;
 }

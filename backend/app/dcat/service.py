@@ -26,6 +26,7 @@ def _lang_to_uri(code: str | None) -> dict:
     uri = _LANG_URIS.get(code or "en", _LANG_URIS["en"])
     return {"@id": uri}
 
+
 DCAT_CONTEXT = {
     "dcat": "http://www.w3.org/ns/dcat#",
     "dcterms": "http://purl.org/dc/terms/",
@@ -194,7 +195,9 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
         "dcterms:title": "GeoLens Dataset Catalog",
         "dcterms:description": "Geospatial dataset catalog managed by GeoLens",
         "dcterms:issued": datetime.now(timezone.utc).isoformat(),
-        "dcterms:language": {"@id": "http://publications.europa.eu/resource/authority/language/ENG"},
+        "dcterms:language": {
+            "@id": "http://publications.europa.eu/resource/authority/language/ENG"
+        },
         "dcterms:publisher": {
             "@type": "foaf:Agent",
             "foaf:name": "GeoLens",
