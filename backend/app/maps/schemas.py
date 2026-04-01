@@ -13,17 +13,17 @@ class MapVisibility(str, Enum):
 
 class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
-    sort_order: int = 0
+    sort_order: int = Field(default=0, description="Draw order (lower draws first)")
     visible: bool = True
-    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
-    paint: dict | None = None
-    layout: dict | None = None
-    display_name: str | None = None
-    filter: list | dict | None = None
-    label_config: dict | None = None
-    style_config: dict | None = None
-    layer_type: str | None = None  # auto-detected from record_type if omitted
-    show_in_legend: bool = True
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0, description="Layer opacity 0.0-1.0")
+    paint: dict | None = Field(default=None, description="MapLibre paint properties override")
+    layout: dict | None = Field(default=None, description="MapLibre layout properties override")
+    display_name: str | None = Field(default=None, description="Label shown in the layer list")
+    filter: list | dict | None = Field(default=None, description="MapLibre filter expression")
+    label_config: dict | None = Field(default=None, description="Text label configuration")
+    style_config: dict | None = Field(default=None, description="Data-driven style configuration")
+    layer_type: str | None = Field(default=None, description="Auto-detected from record_type if omitted")
+    show_in_legend: bool = Field(default=True, description="Whether to include in the map legend")
 
 
 class MapCreate(BaseModel):
@@ -34,16 +34,16 @@ class MapCreate(BaseModel):
 class MapUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    center_lng: float | None = None
-    center_lat: float | None = None
-    zoom: float | None = None
-    bearing: float | None = None
-    pitch: float | None = None
-    basemap_style: str | None = None
+    center_lng: float | None = Field(default=None, description="Map center longitude")
+    center_lat: float | None = Field(default=None, description="Map center latitude")
+    zoom: float | None = Field(default=None, description="Map zoom level")
+    bearing: float | None = Field(default=None, description="Map rotation in degrees")
+    pitch: float | None = Field(default=None, description="Map tilt in degrees (0-85)")
+    basemap_style: str | None = Field(default=None, description="Basemap style ID or URL")
     show_basemap_labels: bool | None = None
-    visibility: MapVisibility | None = None
-    layers: list[MapLayerInput] | None = None
-    widgets: list[str] | None = None
+    visibility: MapVisibility | None = Field(default=None, description="private, internal, or public")
+    layers: list[MapLayerInput] | None = Field(default=None, description="Full replacement layer list")
+    widgets: list[str] | None = Field(default=None, description="Enabled widget IDs, e.g. ['measurement']")
 
 
 class MapLayerResponse(BaseModel):
@@ -85,7 +85,7 @@ class MapResponse(BaseModel):
     show_basemap_labels: bool
     visibility: str
     thumbnail_url: str | None = None
-    forked_from_id: uuid.UUID | None = None
+    forked_from_id: uuid.UUID | None = Field(default=None, description="Source map UUID if this is a fork")
     forked_from_name: str | None = None
     created_by: uuid.UUID | None
     created_by_username: str | None = None
@@ -99,7 +99,7 @@ class MapResponse(BaseModel):
 
 
 class DuplicateMapResponse(MapResponse):
-    excluded_layer_count: int = 0
+    excluded_layer_count: int = Field(default=0, description="Layers skipped due to access restrictions")
 
 
 class MapSummaryResponse(BaseModel):
@@ -157,12 +157,12 @@ class SharedMapResponse(BaseModel):
 
 
 class ShareTokenRequest(BaseModel):
-    expires_at: datetime | None = None  # None = never expires
+    expires_at: datetime | None = Field(default=None, description="Expiration timestamp; null = never expires")
 
 
 class ShareTokenResponse(BaseModel):
-    token: str
-    share_url: str
+    token: str = Field(description="Opaque share token")
+    share_url: str = Field(description="Full shareable URL including token")
     expires_at: datetime | None = None
     is_active: bool = True
 
@@ -185,5 +185,5 @@ class AdminShareTokenListResponse(BaseModel):
 
 
 class VisibilityCheckResponse(BaseModel):
-    non_public_datasets: list[str]
-    has_non_public: bool
+    non_public_datasets: list[str] = Field(description="Titles of datasets not publicly visible")
+    has_non_public: bool = Field(description="True if any layer references a non-public dataset")

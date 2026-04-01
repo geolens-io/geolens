@@ -5,16 +5,16 @@ from pydantic import BaseModel, EmailStr, Field
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
+    access_token: str = Field(description="JWT access token for Authorization header")
+    refresh_token: str = Field(description="Opaque token used to obtain a new access token")
     token_type: str = "bearer"
-    expires_in: int  # seconds until access token expires
+    expires_in: int = Field(description="Seconds until the access token expires")
 
 
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=150)
-    password: str = Field(min_length=8)
-    email: EmailStr | None = Field(default=None, max_length=320)
+    username: str = Field(min_length=3, max_length=150, description="Unique login name")
+    password: str = Field(min_length=8, description="Plaintext password (min 8 chars)")
+    email: EmailStr | None = Field(default=None, max_length=320, description="Optional email address")
 
 
 class RegisterResponse(BaseModel):
@@ -22,7 +22,7 @@ class RegisterResponse(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    registration_enabled: bool
+    registration_enabled: bool = Field(description="Whether self-service registration is open")
 
 
 class UserResponse(BaseModel):
@@ -30,10 +30,10 @@ class UserResponse(BaseModel):
     username: str
     email: str | None
     is_active: bool
-    status: str
+    status: str = Field(description="Account status: active, pending, disabled")
     last_login_at: datetime | None
     created_at: datetime
-    roles: list[str]
+    roles: list[str] = Field(description="Assigned role names, e.g. ['admin', 'editor']")
 
     model_config = {"from_attributes": True}
 
@@ -48,16 +48,16 @@ class RefreshRequest(BaseModel):
 
 
 class PermissionsResponse(BaseModel):
-    permissions: dict[str, bool]
+    permissions: dict[str, bool] = Field(description="Map of permission names to granted/denied")
 
 
 class ApiKeyCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255, description="Human-readable label for the API key")
 
 
 class ApiKeyCreateResponse(BaseModel):
     id: uuid.UUID
-    key: str
+    key: str = Field(description="The API key secret (shown only once)")
     name: str
     created_at: datetime
 

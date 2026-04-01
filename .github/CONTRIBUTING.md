@@ -110,6 +110,95 @@ If a PR template exists at `.github/PULL_REQUEST_TEMPLATE.md`, your PR descripti
 - Update documentation if your change affects user-facing behavior.
 - Add locale strings to all 4 language files if you introduce new UI text.
 
+## Project Structure
+
+```
+geolens/
+├── backend/                    # FastAPI application
+│   ├── alembic/                # Database migrations
+│   ├── app/
+│   │   ├── admin/              # Admin dashboard stats & management
+│   │   ├── ai/                 # AI chat, metadata generation, SQL sandbox
+│   │   ├── assets/             # Static asset URL helpers
+│   │   ├── audit/              # Audit log (who changed what)
+│   │   ├── auth/               # Authentication (JWT, OAuth, API keys)
+│   │   ├── cache/              # Caching layer (memory, Redis, tile cache)
+│   │   ├── collections/        # Dataset collection grouping
+│   │   ├── config_ops/         # Import/export of server configuration
+│   │   ├── datasets/           # Dataset CRUD, reupload, VRT, export
+│   │   ├── dcat/               # DCAT metadata serialization
+│   │   ├── embed_tokens/       # Secure embed/share token management
+│   │   ├── embeddings/         # pgvector semantic search embeddings
+│   │   ├── export/             # Data export (GeoPackage, Shapefile, etc.)
+│   │   ├── extensions/         # Feature-toggle extension points
+│   │   ├── features/           # GeoJSON feature read/write per dataset
+│   │   ├── health/             # Health check endpoint
+│   │   ├── ingest/             # File & service ingestion (ogr2ogr pipeline)
+│   │   ├── jobs/               # Background job tracking
+│   │   ├── layers/             # Map layer style definitions
+│   │   ├── maps/               # Saved map compositions
+│   │   ├── metrics/            # Prometheus metrics & connection pool stats
+│   │   ├── middleware/         # CORS, logging, security, body-limit
+│   │   ├── models/             # Shared SQLAlchemy base model
+│   │   ├── ogc/                # OGC API - Features endpoint
+│   │   ├── raster/             # Raster/COG processing and VRT mosaics
+│   │   ├── records/            # Unified record discovery API
+│   │   ├── runtime/            # Staging directory management
+│   │   ├── sandbox/            # Safe SQL execution sandbox
+│   │   ├── search/             # Catalog search & saved searches
+│   │   ├── services/           # External service probing (ArcGIS, WFS)
+│   │   ├── settings/           # App settings (basemaps, auth, toggles)
+│   │   ├── stac/               # STAC catalog endpoint
+│   │   ├── storage/            # File storage abstraction (local, S3)
+│   │   ├── tiles/              # Vector tile serving & token signing
+│   │   ├── utils/              # Shared geo utilities
+│   │   ├── validation/         # Dataset quality & completeness checks
+│   │   └── vector/             # Vector quicklook generation
+│   ├── scripts/                # Backend helper scripts
+│   └── tests/                  # pytest tests (unit/ and api/)
+├── frontend/                   # React + Vite application
+│   └── src/
+│       ├── api/                # API client functions (one file per domain)
+│       ├── components/
+│       │   ├── admin/          # Admin dashboard & settings panels
+│       │   ├── auth/           # Login/register forms
+│       │   ├── builder/        # Map builder (layers, styles, filters)
+│       │   ├── collections/    # Collection cards & membership
+│       │   ├── create/         # Dataset creation dialog
+│       │   ├── dataset/        # Dataset detail tabs & editors
+│       │   ├── drawing/        # Spatial drawing tools
+│       │   ├── error/          # Error boundaries & fallbacks
+│       │   ├── import/         # File/service import workflow
+│       │   ├── layout/         # Navbar, page chrome
+│       │   ├── map/            # Shared map components (popups, basemap)
+│       │   ├── map-widgets/    # Map toolbar widgets (measure, etc.)
+│       │   ├── maps/           # Map list & create dialog
+│       │   ├── search/         # Search bar, filters, result cards
+│       │   ├── settings/       # User settings panels
+│       │   ├── ui/             # Reusable primitives (shadcn/ui)
+│       │   └── viewer/         # Public map viewer components
+│       ├── hooks/              # React hooks (one per feature domain)
+│       ├── i18n/               # i18next config & locale files (en/fr/es/de)
+│       ├── lib/                # Pure utility functions & constants
+│       ├── pages/              # Top-level route pages
+│       │   └── admin/          # Admin sub-pages
+│       ├── stores/             # Zustand stores (auth, search, drawing)
+│       └── types/              # Shared TypeScript type definitions
+├── docker-compose.yml          # Dev stack (db, api, worker, frontend, titiler)
+├── scripts/                    # Project-level scripts (DB init, etc.)
+├── e2e/                        # End-to-end tests
+└── docs/                       # Documentation
+```
+
+Most backend modules follow a consistent pattern:
+
+| File | Purpose |
+|---|---|
+| `router.py` | FastAPI route handlers |
+| `service.py` | Business logic (called by the router) |
+| `schemas.py` | Pydantic request/response models |
+| `models.py` | SQLAlchemy ORM models |
+
 ## First Contribution
 
 New to the project? Look for issues labeled **good-first-issue** in the [issue tracker](https://github.com/geolens-io/geolens/issues). These are scoped, well-described tasks suitable for getting familiar with the codebase.

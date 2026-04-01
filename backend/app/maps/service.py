@@ -768,6 +768,7 @@ async def get_active_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,
 ) -> MapShareToken | None:
+    """Return the active share token for a map, or None if no active token exists."""
     result = await session.execute(
         select(MapShareToken).where(
             MapShareToken.map_id == map_id,

@@ -358,37 +358,41 @@ async def delete_dataset(
 async def update_user_metadata(
     session: AsyncSession,
     dataset_id: uuid.UUID,
+    meta: "DatasetMeta",
     *,
     actor_id: uuid.UUID | None = None,
-    title: str | None = None,
-    summary: str | None = None,
-    visibility: str | None = None,
-    license: str | None = None,
-    source_organization: str | None = None,
-    data_vintage_start: date | None = None,
-    data_vintage_end: date | None = None,
-    lineage_summary: str | None = None,
-    update_frequency: str | None = None,
-    usage_constraints: str | None = None,
-    access_constraints: str | None = None,
-    sensitivity_classification: str | None = None,
-    theme_category: list[str] | None = None,
-    record_status: str | None = None,
-    owner_org: str | None = None,
-    quality_statement: str | None = None,
-    source_url: str | None = None,
-    language: str | None = None,
 ) -> Dataset:
     """Update user-editable fields including extended metadata.
 
-    Fields that moved to records (title, summary,
-    visibility, license, etc.) update the Record.
-    Only updates fields that are not None. Raises ValueError if dataset not found.
+    Accepts a DatasetMeta Pydantic model. Only updates fields that are
+    explicitly set (not None). Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
     """
+    from app.datasets.schemas import DatasetMeta  # noqa: F811
+
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
+
+    # Extract fields — only set values are non-None
+    title = meta.title
+    summary = meta.summary
+    visibility = meta.visibility
+    license = meta.license
+    source_organization = meta.source_organization
+    data_vintage_start = meta.data_vintage_start
+    data_vintage_end = meta.data_vintage_end
+    lineage_summary = meta.lineage_summary
+    update_frequency = meta.update_frequency
+    usage_constraints = meta.usage_constraints
+    access_constraints = meta.access_constraints
+    sensitivity_classification = meta.sensitivity_classification
+    theme_category = meta.theme_category
+    record_status = meta.record_status
+    owner_org = meta.owner_org
+    quality_statement = meta.quality_statement
+    source_url = meta.source_url
+    language = meta.language
 
     record = dataset.record
     metadata_mutated = False
@@ -920,7 +924,7 @@ async def create_relationship(
     session: AsyncSession,
     dataset_id: uuid.UUID,
     rel,
-):
+):  # -> DatasetRelationship
     """Create FK relationship from source dataset to target dataset."""
     from app.datasets.models import DatasetRelationship
 
@@ -940,7 +944,7 @@ async def create_relationship(
 async def list_relationships(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-):
+) -> list:
     """List all FK relationships where this dataset is the source.
 
     Joins with records table to include target_dataset_title.
@@ -1072,7 +1076,7 @@ async def get_related_records(
     *,
     limit: int = 50,
     after: int = 0,
-):
+) -> dict:
     """Get related records for a feature via FK relationship.
 
     Looks up the FK value in the source table, then queries the target table

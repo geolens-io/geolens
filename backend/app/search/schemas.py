@@ -9,20 +9,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class SearchParams(BaseModel):
     """Query parameters for dataset search."""
 
-    q: str | None = None
-    bbox: str | None = None
-    keywords: list[str] | None = None
-    geometry_type: str | None = None
-    srid: int | None = None
+    q: str | None = Field(default=None, description="Free-text search query (supports full-text + semantic)")
+    bbox: str | None = Field(default=None, description="Spatial filter as minx,miny,maxx,maxy (EPSG:4326)")
+    keywords: list[str] | None = Field(default=None, description="Filter by one or more keyword tags")
+    geometry_type: str | None = Field(default=None, description="Filter by OGC geometry type, e.g. Point")
+    srid: int | None = Field(default=None, description="Filter by EPSG SRID")
     source_organization: str | None = None
-    date_from: date | None = None
-    date_to: date | None = None
-    vintage_start: date | None = None
-    vintage_end: date | None = None
-    sort_by: str = "relevance"
-    offset: int = 0
-    limit: int = 10
-    exclude_synthetic: bool = True
+    date_from: date | None = Field(default=None, description="Include records created on or after this date")
+    date_to: date | None = Field(default=None, description="Include records created on or before this date")
+    vintage_start: date | None = Field(default=None, description="Minimum data vintage start date")
+    vintage_end: date | None = Field(default=None, description="Maximum data vintage end date")
+    sort_by: str = Field(default="relevance", description="Sort order: relevance, title, created, updated")
+    offset: int = Field(default=0, description="Number of results to skip (pagination)")
+    limit: int = Field(default=10, description="Max results to return (1-100)")
+    exclude_synthetic: bool = Field(default=True, description="Exclude VRT mosaics and derived records")
 
     @field_validator("bbox")
     @classmethod
@@ -112,10 +112,10 @@ class OGCFeatureCollectionResponse(BaseModel):
 
     type: str = "FeatureCollection"
     timeStamp: str | None = None
-    numberMatched: int
-    numberReturned: int
+    numberMatched: int = Field(description="Total records matching the query")
+    numberReturned: int = Field(description="Number of records in this response page")
     features: list[OGCRecordResponse]
-    links: list[OGCRecordLink] | None = None
+    links: list[OGCRecordLink] | None = Field(default=None, description="Pagination and self links")
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ class SavedSearchCreate(BaseModel):
     """Request body for creating a saved search."""
 
     name: str = Field(min_length=1, max_length=255)
-    params: dict
+    params: dict = Field(description="Serialized SearchParams filters to replay")
 
 
 class SavedSearchResponse(BaseModel):
@@ -167,11 +167,11 @@ class CollectionFacetItem(BaseModel):
 class FacetCountResponse(BaseModel):
     """Multi-group facet counts for the search sidebar."""
 
-    record_type: dict[str, int]
-    keywords: list[FacetValueCount] = []
-    source_organization: list[FacetValueCount] = []
-    srid: list[FacetValueCount] = []
-    collections: list[CollectionFacetItem] = []
+    record_type: dict[str, int] = Field(description="Hit counts keyed by record type")
+    keywords: list[FacetValueCount] = Field(default=[], description="Top keyword tags with counts")
+    source_organization: list[FacetValueCount] = Field(default=[], description="Top organizations with counts")
+    srid: list[FacetValueCount] = Field(default=[], description="Top SRIDs with counts")
+    collections: list[CollectionFacetItem] = Field(default=[], description="Collections containing matched records")
 
 
 class OGCCollectionsResponse(BaseModel):

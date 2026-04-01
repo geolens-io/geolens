@@ -365,6 +365,14 @@ _OPENAPI_TAGS = [
         "name": "Datasets - Metadata",
         "description": "Attribute metadata, column stats, and FK relationships.",
     },
+    {
+        "name": "Datasets - Reupload",
+        "description": "Dataset re-upload with schema diff and atomic swap.",
+    },
+    {
+        "name": "Datasets - VRT",
+        "description": "VRT raster mosaic creation and management.",
+    },
 ]
 
 # Disable interactive docs when structured logging is enabled (production).
@@ -372,13 +380,14 @@ _is_production = settings.log_json
 
 app = FastAPI(
     title="GeoLens API",
-    version="12.3.0",
+    version="1.0.0",
     summary="PostGIS-native geospatial data catalog with OGC API Features compliance",
     description=_DESCRIPTION,
     root_path="/api",
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
     openapi_tags=_OPENAPI_TAGS,
+    license_info={"name": "Apache 2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"},
     lifespan=lifespan,
 )
 

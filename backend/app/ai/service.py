@@ -494,6 +494,7 @@ def _build_tool_executor(
     """Build a tool executor closure bound to the given session/user."""
 
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
+        """Dispatch an AI tool call to the appropriate handler and return the result."""
         if tool_name == "search_datasets":
             return {
                 "results": await _execute_search_tool(
@@ -605,6 +606,7 @@ async def stream_generate_map(
         tool_events: list[dict] = []
 
         async def tracking_executor(tool_name: str, tool_input: dict) -> dict:
+            """Wrap tool_executor to emit SSE progress events for each tool call."""
             tool_events.append(
                 {
                     "type": "tool_start",

@@ -1,6 +1,6 @@
 [project]
 name = "geolens"
-version = "13.0.0"
+version = "1.0.0"
 description = "PostGIS-native GIS data catalog"
 requires-python = ">=3.13"
 license = "Apache-2.0"
@@ -71,6 +71,7 @@ omit = []
 
 [tool.coverage.report]
 show_missing = true
+fail_under = 60
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",

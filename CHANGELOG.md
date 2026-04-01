@@ -5,6 +5,57 @@ All notable changes to GeoLens are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-04-01
+
+### Added
+- Heatmap visualization mode in map builder with gradient legend, opacity controls, and render mode toggle
+- Widget system for map builder — measurement tool, layer legend, basemap picker as sidebar widgets
+- Layer adapter infrastructure decoupling render logic from map builder core
+- Search result card redesigned with 4-band layout, inline thumbnails, and auto-description
+- Map thumbnails migrated from inline base64 to storage with `useMapThumbnail` hook
+- Static basemap thumbnail assets replacing generated ImageMagick thumbnails
+- Public maps browsing for anonymous users
+- VRT mosaic creation button on bulk import review page
+- Bulk dataset delete endpoint
+- Audit log export endpoint (CSV and JSON)
+- Config-ops validate endpoint wired into admin frontend
+- Centralized query key factory for TanStack Query hooks
+- Heatmap gradient legend with Low/High labels
+- Anonymous public browsing support
+- `language` field added to records via new Alembic migration
+- Design guide token system with status-colors utility and WCAG 2.1 AA compliance
+
+### Changed
+- Squashed 12 incremental Alembic migrations into single foundational schema
+- Datasets router split into sub-routers with `get_dataset_service_url` helper
+- Batched collection and map lookup queries to eliminate N+1 patterns
+- Filter editor rebuilt with OR combinator and raw JSON toggle for resilience
+- Data-driven styling generalized to support radius and width beyond color
+- Comprehensive i18n remediation — formatting standards, RTL support, Unicode handling
+- Frontend state management refactored with typed search store and centralized query keys
+- Widget placement API redesigned with `WidgetAnchor` and `WidgetPlacement` discriminated union
+- Basemap toggle redesigned with thumbnail trigger, labeled popover, and right-opening layout
+
+### Fixed
+- ArcGIS preview fetches capped with `result_limit=5` and timeout increased to 120s to prevent 502 errors
+- Basemap switching now preserves user layers; stable ref prevents `setStyle` race conditions
+- Orphaned basemap layers skipped in `transformStyle` to prevent source-not-found errors
+- COG download uses browser-native streaming with authenticated fetch
+- Export permission check restored on COG download endpoint
+- Non-spatial ArcGIS tables skip spatial post-processing
+- Trailing slashes normalized across all API routes
+- Collection dataset response aligned with canonical dataset response
+- AI rate limiting and raster RBAC parity
+- OGC/STAC/DCAT standards compliance gaps resolved
+- Docker config hardened — restart policies, security headers, PostGIS image pinned to 17-3.5
+- PostgreSQL tuned with `random_page_cost=1.1` and `jit=off`
+- Missing foreign key indexes added on high-traffic join/cascade tables
+- `BuilderMap` mousemove throttled with `requestAnimationFrame`
+- Embedding client cached with LLM timeouts to prevent event loop blocking
+- OOM risks fixed in S3 upload and reupload file hash
+- Deprecated `HTTP_422_UNPROCESSABLE_ENTITY` references replaced
+- Raster and spreadsheet types included in default allowed extensions
+
 ## [13.0] - 2026-03-27
 
 ### Added
@@ -186,6 +237,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JWT authentication with role-based access control
 - Docker Compose deployment
 
+[13.1]: https://github.com/geolens-io/geolens/compare/v13.0...v13.1
 [13.0]: https://github.com/geolens-io/geolens/compare/v12.3...v13.0
 [12.3]: https://github.com/geolens-io/geolens/compare/v12.2...v12.3
 [12.2]: https://github.com/geolens-io/geolens/compare/v12.1...v12.2

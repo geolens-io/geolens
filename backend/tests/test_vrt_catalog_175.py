@@ -94,6 +94,7 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.record.theme_category = None
     ds.record.owner_org = None
     ds.record.published_at = None
+    ds.record.language = None
 
     return ds
 
