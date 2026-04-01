@@ -170,7 +170,7 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
             onClick={handleAdd}
             disabled={!name.trim() || createContact.isPending}
           >
-            {createContact.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+            {createContact.isPending && <Loader2 className="h-3.5 w-3.5 me-1 animate-spin" />}
             {t('contacts.addContact')}
           </Button>
         </div>

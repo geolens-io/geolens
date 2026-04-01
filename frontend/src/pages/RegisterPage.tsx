@@ -19,7 +19,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 
 export function RegisterPage() {
   const { t } = useTranslation('auth');
-  useDocumentTitle('Register');
+  useDocumentTitle(t('common:pageTitle.register'));
   const [submitted, setSubmitted] = useState(false);
   const token = useAuthStore((s) => s.token);
 

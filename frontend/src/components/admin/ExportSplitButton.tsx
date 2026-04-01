@@ -59,15 +59,15 @@ export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
       <Button
         variant="default"
         size="sm"
-        className="rounded-r-none"
+        className="rounded-e-none"
         disabled={isExporting}
         aria-busy={isExporting || undefined}
         onClick={() => handleExport('csv')}
       >
         {isExporting ? (
-          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="me-1 h-3.5 w-3.5 animate-spin" />
         ) : (
-          <Download className="mr-1 h-3.5 w-3.5" />
+          <Download className="me-1 h-3.5 w-3.5" />
         )}
         {isExporting ? t('audit.export.loading') : t('audit.export.csv')}
       </Button>
@@ -76,7 +76,7 @@ export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-l-none border-l border-l-border px-1.5"
+            className="rounded-s-none border-s border-l-border px-1.5"
             disabled={isExporting}
             aria-label={t('audit.export.formatOptions')}
           >

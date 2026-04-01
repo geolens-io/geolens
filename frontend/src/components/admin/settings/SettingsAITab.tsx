@@ -279,9 +279,9 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
                 disabled={isDetecting || envOnly || !keyStatus?.openai_configured}
               >
                 {isDetecting ? (
-                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                  <Loader2 className="me-1.5 h-3 w-3 animate-spin" />
                 ) : (
-                  <Zap className="mr-1.5 h-3 w-3" />
+                  <Zap className="me-1.5 h-3 w-3" />
                 )}
                 {t('ai.detectDims')}
               </Button>
@@ -339,7 +339,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
                   >
                     {backfill.isPending ? (
                       <>
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        <Loader2 className="me-2 h-3 w-3 animate-spin" />
                         {t('ai.generating')}
                       </>
                     ) : (
@@ -357,7 +357,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
                   >
                     {backfill.isPending ? (
                       <>
-                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        <Loader2 className="me-2 h-3 w-3 animate-spin" />
                         {t('ai.generating')}
                       </>
                     ) : (

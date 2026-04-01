@@ -8,6 +8,8 @@ import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVr
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
+import { formatDateTimeSmart } from '@/lib/format';
+import i18n from '@/i18n/i18n';
 import { Badge } from '@/components/ui/badge';
 import { vrtGenerationColors, healthDotColors } from '@/lib/status-colors';
 import type { VrtSourceHealth } from '@/types/api';
@@ -177,7 +179,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
         {vrtStatus?.active_generation && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
-            <span>Elapsed: {Math.round(vrtStatus.active_generation.elapsed_seconds)}s</span>
+            <span>{t('sources.elapsed', { seconds: Math.round(vrtStatus.active_generation.elapsed_seconds) })}</span>
           </div>
         )}
 
@@ -200,7 +202,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                 onClick={handleRegenerate}
                 disabled={isRegenerating || regenerateMutation.isPending}
               >
-                <RefreshCw className={`mr-1 h-4 w-4 ${isRegenerating ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`me-1 h-4 w-4 ${isRegenerating ? 'animate-spin' : ''}`} />
                 {t('vrt.regenerate', { defaultValue: 'Regenerate' })}
               </Button>
               {isDisabled ? (
@@ -208,7 +210,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                   <TooltipTrigger asChild>
                     <span>
                       <Button variant="outline" size="sm" disabled>
-                        <Plus className="mr-1 h-4 w-4" />
+                        <Plus className="me-1 h-4 w-4" />
                         {t('vrt.addSource', { defaultValue: 'Add Source' })}
                       </Button>
                     </span>
@@ -223,7 +225,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                   size="sm"
                   onClick={() => setShowPicker((prev) => !prev)}
                 >
-                  <Plus className="mr-1 h-4 w-4" />
+                  <Plus className="me-1 h-4 w-4" />
                   {t('vrt.addSource', { defaultValue: 'Add Source' })}
                 </Button>
               )}
@@ -237,7 +239,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                className="pl-8 pr-8"
+                className="ps-8 pe-8"
                 placeholder={t('vrt.addSourcePlaceholder', { defaultValue: 'Search for a COG dataset...' })}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -259,7 +261,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                         <li key={result.id}>
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors"
+                            className="w-full text-start px-3 py-2 hover:bg-muted/50 transition-colors"
                             onMouseDown={() => handleAddSource(result.id)}
                           >
                             <div className="font-medium text-sm">{result.properties.title}</div>
@@ -432,14 +434,14 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm">
-                        {gen.started_at ? new Date(gen.started_at).toLocaleString() : '--'}
+                        {gen.started_at ? formatDateTimeSmart(gen.started_at) : '--'}
                       </TableCell>
                       <TableCell className="text-sm font-mono">
-                        {gen.duration_seconds != null ? `${gen.duration_seconds.toFixed(1)}s` : '--'}
+                        {gen.duration_seconds != null ? `${gen.duration_seconds.toLocaleString(i18n.language, { maximumFractionDigits: 1 })}s` : '--'}
                       </TableCell>
                       <TableCell className="text-sm">{gen.source_count ?? '--'}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {gen.triggered_by === 'system' ? 'System' : gen.triggered_by ? 'User' : '--'}
+                        {gen.triggered_by === 'system' ? t('sources.system') : gen.triggered_by ? t('sources.user') : '--'}
                       </TableCell>
                     </TableRow>
                     {gen.status === 'failed' && gen.error_message && (

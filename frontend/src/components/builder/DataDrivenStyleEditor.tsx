@@ -428,7 +428,7 @@ export function DataDrivenStyleEditor({
               onValueChange={([v]) => setSizeRange([v, Math.max(v, sizeRange[1])])}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground w-10 text-right">{sizeRange[0]}px</span>
+            <span className="text-xs text-muted-foreground w-10 text-end">{sizeRange[0]}px</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('dataDriven.sizeMax')}</span>
@@ -440,7 +440,7 @@ export function DataDrivenStyleEditor({
               onValueChange={([v]) => setSizeRange([Math.min(sizeRange[0], v), v])}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground w-10 text-right">{sizeRange[1]}px</span>
+            <span className="text-xs text-muted-foreground w-10 text-end">{sizeRange[1]}px</span>
           </div>
         </>
       )}
@@ -562,7 +562,7 @@ export function DataDrivenStyleEditor({
                 onValueChange={([v]) => setClassCount(v)}
                 className="flex-1"
               />
-              <span className="text-xs text-muted-foreground w-10 text-right">
+              <span className="text-xs text-muted-foreground w-10 text-end">
                 {classCount}
               </span>
             </div>

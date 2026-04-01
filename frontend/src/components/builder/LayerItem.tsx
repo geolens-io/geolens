@@ -278,36 +278,36 @@ export function LayerItem({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => setEditing(true)}>
-              <Pencil className="h-3.5 w-3.5 mr-2" />
+              <Pencil className="h-3.5 w-3.5 me-2" />
               {t('layerItem.rename')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onMoveUp(layer.id)}
               disabled={index === 0}
             >
-              <ArrowUp className="h-3.5 w-3.5 mr-2" />
+              <ArrowUp className="h-3.5 w-3.5 me-2" />
               {t('layerItem.moveUp')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onMoveDown(layer.id)}
               disabled={index === totalLayers - 1}
             >
-              <ArrowDown className="h-3.5 w-3.5 mr-2" />
+              <ArrowDown className="h-3.5 w-3.5 me-2" />
               {t('layerItem.moveDown')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onToggleLegend(layer.id)}>
               {layer.show_in_legend === false ? (
-                <EyeOff className="h-3.5 w-3.5 mr-2" />
+                <EyeOff className="h-3.5 w-3.5 me-2" />
               ) : (
-                <Eye className="h-3.5 w-3.5 mr-2" />
+                <Eye className="h-3.5 w-3.5 me-2" />
               )}
               {layer.show_in_legend === false
                 ? t('layerItem.showInLegend', { defaultValue: 'Show in legend' })
                 : t('layerItem.hideFromLegend', { defaultValue: 'Hide from legend' })}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onZoomToLayer(layer.id)}>
-              <Locate className="h-3.5 w-3.5 mr-2" />
+              <Locate className="h-3.5 w-3.5 me-2" />
               {t('layerItem.zoomToLayer')}
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
@@ -316,7 +316,7 @@ export function LayerItem({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <ExternalLink className="h-3.5 w-3.5 mr-2" />
+                <ExternalLink className="h-3.5 w-3.5 me-2" />
                 {t('layerItem.openDataset')}
               </a>
             </DropdownMenuItem>
@@ -325,7 +325,7 @@ export function LayerItem({
               className="text-destructive focus:text-destructive"
               onClick={() => onRemove(layer.id)}
             >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
+              <Trash2 className="h-3.5 w-3.5 me-2" />
               {t('layerItem.removeLayer')}
             </DropdownMenuItem>
           </DropdownMenuContent>

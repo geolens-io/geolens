@@ -49,7 +49,7 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm">
-          <Map className="mr-1 size-3.5" />
+          <Map className="me-1 size-3.5" />
           {t('addToMap.button')}
         </Button>
       </DropdownMenuTrigger>
@@ -68,7 +68,7 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
         {maps.length > 0 && <DropdownMenuSeparator />}
         <DropdownMenuItem onClick={handleNewMap} disabled={createMap.isPending}>
           {createMap.isPending ? (
-            <><Loader2 className="mr-1 size-3.5 animate-spin" /> {t('addToMap.creating')}</>
+            <><Loader2 className="me-1 size-3.5 animate-spin" /> {t('addToMap.creating')}</>
           ) : (
             t('addToMap.newMap')
           )}

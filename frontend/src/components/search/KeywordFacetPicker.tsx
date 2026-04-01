@@ -43,10 +43,10 @@ export function KeywordFacetPicker({ facets, isLoading }: KeywordFacetPickerProp
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm">
-          <Tag className="mr-1 size-3.5" />
+          <Tag className="me-1 size-3.5" />
           {t('filters.keywords', { defaultValue: 'Keywords' })}
           {selectedKeywords.length > 0 && (
-            <span className="ml-1 rounded-full bg-primary px-1.5 py-0 text-[11px] font-semibold text-primary-foreground">
+            <span className="ms-1 rounded-full bg-primary px-1.5 py-0 text-[11px] font-semibold text-primary-foreground">
               {selectedKeywords.length}
             </span>
           )}

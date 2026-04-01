@@ -25,7 +25,7 @@ export function CollectionsPage() {
   const { t } = useTranslation('collections');
   const { data, isLoading, error } = useCollections(0, 200);
   const isEditor = useAuthStore((s) => s.isEditor());
-  useDocumentTitle('Collections');
+  useDocumentTitle(t('common:pageTitle.collections'));
 
   const filtered = data?.collections.filter((c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -50,7 +50,7 @@ export function CollectionsPage() {
             placeholder={t('search.placeholder')}
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setSkip(0); }}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
       )}
@@ -78,7 +78,7 @@ export function CollectionsPage() {
           action={
             isEditor ? (
               <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
+                <Plus className="h-4 w-4 me-1" />
                 {t('empty.cta')}
               </Button>
             ) : undefined

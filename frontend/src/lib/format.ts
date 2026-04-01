@@ -1,7 +1,7 @@
 import i18n from '@/i18n/i18n';
 
 export function formatDate(dateString: string | null): string {
-  if (!dateString) return 'N/A';
+  if (!dateString) return i18n.t('common:notAvailable');
   try {
     return new Date(dateString).toLocaleDateString(i18n.language, {
       year: 'numeric',
@@ -9,15 +9,15 @@ export function formatDate(dateString: string | null): string {
       day: 'numeric',
     });
   } catch {
-    return 'N/A';
+    return i18n.t('common:notAvailable');
   }
 }
 
 export function formatDateTimeSmart(dateString: string | null): string {
-  if (!dateString) return 'N/A';
+  if (!dateString) return i18n.t('common:notAvailable');
   try {
     const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'N/A';
+    if (isNaN(date.getTime())) return i18n.t('common:notAvailable');
     const now = new Date();
     const isToday = date.toDateString() === now.toDateString();
     const yesterday = new Date(now);
@@ -31,7 +31,7 @@ export function formatDateTimeSmart(dateString: string | null): string {
     });
 
     if (isToday) return timeStr;
-    if (isYesterday) return `Yesterday, ${timeStr}`;
+    if (isYesterday) return i18n.t('common:yesterday', { time: timeStr });
     if (isSameYear) {
       const dateStr = date.toLocaleDateString(i18n.language, {
         month: 'short',
@@ -41,17 +41,17 @@ export function formatDateTimeSmart(dateString: string | null): string {
     }
     return formatDate(dateString);
   } catch {
-    return 'N/A';
+    return i18n.t('common:notAvailable');
   }
 }
 
 export function formatNumber(n: number | null): string {
-  if (n === null || n === undefined) return 'N/A';
+  if (n === null || n === undefined) return i18n.t('common:notAvailable');
   return n.toLocaleString(i18n.language);
 }
 
 export function formatBytes(bytes: number | null): string {
-  if (bytes === null || bytes === undefined) return 'N/A';
+  if (bytes === null || bytes === undefined) return i18n.t('common:notAvailable');
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const idx = Math.floor(Math.log(bytes) / Math.log(1024));
@@ -60,10 +60,10 @@ export function formatBytes(bytes: number | null): string {
 }
 
 export function formatRelativeDate(dateString: string | null): string {
-  if (!dateString) return 'N/A';
+  if (!dateString) return i18n.t('common:notAvailable');
   try {
     const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'N/A';
+    if (isNaN(date.getTime())) return i18n.t('common:notAvailable');
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const rtf = new Intl.RelativeTimeFormat(i18n.language, { numeric: 'auto' });
@@ -76,6 +76,6 @@ export function formatRelativeDate(dateString: string | null): string {
     if (seconds < 31536000) return rtf.format(dir * Math.round(seconds / 2592000), 'month');
     return rtf.format(dir * Math.round(seconds / 31536000), 'year');
   } catch {
-    return 'N/A';
+    return i18n.t('common:notAvailable');
   }
 }

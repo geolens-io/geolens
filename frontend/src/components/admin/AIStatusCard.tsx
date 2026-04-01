@@ -33,7 +33,7 @@ export function AIStatusCard() {
           <>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">{t('ai.provider')}</span>
-              <span className="capitalize text-right break-all">{aiStatus.provider}</span>
+              <span className="capitalize text-end break-all">{aiStatus.provider}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">{t('ai.status')}</span>

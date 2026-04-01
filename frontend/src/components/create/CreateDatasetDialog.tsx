@@ -173,7 +173,7 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
               ))}
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addColumn}>
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-4 w-4 me-1" />
               {t('create.addColumn')}
             </Button>
           </div>

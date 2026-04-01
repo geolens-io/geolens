@@ -191,7 +191,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           return (
             <button
               type="button"
-              className="rounded px-0.5 -mx-0.5 text-left hover:bg-muted/50 w-full block truncate"
+              className="rounded px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full block truncate"
               onClick={() => setEditingCell({ rowGid: gid, column: col.name })}
             >
               {cellValue}
@@ -356,7 +356,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
               ? t('attributes.showingExact', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })
               : t('attributes.showing', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })}
             {isFetching && (
-              <Loader2 className="inline h-3 w-3 animate-spin ml-2" />
+              <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
             )}
           </span>
           <div className="flex items-center gap-1.5">

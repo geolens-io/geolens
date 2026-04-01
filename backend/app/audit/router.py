@@ -16,6 +16,7 @@ from app.audit.service import query_audit_logs, stream_audit_logs
 from app.auth.dependencies import require_permission
 from app.auth.models import User
 from app.dependencies import get_db
+from app.export.service import safe_content_disposition
 
 # Shares /admin prefix with admin/router.py — kept separate for module organization.
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -132,7 +133,7 @@ async def export_audit_logs(
         return StreamingResponse(
             csv_generator(),
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": safe_content_disposition(filename)},
         )
 
     # JSON format
@@ -168,5 +169,5 @@ async def export_audit_logs(
     return StreamingResponse(
         json_generator(),
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": safe_content_disposition(filename)},
     )

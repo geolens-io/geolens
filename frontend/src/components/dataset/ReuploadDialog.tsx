@@ -39,6 +39,7 @@ import { probeService } from '@/api/ingest';
 import { ApiError } from '@/api/client';
 import { reuploadPresigned } from '@/api/datasets';
 import { getGeometryTypeLabel } from '@/i18n/labels';
+import { formatNumber } from '@/lib/format';
 import type {
   DatasetResponse,
   ReuploadPreviewResponse,
@@ -448,7 +449,7 @@ export function ReuploadDialog({
                 variant="outline"
                 onClick={() => handleSelectSource('file')}
               >
-                <Upload className="mr-2 h-4 w-4" />
+                <Upload className="me-2 h-4 w-4" />
                 {t('reupload.sourceSelector.file', { defaultValue: 'File' })}
               </Button>
               <Button
@@ -456,7 +457,7 @@ export function ReuploadDialog({
                 variant="outline"
                 onClick={() => handleSelectSource('service_url')}
               >
-                <Globe className="mr-2 h-4 w-4" />
+                <Globe className="me-2 h-4 w-4" />
                 {t('reupload.sourceSelector.service', { defaultValue: 'Service URL' })}
               </Button>
             </div>
@@ -558,7 +559,7 @@ export function ReuploadDialog({
                   {t('common:back')}
                 </Button>
                 <Button type="submit" disabled={!serviceUrl.trim()}>
-                  <Globe className="mr-2 h-4 w-4" />
+                  <Globe className="me-2 h-4 w-4" />
                   {t('reupload.service.connect', { defaultValue: 'Connect' })}
                 </Button>
               </DialogFooter>
@@ -619,7 +620,7 @@ export function ReuploadDialog({
                         </TableCell>
                         <TableCell>
                           {layer.feature_count !== null
-                            ? layer.feature_count.toLocaleString()
+                            ? formatNumber(layer.feature_count)
                             : '-'}
                         </TableCell>
                       </TableRow>

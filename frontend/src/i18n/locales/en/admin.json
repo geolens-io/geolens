@@ -6,7 +6,9 @@
     "admin": "Admin"
   },
   "overview": {
-    "title": "Overview"
+    "title": "Overview",
+    "healthy": "Healthy",
+    "degraded": "Degraded"
   },
   "stats": {
     "loading": "Loading catalog statistics...",
@@ -370,6 +372,8 @@
     "bulkRevokeFailed": "Failed to revoke embed tokens"
   },
   "settings": {
+    "copySPEntityId": "Copy SP Entity ID",
+    "copyAcsUrl": "Copy ACS URL",
     "page": {
       "title": "Settings",
       "loadFailed": "Failed to load settings: {{message}}",

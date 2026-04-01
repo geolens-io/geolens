@@ -58,7 +58,7 @@ export function CollectionDatasetList({ collectionId, onRemove }: CollectionData
           placeholder={t('datasetList.filterPlaceholder')}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="pl-9"
+          className="ps-9"
         />
       </div>
 

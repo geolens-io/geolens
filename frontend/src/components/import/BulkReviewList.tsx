@@ -86,7 +86,7 @@ export function BulkReviewList({
               onClick={onCommitAllAsVrt}
               disabled={readyCount === 0 || isCommitting}
             >
-              <Layers className="mr-1 size-3" />
+              <Layers className="me-1 size-3" />
               {t('bulk.importAsVrt', { defaultValue: 'Import as VRT Mosaic' })}
             </Button>
           )}

@@ -21,7 +21,7 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
-  useDocumentTitle('Settings');
+  useDocumentTitle(t('common:pageTitle.settings'));
 
   return (
     <PageShell maxWidth="narrow">

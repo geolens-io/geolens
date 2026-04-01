@@ -34,7 +34,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm">
-          <Link2 className="mr-1 size-3.5" />
+          <Link2 className="me-1 size-3.5" />
           {t('actions.connect', { defaultValue: 'Connect' })}
         </Button>
       </DropdownMenuTrigger>
@@ -50,7 +50,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
               )
             }
           >
-            <Copy className="mr-2 size-3.5" />
+            <Copy className="me-2 size-3.5" />
             {t('connect.copyCogUrl')}
           </DropdownMenuItem>
         )}
@@ -60,7 +60,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
               copyToClipboard(dataset.raster!.connect!.tile_url, t)
             }
           >
-            <Copy className="mr-2 size-3.5" />
+            <Copy className="me-2 size-3.5" />
             {t('connect.copyXyzTileUrl')}
           </DropdownMenuItem>
         )}
@@ -68,7 +68,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
           <DropdownMenuItem
             onClick={() => copyToClipboard(dataset.raster!.connect!.s3_uri!, t)}
           >
-            <Copy className="mr-2 size-3.5" />
+            <Copy className="me-2 size-3.5" />
             {t('connect.copyS3Uri')}
           </DropdownMenuItem>
         )}
@@ -79,7 +79,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
                 copyToClipboard(`${window.location.origin}/api/datasets/${dataset.id}`, t)
               }
             >
-              <Copy className="mr-2 size-3.5" />
+              <Copy className="me-2 size-3.5" />
               {t('connect.copyApiUrl')}
             </DropdownMenuItem>
             {!isTable && (
@@ -91,7 +91,7 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
                   )
                 }
               >
-                <Copy className="mr-2 size-3.5" />
+                <Copy className="me-2 size-3.5" />
                 {t('connect.copyTileUrl')}
               </DropdownMenuItem>
             )}

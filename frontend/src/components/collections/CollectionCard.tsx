@@ -61,7 +61,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
       </div>
 
       {/* BBox preview section */}
-      <div className="sm:w-48 sm:flex-shrink-0 p-3 sm:p-4 sm:border-l border-t sm:border-t-0 border-border/50">
+      <div className="sm:w-48 sm:flex-shrink-0 p-3 sm:p-4 sm:border-s border-t sm:border-t-0 border-border/50">
         <BBoxPreview bbox={bbox} />
       </div>
     </Card>

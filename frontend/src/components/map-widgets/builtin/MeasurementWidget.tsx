@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n/i18n';
 import { Ruler, Pentagon, Trash2 } from 'lucide-react';
 import turfDistance from '@turf/distance';
 import turfArea from '@turf/area';
@@ -20,31 +21,33 @@ const MEASURE_LINE_LAYER = '_measure-line';
 const MEASURE_POINTS_LAYER = '_measure-points';
 
 function formatDistance(meters: number, unit: Unit): string {
+  const locale = i18n.language;
   if (unit === 'imperial') {
     const feet = meters * 3.28084;
     if (feet >= 5280) {
-      return `${(feet / 5280).toFixed(2)} mi`;
+      return `${(feet / 5280).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mi`;
     }
-    return `${Math.round(feet).toLocaleString()} ft`;
+    return `${Math.round(feet).toLocaleString(locale)} ft`;
   }
   if (meters >= 1000) {
-    return `${(meters / 1000).toFixed(2)} km`;
+    return `${(meters / 1000).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km`;
   }
-  return `${Math.round(meters).toLocaleString()} m`;
+  return `${Math.round(meters).toLocaleString(locale)} m`;
 }
 
 function formatArea(squareMeters: number, unit: Unit): string {
+  const locale = i18n.language;
   if (unit === 'imperial') {
     const sqFeet = squareMeters * 10.7639;
     if (sqFeet >= 27878400) {
-      return `${(sqFeet / 27878400).toFixed(2)} mi\u00b2`;
+      return `${(sqFeet / 27878400).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mi\u00b2`;
     }
-    return `${Math.round(sqFeet).toLocaleString()} ft\u00b2`;
+    return `${Math.round(sqFeet).toLocaleString(locale)} ft\u00b2`;
   }
   if (squareMeters >= 1_000_000) {
-    return `${(squareMeters / 1_000_000).toFixed(2)} km\u00b2`;
+    return `${(squareMeters / 1_000_000).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} km\u00b2`;
   }
-  return `${Math.round(squareMeters).toLocaleString()} m\u00b2`;
+  return `${Math.round(squareMeters).toLocaleString(locale)} m\u00b2`;
 }
 
 export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {

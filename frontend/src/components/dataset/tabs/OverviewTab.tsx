@@ -165,7 +165,7 @@ export function OverviewTab({
       ) : validationData ? (
         <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm text-success">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          <span>All checks passed</span>
+          <span>{t('overview.allChecksPassed')}</span>
         </div>
       ) : null}
 
@@ -213,7 +213,7 @@ export function OverviewTab({
             {isVrt && dataset.raster?.vrt_type && (
               <MetadataField label={t('overview.vrtType', { defaultValue: 'VRT Type' })}>
                 <Badge variant="outline">
-                  {dataset.raster.vrt_type === 'band_stack' ? 'Band Stack' : 'Mosaic'}
+                  {dataset.raster.vrt_type === 'band_stack' ? t('overview.bandStack') : t('overview.mosaic')}
                 </Badge>
               </MetadataField>
             )}
@@ -366,7 +366,7 @@ export function OverviewTab({
                 {t('overview.crs', { defaultValue: 'CRS' })}
               </span>
               <p className="font-medium">
-                {dataset.raster.epsg ? `EPSG:${dataset.raster.epsg}` : 'Unknown'}
+                {dataset.raster.epsg ? `EPSG:${dataset.raster.epsg}` : t('overview.unknown')}
               </p>
             </div>
             <div>

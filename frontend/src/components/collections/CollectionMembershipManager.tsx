@@ -96,7 +96,7 @@ export function CollectionMembershipManager({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('membership.searchPlaceholder')}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
         <Button type="submit" variant="outline" disabled={searching || !query.trim()}>
@@ -133,7 +133,7 @@ export function CollectionMembershipManager({
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    <Plus className="h-4 w-4 mr-1" />
+                    <Plus className="h-4 w-4 me-1" />
                     {t('membership.addButton')}
                   </>
                 )}

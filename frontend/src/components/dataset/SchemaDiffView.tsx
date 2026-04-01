@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { formatNumber } from '@/lib/format';
 import type { SchemaDiff } from '@/types/api';
 
 interface SchemaDiffViewProps {
@@ -21,7 +22,7 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
           <p className="text-xs text-muted-foreground">{t('schemaDiff.currentRows')}</p>
           <p className="text-lg font-semibold">
             {schemaDiff.row_count_old !== null
-              ? schemaDiff.row_count_old.toLocaleString()
+              ? formatNumber(schemaDiff.row_count_old)
               : t('common:notAvailable')}
           </p>
         </div>
@@ -29,7 +30,7 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
           <p className="text-xs text-muted-foreground">{t('schemaDiff.newRows')}</p>
           <p className="text-lg font-semibold">
             {schemaDiff.row_count_new !== null
-              ? schemaDiff.row_count_new.toLocaleString()
+              ? formatNumber(schemaDiff.row_count_new)
               : t('common:notAvailable')}
           </p>
         </div>
@@ -43,7 +44,7 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
             )}
           >
             {schemaDiff.row_count_delta > 0 ? '+' : ''}
-            {schemaDiff.row_count_delta.toLocaleString()}
+            {formatNumber(schemaDiff.row_count_delta)}
           </p>
         </div>
       </div>

@@ -332,6 +332,9 @@ async def run_ogr2ogr(
         "--config",
         "PG_USE_COPY",
         "YES",
+        "--config",
+        "SHAPE_ENCODING",
+        "UTF-8",
     ]
 
     if not is_non_spatial:

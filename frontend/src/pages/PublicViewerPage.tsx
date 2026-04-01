@@ -33,7 +33,7 @@ function parseZoom(raw: string | null): number | null {
 
 export function PublicViewerPage() {
   const { t } = useTranslation('common');
-  useDocumentTitle('Shared Map');
+  useDocumentTitle(t('common:pageTitle.sharedMap'));
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
   const showBadge = !isEnterprise || branding?.show_badge !== false;

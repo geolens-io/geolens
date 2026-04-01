@@ -587,6 +587,37 @@
     "error": "Echec du chargement des relations",
     "loadError": "Echec du chargement des enregistrements associes"
   },
+  "overview": {
+    "allChecksPassed": "Toutes les vérifications réussies",
+    "bandStack": "Empilement de bandes",
+    "mosaic": "Mosaïque",
+    "unknown": "Inconnu"
+  },
+  "sources": {
+    "system": "Système",
+    "user": "Utilisateur",
+    "elapsed": "Écoulé : {{seconds}}s"
+  },
+  "data": {
+    "collapseTable": "Réduire le tableau",
+    "expandTable": "Agrandir le tableau",
+    "switchComfortable": "Passer à la densité confortable",
+    "switchCompact": "Passer à la densité compacte",
+    "comfortable": "Confortable",
+    "compact": "Compact"
+  },
+  "raster": {
+    "noTiles": "Aucune tuile raster disponible",
+    "previewUnavailable": "Aperçu non disponible",
+    "retry": "Réessayer",
+    "tilesProcessing": "Les tuiles sont peut-être encore en cours de traitement",
+    "bands": "Bandes",
+    "resolution": "Résolution",
+    "dimensions": "Dimensions",
+    "format": "Format",
+    "bandStack": "Empilement de bandes",
+    "mosaic": "Mosaïque"
+  },
   "sections": {
     "identity": "Identité",
     "summary": "Résumé",

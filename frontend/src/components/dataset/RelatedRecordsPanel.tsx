@@ -39,7 +39,7 @@ function RelatedSection({
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors">
         <Link2 className="size-4 text-muted-foreground flex-shrink-0" />
-        <span className="flex-1 text-left truncate">{label}</span>
+        <span className="flex-1 text-start truncate">{label}</span>
         <span className="text-xs text-muted-foreground">
           {relationship.source_column} &rarr; {relationship.target_column}
         </span>
@@ -65,7 +65,7 @@ function RelatedSection({
                 <thead>
                   <tr className="bg-muted/50 border-b">
                     {data.columns.map((col) => (
-                      <th key={col.name} className="px-2 py-1.5 text-left font-medium whitespace-nowrap">
+                      <th key={col.name} className="px-2 py-1.5 text-start font-medium whitespace-nowrap">
                         {col.name}
                       </th>
                     ))}

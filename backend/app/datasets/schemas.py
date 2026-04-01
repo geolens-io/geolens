@@ -1,3 +1,4 @@
+import unicodedata
 import uuid
 from datetime import date, datetime
 from typing import Literal
@@ -44,10 +45,22 @@ class CreateEmptyDatasetRequest(BaseModel):
 Visibility = Literal["private", "restricted", "internal", "public"]
 
 
+def _nfc(v: str | None) -> str | None:
+    """Normalize a string to Unicode NFC form."""
+    if v is None:
+        return v
+    return unicodedata.normalize("NFC", v)
+
+
 class DatasetCreate(BaseModel):
     title: str
     summary: str | None = None
     visibility: Visibility = "private"
+
+    @field_validator("title", "summary", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class RasterBandInfo(BaseModel):
@@ -137,6 +150,7 @@ class DatasetResponse(BaseModel):
     raster: RasterMetadata | None = None
     stac_assets: dict[str, StacAsset] | None = None
     stac_extensions: list[str] | None = None
+    language: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -202,6 +216,15 @@ class DatasetMeta(BaseModel):
     owner_org: str | None = None
     quality_statement: str | None = None
     source_url: str | None = None
+    language: str | None = None
+
+    @field_validator(
+        "title", "summary", "lineage_summary", "quality_statement", "source_organization",
+        mode="before",
+    )
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class DatasetListResponse(BaseModel):

@@ -13,6 +13,19 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.datasets.models import Dataset, RecordContact, RecordDistribution
 
+_LANG_URIS = {
+    "en": "http://publications.europa.eu/resource/authority/language/ENG",
+    "de": "http://publications.europa.eu/resource/authority/language/DEU",
+    "fr": "http://publications.europa.eu/resource/authority/language/FRA",
+    "es": "http://publications.europa.eu/resource/authority/language/SPA",
+}
+
+
+def _lang_to_uri(code: str | None) -> dict:
+    """Map an ISO 639-1 code to an EU vocabulary language URI object."""
+    uri = _LANG_URIS.get(code or "en", _LANG_URIS["en"])
+    return {"@id": uri}
+
 DCAT_CONTEXT = {
     "dcat": "http://www.w3.org/ns/dcat#",
     "dcterms": "http://purl.org/dc/terms/",
@@ -52,6 +65,9 @@ def record_to_dcat(
     result["@id"] = f"{base_url}/datasets/{dataset.id}"
     result["dcterms:identifier"] = str(dataset.id)
     result["dcterms:title"] = record.title
+
+    # Per-record language
+    result["dcterms:language"] = _lang_to_uri(getattr(record, "language", None))
 
     if record.summary is not None:
         result["dcterms:description"] = record.summary
@@ -178,7 +194,7 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
         "dcterms:title": "GeoLens Dataset Catalog",
         "dcterms:description": "Geospatial dataset catalog managed by GeoLens",
         "dcterms:issued": datetime.now(timezone.utc).isoformat(),
-        "dcterms:language": "en",
+        "dcterms:language": {"@id": "http://publications.europa.eu/resource/authority/language/ENG"},
         "dcterms:publisher": {
             "@type": "foaf:Agent",
             "foaf:name": "GeoLens",

@@ -32,6 +32,12 @@
     "submit": "Crear Ráster Virtual",
     "submitting": "Creando...",
     "submitFailed": "Error al crear VRT",
+    "crsMismatch": "Discrepancia de CRS: {{src}} vs {{first}}",
+    "bandMismatch": "Discrepancia en el número de bandas: {{src}} vs {{first}}",
+    "dtypeMismatch": "Discrepancia en el tipo de datos: {{src}} vs {{first}}",
+    "nodataMismatch": "Valor NoData no coincide",
+    "gridMismatch": "Las dimensiones de la cuadrícula no coinciden (ancho, alto o resolución diferente)",
+    "removeSource": "Eliminar {{title}}",
     "errors": {
       "crs_mismatch": "Discrepancia de CRS: {{source}} vs {{expected}}",
       "band_count_mismatch": "Discrepancia de bandas: {{source}} vs {{expected}}",
@@ -116,7 +122,16 @@
   },
   "preview": {
     "title": "Vista previa del archivo",
-    "crs": "CRS",
+    "raster": "Ráster",
+    "crs": "CRS:",
+    "bands": "Bandas:",
+    "size": "Tamaño:",
+    "type": "Tipo:",
+    "resolution": "Resolución:",
+    "cog": "COG:",
+    "date": "Fecha:",
+    "validCog": "COG válido",
+    "willConvert": "Se convertirá",
     "geometryType": "Tipo de geometr\u00eda",
     "featureCount": "N\u00famero de entidades",
     "layerName": "Nombre de la capa",
@@ -178,7 +193,11 @@
     "retrying": "Reintentando...",
     "startOver": "Empezar de nuevo",
     "retrySuccess": "Trabajo reencolado",
-    "retryFailed": "Reintento fallido: {{message}}"
+    "retryFailed": "Reintento fallido: {{message}}",
+    "copiedCogUrl": "URL COG copiada",
+    "copiedXyzUrl": "URL de tesela XYZ copiada",
+    "copyCogUrl": "Copiar URL COG",
+    "copyXyzUrl": "Copiar URL de tesela XYZ"
   },
   "bulk": {
     "uploading_one": "Subiendo {{count}} archivo...",

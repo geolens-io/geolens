@@ -124,6 +124,9 @@
   "quality": {
     "label": "Completeness: {{score}}%"
   },
+  "qualityBadge": {
+    "tooltip": "Metadata completeness score based on title, description, keywords, CRS, and temporal extent"
+  },
   "create": {
     "button": "Create Dataset",
     "title": "Create New Dataset",

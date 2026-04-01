@@ -152,7 +152,7 @@ function EmbedTokensSubTable({ mapId }: { mapId: string }) {
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="destructive" size="sm">
-              <ShieldOff className="mr-1 h-3 w-3" />
+              <ShieldOff className="me-1 h-3 w-3" />
               {t('embedTokens.revokeSelected', { count: selectedIds.size })}
             </Button>
           </AlertDialogTrigger>
@@ -287,7 +287,7 @@ export function AdminSharedMapsPage() {
                 <TableHead>{t('sharedMaps.expires')}</TableHead>
                 <TableHead>{t('sharedMaps.created')}</TableHead>
                 <TableHead>{t('sharedMaps.creator')}</TableHead>
-                <TableHead className="text-right">{t('sharedMaps.actions')}</TableHead>
+                <TableHead className="text-end">{t('sharedMaps.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -374,7 +374,7 @@ export function AdminSharedMapsPage() {
                         <TableCell className="text-muted-foreground truncate max-w-[120px]" title={token.created_by ?? undefined}>
                           {token.created_by ?? '—'}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-end">
                           {s === 'active' && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -384,7 +384,7 @@ export function AdminSharedMapsPage() {
                                   disabled={revoke.isPending}
                                   className="text-destructive hover:text-destructive"
                                 >
-                                  <Link2Off className="h-3.5 w-3.5 mr-1" />
+                                  <Link2Off className="h-3.5 w-3.5 me-1" />
                                   {t('shareTokens.revoke')}
                                 </Button>
                               </AlertDialogTrigger>

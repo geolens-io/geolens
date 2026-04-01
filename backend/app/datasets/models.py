@@ -84,6 +84,7 @@ class Record(Base):
     record_type: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="vector_dataset"
     )
+    language: Mapped[str | None] = mapped_column(String(10), default="en")
     spatial_extent: Mapped[str | None] = mapped_column(
         Geometry("POLYGON", srid=4326), nullable=True
     )

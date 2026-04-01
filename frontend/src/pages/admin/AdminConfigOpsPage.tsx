@@ -90,9 +90,9 @@ function ExportSection() {
           disabled={exportMutation.isPending}
         >
           {exportMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            <Loader2 className="h-4 w-4 animate-spin me-2" />
           ) : (
-            <Download className="h-4 w-4 mr-2" />
+            <Download className="h-4 w-4 me-2" />
           )}
           {t('configOps.export.button')}
         </Button>
@@ -153,9 +153,9 @@ function ValidateSection() {
           disabled={validateMutation.isPending}
         >
           {validateMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            <Loader2 className="h-4 w-4 animate-spin me-2" />
           ) : (
-            <ShieldCheck className="h-4 w-4 mr-2" />
+            <ShieldCheck className="h-4 w-4 me-2" />
           )}
           {t('configOps.validate.button')}
         </Button>
@@ -309,7 +309,7 @@ function ImportSection() {
               variant="outline"
               onClick={openFilePicker}
             >
-              <Upload className="h-4 w-4 mr-2" />
+              <Upload className="h-4 w-4 me-2" />
               {t('configOps.import.chooseFile')}
             </Button>
             {fileName && fileData && (
@@ -362,7 +362,7 @@ function ImportSection() {
             disabled={!fileData || dryRunMutation.isPending}
           >
             {dryRunMutation.isPending && (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <Loader2 className="h-4 w-4 animate-spin me-2" />
             )}
             {t('configOps.import.preview')}
           </Button>
@@ -371,7 +371,7 @@ function ImportSection() {
             disabled={!dryRunResult || !hasChanges || importMutation.isPending}
           >
             {importMutation.isPending && (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <Loader2 className="h-4 w-4 animate-spin me-2" />
             )}
             {t('configOps.import.apply')}
           </Button>
@@ -483,7 +483,7 @@ function ImportSection() {
 
 export function AdminConfigOpsPage() {
   const { t } = useTranslation();
-  useDocumentTitle('Admin Config Ops');
+  useDocumentTitle(t('common:pageTitle.adminConfigOps'));
 
   return (
     <>

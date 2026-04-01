@@ -29,7 +29,7 @@ export function CollectionDetailPage() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  useDocumentTitle(collection?.name ?? 'Collection');
+  useDocumentTitle(collection?.name ?? t('common:pageTitle.collection'));
 
   if (isLoading) {
     return (
@@ -101,13 +101,13 @@ export function CollectionDetailPage() {
           <>
             {isEditor && (
               <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                <Pencil className="h-4 w-4 mr-1" />
+                <Pencil className="h-4 w-4 me-1" />
                 {t('common:edit')}
               </Button>
             )}
             {isAdmin && (
               <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
-                <Trash2 className="h-4 w-4 mr-1" />
+                <Trash2 className="h-4 w-4 me-1" />
                 {t('common:delete')}
               </Button>
             )}

@@ -377,6 +377,7 @@ async def update_user_metadata(
     owner_org: str | None = None,
     quality_statement: str | None = None,
     source_url: str | None = None,
+    language: str | None = None,
 ) -> Dataset:
     """Update user-editable fields including extended metadata.
 
@@ -460,6 +461,9 @@ async def update_user_metadata(
         metadata_mutated = True
     if owner_org is not None:
         record.owner_org = owner_org
+        metadata_mutated = True
+    if language is not None:
+        record.language = language
         metadata_mutated = True
 
     # Dataset-level fields

@@ -57,7 +57,7 @@ function MapPickerFallback() {
 
   return (
     <div className="flex h-40 items-center justify-center rounded-xl border bg-muted/20 text-sm text-muted-foreground">
-      <Loader2 className="mr-2 size-4 animate-spin" />
+      <Loader2 className="me-2 size-4 animate-spin" />
       {t('bbox.loading', { defaultValue: 'Loading map...' })}
     </div>
   );
@@ -199,7 +199,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
       >
         <PopoverTrigger asChild>
           <Button variant="outline" size="sm">
-            <Calendar className="mr-1 size-3.5" />
+            <Calendar className="me-1 size-3.5" />
             {t('filters.dateRange')}
           </Button>
         </PopoverTrigger>
@@ -267,7 +267,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
 
     return (
       <Button variant="outline" size="sm" onClick={() => setSpatialPanelOpen(true)}>
-        <MapPin className="mr-1 size-3.5" />
+        <MapPin className="me-1 size-3.5" />
         {t('filters.location')}
       </Button>
     );
@@ -475,7 +475,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm">
-                  <Calendar className="mr-1 size-3.5" />
+                  <Calendar className="me-1 size-3.5" />
                   {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
                 </Button>
               </PopoverTrigger>

@@ -113,18 +113,19 @@ function errorMessage(
   code: string,
   src: OGCRecordResponse,
   first: OGCRecordResponse,
+  t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
   switch (code) {
     case 'crs_mismatch':
-      return `CRS mismatch: ${src.properties.crs} vs ${first.properties.crs}`;
+      return t('vrt.crsMismatch', { src: src.properties.crs, first: first.properties.crs });
     case 'band_count_mismatch':
-      return `Band count mismatch: ${src.properties.band_count} vs ${first.properties.band_count}`;
+      return t('vrt.bandMismatch', { src: src.properties.band_count, first: first.properties.band_count });
     case 'dtype_mismatch':
-      return `Data type mismatch: ${src.properties.dtype} vs ${first.properties.dtype}`;
+      return t('vrt.dtypeMismatch', { src: src.properties.dtype, first: first.properties.dtype });
     case 'nodata_inconsistent':
-      return 'NoData value mismatch';
+      return t('vrt.nodataMismatch');
     case 'grid_misaligned':
-      return 'Grid dimensions do not match (width, height, or resolution differs)';
+      return t('vrt.gridMismatch');
     default:
       return code;
   }
@@ -343,7 +344,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 ref={searchInputRef}
-                className="pl-8 pr-8"
+                className="ps-8 pe-8"
                 placeholder={t('vrt.searchPlaceholder')}
                 value={searchQuery}
                 disabled={selectedSources.length >= VRT_MAX_SOURCES}
@@ -378,7 +379,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                         <li key={result.id}>
                           <button
                             type="button"
-                            className="w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors"
+                            className="w-full text-start px-3 py-2 hover:bg-muted/50 transition-colors"
                             onClick={() => handleAddSource(result)}
                           >
                             <div className="font-medium text-sm">{result.properties.title}</div>
@@ -443,7 +444,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                         <TooltipContent>
                           <ul className="text-xs space-y-0.5">
                             {errs.map((code) => (
-                              <li key={code}>{errorMessage(code, source, firstSource)}</li>
+                              <li key={code}>{errorMessage(code, source, firstSource, t)}</li>
                             ))}
                           </ul>
                         </TooltipContent>
@@ -453,7 +454,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                       type="button"
                       onClick={() => handleRemoveSource(source.id)}
                       className="text-muted-foreground hover:text-foreground shrink-0"
-                      aria-label={`Remove ${source.properties.title}`}
+                      aria-label={t('vrt.removeSource', { title: source.properties.title })}
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -501,7 +502,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
           <Button onClick={handleSubmit} disabled={isSubmitDisabled}>
             {createVrtMutation.isPending ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="me-2 h-4 w-4 animate-spin" />
                 {t('vrt.submitting')}
               </>
             ) : (

@@ -130,12 +130,12 @@ export function SavedSearches({ className }: { className?: string }) {
       {searches.map((search) => (
         <div
           key={search.id}
-          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/50 bg-background/70 py-1.5 pl-3 pr-1.5 text-xs font-medium text-muted-foreground"
+          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/50 bg-background/70 py-1.5 ps-3 pe-1.5 text-xs font-medium text-muted-foreground"
         >
           <button
             type="button"
             onClick={() => handleLoad(search.params)}
-            className="max-w-[14rem] truncate text-left transition-colors hover:text-foreground"
+            className="max-w-[14rem] truncate text-start transition-colors hover:text-foreground"
           >
             {search.name}
           </button>

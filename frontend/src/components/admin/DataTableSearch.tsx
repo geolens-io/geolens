@@ -54,7 +54,7 @@ export function DataTableSearch({ value, onChange, placeholder, debounceMs }: Da
         value={debounceMs ? internal : value}
         onChange={(e) => handleChange(e.target.value)}
         placeholder={placeholder ?? t('search')}
-        className="h-8 pl-8 pr-8 text-sm"
+        className="h-8 ps-8 pe-8 text-sm"
       />
       {(debounceMs ? internal : value) && (
         <button

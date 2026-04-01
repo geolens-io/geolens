@@ -64,7 +64,7 @@ function SearchControls({
 
 export function SearchPage() {
   const { t } = useTranslation('search');
-  useDocumentTitle('Search');
+  useDocumentTitle(t('common:pageTitle.search'));
   const { data, isLoading, error, isFetching } = useSearchResults();
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
@@ -170,7 +170,7 @@ export function SearchPage() {
               token ? (
                 <Button asChild>
                   <Link to="/import">
-                    <Upload className="h-4 w-4 mr-1" />
+                    <Upload className="h-4 w-4 me-1" />
                     {t('empty.cta')}
                   </Link>
                 </Button>

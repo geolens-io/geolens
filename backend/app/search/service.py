@@ -1202,7 +1202,7 @@ def dataset_to_ogc_record(
                 in ("raster_dataset", "vrt_dataset")
                 else list(_FORMAT_MEDIA.values())
             ),
-            "language": "en",
+            "language": record.language or "en",
             "themes": _build_themes(record.theme_category, record.keywords),
             "rights": record.license,
             "contacts": [

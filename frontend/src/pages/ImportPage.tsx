@@ -13,7 +13,7 @@ type Tab = 'upload' | 'register' | 'service';
 export function ImportPage() {
   const { t } = useTranslation('import');
   const [activeTab, setActiveTab] = useState<Tab>('upload');
-  useDocumentTitle('Import');
+  useDocumentTitle(t('common:pageTitle.import'));
 
   return (
     <PageShell>

@@ -55,7 +55,7 @@ function CreateMenu() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm">
-            <Plus className="h-4 w-4 mr-1" />
+            <Plus className="h-4 w-4 me-1" />
             {t('create')}
           </Button>
         </DropdownMenuTrigger>
@@ -111,7 +111,7 @@ function UserMenu() {
     return (
       <Button variant="outline" size="sm" asChild>
         <Link to="/login">
-          <LogIn className="h-4 w-4 mr-1" />
+          <LogIn className="h-4 w-4 me-1" />
           {tAuth('signIn')}
         </Link>
       </Button>
@@ -126,7 +126,7 @@ function UserMenu() {
         <Button
           variant="ghost"
           size="sm"
-          className="relative h-9 rounded-full pl-1 pr-1 md:pr-2"
+          className="relative h-9 rounded-full ps-1 pe-1 md:pe-2"
         >
           {initial ? (
             <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">
@@ -247,7 +247,7 @@ function MobileNav() {
                   className={mobileNavLinkClass({ isActive: false })}
                   onClick={() => { setDatasetOpen(true); setOpen(false); }}
                 >
-                  <Database className="h-4 w-4 mr-2" />
+                  <Database className="h-4 w-4 me-2" />
                   {t('nav.dataset')}
                 </button>
                 {can('edit_metadata') && (
@@ -255,7 +255,7 @@ function MobileNav() {
                     className={mobileNavLinkClass({ isActive: false })}
                     onClick={() => { setCollectionOpen(true); setOpen(false); }}
                   >
-                    <FolderOpen className="h-4 w-4 mr-2" />
+                    <FolderOpen className="h-4 w-4 me-2" />
                     {t('nav.collection')}
                   </button>
                 )}
@@ -263,7 +263,7 @@ function MobileNav() {
                   className={mobileNavLinkClass({ isActive: false })}
                   onClick={() => { setMapOpen(true); setOpen(false); }}
                 >
-                  <Map className="h-4 w-4 mr-2" />
+                  <Map className="h-4 w-4 me-2" />
                   {t('nav.map')}
                 </button>
                 {can('upload') && (
@@ -271,7 +271,7 @@ function MobileNav() {
                     className={mobileNavLinkClass({ isActive: false })}
                     onClick={() => { setVrtOpen(true); setOpen(false); }}
                   >
-                    <Layers className="h-4 w-4 mr-2" />
+                    <Layers className="h-4 w-4 me-2" />
                     {t('nav.virtualRaster')}
                   </button>
                 )}
@@ -281,7 +281,7 @@ function MobileNav() {
                     className={mobileNavLinkClass({ isActive: false })}
                     onClick={() => setOpen(false)}
                   >
-                    <Upload className="h-4 w-4 mr-2" />
+                    <Upload className="h-4 w-4 me-2" />
                     {t('nav.importData')}
                   </Link>
                 )}
@@ -295,7 +295,7 @@ function MobileNav() {
                   className={mobileNavLinkClass({ isActive: false })}
                   onClick={() => setOpen(false)}
                 >
-                  <LogIn className="h-4 w-4 mr-2" />
+                  <LogIn className="h-4 w-4 me-2" />
                   {tAuth('signIn')}
                 </Link>
               </>

@@ -40,7 +40,7 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
 export function PublicMapViewerPage() {
   const { t } = useTranslation('common');
   const { id } = useParams<{ id: string }>();
-  useDocumentTitle('Map');
+  useDocumentTitle(t('common:pageTitle.map'));
 
   const { data, isLoading, isError, error } = useMap(id);
 

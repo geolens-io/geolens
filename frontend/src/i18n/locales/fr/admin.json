@@ -6,7 +6,9 @@
     "admin": "Administrateur"
   },
   "overview": {
-    "title": "Vue d'ensemble"
+    "title": "Vue d'ensemble",
+    "healthy": "Opérationnel",
+    "degraded": "Dégradé"
   },
   "stats": {
     "loading": "Chargement des statistiques du catalogue...",
@@ -346,6 +348,8 @@
     "bulkRevokeFailed": "Echec de la revocation des jetons d'integration"
   },
   "settings": {
+    "copySPEntityId": "Copier l'ID d'entité SP",
+    "copyAcsUrl": "Copier l'URL ACS",
     "actions": {
       "discard": "Annuler les modifications",
       "resetDefaults": "Rétablir les valeurs par défaut"

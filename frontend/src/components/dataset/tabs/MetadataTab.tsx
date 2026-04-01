@@ -148,7 +148,7 @@ export function MetadataTab({
           <button
             type="button"
             onClick={() => setHistoryExpanded(!historyExpanded)}
-            className="flex items-center gap-2 w-full text-left"
+            className="flex items-center gap-2 w-full text-start"
           >
             <History className="h-5 w-5" />
             <CardTitle className="text-base flex-1">{t('tabs.history')}</CardTitle>

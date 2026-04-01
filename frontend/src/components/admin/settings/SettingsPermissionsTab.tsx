@@ -130,7 +130,7 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
 
         <div className="flex items-center gap-3 pt-4">
           <Button onClick={handleSave} disabled={!isDirty || envOnly || isSaving}>
-            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
             {t('common:save')}
           </Button>
           <Button variant="outline" onClick={() => onReset('role_permissions')} disabled={envOnly || isSaving}>

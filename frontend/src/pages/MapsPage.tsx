@@ -51,7 +51,7 @@ export function MapsPage() {
   const [viewMode, setViewMode] = useState(getStoredView);
   const [createOpen, setCreateOpen] = useState(false);
   const [deletingMap, setDeletingMap] = useState<{ id: string; name: string } | null>(null);
-  useDocumentTitle('Maps');
+  useDocumentTitle(t('common:pageTitle.maps'));
 
   // Debounce search input
   useEffect(() => {
@@ -117,7 +117,7 @@ export function MapsPage() {
             {data && <Badge variant="secondary">{data.total}</Badge>}
             {isEditor && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
+                <Plus className="h-4 w-4 me-1" />
                 {t('maps.createMap', 'Create Map')}
               </Button>
             )}
@@ -133,7 +133,7 @@ export function MapsPage() {
             placeholder={t('maps.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
 
@@ -207,7 +207,7 @@ export function MapsPage() {
           action={
             !debouncedSearch && visibility === 'all' && isEditor ? (
               <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
+                <Plus className="h-4 w-4 me-1" />
                 {t('maps.createFirstMap')}
               </Button>
             ) : undefined

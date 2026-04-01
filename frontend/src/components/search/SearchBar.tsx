@@ -88,8 +88,8 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
         className={cn(
           'w-full border-border/50 bg-background/95 text-ellipsis shadow-sm placeholder:text-muted-foreground/75 focus-visible:border-primary/30 focus-visible:ring-primary/10',
           isCompact
-            ? 'h-11 rounded-[20px] pl-11 pr-11 text-base'
-            : 'h-14 rounded-[24px] pl-12 pr-12 text-base',
+            ? 'h-11 rounded-[20px] ps-11 pe-11 text-base'
+            : 'h-14 rounded-[24px] ps-12 pe-12 text-base',
         )}
       />
       {value && (

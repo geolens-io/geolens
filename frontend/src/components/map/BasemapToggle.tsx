@@ -51,7 +51,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
 
       {/* Popover: grid of basemap options with labels */}
       {open && (
-        <div className="absolute bottom-0 left-full ml-2 bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-2 flex flex-col gap-1.5 min-w-[140px]">
+        <div className="absolute bottom-0 left-full ms-2 bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg p-2 flex flex-col gap-1.5 min-w-[140px]">
           {enabled.map((b) => {
             const isActive = value === b.id;
             return (
@@ -60,7 +60,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
                 type="button"
                 onClick={() => { onChange(b.id); setOpen(false); }}
                 className={cn(
-                  'flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors text-left',
+                  'flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors text-start',
                   isActive
                     ? 'bg-accent'
                     : 'hover:bg-accent/50',

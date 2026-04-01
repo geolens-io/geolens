@@ -211,7 +211,7 @@ export function ServiceUrlForm() {
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={!url.trim()}>
-            <Globe className="mr-2 h-4 w-4" />
+            <Globe className="me-2 h-4 w-4" />
             {t('serviceUrl.connect')}
           </Button>
         </form>
