@@ -11,6 +11,8 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import uuid
+
 import pytest
 
 from app.datasets.router import ALLOWED_TRANSITIONS

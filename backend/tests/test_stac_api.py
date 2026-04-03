@@ -4,6 +4,11 @@ Pure unit tests -- validates conformance, schema instantiation,
 and parameter parsing without requiring a running database.
 """
 
+import uuid
+
+import pytest
+from httpx import AsyncClient
+
 from app.stac.schemas import StacCatalog, StacConformance, StacItemCollection, StacLink
 from app.stac.serializer import STAC_CONFORMANCE
 
@@ -137,11 +142,6 @@ class TestStacItemCollection:
 # ---------------------------------------------------------------------------
 # Integration tests for STAC individual endpoints
 # ---------------------------------------------------------------------------
-
-import uuid
-
-import pytest
-from httpx import AsyncClient
 
 
 @pytest.mark.anyio

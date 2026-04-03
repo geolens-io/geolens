@@ -15,7 +15,6 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select, text, update
 
-from app.auth.models import User
 from app.datasets.models import (
     Dataset,
     Record,
