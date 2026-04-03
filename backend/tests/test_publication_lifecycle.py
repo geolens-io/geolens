@@ -44,7 +44,10 @@ class TestValidTransitions:
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(
-            test_db_session, created_by=admin_id, visibility="private", record_status=from_status
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            record_status=from_status,
         )
         await test_db_session.commit()
 
@@ -81,7 +84,10 @@ class TestInvalidTransitions:
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(
-            test_db_session, created_by=admin_id, visibility="private", record_status=from_status
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            record_status=from_status,
         )
         await test_db_session.commit()
 
@@ -106,7 +112,10 @@ class TestInvalidStatusValue:
         """A status value not in the allowed set should return 422."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(
-            test_db_session, created_by=admin_id, visibility="private", record_status="draft"
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            record_status="draft",
         )
         await test_db_session.commit()
 

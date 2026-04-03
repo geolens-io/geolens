@@ -254,7 +254,10 @@ async def main() -> None:
     from app.cache.tile_cache import TileCacheProvider
 
     if not settings.redis_url:
-        print("ERROR: redis_url is not configured. Set REDIS_URL env var.", file=sys.stderr)
+        print(
+            "ERROR: redis_url is not configured. Set REDIS_URL env var.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     print("Initializing tile pool...")
@@ -294,6 +297,7 @@ async def main() -> None:
         # asyncpg returns JSONB as a Python object already
         if isinstance(column_info, str):
             import json
+
             columns = json.loads(column_info)
         else:
             columns = column_info or []

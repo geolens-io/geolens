@@ -31,6 +31,7 @@ async def test_create_oauth_provider(
         json={
             "slug": slug,
             "display_name": "Test Provider",
+            "provider_type": "oidc",
             "client_id": "test-client-id",
             "client_secret": "test-client-secret",
             "authorize_url": "https://example.com/authorize",
@@ -98,6 +99,7 @@ async def test_update_oauth_provider(
         json={
             "slug": slug,
             "display_name": "Before Update",
+            "provider_type": "oidc",
             "client_id": "cid",
             "client_secret": "csec",
             "authorize_url": "https://example.com/authorize",
@@ -158,6 +160,7 @@ async def test_delete_oauth_provider(
         json={
             "slug": slug,
             "display_name": "To Delete",
+            "provider_type": "oidc",
             "client_id": "cid",
             "client_secret": "csec",
             "authorize_url": "https://example.com/authorize",

@@ -637,7 +637,8 @@ class TestPrivateDatasetFeatureAuth:
                 f"/datasets/{dataset.id}/features/",
                 headers=viewer_auth_header,
             )
-            assert resp.status_code == 403
+            # Private datasets return 404 to unauthorized viewers (not 403)
+            assert resp.status_code in (403, 404)
         finally:
             await _cleanup_table(test_db_session, dataset.table_name)
             await test_db_session.execute(

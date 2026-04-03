@@ -163,9 +163,7 @@ async def test_get_collection_items_not_found(client: AsyncClient):
 @pytest.mark.anyio
 async def test_get_collection_item_not_found(client: AsyncClient):
     """GET /stac/collections/{random_uuid}/items/{random_uuid} returns 404."""
-    resp = await client.get(
-        f"/stac/collections/{uuid.uuid4()}/items/{uuid.uuid4()}"
-    )
+    resp = await client.get(f"/stac/collections/{uuid.uuid4()}/items/{uuid.uuid4()}")
     assert resp.status_code == 404
 
 
@@ -178,11 +176,15 @@ async def test_get_item_not_found(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_get_collection_valid(client: AsyncClient, admin_auth_header: dict, test_db_session):
+async def test_get_collection_valid(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
     """GET /stac/collections/{id} returns collection data when it exists."""
     from app.collections.models import Collection
 
-    coll = Collection(name="STAC Test Collection", description="Test collection for STAC")
+    coll = Collection(
+        name="STAC Test Collection", description="Test collection for STAC"
+    )
     test_db_session.add(coll)
     await test_db_session.commit()
     await test_db_session.refresh(coll)
