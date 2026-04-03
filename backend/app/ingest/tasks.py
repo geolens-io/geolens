@@ -29,6 +29,156 @@ task_app = App(
 )
 
 
+async def _finalize_ingest(
+    *,
+    session,
+    job,
+    table_name: str,
+    user_id: str,
+    has_geometry: bool | None,
+    effective_srid: int,
+    source_format: str,
+    source_filename: str | None,
+    original_srid: int | None,
+    user_metadata: dict,
+    source_url: str | None = None,
+):
+    """Shared post-ogr2ogr pipeline for both file and service ingestion.
+
+    Steps:
+    - Normalize geometry column, clip to valid bounds, add 4326 column
+    - Grant reader access
+    - Extract column info and sample values
+    - Create dataset record
+    - Compute quality score
+    - Commit job + dataset atomically
+    - Generate quicklook thumbnail (non-fatal)
+    - Invalidate caches and backfill embedding
+
+    Args:
+        session: Active async DB session.
+        job: IngestJob ORM instance (will be mutated).
+        table_name: Target PostGIS table in data schema.
+        user_id: UUID string of the uploading user.
+        has_geometry: Whether geometry is expected. If None, auto-detect
+            via ensure_geom_column.
+        effective_srid: SRID for the ST_Transform to 4326.
+        source_format: E.g. "shapefile", "geojson", "wfs".
+        source_filename: Original filename from the upload.
+        original_srid: Detected SRID from the source, or None.
+        user_metadata: Dict with optional title, summary, visibility.
+        source_url: Optional source URL for service ingests.
+
+    Returns:
+        The created Dataset ORM instance.
+    """
+    from app.datasets.service import create_dataset
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        compute_quality_score,
+        ensure_geom_column,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+    )
+
+    # Normalize geometry column name to 'geom'
+    if has_geometry is None:
+        has_geometry = await ensure_geom_column(session, table_name)
+    elif has_geometry:
+        await ensure_geom_column(session, table_name)
+
+    # Clip geometries to Web Mercator bounds and add 4326 column
+    if has_geometry:
+        await clip_to_mercator_bounds(session, table_name)
+        await add_4326_column(session, table_name, effective_srid)
+
+    # Grant reader access
+    await grant_reader_access(session, table_name)
+
+    # Extract metadata
+    metadata = await extract_metadata(session, table_name)
+
+    # Extract sample values for attribute search
+    sample_values = await get_sample_values(
+        session, table_name, metadata.get("column_info", [])
+    )
+
+    # Create Dataset record
+    dataset_name = user_metadata.get("title") or source_filename or table_name
+    create_kwargs: dict = dict(
+        table_name=table_name,
+        title=dataset_name,
+        created_by=uuid.UUID(user_id),
+        summary=user_metadata.get("summary"),
+        srid=metadata.get("srid"),
+        geometry_type=metadata.get("geometry_type"),
+        feature_count=metadata.get("feature_count"),
+        extent_wkt=metadata.get("extent_wkt"),
+        column_info=metadata.get("column_info"),
+        sample_values=sample_values,
+        source_format=source_format,
+        source_filename=source_filename,
+        original_srid=original_srid
+        if original_srid is not None
+        else metadata.get("srid"),
+        visibility=user_metadata.get("visibility", "private"),
+    )
+    if source_url is not None:
+        create_kwargs["source_url"] = source_url
+    dataset = await create_dataset(session, **create_kwargs)
+
+    # Compute quality score (requires Dataset to exist for metadata checks)
+    quality_score = await compute_quality_score(
+        session, table_name, metadata.get("column_info", []), dataset
+    )
+    dataset.quality_detail = quality_score
+
+    # Update job to complete and commit dataset + job atomically
+    job.status = "complete"
+    job.dataset_id = dataset.id
+    job.completed_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    # Generate vector quicklook thumbnail (non-fatal, after commit)
+    # Runs after commit so a connection-killing query (OOM, timeout on
+    # complex geometry) cannot roll back the dataset.
+    if has_geometry:
+        try:
+            import io as _io
+
+            from app.vector.quicklook import (
+                generate_vector_quicklook_with_timeout as generate_vector_quicklook,
+            )
+
+            ql_bytes = await generate_vector_quicklook(
+                session, table_name, metadata.get("geometry_type", ""), 256
+            )
+            ql_storage = get_storage()
+            ql_key = f"vectors/{dataset.id}/quicklook_256.png"
+            await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
+            dataset.quicklook_256_uri = ql_key
+            await session.commit()
+        except Exception as _ql_exc:
+            await session.rollback()
+            import structlog as _sl
+
+            _sl.get_logger().warning(
+                "quicklook_failed", table=table_name, error=str(_ql_exc)
+            )
+
+    # Invalidate caches after successful ingest
+    await invalidate_catalog_cache()
+
+    # Generate embedding (non-fatal)
+    from app.embeddings.helpers import defer_embedding
+
+    await defer_embedding(dataset)
+
+    return dataset
+
+
 @task_app.task(queue="ingest", retry=2)
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
@@ -45,16 +195,6 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
     9. Clean up staging file
     """
     from app.database import async_session
-    from app.datasets.service import create_dataset
-    from app.ingest.metadata import (
-        add_4326_column,
-        clip_to_mercator_bounds,
-        compute_quality_score,
-        ensure_geom_column,
-        extract_metadata,
-        get_sample_values,
-        grant_reader_access,
-    )
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
@@ -199,94 +339,26 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 else (srid if srid is not None else 4326)
             )
 
-            # 4a. Normalize geometry column name to 'geom'
-            if has_geometry:
-                await ensure_geom_column(session, table_name)
-
-            # 4b. Clip geometries to Web Mercator bounds (±85.06° lat)
-            if has_geometry:
-                await clip_to_mercator_bounds(session, table_name)
-
-            # 4c. Add geom_4326 column
-            if has_geometry:
-                await add_4326_column(session, table_name, effective_srid)
-
-            # 5. Grant reader access
-            await grant_reader_access(session, table_name)
-
-            # 6. Extract metadata
-            metadata = await extract_metadata(session, table_name)
-
-            # 6b. Extract sample values for attribute search
-            sample_values = await get_sample_values(
-                session, table_name, metadata.get("column_info", [])
-            )
-
-            # 7. Determine source format from file extension
+            # 4. Determine source format from file extension
             suffix = Path(file_path).suffix.lower()
             # Strip leading dot for format name; handle .zip -> look inside filename
             source_format = suffix.lstrip(".")
             if source_format == "zip":
                 source_format = "shapefile"
 
-            # 8. Create Dataset record (use user metadata if available)
-            dataset_name = um.get("title") or job.source_filename or table_name
-            dataset = await create_dataset(
-                session,
+            # 5-9. Shared post-ogr2ogr pipeline
+            dataset = await _finalize_ingest(
+                session=session,
+                job=job,
                 table_name=table_name,
-                title=dataset_name,
-                created_by=uuid.UUID(user_id),
-                summary=um.get("summary"),
-                srid=metadata.get("srid"),
-                geometry_type=metadata.get("geometry_type"),
-                feature_count=metadata.get("feature_count"),
-                extent_wkt=metadata.get("extent_wkt"),
-                column_info=metadata.get("column_info"),
-                sample_values=sample_values,
+                user_id=user_id,
+                has_geometry=has_geometry,
+                effective_srid=effective_srid,
                 source_format=source_format,
                 source_filename=job.source_filename,
                 original_srid=srid,
-                visibility=um.get("visibility", "private"),
+                user_metadata=um,
             )
-
-            # 8b. Compute quality score (requires Dataset to exist for metadata checks)
-            quality_score = await compute_quality_score(
-                session, table_name, metadata.get("column_info", []), dataset
-            )
-            dataset.quality_detail = quality_score
-
-            # 9. Update job to complete and commit dataset + job atomically
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-
-            # 9b. Generate vector quicklook thumbnail (non-fatal, after commit)
-            # Runs after commit so a connection-killing query (OOM, timeout on
-            # complex geometry) cannot roll back the dataset.
-            if has_geometry:
-                try:
-                    import io as _io
-
-                    from app.vector.quicklook import (
-                        generate_vector_quicklook_with_timeout as generate_vector_quicklook,
-                    )
-
-                    ql_bytes = await generate_vector_quicklook(
-                        session, table_name, metadata.get("geometry_type", ""), 256
-                    )
-                    ql_storage = get_storage()
-                    ql_key = f"vectors/{dataset.id}/quicklook_256.png"
-                    await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
-                    dataset.quicklook_256_uri = ql_key
-                    await session.commit()
-                except Exception as _ql_exc:
-                    await session.rollback()
-                    import structlog as _sl
-
-                    _sl.get_logger().warning(
-                        "quicklook_failed", table=table_name, error=str(_ql_exc)
-                    )
 
             # 9c. Archive original file to storage provider
             archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
@@ -303,14 +375,6 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     archive_key=archive_key,
                     error=str(archive_exc),
                 )
-
-            # Invalidate caches after successful ingest
-            await invalidate_catalog_cache()
-
-            # Generate embedding (non-fatal)
-            from app.embeddings.helpers import defer_embedding
-
-            await defer_embedding(dataset)
 
         except Exception as exc:
             # On any failure, mark job as failed
@@ -373,16 +437,6 @@ async def ingest_service(
     7. Update job status to complete
     """
     from app.database import async_session
-    from app.datasets.service import create_dataset
-    from app.ingest.metadata import (
-        add_4326_column,
-        clip_to_mercator_bounds,
-        compute_quality_score,
-        ensure_geom_column,
-        extract_metadata,
-        get_sample_values,
-        grant_reader_access,
-    )
     from app.ingest.ogr import IngestionError, build_pg_conn_str, run_ogr2ogr_service
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
@@ -462,82 +516,21 @@ async def ingest_service(
                 else:
                     raise
 
-            # 5. Post-processing (identical to ingest_file)
-            has_geom = await ensure_geom_column(session, table_name)
-            if has_geom:
-                await clip_to_mercator_bounds(session, table_name)
-                await add_4326_column(session, table_name, 4326)
-            await grant_reader_access(session, table_name)
-            metadata = await extract_metadata(session, table_name)
-            sample_values = await get_sample_values(
-                session, table_name, metadata.get("column_info", [])
-            )
-
-            # 6. Create Dataset record with source_format and source_url
+            # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = _enrich_source_url(source_url, layer_id)
-            dataset_name = um.get("title") or job.source_filename or table_name
-            dataset = await create_dataset(
-                session,
+            await _finalize_ingest(
+                session=session,
+                job=job,
                 table_name=table_name,
-                title=dataset_name,
-                created_by=uuid.UUID(user_id),
-                summary=um.get("summary"),
-                srid=metadata.get("srid"),
-                geometry_type=metadata.get("geometry_type"),
-                feature_count=metadata.get("feature_count"),
-                extent_wkt=metadata.get("extent_wkt"),
-                column_info=metadata.get("column_info"),
-                sample_values=sample_values,
+                user_id=user_id,
+                has_geometry=None,
+                effective_srid=4326,
                 source_format=source_format,
                 source_filename=job.source_filename,
-                original_srid=metadata.get("srid"),
+                original_srid=None,
+                user_metadata=um,
                 source_url=dataset_source_url,
-                visibility=um.get("visibility", "private"),
             )
-
-            # 7. Compute quality score
-            quality_score = await compute_quality_score(
-                session, table_name, metadata.get("column_info", []), dataset
-            )
-            dataset.quality_detail = quality_score
-
-            # 8. Update job to complete and commit dataset + job atomically
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-
-            # 8b. Generate vector quicklook thumbnail (non-fatal, after commit)
-            try:
-                import io as _io
-
-                from app.vector.quicklook import (
-                    generate_vector_quicklook_with_timeout as generate_vector_quicklook,
-                )
-
-                ql_bytes = await generate_vector_quicklook(
-                    session, table_name, metadata.get("geometry_type", ""), 256
-                )
-                ql_storage = get_storage()
-                ql_key = f"vectors/{dataset.id}/quicklook_256.png"
-                await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
-                dataset.quicklook_256_uri = ql_key
-                await session.commit()
-            except Exception as _ql_exc:
-                await session.rollback()
-                import structlog as _sl
-
-                _sl.get_logger().warning(
-                    "quicklook_failed", table=table_name, error=str(_ql_exc)
-                )
-
-            # Invalidate caches after successful service import
-            await invalidate_catalog_cache()
-
-            # Generate embedding (non-fatal)
-            from app.embeddings.helpers import defer_embedding
-
-            await defer_embedding(dataset)
 
         except Exception as exc:
             # On any failure, mark job as failed (no staging file to clean up)

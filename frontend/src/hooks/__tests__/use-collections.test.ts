@@ -137,3 +137,27 @@ describe('useDeleteCollection', () => {
     expect(mockDeleteCollection).toHaveBeenCalledWith('c-1');
   });
 });
+
+describe('useCollections – error and empty states', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns error state on API failure', async () => {
+    mockListCollections.mockRejectedValueOnce(new Error('Server error'));
+
+    const { result } = renderHook(() => useCollections());
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('handles empty collection list', async () => {
+    mockListCollections.mockResolvedValueOnce({ items: [], total: 0 } as never);
+
+    const { result } = renderHook(() => useCollections());
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ items: [], total: 0 });
+  });
+});

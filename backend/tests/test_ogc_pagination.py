@@ -15,21 +15,14 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordKeyword
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -95,7 +88,7 @@ async def test_pagination_next_link_present_when_more_results(
 ):
     """Next link present when more items exist beyond current page."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
     for i in range(3):
         await _create_dataset(
@@ -119,7 +112,7 @@ async def test_pagination_no_next_link_on_last_page(
 ):
     """No next link when on the last page of results."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     # Ensure at least 1 dataset exists
     prefix = uuid.uuid4().hex[:6]
     await _create_dataset(session, created_by=admin_id, name=f"pg-last-{prefix}")
@@ -148,7 +141,7 @@ async def test_pagination_prev_link_present_when_offset_gt_0(
 ):
     """Prev link present when offset > 0."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
     for i in range(2):
         await _create_dataset(
@@ -185,7 +178,7 @@ async def test_pagination_links_preserve_query_params(
 ):
     """Next link preserves q and tags query parameters."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
     for i in range(3):
         await _create_dataset(
@@ -221,7 +214,7 @@ async def test_pagination_links_preserve_query_params(
 async def test_pagination_links_preserve_bbox(client: AsyncClient, test_db_session):
     """Next link preserves bbox query parameter."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
     for i in range(3):
         await _create_dataset(
@@ -251,7 +244,7 @@ async def test_pagination_follow_next_links_no_data_loss(
 ):
     """Following next links traverses full catalog without losing records."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
     for i in range(5):
         await _create_dataset(
@@ -304,7 +297,7 @@ async def test_pagination_prev_offset_does_not_go_negative(
 ):
     """Prev link offset is clamped to 0, never negative."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
     for i in range(3):
         await _create_dataset(

@@ -37,6 +37,7 @@ export function useMap(id: string | undefined) {
     queryKey: queryKeys.maps.detail(id),
     queryFn: () => getMap(id!),
     enabled: !!id,
+    staleTime: 60_000,
   });
 }
 
@@ -110,6 +111,7 @@ export function useSharedMap(token: string | undefined, apiKey?: string) {
     queryFn: () => getSharedMap(token!, apiKey),
     enabled: !!token,
     retry: false,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -118,6 +120,7 @@ export function useMapShareToken(mapId: string | undefined) {
     queryKey: queryKeys.maps.shareToken(mapId),
     queryFn: () => getMapShareToken(mapId!),
     enabled: !!mapId,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -182,6 +185,7 @@ export function useDatasetMaps(datasetId: string) {
   return useQuery({
     queryKey: queryKeys.datasets.maps(datasetId),
     queryFn: () => fetchDatasetMaps(datasetId),
+    staleTime: 60_000,
   });
 }
 

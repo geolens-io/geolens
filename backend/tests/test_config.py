@@ -34,7 +34,9 @@ if "app.config" in sys.modules:
 from app.config import Settings  # noqa: E402
 
 # Restore original env (tests create Settings explicitly, not from env)
-os.environ.clear()
+for k in list(os.environ.keys()):
+    if k not in _orig_env:
+        del os.environ[k]
 os.environ.update(_orig_env)
 
 

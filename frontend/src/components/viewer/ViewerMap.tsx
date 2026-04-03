@@ -183,6 +183,15 @@ export function ViewerMap({
         return { url: absUrl, headers };
       });
 
+      // Suppress expected tile errors (no-data tiles outside extent)
+      map.on('error', (e: { error: { message?: string; status?: number } }) => {
+        const msg = e.error?.message ?? '';
+        if (msg.includes('source-') || e.error?.status === 404) {
+          return;
+        }
+        if (import.meta.env.DEV) console.warn('[ViewerMap] Map error:', e.error);
+      });
+
       setMapReady(true);
       onMapReady?.(map);
     },

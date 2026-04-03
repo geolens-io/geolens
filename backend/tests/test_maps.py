@@ -12,55 +12,8 @@ import json
 import uuid
 
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
-
-
-async def _create_dataset(
-    session,
-    *,
-    created_by: uuid.UUID,
-    name: str = "Map Test DS",
-    visibility: str = "public",
-) -> Dataset:
-    """Insert a Record + Dataset pair for layer tests."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Dataset for map tests: {name}",
-        visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="Point",
-        feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
+from tests.factories import create_dataset, get_user_id
 
 
 async def _create_map(
@@ -314,8 +267,8 @@ class TestUpdateMap:
         test_db_session,
     ):
         """PUT /maps/{id} with visibility=public returns 400 when map has non-public datasets."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Restricted DS",
@@ -354,8 +307,8 @@ class TestUpdateMap:
         test_db_session,
     ):
         """PUT /maps/{id} with visibility=public succeeds when all datasets are public."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Public DS",
@@ -504,8 +457,8 @@ class TestDuplicateMap:
         test_db_session,
     ):
         """Duplicated map includes layers from the original."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header, "Map With Layers")
         map_id = created["id"]
@@ -607,13 +560,13 @@ class TestDuplicateMap:
         test_db_session,
     ):
         """Viewer fork excludes layers referencing private datasets they don't own."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
 
         # Create a public dataset and a private dataset (owned by admin)
-        public_ds = await _create_dataset(
+        public_ds = await create_dataset(
             test_db_session, created_by=admin_id, name="Public DS", visibility="public"
         )
-        private_ds = await _create_dataset(
+        private_ds = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Private DS",
@@ -656,8 +609,8 @@ class TestDuplicateMap:
         test_db_session,
     ):
         """Fork with only inaccessible layers produces empty map shell."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        private_ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        private_ds = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="All Private DS",
@@ -692,8 +645,8 @@ class TestDuplicateMap:
         test_db_session,
     ):
         """Admin fork includes all layers regardless of visibility."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        private_ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        private_ds = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Admin Private DS",
@@ -760,20 +713,20 @@ class TestDuplicateMap:
         test_db_session,
     ):
         """Response excluded_layer_count matches actual excluded layers."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        pub_ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        pub_ds = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Count Pub DS",
             visibility="public",
         )
-        priv_ds1 = await _create_dataset(
+        priv_ds1 = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Count Priv DS1",
             visibility="private",
         )
-        priv_ds2 = await _create_dataset(
+        priv_ds2 = await create_dataset(
             test_db_session,
             created_by=admin_id,
             name="Count Priv DS2",
@@ -1149,8 +1102,8 @@ class TestMapLayers:
         test_db_session,
     ):
         """POST /maps/{id}/layers/ adds a layer."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -1187,8 +1140,8 @@ class TestMapLayers:
         test_db_session,
     ):
         """DELETE /maps/{id}/layers/{layer_id} removes the layer."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -1259,8 +1212,8 @@ class TestMapLayers:
         test_db_session,
     ):
         """POST /maps/{id}/layers/ with custom paint/layout stores them."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -1285,6 +1238,85 @@ class TestMapLayers:
         assert data["layout"] == custom_layout
         assert data["opacity"] == 0.5
         assert data["sort_order"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Thumbnail upload/retrieve
+# ---------------------------------------------------------------------------
+
+
+class TestMapThumbnail:
+    async def test_upload_thumbnail(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """PUT /maps/{id}/thumbnail/ uploads a thumbnail and returns 204."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Minimal valid PNG base64 data URI
+        data_uri = "data:image/png;base64,iVBORw0KGgo="
+        resp = await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            content=data_uri,
+            headers={**admin_auth_header, "content-type": "text/plain"},
+        )
+        assert resp.status_code == 204
+
+    async def test_get_thumbnail_after_upload(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """GET /maps/{id}/thumbnail/ returns image data after upload."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        data_uri = "data:image/png;base64,iVBORw0KGgo="
+        upload_resp = await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            content=data_uri,
+            headers={**admin_auth_header, "content-type": "text/plain"},
+        )
+        assert upload_resp.status_code == 204
+
+        resp = await client.get(
+            f"/maps/{map_id}/thumbnail/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] in ("image/png", "image/jpeg")
+
+    async def test_get_thumbnail_not_found(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """GET /maps/{id}/thumbnail/ returns 404 when no thumbnail uploaded."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.get(
+            f"/maps/{map_id}/thumbnail/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+    async def test_upload_thumbnail_viewer_forbidden(
+        self, client: AsyncClient, viewer_auth_header: dict
+    ):
+        """PUT /maps/{id}/thumbnail/ as viewer returns 403."""
+        resp = await client.put(
+            f"/maps/{uuid.uuid4()}/thumbnail/",
+            content="data:image/png;base64,iVBORw0KGgo=",
+            headers={**viewer_auth_header, "content-type": "text/plain"},
+        )
+        assert resp.status_code == 403
+
+    async def test_upload_thumbnail_unauthenticated(self, client: AsyncClient):
+        """PUT /maps/{id}/thumbnail/ without auth returns 401."""
+        resp = await client.put(
+            f"/maps/{uuid.uuid4()}/thumbnail/",
+            content="data:image/png;base64,iVBORw0KGgo=",
+            headers={"content-type": "text/plain"},
+        )
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -1792,8 +1824,8 @@ class TestDatasetMaps:
         test_db_session,
     ):
         """Admin sees all maps containing the dataset, including others' private maps."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=admin_id, name="DM Admin DS"
         )
 
@@ -1842,8 +1874,8 @@ class TestDatasetMaps:
         test_db_session,
     ):
         """Regular user sees own maps + internal + public, not others' private."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=admin_id, name="DM User DS"
         )
 
@@ -1900,8 +1932,8 @@ class TestDatasetMaps:
         test_db_session,
     ):
         """Anonymous user sees only public maps."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=admin_id, name="DM Anon DS"
         )
 
@@ -1945,8 +1977,8 @@ class TestDatasetMaps:
         test_db_session,
     ):
         """Dataset with no maps returns empty list."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=admin_id, name="DM Empty DS"
         )
 
@@ -2006,7 +2038,7 @@ class TestLayerTypeRoundTrip:
         test_db_session,
     ):
         """POST /maps/{id}/layers/ with raster dataset returns layer_type='raster_geolens'."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_raster_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
@@ -2028,8 +2060,8 @@ class TestLayerTypeRoundTrip:
         test_db_session,
     ):
         """POST /maps/{id}/layers/ with vector dataset returns layer_type='vector_geolens'."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -2050,7 +2082,7 @@ class TestLayerTypeRoundTrip:
         test_db_session,
     ):
         """GET /maps/{id} returns layer_type='raster_geolens' for raster layers."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_raster_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
@@ -2077,9 +2109,9 @@ class TestLayerTypeRoundTrip:
         test_db_session,
     ):
         """PUT /maps/{id} with raster layer omitting layer_type auto-detects to raster_geolens."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         raster_ds = await _create_raster_dataset(test_db_session, created_by=admin_id)
-        vector_ds = await _create_dataset(test_db_session, created_by=admin_id)
+        vector_ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -2108,8 +2140,8 @@ class TestLayerTypeRoundTrip:
         test_db_session,
     ):
         """PUT /maps/{id} with explicit layer_type persists the provided value."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
@@ -2135,8 +2167,8 @@ class TestShowInLegendRoundTrip:
         test_db_session,
     ):
         """POST /maps/{id}/layers/ defaults show_in_legend to true."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -2155,8 +2187,8 @@ class TestShowInLegendRoundTrip:
         test_db_session,
     ):
         """PUT /maps/{id} with show_in_legend=false persists and returns on GET."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -2198,8 +2230,8 @@ class TestShowInLegendRoundTrip:
         test_db_session,
     ):
         """PUT /maps/{id} without show_in_legend defaults to true."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 

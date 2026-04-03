@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     database_url_override: str | None = None
     database_ssl_mode: str = "prefer"
     database_ssl_ca_cert: str | None = None
-    database_pool_pre_ping: bool = False
+    database_pool_pre_ping: bool = True
 
     # External connection pooler (PgBouncer, RDS Proxy) -- disables prepared statements
     db_use_external_pooler: bool = False

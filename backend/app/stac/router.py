@@ -703,25 +703,22 @@ async def get_item(
     return await _build_item_response(db, dataset, public_api_url, stac_api_url)
 
 
-async def _execute_search(
-    db: AsyncSession,
-    stac_api_url: str,
-    public_api_url: str,
+def _build_search_filters(
     *,
     bbox: str | list[float] | None = None,
-    datetime_str: str | None = None,
-    collections: str | list[str] | None = None,
-    ids: str | list[str] | None = None,
     intersects: str | dict | None = None,
-    limit: int = 10,
-    offset: int = 0,
-) -> JSONResponse:
-    """Shared STAC Item Search logic for GET and POST endpoints.
+    datetime_str: str | None = None,
+    ids: str | list[str] | None = None,
+    collections: str | list[str] | None = None,
+) -> tuple[list, bool]:
+    """Build SQLAlchemy filter clauses for STAC search.
 
-    Parameters accept both string (from GET query params) and native types
-    (from POST JSON body) to avoid unnecessary serialization round-trips.
+    Returns:
+        A tuple of (filter_clauses, ids_empty). ids_empty is True when an ids
+        parameter was provided but all values were invalid UUIDs, signaling
+        that the caller should return an empty result immediately.
     """
-    stmt = _base_published_raster_query()
+    filters = []
 
     # Filter by ids — accept comma-separated string or list
     if ids:
@@ -733,24 +730,9 @@ async def _execute_search(
             except ValueError:
                 continue
         if parsed_ids:
-            stmt = stmt.where(Dataset.id.in_(parsed_ids))
+            filters.append(Dataset.id.in_(parsed_ids))
         else:
-            return StacItemCollection(
-                features=[],
-                links=[
-                    StacLink(
-                        rel="self",
-                        href=f"{stac_api_url}/search",
-                        type="application/json",
-                    ),
-                    StacLink(
-                        rel="root", href=f"{stac_api_url}/", type="application/json"
-                    ),
-                ],
-                numberMatched=0,
-                numberReturned=0,
-                context={"limit": limit, "returned": 0, "matched": 0},
-            )
+            return [], True
 
     # Filter by collections — accept comma-separated string or list
     if collections:
@@ -764,7 +746,7 @@ async def _execute_search(
             except ValueError:
                 continue
         if parsed_coll_ids:
-            stmt = stmt.where(
+            filters.append(
                 Dataset.id.in_(
                     select(CollectionDataset.dataset_id).where(
                         CollectionDataset.collection_id.in_(parsed_coll_ids)
@@ -785,7 +767,7 @@ async def _execute_search(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid intersects geometry: {e}",
                 )
-        stmt = stmt.where(
+        filters.append(
             func.ST_Intersects(
                 Record.spatial_extent,
                 func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326),
@@ -808,7 +790,117 @@ async def _execute_search(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
             )
-        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox_vals))
+        filters.append(make_bbox_filter(Record.spatial_extent, bbox_vals))
+
+    return filters, False
+
+
+def _build_search_links(
+    stac_api_url: str,
+    *,
+    matched: int,
+    returned: int,
+    offset: int,
+    limit: int,
+    bbox: str | list[float] | None = None,
+    datetime_str: str | None = None,
+    collections: str | list[str] | None = None,
+    ids: str | list[str] | None = None,
+    intersects: str | dict | None = None,
+) -> list[StacLink]:
+    """Build pagination and navigation links for STAC search results."""
+    search_href = f"{stac_api_url}/search"
+    active_params: dict[str, str] = {}
+    if bbox:
+        active_params["bbox"] = (
+            bbox if isinstance(bbox, str) else ",".join(str(v) for v in bbox)
+        )
+    if datetime_str:
+        active_params["datetime"] = datetime_str
+    if collections:
+        active_params["collections"] = (
+            collections if isinstance(collections, str) else ",".join(collections)
+        )
+    if ids:
+        active_params["ids"] = ids if isinstance(ids, str) else ",".join(ids)
+    if intersects:
+        active_params["intersects"] = (
+            intersects if isinstance(intersects, str) else json.dumps(intersects)
+        )
+
+    links = [
+        StacLink(rel="self", href=search_href, type="application/geo+json"),
+        StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
+    ]
+    if offset + limit < matched:
+        links.append(
+            StacLink(
+                rel="next",
+                href=_stac_page_url(search_href, offset + limit, limit, active_params),
+                type="application/geo+json",
+            )
+        )
+    if offset > 0:
+        links.append(
+            StacLink(
+                rel="prev",
+                href=_stac_page_url(
+                    search_href, max(0, offset - limit), limit, active_params
+                ),
+                type="application/geo+json",
+            )
+        )
+
+    return links
+
+
+async def _execute_search(
+    db: AsyncSession,
+    stac_api_url: str,
+    public_api_url: str,
+    *,
+    bbox: str | list[float] | None = None,
+    datetime_str: str | None = None,
+    collections: str | list[str] | None = None,
+    ids: str | list[str] | None = None,
+    intersects: str | dict | None = None,
+    limit: int = 10,
+    offset: int = 0,
+) -> JSONResponse:
+    """Shared STAC Item Search logic for GET and POST endpoints.
+
+    Parameters accept both string (from GET query params) and native types
+    (from POST JSON body) to avoid unnecessary serialization round-trips.
+    """
+    # Build filters from search parameters
+    filters, ids_empty = _build_search_filters(
+        bbox=bbox,
+        intersects=intersects,
+        datetime_str=datetime_str,
+        ids=ids,
+        collections=collections,
+    )
+
+    # Early return when ids param was given but all values were invalid
+    if ids_empty:
+        return StacItemCollection(
+            features=[],
+            links=[
+                StacLink(
+                    rel="self",
+                    href=f"{stac_api_url}/search",
+                    type="application/json",
+                ),
+                StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
+            ],
+            numberMatched=0,
+            numberReturned=0,
+            context={"limit": limit, "returned": 0, "matched": 0},
+        )
+
+    stmt = _base_published_raster_query()
+    for f in filters:
+        stmt = stmt.where(f)
 
     # Filter by datetime
     if datetime_str:
@@ -854,49 +946,19 @@ async def _execute_search(
         )
         features.append(item)
 
-    # Build active params for pagination link preservation
-    search_href = f"{stac_api_url}/search"
-    active_params: dict[str, str] = {}
-    if bbox:
-        active_params["bbox"] = (
-            bbox if isinstance(bbox, str) else ",".join(str(v) for v in bbox)
-        )
-    if datetime_str:
-        active_params["datetime"] = datetime_str
-    if collections:
-        active_params["collections"] = (
-            collections if isinstance(collections, str) else ",".join(collections)
-        )
-    if ids:
-        active_params["ids"] = ids if isinstance(ids, str) else ",".join(ids)
-    if intersects:
-        active_params["intersects"] = (
-            intersects if isinstance(intersects, str) else json.dumps(intersects)
-        )
-
     # Build links
-    links = [
-        StacLink(rel="self", href=search_href, type="application/geo+json"),
-        StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
-    ]
-    if offset + limit < total:
-        links.append(
-            StacLink(
-                rel="next",
-                href=_stac_page_url(search_href, offset + limit, limit, active_params),
-                type="application/geo+json",
-            )
-        )
-    if offset > 0:
-        links.append(
-            StacLink(
-                rel="prev",
-                href=_stac_page_url(
-                    search_href, max(0, offset - limit), limit, active_params
-                ),
-                type="application/geo+json",
-            )
-        )
+    links = _build_search_links(
+        stac_api_url,
+        matched=total,
+        returned=len(features),
+        offset=offset,
+        limit=limit,
+        bbox=bbox,
+        datetime_str=datetime_str,
+        collections=collections,
+        ids=ids,
+        intersects=intersects,
+    )
 
     result = StacItemCollection(
         features=features,

@@ -56,11 +56,12 @@ def _make_geotiff_bytes(
     if compress:
         profile["compress"] = compress
 
+    rng = np.random.default_rng(42)
     buf = io.BytesIO()
     with MemoryFile() as mem:
         with mem.open(**profile) as ds:
             for b in range(1, bands + 1):
-                data = np.random.randint(0, 200, (height, width), dtype=dtype)
+                data = rng.integers(0, 200, (height, width), dtype=dtype)
                 ds.write(data, b)
         buf.write(mem.read())
     return buf.getvalue()

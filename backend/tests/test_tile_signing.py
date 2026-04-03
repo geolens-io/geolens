@@ -17,23 +17,18 @@ from unittest.mock import patch
 import asyncpg
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from app.auth.models import User
 from app.config import settings
 from app.datasets.models import Dataset, Record
 from app.tiles.signing import generate_tile_signature
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers (from test_tiles.py)
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_tile_test_dataset(
@@ -205,7 +200,7 @@ class TestTileTokenEndpoint:
     ):
         """Authenticated request returns 200 with sig, exp, scope, expires_in."""
         table_name = f"sign_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )
@@ -229,7 +224,7 @@ class TestTileTokenEndpoint:
     ):
         """Unauthenticated request on a private dataset returns 401."""
         table_name = f"sign_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -260,7 +255,7 @@ class TestTileTokenEndpoint:
     ):
         """Non-owner requesting a private dataset's token gets 404."""
         table_name = f"sign_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -280,7 +275,7 @@ class TestTileTokenEndpoint:
     ):
         """Public dataset token can be requested without authentication."""
         table_name = f"sign_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -307,7 +302,7 @@ class TestTileSignatureValidation:
     ):
         """Public dataset tiles can be fetched without sig/exp/scope params."""
         table_name = f"sigval_pub_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -327,7 +322,7 @@ class TestTileSignatureValidation:
     ):
         """Private dataset tiles return 403 without sig/exp/scope params."""
         table_name = f"sigval_priv_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -347,7 +342,7 @@ class TestTileSignatureValidation:
     ):
         """Private dataset tiles succeed with valid sig/exp/scope."""
         table_name = f"sigval_valid_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -382,7 +377,7 @@ class TestTileSignatureValidation:
     ):
         """Expired signature returns 403."""
         table_name = f"sigval_exp_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -408,7 +403,7 @@ class TestTileSignatureValidation:
     ):
         """Tampered signature returns 403."""
         table_name = f"sigval_tamp_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -444,7 +439,7 @@ class TestTileSignatureValidation:
     ):
         """Signature with wrong scope returns 403."""
         table_name = f"sigval_scope_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -480,7 +475,7 @@ class TestTileCacheTTL:
     ):
         """Public dataset with no tile_cache_ttl uses settings.tile_cache_ttl."""
         table_name = f"ttl_default_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -502,7 +497,7 @@ class TestTileCacheTTL:
     ):
         """Dataset with tile_cache_ttl=600 uses max-age=600."""
         table_name = f"ttl_custom_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,
@@ -533,7 +528,7 @@ class TestTileAccessLogging:
     ):
         """Tile access log entry contains dataset_id, table_name, z, scope."""
         table_name = f"logtest_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session,
             created_by=user_id,

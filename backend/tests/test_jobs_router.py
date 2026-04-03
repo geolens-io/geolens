@@ -6,18 +6,14 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
 from app.jobs.models import IngestJob
 
-
-async def _get_user_id(session: "AsyncSession", username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    return result.scalar_one().id
+from tests.factories import get_user_id
 
 
 async def _create_job(
@@ -59,7 +55,7 @@ class TestGetJobStatus:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """GET /jobs/{id} as job creator returns 200 with job details."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(
             test_db_session,
             created_by=admin_id,
@@ -93,7 +89,7 @@ class TestGetJobStatus:
         test_db_session,
     ):
         """GET /jobs/{id} as non-creator non-admin returns 403."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(test_db_session, created_by=admin_id)
 
         resp = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
@@ -103,7 +99,7 @@ class TestGetJobStatus:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """GET /jobs/{id} auto-fails a job running for >1 hour."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         stale_start = datetime.now(timezone.utc) - timedelta(hours=2)
         job = await _create_job(
             test_db_session,
@@ -121,7 +117,7 @@ class TestGetJobStatus:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """GET /jobs/{id} auto-fails a job pending for >1 hour."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(
             test_db_session,
             created_by=admin_id,
@@ -160,7 +156,7 @@ class TestRetryJob:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """POST /jobs/{id}/retry on a pending job returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(test_db_session, created_by=admin_id, status="pending")
 
         resp = await client.post(f"/jobs/{job.id}/retry", headers=admin_auth_header)
@@ -185,7 +181,7 @@ class TestRetryJob:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """POST /jobs/{id}/retry on failed job with missing staging file returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(
             test_db_session,
             created_by=admin_id,

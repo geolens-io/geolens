@@ -12,6 +12,22 @@ from app.auth.providers.local import hash_password
 from app.cache import init_cache
 from app.config import settings
 
+# Shared test geometries
+EMPTY_FEATURE_COLLECTION = {
+    "type": "FeatureCollection",
+    "features": [],
+}
+
+POINT_GEOJSON = {
+    "type": "Point",
+    "coordinates": [-73.9857, 40.7484],
+}
+
+POLYGON_GEOJSON = {
+    "type": "Polygon",
+    "coordinates": [[[-74.0, 40.7], [-73.9, 40.7], [-73.9, 40.8], [-74.0, 40.8], [-74.0, 40.7]]],
+}
+
 
 @pytest.fixture(scope="session")
 def anyio_backend():

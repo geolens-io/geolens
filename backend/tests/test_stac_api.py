@@ -132,3 +132,84 @@ class TestStacItemCollection:
         assert ic.type == "FeatureCollection"
         assert ic.numberMatched == 0
         assert len(ic.features) == 0
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for STAC individual endpoints
+# ---------------------------------------------------------------------------
+
+import uuid
+
+import pytest
+from httpx import AsyncClient
+
+
+@pytest.mark.anyio
+async def test_get_collection_not_found(client: AsyncClient):
+    """GET /stac/collections/{random_uuid} returns 404."""
+    resp = await client.get(f"/stac/collections/{uuid.uuid4()}")
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_get_collection_items_not_found(client: AsyncClient):
+    """GET /stac/collections/{random_uuid}/items returns 404 for missing collection."""
+    resp = await client.get(f"/stac/collections/{uuid.uuid4()}/items")
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_get_collection_item_not_found(client: AsyncClient):
+    """GET /stac/collections/{random_uuid}/items/{random_uuid} returns 404."""
+    resp = await client.get(
+        f"/stac/collections/{uuid.uuid4()}/items/{uuid.uuid4()}"
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_get_item_not_found(client: AsyncClient):
+    """GET /stac/items/{random_uuid} returns 404 for non-existent item."""
+    resp = await client.get(f"/stac/items/{uuid.uuid4()}")
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_get_collection_valid(client: AsyncClient, admin_auth_header: dict, test_db_session):
+    """GET /stac/collections/{id} returns collection data when it exists."""
+    from app.collections.models import Collection
+
+    coll = Collection(name="STAC Test Collection", description="Test collection for STAC")
+    test_db_session.add(coll)
+    await test_db_session.commit()
+    await test_db_session.refresh(coll)
+
+    resp = await client.get(f"/stac/collections/{coll.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == str(coll.id)
+    assert data["type"] == "Collection"
+    assert data["title"] == "STAC Test Collection"
+    assert data["description"] == "Test collection for STAC"
+
+
+@pytest.mark.anyio
+async def test_get_collection_items_empty(client: AsyncClient, test_db_session):
+    """GET /stac/collections/{id}/items returns empty feature collection."""
+    from app.collections.models import Collection
+
+    coll = Collection(name="Empty STAC Collection", description="No items")
+    test_db_session.add(coll)
+    await test_db_session.commit()
+    await test_db_session.refresh(coll)
+
+    resp = await client.get(f"/stac/collections/{coll.id}/items")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "FeatureCollection"
+    assert data["numberMatched"] == 0
+    assert data["numberReturned"] == 0
+    assert data["features"] == []

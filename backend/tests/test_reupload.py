@@ -17,22 +17,17 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
 from app.datasets.service import compute_schema_diff
 from app.jobs.models import IngestJob
 from app.services.security import SSRFError
 
+from tests.factories import get_user_id
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -153,7 +148,7 @@ class TestReuploadUpload:
         test_db_session,
     ):
         """POST /datasets/{id}/reupload returns 201 with job_id."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.post(
@@ -199,7 +194,7 @@ class TestReuploadUpload:
         test_db_session,
     ):
         """POST /datasets/{id}/reupload with a .txt file returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.post(
@@ -218,7 +213,7 @@ class TestReuploadUpload:
         test_db_session,
     ):
         """Viewer role gets 403 on POST /datasets/{id}/reupload."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.post(
@@ -248,7 +243,7 @@ class TestReuploadPreview:
         test_db_session,
     ):
         """Upload file then POST preview returns schema_diff with diff fields."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         # Upload
@@ -304,7 +299,7 @@ class TestServiceReuploadPreview:
         admin_auth_header: dict,
         test_db_session,
     ):
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         with (
@@ -403,7 +398,7 @@ class TestServiceReuploadPreview:
         admin_auth_header: dict,
         test_db_session,
     ):
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         blocked_url = "http://127.0.0.1/internal"
 
@@ -463,7 +458,7 @@ class TestReuploadCommit:
         mock_reupload_task,
     ):
         """Upload file then POST commit returns 'Re-upload queued'."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         # Upload
@@ -513,7 +508,7 @@ class TestReuploadPreservesIdentity:
         test_db_session,
     ):
         """Full flow: upload, commit. Verify dataset ID/table_name/name are unchanged."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -575,7 +570,7 @@ class TestVersionsEndpoint:
         """After inserting a version record, GET /datasets/{id}/versions returns it."""
         from app.collections.models import DatasetVersion
 
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         # Manually insert a version record
@@ -616,7 +611,7 @@ class TestVersionsEndpoint:
         test_db_session,
     ):
         """GET /datasets/{id}/versions for dataset with no versions returns empty list."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.get(
@@ -641,7 +636,7 @@ class TestCurrentVersionInResponse:
         test_db_session,
     ):
         """GET /datasets/{id} response includes current_version field."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.get(

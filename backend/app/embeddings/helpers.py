@@ -3,6 +3,7 @@
 import time
 import uuid
 
+import httpx
 import structlog
 from openai import OpenAI
 from sqlalchemy import select, text
@@ -88,7 +89,9 @@ def build_openai_client(base_url: str) -> OpenAI:
     """Return a cached OpenAI client for the given base URL."""
     if base_url not in _cached_openai_clients:
         _cached_openai_clients[base_url] = OpenAI(
-            api_key=settings.openai_api_key, base_url=base_url
+            api_key=settings.openai_api_key,
+            base_url=base_url,
+            timeout=httpx.Timeout(60.0, connect=10.0),
         )
     return _cached_openai_clients[base_url]
 

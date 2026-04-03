@@ -23,12 +23,13 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
-from app.auth.models import User
 from app.cache.provider import get_cache
 from app.config import settings
-from app.datasets.models import Dataset, Record
+from app.datasets.models import Dataset
 from app.embed_tokens.models import EmbedToken
 from app.maps.models import Map, MapLayer
+
+from tests.factories import create_dataset, get_user_id
 
 
 @pytest.fixture(autouse=True)
@@ -51,12 +52,6 @@ async def _init_tile_pool_for_tests():
 # ---------------------------------------------------------------------------
 
 
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
-
-
 async def _create_private_dataset(
     session,
     *,
@@ -64,35 +59,20 @@ async def _create_private_dataset(
     table_name: str | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset with private visibility."""
-    tname = table_name or f"embed_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title="Embed Test DS",
-        summary="Dataset for embed token tests",
-        theme_category=["test"],
-        visibility="private",
-        record_status="published",
+    return await create_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=tname,
-        srid=4326,
+        name="Embed Test DS",
+        table_name=table_name,
+        visibility="private",
+        description="Dataset for embed token tests",
         geometry_type="Point",
         feature_count=1,
-        source_format="geojson",
-        source_filename="test.geojson",
         column_info=[
             {"name": "gid", "type": "integer"},
             {"name": "geom", "type": "geometry"},
         ],
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 async def _create_map_with_layer(
@@ -151,6 +131,26 @@ async def _cleanup_data_table(session, table_name: str) -> None:
     await session.commit()
 
 
+@pytest.fixture
+async def cleanup_data_tables(test_db_session):
+    """Fixture that guarantees cleanup of data tables even on test failure.
+
+    Usage: call ``cleanup_data_tables(table_name)`` to register a table for
+    cleanup.  All registered tables are dropped in the ``finally`` block after
+    the test completes (whether it passes or fails).
+    """
+    tables: list[str] = []
+
+    def _register(table_name: str) -> str:
+        tables.append(table_name)
+        return table_name
+
+    yield _register
+
+    for t in tables:
+        await _cleanup_data_table(test_db_session, t)
+
+
 # ---------------------------------------------------------------------------
 # Tests: Token CRUD (EMBED-01, EMBED-03, EMBED-06, EMBED-07)
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ class TestCreateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """POST creates a token with raw_token, token_hint, and scoped_dataset_ids."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -186,7 +186,7 @@ class TestCreateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """EMBED-03: Default expiration is ~30 days."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -210,7 +210,7 @@ class TestCreateEmbedToken:
         """EMBED-03: Expiration is capped at 365 days even if requesting more.
         The schema enforces le=365 so 400 is expected.
         """
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -244,7 +244,7 @@ class TestListEmbedTokens:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Create 2 tokens, list them, verify both returned."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -282,7 +282,7 @@ class TestRevokeEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Revoke a token; verify is_active=false. Listing shows revoked token."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -328,7 +328,7 @@ class TestTileEmbedTokenAccess:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Valid embed token grants tile access for scoped dataset (EMBED-02, EMBED-04)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_tile_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -361,7 +361,7 @@ class TestTileEmbedTokenAccess:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Embed token for map A rejects access to unscoped dataset (EMBED-02)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
 
         # Create two datasets - token will only scope to dataset_a
         table_a = f"embed_scope_a_{uuid.uuid4().hex[:8]}"
@@ -402,7 +402,7 @@ class TestTileEmbedTokenAccess:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Expired embed token is rejected (EMBED-04)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_exp_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -452,7 +452,7 @@ class TestTileEmbedTokenAccess:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Revoked embed token is rejected (EMBED-04, EMBED-06)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_rev_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -493,7 +493,7 @@ class TestTileEmbedTokenAccess:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Without X-Embed-Token, non-public tiles require HMAC sig (EMBED-04)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_fall_{uuid.uuid4().hex[:8]}"
         await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -512,7 +512,7 @@ class TestTileEmbedTokenAccess:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """EMBED-05: Second tile request succeeds via cache path."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_cache_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -561,7 +561,7 @@ class TestCreateEmbedTokenWithOrigins:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Create token with allowed_origins and verify it is returned."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -580,10 +580,10 @@ class TestCreateEmbedTokenWithOrigins:
 class TestTileDomainLocking:
     """DOMAIN-02, DOMAIN-03, DOMAIN-04: Origin validation on tile requests."""
 
-    async def _setup(self, test_db_session, client, admin_auth_header, allowed_origins):
+    async def _setup(self, test_db_session, client, admin_auth_header, allowed_origins, cleanup_data_tables):
         """Helper: create dataset, map, data table, and embed token."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
-        table_name = f"embed_dl_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        table_name = cleanup_data_tables(f"embed_dl_{uuid.uuid4().hex[:8]}")
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )
@@ -611,103 +611,85 @@ class TestTileDomainLocking:
         return table_name, raw_token
 
     async def test_tile_allowed_origin_passes(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
     ):
         """Token with allowed_origins, request with matching Origin header -> 200."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"]
+            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
         )
-        try:
-            resp = await client.get(
-                f"/tiles/data.{table_name}/0/0/0.pbf",
-                headers={"X-Embed-Token": raw_token, "Origin": "https://example.com"},
-            )
-            assert resp.status_code in (200, 204)
-        finally:
-            await _cleanup_data_table(test_db_session, table_name)
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token, "Origin": "https://example.com"},
+        )
+        assert resp.status_code in (200, 204)
 
     async def test_tile_unlisted_origin_rejected(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
     ):
         """Token with allowed_origins, request with unlisted Origin -> 403."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"]
+            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
         )
-        try:
-            resp = await client.get(
-                f"/tiles/data.{table_name}/0/0/0.pbf",
-                headers={"X-Embed-Token": raw_token, "Origin": "https://evil.com"},
-            )
-            assert resp.status_code == 403
-        finally:
-            await _cleanup_data_table(test_db_session, table_name)
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token, "Origin": "https://evil.com"},
+        )
+        assert resp.status_code == 403
 
     async def test_tile_no_origin_header_rejected(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
     ):
         """Token with domain-locking, no Origin/Referer -> 403."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"]
+            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
         )
-        try:
-            resp = await client.get(
-                f"/tiles/data.{table_name}/0/0/0.pbf",
-                headers={"X-Embed-Token": raw_token},
-            )
-            assert resp.status_code == 403
-        finally:
-            await _cleanup_data_table(test_db_session, table_name)
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token},
+        )
+        assert resp.status_code == 403
 
     async def test_tile_null_origins_unrestricted(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
     ):
         """Token with allowed_origins=None, any origin -> 200."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, None
+            test_db_session, client, admin_auth_header, None, cleanup_data_tables
         )
-        try:
-            resp = await client.get(
-                f"/tiles/data.{table_name}/0/0/0.pbf",
-                headers={"X-Embed-Token": raw_token, "Origin": "https://anything.com"},
-            )
-            assert resp.status_code in (200, 204)
-        finally:
-            await _cleanup_data_table(test_db_session, table_name)
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token, "Origin": "https://anything.com"},
+        )
+        assert resp.status_code in (200, 204)
 
     async def test_tile_localhost_auto_allowed(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
     ):
         """Token with domain-locking, localhost Origin -> 200 (auto-allowed)."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"]
+            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
         )
-        try:
-            resp = await client.get(
-                f"/tiles/data.{table_name}/0/0/0.pbf",
-                headers={"X-Embed-Token": raw_token, "Origin": "http://localhost:3000"},
-            )
-            assert resp.status_code in (200, 204)
-        finally:
-            await _cleanup_data_table(test_db_session, table_name)
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token, "Origin": "http://localhost:3000"},
+        )
+        assert resp.status_code in (200, 204)
 
     async def test_tile_referer_fallback(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
     ):
         """Token with domain-locking, no Origin but Referer matches -> 200."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"]
+            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
         )
-        try:
-            resp = await client.get(
-                f"/tiles/data.{table_name}/0/0/0.pbf",
-                headers={
-                    "X-Embed-Token": raw_token,
-                    "Referer": "https://example.com/page/1",
-                },
-            )
-            assert resp.status_code in (200, 204)
-        finally:
-            await _cleanup_data_table(test_db_session, table_name)
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={
+                "X-Embed-Token": raw_token,
+                "Referer": "https://example.com/page/1",
+            },
+        )
+        assert resp.status_code in (200, 204)
 
 
 # ---------------------------------------------------------------------------
@@ -722,7 +704,7 @@ class TestUsageTracking:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Cache miss triggers atomic use_count increment and last_used_at update."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_usage_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -770,7 +752,7 @@ class TestUsageTracking:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Cache hit does not increment use_count."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_cache_hit_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name
@@ -832,7 +814,7 @@ class TestAdminEmbedTokenList:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """GET /admin/embed-tokens/ returns tokens with map_name, creator_username, usage stats."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset1 = await _create_private_dataset(test_db_session, created_by=user_id)
         dataset2 = await _create_private_dataset(test_db_session, created_by=user_id)
         map1, _ = await _create_map_with_layer(
@@ -874,7 +856,7 @@ class TestAdminEmbedTokenList:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Filter by status=revoked returns only revoked tokens."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -952,7 +934,7 @@ class TestBulkRevokeEmbedTokens:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Bulk-revoke 2 of 3 tokens; verify revoked_count and remaining active."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         token_ids: list[str] = []
         map_ids: list[str] = []
         for i in range(3):
@@ -996,7 +978,7 @@ class TestBulkRevokeEmbedTokens:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Already-revoked tokens are skipped in bulk revoke count."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         token_ids: list[str] = []
         map_ids: list[str] = []
         for i in range(2):
@@ -1047,7 +1029,7 @@ class TestUpdateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """PATCH with allowed_origins updates domain restrictions."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -1077,7 +1059,7 @@ class TestUpdateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """PATCH with allowed_origins=null removes restrictions (unrestricted)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -1106,7 +1088,7 @@ class TestUpdateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """PATCH with origins on an unrestricted token adds restrictions (auto-prepends https://)."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -1136,7 +1118,7 @@ class TestUpdateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """PATCH on nonexistent token_id returns 404."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -1154,7 +1136,7 @@ class TestUpdateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """PATCH by non-owner returns 403."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
@@ -1203,7 +1185,7 @@ class TestUpdateEmbedToken:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """After PATCH, tile request with new origin succeeds and old origin fails."""
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_patch_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
             test_db_session, created_by=user_id, table_name=table_name

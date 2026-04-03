@@ -30,6 +30,7 @@ from app.datasets.schemas import (
     StatusUpdate,
     StatusUpdateResponse,
 )
+from app.maps.schemas import MapListResponse
 from app.datasets.service import (
     get_dataset,
     get_dataset_rows,
@@ -150,14 +151,13 @@ async def validate_dataset(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{dataset_id}/maps/")
+@router.get("/{dataset_id}/maps/", response_model=MapListResponse)
 async def dataset_maps(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ):
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
-    from app.maps.schemas import MapListResponse  # noqa: F811
     from app.maps.service import get_maps_for_dataset
 
     user_id = user.id if user else None

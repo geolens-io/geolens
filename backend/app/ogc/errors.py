@@ -2,10 +2,13 @@
 
 import json
 
+import structlog
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+logger = structlog.stdlib.get_logger(__name__)
 
 
 class ProblemDetail(BaseModel):
@@ -71,4 +74,14 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail=detail,
             ).model_dump(),
             media_type="application/problem+json",
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        logger.exception("Unhandled error")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
         )

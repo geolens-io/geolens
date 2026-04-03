@@ -48,7 +48,7 @@ export const appRoutes = (
     <Route path="/register" element={<RegisterPage />} />
     <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
     <Route path="/m/:token" element={<PublicViewerPage />} />
-    <Route element={<AppLayout />}>
+    <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       <Route index element={<SearchPage />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />

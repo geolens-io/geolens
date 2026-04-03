@@ -26,6 +26,24 @@ describe('useBasemaps', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(mockData);
   });
+
+  it('returns error state on failure', async () => {
+    mockGetBasemaps.mockRejectedValueOnce(new Error('Network error'));
+
+    const { result } = renderHook(() => useBasemaps());
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('starts in loading state', () => {
+    mockGetBasemaps.mockReturnValueOnce(new Promise(() => {}) as never);
+
+    const { result } = renderHook(() => useBasemaps());
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.data).toBeUndefined();
+  });
 });
 
 describe('useMapDefaults', () => {

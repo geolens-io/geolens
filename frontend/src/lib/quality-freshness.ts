@@ -1,3 +1,5 @@
+import { formatRelativeTime } from './provenance-attribution';
+
 export type QualityCadence = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annually' | 'unknown';
 export type QualityFreshnessState = 'fresh' | 'stale' | 'missing';
 
@@ -62,38 +64,6 @@ function formatAbsoluteTimestamp(date: Date, locale: string): string {
   }).format(date);
 }
 
-function formatRelativeAge(deltaMs: number, locale: string): string {
-  const absoluteDeltaMs = Math.abs(deltaMs);
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
-
-  if (absoluteDeltaMs < MS_IN_MINUTE) {
-    return rtf.format(0, 'second');
-  }
-
-  if (absoluteDeltaMs < MS_IN_HOUR) {
-    const minutes = Math.round(absoluteDeltaMs / MS_IN_MINUTE);
-    return rtf.format(deltaMs >= 0 ? -minutes : minutes, 'minute');
-  }
-
-  if (absoluteDeltaMs < MS_IN_DAY) {
-    const hours = Math.round(absoluteDeltaMs / MS_IN_HOUR);
-    return rtf.format(deltaMs >= 0 ? -hours : hours, 'hour');
-  }
-
-  if (absoluteDeltaMs < 30 * MS_IN_DAY) {
-    const days = Math.round(absoluteDeltaMs / MS_IN_DAY);
-    return rtf.format(deltaMs >= 0 ? -days : days, 'day');
-  }
-
-  if (absoluteDeltaMs < 365 * MS_IN_DAY) {
-    const months = Math.round(absoluteDeltaMs / (30 * MS_IN_DAY));
-    return rtf.format(deltaMs >= 0 ? -months : months, 'month');
-  }
-
-  const years = Math.round(absoluteDeltaMs / (365 * MS_IN_DAY));
-  return rtf.format(deltaMs >= 0 ? -years : years, 'year');
-}
-
 export function deriveQualityFreshness({
   computedAt,
   updateFrequency,
@@ -132,7 +102,7 @@ export function deriveQualityFreshness({
     state,
     cadence,
     absoluteTimestamp: formatAbsoluteTimestamp(computedDate, locale),
-    relativeAge: formatRelativeAge(ageMs, locale),
+    relativeAge: formatRelativeTime(computedDate, now, locale),
     isStale,
   };
 }

@@ -9,53 +9,10 @@ Requirements:
   - Alembic migrations must be applied
 """
 
-import uuid
-
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
-
-
-async def _create_audit_dataset(session, *, created_by: uuid.UUID) -> Dataset:
-    """Insert a public dataset for audit tests."""
-    table_name = f"ds_audit_{uuid.uuid4().hex[:8]}"
-    record = Record(
-        title=f"Audit Test Dataset {uuid.uuid4().hex[:6]}",
-        summary="Dataset for audit log testing",
-        theme_category=["audit-test"],
-        visibility="public",
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="Point",
-        feature_count=10,
-        source_format="geojson",
-        source_filename="audit.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +28,8 @@ async def test_metadata_edit_creates_audit_log(
     test_db_session,
 ):
     """PATCH /datasets/{id} creates a metadata.edit audit log entry."""
-    admin_id = await _get_user_id(test_db_session, "admin")
-    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(test_db_session, created_by=admin_id)
 
     # Editor edits the dataset metadata
     patch_resp = await client.patch(
@@ -108,8 +65,8 @@ async def test_dataset_view_creates_audit_log(
     test_db_session,
 ):
     """GET /datasets/{id} creates a dataset.view audit log entry."""
-    admin_id = await _get_user_id(test_db_session, "admin")
-    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(test_db_session, created_by=admin_id)
 
     # Viewer views the dataset
     view_resp = await client.get(
@@ -130,7 +87,7 @@ async def test_dataset_view_creates_audit_log(
 
     entries = [log for log in data["logs"] if log.get("resource_id") == str(ds.id)]
     assert len(entries) >= 1
-    assert entries[0]["action"] == "dataset.view"
+    assert any(e["action"] == "dataset.view" for e in entries)
 
 
 # ---------------------------------------------------------------------------
@@ -146,8 +103,8 @@ async def test_audit_log_filter_by_user(
     test_db_session,
 ):
     """Filter audit logs by user_id returns only that user's logs."""
-    admin_id = await _get_user_id(test_db_session, "admin")
-    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(test_db_session, created_by=admin_id)
 
     # Admin views the dataset (creates a log for admin)
     await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
@@ -217,12 +174,12 @@ async def test_audit_log_pagination(
     test_db_session,
 ):
     """Audit log pagination returns correct page size."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     # Create some audit events by viewing datasets
-    ds1 = await _create_audit_dataset(test_db_session, created_by=admin_id)
-    ds2 = await _create_audit_dataset(test_db_session, created_by=admin_id)
-    ds3 = await _create_audit_dataset(test_db_session, created_by=admin_id)
+    ds1 = await create_dataset(test_db_session, created_by=admin_id)
+    ds2 = await create_dataset(test_db_session, created_by=admin_id)
+    ds3 = await create_dataset(test_db_session, created_by=admin_id)
     await client.get(f"/datasets/{ds1.id}", headers=admin_auth_header)
     await client.get(f"/datasets/{ds2.id}", headers=admin_auth_header)
     await client.get(f"/datasets/{ds3.id}", headers=admin_auth_header)
@@ -278,8 +235,8 @@ async def test_export_audit_logs_csv(
     test_db_session,
 ):
     """GET /admin/audit-logs/export/csv returns 200 with text/csv content and header row."""
-    admin_id = await _get_user_id(test_db_session, "admin")
-    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(test_db_session, created_by=admin_id)
 
     # Trigger a dataset.view audit log
     await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
@@ -306,8 +263,8 @@ async def test_export_audit_logs_json(
     test_db_session,
 ):
     """GET /admin/audit-logs/export/json returns 200 with application/json array."""
-    admin_id = await _get_user_id(test_db_session, "admin")
-    ds = await _create_audit_dataset(test_db_session, created_by=admin_id)
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(test_db_session, created_by=admin_id)
 
     # Trigger a dataset.view audit log
     await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)

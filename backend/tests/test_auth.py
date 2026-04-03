@@ -399,3 +399,140 @@ class TestAdminUserManagement:
         fake_id = str(uuid.uuid4())
         resp = await client.get(f"/admin/users/{fake_id}", headers=admin_headers)
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Admin approve / reject user tests
+# ---------------------------------------------------------------------------
+
+
+class TestAdminApproveReject:
+    async def test_admin_approve_pending_user(self, client: AsyncClient, monkeypatch):
+        """Admin can approve a pending user via POST /admin/users/{id}/approve/."""
+        from app.auth.router import REGISTRATION_ENABLED
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED,
+            "get",
+            AsyncMock(return_value=True),
+        )
+
+        admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+        # Register a pending user
+        unique = uuid.uuid4().hex[:8]
+        username = f"pendapprove_{unique}"
+        reg_resp = await client.post(
+            "/auth/register/",
+            json={"username": username, "password": "securepass123"},
+        )
+        assert reg_resp.status_code == 201
+
+        # Find the user via admin list
+        list_resp = await client.get(
+            "/admin/users/?status=pending",
+            headers=admin_headers,
+        )
+        assert list_resp.status_code == 200
+        users = list_resp.json()["users"]
+        pending_user = next(u for u in users if u["username"] == username)
+        user_id = pending_user["id"]
+
+        # Approve with viewer role
+        approve_resp = await client.post(
+            f"/admin/users/{user_id}/approve/",
+            json={"role": "viewer"},
+            headers=admin_headers,
+        )
+        assert approve_resp.status_code == 200
+        data = approve_resp.json()
+        assert data["status"] == "active"
+        assert data["is_active"] is True
+        assert "viewer" in data["roles"]
+
+    async def test_admin_reject_pending_user(self, client: AsyncClient, monkeypatch):
+        """Admin can reject a pending user via POST /admin/users/{id}/reject/."""
+        from app.auth.router import REGISTRATION_ENABLED
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED,
+            "get",
+            AsyncMock(return_value=True),
+        )
+
+        admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+        # Register a pending user
+        unique = uuid.uuid4().hex[:8]
+        username = f"pendreject_{unique}"
+        reg_resp = await client.post(
+            "/auth/register/",
+            json={"username": username, "password": "securepass123"},
+        )
+        assert reg_resp.status_code == 201
+
+        # Find the user
+        list_resp = await client.get(
+            "/admin/users/?status=pending",
+            headers=admin_headers,
+        )
+        assert list_resp.status_code == 200
+        users = list_resp.json()["users"]
+        pending_user = next(u for u in users if u["username"] == username)
+        user_id = pending_user["id"]
+
+        # Reject (hard-delete)
+        reject_resp = await client.post(
+            f"/admin/users/{user_id}/reject/",
+            headers=admin_headers,
+        )
+        assert reject_resp.status_code == 204
+
+        # Confirm user is gone
+        get_resp = await client.get(
+            f"/admin/users/{user_id}",
+            headers=admin_headers,
+        )
+        assert get_resp.status_code == 404
+
+    async def test_approve_forbidden_for_non_admin(self, client: AsyncClient):
+        """Non-admin user cannot approve a pending user (returns 403)."""
+        admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+        # Create a viewer
+        unique = uuid.uuid4().hex[:8]
+        viewer_username = f"viewer_{unique}"
+        await _create_user_via_admin(
+            client, admin_headers, username=viewer_username, role="viewer"
+        )
+        viewer_headers = await get_auth_header(client, viewer_username, "testpass123")
+
+        # Viewer tries to approve a user (use a fake ID — auth check happens first)
+        fake_id = str(uuid.uuid4())
+        resp = await client.post(
+            f"/admin/users/{fake_id}/approve/",
+            json={"role": "viewer"},
+            headers=viewer_headers,
+        )
+        assert resp.status_code == 403
+
+    async def test_reject_forbidden_for_non_admin(self, client: AsyncClient):
+        """Non-admin user cannot reject a pending user (returns 403)."""
+        admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+        # Create an editor
+        unique = uuid.uuid4().hex[:8]
+        editor_username = f"editor_{unique}"
+        await _create_user_via_admin(
+            client, admin_headers, username=editor_username, role="editor"
+        )
+        editor_headers = await get_auth_header(client, editor_username, "testpass123")
+
+        fake_id = str(uuid.uuid4())
+        resp = await client.post(
+            f"/admin/users/{fake_id}/reject/",
+            headers=editor_headers,
+        )
+        assert resp.status_code == 403

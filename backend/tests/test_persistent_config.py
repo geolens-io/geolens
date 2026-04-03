@@ -244,13 +244,17 @@ async def test_log_level_side_effect(client: AsyncClient):
     from app.dependencies import get_db
     from app.main import app
 
-    async for db in app.dependency_overrides[get_db]():
-        await LOG_LEVEL.set(db, "DEBUG")
-        assert logging.getLogger().level == logging.DEBUG
+    original_level = logging.getLogger().level
+    try:
+        async for db in app.dependency_overrides[get_db]():
+            await LOG_LEVEL.set(db, "DEBUG")
+            assert logging.getLogger().level == logging.DEBUG
 
-        # Restore
-        await LOG_LEVEL.set(db, "INFO")
-        assert logging.getLogger().level == logging.INFO
+            # Restore
+            await LOG_LEVEL.set(db, "INFO")
+            assert logging.getLogger().level == logging.INFO
+    finally:
+        logging.getLogger().setLevel(original_level)
 
 
 @pytest.mark.anyio
@@ -756,31 +760,35 @@ async def test_log_level_propagation_via_api(
     """Setting log_level via PUT /settings/ propagates immediately to root logger."""
     import logging
 
-    # Set to DEBUG
-    resp = await client.put(
-        "/settings/",
-        json={"settings": {"log_level": "DEBUG"}},
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 200
-    assert logging.getLogger().level == logging.DEBUG
+    original_level = logging.getLogger().level
+    try:
+        # Set to DEBUG
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"log_level": "DEBUG"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert logging.getLogger().level == logging.DEBUG
 
-    # Set to WARNING
-    resp = await client.put(
-        "/settings/",
-        json={"settings": {"log_level": "WARNING"}},
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 200
-    assert logging.getLogger().level == logging.WARNING
+        # Set to WARNING
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"log_level": "WARNING"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert logging.getLogger().level == logging.WARNING
 
-    # Reset to INFO
-    await client.put(
-        "/settings/",
-        json={"settings": {"log_level": "INFO"}},
-        headers=admin_auth_header,
-    )
-    assert logging.getLogger().level == logging.INFO
+        # Reset to INFO
+        await client.put(
+            "/settings/",
+            json={"settings": {"log_level": "INFO"}},
+            headers=admin_auth_header,
+        )
+        assert logging.getLogger().level == logging.INFO
+    finally:
+        logging.getLogger().setLevel(original_level)
 
 
 # ---------------------------------------------------------------------------

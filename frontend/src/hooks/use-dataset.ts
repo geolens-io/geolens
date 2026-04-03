@@ -41,6 +41,7 @@ export function useDataset(id: string, options?: { refetchInterval?: number | fa
     queryFn: () => getDataset(id),
     enabled: !!id,
     refetchInterval: options?.refetchInterval,
+    staleTime: 60_000,
   });
 }
 
@@ -158,6 +159,7 @@ export function useAttributes(datasetId: string | undefined) {
     queryKey: queryKeys.datasets.attributes(datasetId),
     queryFn: () => listAttributes(datasetId!),
     enabled: !!datasetId,
+    staleTime: 2 * 60_000,
   });
 }
 

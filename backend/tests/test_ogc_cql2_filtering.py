@@ -19,21 +19,14 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -92,7 +85,7 @@ def _find_link(links: list[dict], rel: str) -> dict | None:
 async def test_cql2_text_equality_filter(client: AsyncClient, test_db_session):
     """CQL2 text equality filter returns only matching records."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
     target_name = f"cql2-eq-target-{unique}"
     other_name = f"cql2-eq-other-{unique}"
@@ -117,7 +110,7 @@ async def test_cql2_text_equality_filter(client: AsyncClient, test_db_session):
 async def test_cql2_text_comparison_filter(client: AsyncClient, test_db_session):
     """CQL2 text comparison filter on srid returns only matching records."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
 
     await _create_dataset(
@@ -144,7 +137,7 @@ async def test_cql2_text_comparison_filter(client: AsyncClient, test_db_session)
 async def test_cql2_text_like_filter(client: AsyncClient, test_db_session):
     """CQL2 text LIKE filter returns partial-match results."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
     target_name = f"cql2-like-parcels-{unique}"
 
@@ -174,7 +167,7 @@ async def test_cql2_text_like_filter(client: AsyncClient, test_db_session):
 async def test_cql2_json_equality_filter(client: AsyncClient, test_db_session):
     """CQL2 JSON equality filter returns only matching records."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
 
     await _create_dataset(
@@ -201,7 +194,7 @@ async def test_cql2_json_equality_filter(client: AsyncClient, test_db_session):
 async def test_cql2_json_logical_and(client: AsyncClient, test_db_session):
     """CQL2 JSON AND operator combines two conditions correctly."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
 
     # Create a dataset matching both conditions
@@ -281,7 +274,7 @@ async def test_cql2_unsupported_filter_lang_returns_400(client: AsyncClient):
 async def test_cql2_default_filter_lang_is_text(client: AsyncClient, test_db_session):
     """Omitting filter-lang defaults to cql2-text and parses successfully."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
     target_name = f"cql2-default-{unique}"
 
@@ -309,7 +302,7 @@ async def test_cql2_default_filter_lang_is_text(client: AsyncClient, test_db_ses
 async def test_cql2_pagination_preserves_filter(client: AsyncClient, test_db_session):
     """Pagination next link preserves filter and filter-lang params."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
 
     # Create enough matching datasets to trigger pagination
@@ -348,7 +341,7 @@ async def test_cql2_pagination_preserves_non_default_filter_lang(
 ):
     """Pagination next link includes filter-lang when non-default (cql2-json)."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
 
     for i in range(3):
@@ -388,7 +381,7 @@ async def test_cql2_filter_respects_visibility(
 ):
     """CQL2 filter does not expose private datasets to anonymous users."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     unique = uuid.uuid4().hex[:8]
     private_name = f"cql2-private-{unique}"
     public_name = f"cql2-public-{unique}"

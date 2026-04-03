@@ -33,7 +33,7 @@ def get_anthropic_client() -> AsyncAnthropic:
     global _cached_anthropic_client
     if _cached_anthropic_client is None:
         _cached_anthropic_client = AsyncAnthropic(
-            api_key=settings.anthropic_api_key, timeout=_LLM_TIMEOUT
+            api_key=settings.anthropic_api_key, timeout=_LLM_TIMEOUT, max_retries=2
         )
     return _cached_anthropic_client
 
@@ -41,7 +41,10 @@ def get_anthropic_client() -> AsyncAnthropic:
 def get_openai_client(base_url: str) -> AsyncOpenAI:
     if base_url not in _cached_openai_clients:
         _cached_openai_clients[base_url] = AsyncOpenAI(
-            api_key=settings.openai_api_key, base_url=base_url, timeout=_LLM_TIMEOUT
+            api_key=settings.openai_api_key,
+            base_url=base_url,
+            timeout=_LLM_TIMEOUT,
+            max_retries=2,
         )
     return _cached_openai_clients[base_url]
 

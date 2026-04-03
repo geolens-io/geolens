@@ -36,7 +36,7 @@ function parseTimestamp(value: string | Date | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatRelativeTime(timestamp: Date, now: Date, locale: string): string {
+export function formatRelativeTime(timestamp: Date, now: Date, locale: string): string {
   const deltaMs = now.getTime() - timestamp.getTime();
   const absoluteDeltaMs = Math.abs(deltaMs);
   const direction = deltaMs >= 0 ? -1 : 1;

@@ -17,21 +17,14 @@ from datetime import date
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordKeyword
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -100,7 +93,7 @@ _LA_EXTENT = "SRID=4326;POLYGON((-118.5 33.7, -118.5 34.1, -117.9 34.1, -117.9 3
 async def test_collection_has_spatial_extent(client: AsyncClient, test_db_session):
     """Collection spatial extent aggregates bboxes from all visible datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dataset(
         session, created_by=admin_id, name="NYC DS", wkt_extent=_NYC_EXTENT
     )
@@ -134,7 +127,7 @@ async def test_collection_has_spatial_extent(client: AsyncClient, test_db_sessio
 async def test_collection_has_temporal_extent(client: AsyncClient, test_db_session):
     """Collection temporal extent spans min start to max end across datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dataset(
         session,
         created_by=admin_id,
@@ -173,7 +166,7 @@ async def test_collection_has_temporal_extent(client: AsyncClient, test_db_sessi
 async def test_collection_has_summaries(client: AsyncClient, test_db_session):
     """Collection summaries include geometry types, SRIDs, and deduplicated tags."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dataset(
         session,
         created_by=admin_id,
@@ -225,7 +218,7 @@ async def test_collection_anonymous_sees_only_public_extent(
 ):
     """Anonymous user sees summaries only from public datasets, not private."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # Use unique tag names to avoid collisions with other tests
     unique = uuid.uuid4().hex[:6]
@@ -304,7 +297,7 @@ async def test_list_collections_includes_dynamic_metadata(
 ):
     """GET /collections returns collection with extent and summaries when data exists."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dataset(
         session,
         created_by=admin_id,
@@ -335,7 +328,7 @@ async def test_list_collections_includes_dynamic_metadata(
 async def test_collection_temporal_open_ended(client: AsyncClient, test_db_session):
     """Dataset with start but no end produces open-ended temporal interval."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dataset(
         session,
         created_by=admin_id,
@@ -368,7 +361,7 @@ async def test_per_dataset_collection_has_extent_in_list(
 ):
     """Per-dataset entry in /collections includes spatial and temporal extent."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dataset(
         session,
         created_by=admin_id,
@@ -406,7 +399,7 @@ async def test_per_dataset_collection_has_root_link_in_list(
 ):
     """Per-dataset entry in /collections includes rel=root link."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dataset(
         session,
         created_by=admin_id,
@@ -432,7 +425,7 @@ async def test_per_dataset_collection_detail_has_temporal_extent(
 ):
     """GET /collections/{dataset_id} includes temporal extent when dates exist."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dataset(
         session,
         created_by=admin_id,

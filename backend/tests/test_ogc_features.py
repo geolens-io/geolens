@@ -14,21 +14,16 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_test_table_and_dataset(
@@ -115,7 +110,7 @@ async def _cleanup_table(session, table_name: str) -> None:
 @pytest.fixture
 async def public_dataset(client: AsyncClient, test_db_session):
     """Create a public dataset with 5 features for testing."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_test_table_and_dataset(
         test_db_session,
         created_by=admin_id,
@@ -129,7 +124,7 @@ async def public_dataset(client: AsyncClient, test_db_session):
 @pytest.fixture
 async def private_dataset(client: AsyncClient, test_db_session):
     """Create a private dataset for visibility testing."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_test_table_and_dataset(
         test_db_session,
         created_by=admin_id,

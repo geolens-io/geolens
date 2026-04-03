@@ -16,20 +16,14 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
 from app.datasets.models import AttributeMetadata, Dataset
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session: AsyncSession, username: str) -> uuid.UUID:
-    """Look up a user's ID by username."""
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset_with_attributes(
@@ -126,7 +120,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Create dataset with column_info, verify attributes are auto-generated."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -149,7 +143,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify geom row exists with correct semantic_role and domain_type."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -166,7 +160,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify semantic roles inferred correctly for different column types."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -183,7 +177,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify domain types inferred correctly from PostgreSQL data types."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -201,7 +195,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify area_sqkm gets units='square kilometers' from suffix."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -216,7 +210,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify column names are humanized into titles."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -233,7 +227,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify non-geometry columns have example_values populated."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -250,7 +244,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify geom row has example_values=None."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -265,7 +259,7 @@ class TestAttributeAutoPopulation:
         test_db_session: AsyncSession,
     ):
         """Verify ordinal_position is set from column_info."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -290,7 +284,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """GET /datasets/{id}/attributes/ returns correct total and all fields."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -312,7 +306,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """GET /datasets/{id}/attributes/{attr_id}/ returns the correct attribute."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -332,7 +326,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """GET with fake attr_id returns 404."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         fake_id = str(uuid.uuid4())
         resp = await client.get(
@@ -347,7 +341,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """PATCH with title adds 'title' to user_modified_fields."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -372,7 +366,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """PATCH with description works."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -396,7 +390,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """PATCH with units works."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -419,7 +413,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """After PATCH + POST reset, user_modified_fields is empty and title reverts."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -453,7 +447,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """GET without token on public dataset returns 200 (anonymous allowed)."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         resp = await client.get(f"/datasets/{ds.id}/attributes/")
         assert resp.status_code == 200
@@ -466,7 +460,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """PATCH with viewer token returns 403."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -487,7 +481,7 @@ class TestAttributeAPI:
         test_db_session: AsyncSession,
     ):
         """POST reset with viewer token returns 403."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -526,7 +520,7 @@ class TestAttributeAPI:
         )
 
         # Create private dataset owned by admin
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(
             test_db_session, created_by=admin_id, visibility="private"
         )
@@ -556,7 +550,7 @@ class TestAttributeAPI:
 
         editor_header, _ = await _create_test_user(client, admin_auth_header, "editor")
 
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(
             test_db_session, created_by=admin_id, visibility="private"
         )
@@ -586,7 +580,7 @@ class TestAttributeNullAndValidation:
         test_db_session: AsyncSession,
     ):
         """Send {"title": null}, verify title is None in response."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -609,7 +603,7 @@ class TestAttributeNullAndValidation:
         test_db_session: AsyncSession,
     ):
         """Send {"description": "x"}, verify title is unchanged."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -634,7 +628,7 @@ class TestAttributeNullAndValidation:
         test_db_session: AsyncSession,
     ):
         """Send bad semantic_role value, expect 422."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -654,7 +648,7 @@ class TestAttributeNullAndValidation:
         test_db_session: AsyncSession,
     ):
         """Send bad domain_type value, expect 422."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
         list_resp = await client.get(
             f"/datasets/{ds.id}/attributes/", headers=admin_auth_header
@@ -681,7 +675,7 @@ class TestAttributeCurrentFlag:
         test_db_session: AsyncSession,
     ):
         """Rows with is_current=false are excluded from default list."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
 
         # Mark one attribute as removed
@@ -710,7 +704,7 @@ class TestAttributeCurrentFlag:
         test_db_session: AsyncSession,
     ):
         """include_removed=true returns all rows including removed."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
 
         # Mark one attribute as removed
@@ -738,7 +732,7 @@ class TestAttributeCurrentFlag:
         test_db_session: AsyncSession,
     ):
         """Remove column from refresh, verify is_current=false."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
 
         # Simulate re-upload with a subset of columns (name column removed)
@@ -796,7 +790,7 @@ class TestAttributeCascadeDelete:
         test_db_session: AsyncSession,
     ):
         """Delete dataset, verify no attribute_metadata rows remain."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(
             test_db_session, created_by=admin_id, name="Cascade Attr Test"
         )
@@ -836,7 +830,7 @@ class TestAttributeUniqueConstraint:
         """Verify unique constraint prevents duplicate (dataset_id, field_name)."""
         from sqlalchemy.exc import IntegrityError
 
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
 
         # Try to insert a duplicate field_name for same dataset

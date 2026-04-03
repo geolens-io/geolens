@@ -53,9 +53,9 @@ def _nfc(v: str | None) -> str | None:
 
 
 class DatasetCreate(BaseModel):
-    title: str
+    title: str = Field(max_length=500)
     summary: str | None = Field(
-        default=None, description="Brief abstract of the dataset"
+        default=None, max_length=5000, description="Brief abstract of the dataset"
     )
     visibility: Visibility = Field(
         default="private",
@@ -273,14 +273,14 @@ class BulkDeleteResponse(BaseModel):
 
 
 class DatasetMeta(BaseModel):
-    title: str | None = None
-    summary: str | None = None
+    title: str | None = Field(default=None, max_length=500)
+    summary: str | None = Field(default=None, max_length=5000)
     visibility: Visibility | None = Field(
         default=None,
         description="Access level: private, restricted, internal, or public",
     )
-    license: str | None = None
-    source_organization: str | None = None
+    license: str | None = Field(default=None, max_length=1000)
+    source_organization: str | None = Field(default=None, max_length=1000)
     data_vintage_start: date | None = Field(
         default=None, description="Start of temporal coverage"
     )
@@ -289,29 +289,41 @@ class DatasetMeta(BaseModel):
     )
     # ISO governance fields
     lineage_summary: str | None = Field(
-        default=None, description="Free-text provenance / lineage statement"
+        default=None,
+        max_length=5000,
+        description="Free-text provenance / lineage statement",
     )
     update_frequency: str | None = Field(
-        default=None, description="ISO maintenance frequency code"
+        default=None, max_length=1000, description="ISO maintenance frequency code"
     )
-    usage_constraints: str | None = None
-    access_constraints: str | None = None
+    usage_constraints: str | None = Field(default=None, max_length=1000)
+    access_constraints: str | None = Field(default=None, max_length=1000)
     sensitivity_classification: str | None = Field(
-        default=None, description="e.g. public, confidential, restricted"
+        default=None,
+        max_length=1000,
+        description="e.g. public, confidential, restricted",
     )
     theme_category: list[str] | None = Field(
         default=None, description="ISO topic category codes"
     )
     record_status: str | None = Field(
-        default=None, description="Lifecycle status: draft, ready, published"
+        default=None,
+        max_length=1000,
+        description="Lifecycle status: draft, ready, published",
     )
-    owner_org: str | None = Field(default=None, description="Owning organization name")
-    quality_statement: str | None = None
+    owner_org: str | None = Field(
+        default=None, max_length=1000, description="Owning organization name"
+    )
+    quality_statement: str | None = Field(default=None, max_length=5000)
     source_url: str | None = Field(
-        default=None, description="URL the data was originally fetched from"
+        default=None,
+        max_length=1000,
+        description="URL the data was originally fetched from",
     )
     language: str | None = Field(
-        default=None, description="ISO 639-1 language code, e.g. en, fr"
+        default=None,
+        max_length=1000,
+        description="ISO 639-1 language code, e.g. en, fr",
     )
 
     @field_validator(
@@ -417,7 +429,7 @@ class DatasetRowsResponse(BaseModel):
 
 
 class ColumnValuesResponse(BaseModel):
-    values: list
+    values: list[str | int | float | None]
     count: int
 
 

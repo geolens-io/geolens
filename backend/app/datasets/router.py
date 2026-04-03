@@ -11,7 +11,7 @@ from fastapi import (
     Response,
     status,
 )
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.schemas import AuditLogListResponse, AuditLogResponse
@@ -48,7 +48,8 @@ from app.datasets.service import (
     create_empty_dataset,
     delete_dataset,
     get_dataset,
-    list_datasets,
+    get_dataset_detail,
+    get_datasets_list,
     update_user_metadata,
 )
 from app.public_urls import get_dataset_service_url
@@ -84,64 +85,11 @@ async def list_all_datasets(
         if cached is not None:
             return DatasetListResponse(**cached)
 
-    datasets, total = await list_datasets(db, user, user_roles, skip=skip, limit=limit)
-    actors_by_id = await _load_actor_identities(
-        db,
-        [
-            actor_id
-            for dataset in datasets
-            for actor_id in (dataset.record.created_by, dataset.record.updated_by)
-        ],
+    base_url = await get_dataset_service_url(db, request=request)
+    datasets, total = await get_datasets_list(
+        db, user, user_roles, skip=skip, limit=limit, base_url=base_url
     )
-
-    # Batch-fetch RasterAssets for all raster and VRT datasets in the page
-    from app.raster.models import RasterAsset
-
-    raster_ids = [
-        d.id
-        for d in datasets
-        if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
-    ]
-    raster_assets_by_dataset_id: dict = {}
-    if raster_ids:
-        ra_result = await db.execute(
-            select(RasterAsset).where(RasterAsset.dataset_id.in_(raster_ids))
-        )
-        for ra in ra_result.scalars().all():
-            raster_assets_by_dataset_id[ra.dataset_id] = ra
-
-    # Batch source_count query for VRT datasets
-    vrt_ids = [
-        d.id
-        for d in datasets
-        if getattr(d.record, "record_type", None) == "vrt_dataset"
-    ]
-    source_counts: dict = {}
-    if vrt_ids:
-        sc_result = await db.execute(
-            text(
-                "SELECT vrt_dataset_id, COUNT(*) AS cnt FROM catalog.vrt_source_links WHERE vrt_dataset_id = ANY(:ids) GROUP BY vrt_dataset_id"
-            ),
-            {"ids": [str(v) for v in vrt_ids]},
-        )
-        for row in sc_result.all():
-            source_counts[row.vrt_dataset_id] = row.cnt
-
-    list_base_url = await get_dataset_service_url(db, request=request)
-    response = DatasetListResponse(
-        datasets=[
-            _dataset_to_response(
-                d,
-                actors_by_id=actors_by_id,
-                raster_asset=raster_assets_by_dataset_id.get(d.id),
-                is_admin=is_admin,
-                source_count=source_counts.get(str(d.id)),
-                base_url=list_base_url,
-            )
-            for d in datasets
-        ],
-        total=total,
-    )
+    response = DatasetListResponse(datasets=datasets, total=total)
 
     if cache_key:
         cache = get_cache()
@@ -219,66 +167,16 @@ async def get_single_dataset(
     colls = await get_dataset_collections(db, dataset_id)
     collections_data = [{"id": str(c.id), "name": c.name} for c in colls]
 
-    actors_by_id = await _load_actor_identities(
-        db,
-        [dataset.record.created_by, dataset.record.updated_by],
+    base_url = await get_dataset_service_url(db, request=request)
+    result = await get_dataset_detail(
+        db, dataset_id, user, base_url=base_url, collections_data=collections_data
     )
-
-    # Fetch RasterAsset for raster and VRT datasets
-    from app.raster.models import RasterAsset
-
-    raster_asset = None
-    source_count = None
-    if getattr(dataset.record, "record_type", None) in (
-        "raster_dataset",
-        "vrt_dataset",
-    ):
-        ra_result = await db.execute(
-            select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
         )
-        raster_asset = ra_result.scalar_one_or_none()
-
-    if getattr(dataset.record, "record_type", None) == "vrt_dataset":
-        sc_result = await db.execute(
-            text(
-                "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
-            ),
-            {"id": str(dataset.id)},
-        )
-        source_count = sc_result.scalar()
-
-    # Query DatasetAsset rows for STAC assets
-    from app.raster.models import DatasetAsset
-    from app.datasets.schemas import StacAsset
-
-    da_result = await db.execute(
-        select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)
-    )
-    dataset_asset_rows = da_result.scalars().all()
-    stac_assets_dict = {}
-    for da in dataset_asset_rows:
-        stac_assets_dict[da.key] = StacAsset(
-            href=da.href,
-            type=da.media_type,
-            title=da.title,
-            description=da.description,
-            roles=da.roles,
-            size_bytes=da.size_bytes,
-        )
-
-    single_user_roles = await get_user_roles(db, user) if user is not None else set()
-    single_is_admin = "admin" in single_user_roles
-
-    return _dataset_to_response(
-        dataset,
-        collections=collections_data,
-        actors_by_id=actors_by_id,
-        raster_asset=raster_asset,
-        is_admin=single_is_admin,
-        source_count=source_count,
-        base_url=await get_dataset_service_url(db, request=request),
-        stac_assets=stac_assets_dict or None,
-    )
+    return result
 
 
 @router.get("/{dataset_id}/quicklook")

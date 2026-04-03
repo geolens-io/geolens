@@ -15,49 +15,15 @@ from app.ai.router import _validate_chat_layers
 from app.ai.schemas import ChatMapLayer
 from app.auth.models import User
 from app.config import settings
-from app.datasets.models import Dataset, Record
+from app.datasets.models import Dataset
 from app.maps.models import Map
+
+from tests.factories import create_dataset
 
 
 async def _get_user(session, username: str) -> User:
     result = await session.execute(select(User).where(User.username == username))
     return result.scalar_one()
-
-
-async def _create_dataset(
-    session,
-    *,
-    created_by: uuid.UUID,
-    name: str,
-    table_name: str,
-    visibility: str = "public",
-    geometry_type: str = "MultiPolygon",
-) -> Dataset:
-    """Create a minimal Record + Dataset pair."""
-    record = Record(
-        title=name,
-        summary=f"Test dataset {name}",
-        visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type=geometry_type,
-        feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.flush()
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 async def _create_map(session, *, created_by: uuid.UUID, name: str = "Test Map") -> Map:
@@ -136,7 +102,7 @@ async def test_validate_overwrites_client_table_name(
     admin = await _get_user(session, settings.geolens_admin_username)
 
     map_obj = await _create_map(session, created_by=admin.id)
-    dataset = await _create_dataset(
+    dataset = await create_dataset(
         session,
         created_by=admin.id,
         name="Authoritative Dataset",
@@ -159,7 +125,7 @@ async def test_validate_filters_inaccessible_dataset(
     session = test_db_session
     admin = await _get_user(session, settings.geolens_admin_username)
 
-    private_ds = await _create_dataset(
+    private_ds = await create_dataset(
         session,
         created_by=admin.id,
         name="Private Dataset",
@@ -185,3 +151,101 @@ async def test_validate_filters_inaccessible_dataset(
     )
 
     assert len(validated) == 0
+
+
+# ---------------------------------------------------------------------------
+# POST /ai/generate-map/ endpoint tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_generate_map_success(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    """POST /ai/generate-map/ returns a map when LLM succeeds."""
+    from app.ai import service as ai_service
+    from app.persistent_config import AI_ENABLED, LLM_PROVIDER
+
+    # Ensure AI is "enabled" and provider key is set
+    monkeypatch.setattr("app.config.settings.anthropic_api_key", "fake-key")
+
+    fake_result = {
+        "map_id": str(uuid.uuid4()),
+        "map_name": "Generated Map",
+        "explanation": "Created a map of parks",
+        "datasets_used": ["parks"],
+    }
+
+    async def mock_generate(*args, **kwargs):
+        return fake_result
+
+    monkeypatch.setattr(ai_service, "generate_map_from_prompt", mock_generate)
+
+    # Also mock the AI enabled / provider checks
+    async def mock_ai_enabled_get(db):
+        return True
+
+    async def mock_llm_provider_get(db):
+        return "anthropic"
+
+    monkeypatch.setattr(AI_ENABLED, "get", mock_ai_enabled_get)
+    monkeypatch.setattr(LLM_PROVIDER, "get", mock_llm_provider_get)
+
+    resp = await client.post(
+        "/ai/generate-map/",
+        json={"prompt": "Show me parks in NYC"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["map_name"] == "Generated Map"
+    assert data["explanation"] == "Created a map of parks"
+    assert data["datasets_used"] == ["parks"]
+
+
+@pytest.mark.anyio
+async def test_generate_map_unauthenticated(client: AsyncClient):
+    """POST /ai/generate-map/ without auth returns 401."""
+    resp = await client.post(
+        "/ai/generate-map/",
+        json={"prompt": "Show me parks"},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_generate_map_llm_unavailable(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    """POST /ai/generate-map/ returns 502 when LLM connection fails."""
+    import anthropic
+    from app.ai import service as ai_service
+    from app.persistent_config import AI_ENABLED, LLM_PROVIDER
+
+    monkeypatch.setattr("app.config.settings.anthropic_api_key", "fake-key")
+
+    async def mock_ai_enabled_get(db):
+        return True
+
+    async def mock_llm_provider_get(db):
+        return "anthropic"
+
+    monkeypatch.setattr(AI_ENABLED, "get", mock_ai_enabled_get)
+    monkeypatch.setattr(LLM_PROVIDER, "get", mock_llm_provider_get)
+
+    async def mock_generate(*args, **kwargs):
+        raise anthropic.APIConnectionError(request=None)
+
+    monkeypatch.setattr(ai_service, "generate_map_from_prompt", mock_generate)
+
+    resp = await client.post(
+        "/ai/generate-map/",
+        json={"prompt": "Show me parks in NYC"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 502
+    assert "LLM" in resp.json()["detail"]

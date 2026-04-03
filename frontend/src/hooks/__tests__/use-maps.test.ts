@@ -57,4 +57,34 @@ describe('useMap', () => {
 
     expect(mockGetMap).not.toHaveBeenCalled();
   });
+
+  it('returns error state on failure', async () => {
+    mockGetMap.mockRejectedValueOnce(new Error('Not found'));
+
+    const { result } = renderHook(() => useMap('bad-id'));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+});
+
+describe('useMaps – empty list', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('handles empty maps list', async () => {
+    mockListMaps.mockResolvedValueOnce({ maps: [], total: 0 } as never);
+
+    const { result } = renderHook(() => useMaps());
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ maps: [], total: 0 });
+  });
+
+  it('returns error state on API failure', async () => {
+    mockListMaps.mockRejectedValueOnce(new Error('Server error'));
+
+    const { result } = renderHook(() => useMaps());
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
 });

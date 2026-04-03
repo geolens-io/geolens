@@ -13,21 +13,16 @@ import uuid
 from datetime import date
 
 from httpx import AsyncClient
-from sqlalchemy import func, select, update
+from sqlalchemy import func, update
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -235,7 +230,7 @@ class TestCollectionMembership:
         test_db_session,
     ):
         """POST datasets to collection adds them; GET lists them."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds1 = await _create_dataset(
             test_db_session, created_by=admin_id, name="Coll DS 1"
         )
@@ -280,7 +275,7 @@ class TestCollectionMembership:
         test_db_session,
     ):
         """DELETE dataset from collection removes it."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="Remove DS"
         )
@@ -320,7 +315,7 @@ class TestCollectionMembership:
         test_db_session,
     ):
         """Same dataset can exist in multiple collections."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="Multi Coll DS"
         )
@@ -381,7 +376,7 @@ class TestCollectionMembership:
         test_db_session,
     ):
         """Adding same dataset twice returns added=0 on second call."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="Idempotent DS"
         )
@@ -423,7 +418,7 @@ class TestCollectionExtent:
         test_db_session,
     ):
         """Collection with datasets has non-null extent_bbox and temporal dates."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds1 = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -502,7 +497,7 @@ class TestCollectionVisibility:
         test_db_session,
     ):
         """Viewer sees only public datasets in a collection, not private ones."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds_public = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -591,7 +586,7 @@ class TestListCollections:
         test_db_session,
     ):
         """GET /catalog/collections returns correct dataset_count and extent for each collection."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,

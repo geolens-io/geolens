@@ -5,22 +5,15 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordKeyword
 from app.search.service import parse_ogc_datetime
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers (duplicated from test_search.py for isolation)
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_search_dataset(
@@ -110,7 +103,7 @@ def test_parse_full_datetime():
 async def datetime_datasets(test_db_session):
     """Create datasets with different temporal extents for datetime tests."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # Dataset spanning 2020-2022
     ds_2020 = await _create_search_dataset(

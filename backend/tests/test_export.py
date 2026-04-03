@@ -16,23 +16,15 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
 from app.export.ogr import FORMAT_MAP
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    """Look up a user's ID by username."""
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -176,7 +168,7 @@ class TestExportVisibility:
         test_db_session,
     ):
         """Private dataset owned by admin: viewer gets 404, admin gets 200."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -200,7 +192,7 @@ class TestExportVisibility:
         test_db_session,
     ):
         """Public dataset: viewer can export (200)."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -223,7 +215,7 @@ class TestExportValidation:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with format=xyz returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="FmtTestDS"
         )
@@ -239,7 +231,7 @@ class TestExportValidation:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with bbox=1,2,3 returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="BboxTestDS"
         )
@@ -255,7 +247,7 @@ class TestExportValidation:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with bbox=10,10,5,5 (minx > maxx) returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="BboxBoundsDS"
         )
@@ -271,7 +263,7 @@ class TestExportValidation:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with target_crs=invalid returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="CrsTestDS"
         )
@@ -287,7 +279,7 @@ class TestExportValidation:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Non-spatial dataset with format=gpkg returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -307,7 +299,7 @@ class TestExportValidation:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Non-spatial dataset with format=csv returns 200."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,
@@ -333,7 +325,7 @@ class TestExportFormats:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request without format param returns 200 with geopackage Content-Type."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="DefaultFmtDS"
         )
@@ -346,7 +338,7 @@ class TestExportFormats:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with format=geojson returns 200."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="GeojsonDS"
         )
@@ -363,7 +355,7 @@ class TestExportFormats:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with format=shp returns 200 with application/zip Content-Type."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(test_db_session, created_by=admin_id, name="ShpDS")
         resp = await client.get(
             f"/datasets/{ds.id}/export",
@@ -378,7 +370,7 @@ class TestExportFormats:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with format=csv returns 200 with text/csv Content-Type."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(test_db_session, created_by=admin_id, name="CsvDS")
         resp = await client.get(
             f"/datasets/{ds.id}/export",
@@ -400,7 +392,7 @@ class TestExportAudit:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Export creates an audit log entry with action=dataset.export."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="AuditExportDS"
         )
@@ -442,7 +434,7 @@ class TestExportParameters:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with target_crs=EPSG:3857 returns 200."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="CrsParamDS"
         )
@@ -458,7 +450,7 @@ class TestExportParameters:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with valid bbox returns 200."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="BboxParamDS"
         )
@@ -474,7 +466,7 @@ class TestExportParameters:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Request with where=pop > 1000 returns 200."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="WhereParamDS"
         )

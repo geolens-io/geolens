@@ -7,59 +7,10 @@ datasets ranked by embedding cosine similarity.
 import uuid
 
 from httpx import AsyncClient
-from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
 from app.embeddings.models import RecordEmbedding
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    """Look up a user's ID by username."""
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
-
-
-async def _create_dataset(
-    session,
-    *,
-    created_by: uuid.UUID,
-    name: str = "Test Dataset",
-    table_name: str | None = None,
-    visibility: str = "public",
-    geometry_type: str = "MultiPolygon",
-) -> Dataset:
-    """Insert a Record + Dataset pair directly into the DB."""
-    if table_name is None:
-        table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Summary for {name}",
-        visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type=geometry_type,
-        feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
+from tests.factories import create_dataset, get_user_id
 
 
 def _make_embedding(base: list[float], dim: int = 1536) -> list[float]:
@@ -90,8 +41,8 @@ class TestRelatedDatasets:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Dataset with no embedding returns empty related list."""
-        user_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        user_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=user_id, name="No Embedding DS"
         )
 
@@ -107,16 +58,16 @@ class TestRelatedDatasets:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Datasets with similar embeddings are returned ranked by similarity."""
-        user_id = await _get_user_id(test_db_session, "admin")
+        user_id = await get_user_id(test_db_session, "admin")
 
         # Create 3 datasets with distinct embeddings
-        ds_a = await _create_dataset(
+        ds_a = await create_dataset(
             test_db_session, created_by=user_id, name="DS Alpha"
         )
-        ds_b = await _create_dataset(
+        ds_b = await create_dataset(
             test_db_session, created_by=user_id, name="DS Beta"
         )
-        ds_c = await _create_dataset(
+        ds_c = await create_dataset(
             test_db_session, created_by=user_id, name="DS Gamma"
         )
 
@@ -149,12 +100,12 @@ class TestRelatedDatasets:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """The dataset itself should not appear in its own related results."""
-        user_id = await _get_user_id(test_db_session, "admin")
+        user_id = await get_user_id(test_db_session, "admin")
 
-        ds = await _create_dataset(
+        ds = await create_dataset(
             test_db_session, created_by=user_id, name="Self Exclude DS"
         )
-        other = await _create_dataset(
+        other = await create_dataset(
             test_db_session, created_by=user_id, name="Other DS"
         )
 
@@ -178,17 +129,17 @@ class TestRelatedDatasets:
         test_db_session,
     ):
         """Private datasets owned by another user should not appear in related results."""
-        user_id = await _get_user_id(test_db_session, "admin")
+        user_id = await get_user_id(test_db_session, "admin")
 
         # Public dataset (the query target)
-        ds_public = await _create_dataset(
+        ds_public = await create_dataset(
             test_db_session,
             created_by=user_id,
             name="Public Related DS",
             visibility="public",
         )
         # Private dataset owned by admin (viewer should not see)
-        ds_private = await _create_dataset(
+        ds_private = await create_dataset(
             test_db_session,
             created_by=user_id,
             name="Private Related DS",

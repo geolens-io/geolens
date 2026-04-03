@@ -5,16 +5,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
 from app.auth.models import User
 from app.datasets.models import Dataset, Record
 
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
+from tests.factories import get_user_id
 
 
 async def _create_actor_user(
@@ -98,7 +92,7 @@ async def test_dataset_detail_resolves_actor_labels(
     admin_auth_header: dict,
     test_db_session,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     editor_user = await _create_actor_user(
         test_db_session,
         username_prefix="prov_editor",
@@ -153,7 +147,7 @@ async def test_search_records_include_updated_actor_display(
     admin_auth_header: dict,
     test_db_session,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     editor_user = await _create_actor_user(
         test_db_session,
         username_prefix="search_editor",
@@ -188,7 +182,7 @@ async def test_search_fallbacks_for_missing_editor_and_never_edited_state(
     admin_auth_header: dict,
     test_db_session,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     now = datetime.now(timezone.utc)
     token = uuid.uuid4().hex[:8]
 

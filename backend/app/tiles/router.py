@@ -2,9 +2,12 @@
 
 import gzip
 import re
+import threading
 import time
 import uuid
+from typing import NamedTuple
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from geoalchemy2.shape import to_shape
@@ -35,6 +38,34 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/tiles", tags=["Tiles"])
 
 _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+
+# ---------------------------------------------------------------------------
+# Module-level HTTP client for Titiler proxy (reused across requests)
+# ---------------------------------------------------------------------------
+_titiler_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(30.0, connect=5.0),
+    follow_redirects=True,
+)
+
+# ---------------------------------------------------------------------------
+# In-memory TTL cache for dataset metadata (avoids DB hit per tile request)
+# ---------------------------------------------------------------------------
+_DATASET_CACHE_TTL = 60  # seconds
+
+
+class _DatasetMeta(NamedTuple):
+    """Plain data extracted from Dataset+Record for tile serving."""
+
+    dataset_id: uuid.UUID
+    record_id: uuid.UUID
+    table_name: str
+    visibility: str
+    column_info: list
+    tile_cache_ttl: int | None
+
+
+_dataset_cache: dict[str, tuple[float, _DatasetMeta]] = {}
+_dataset_cache_lock = threading.Lock()
 
 
 _DTYPE_MAX = {
@@ -225,8 +256,6 @@ async def raster_tile_proxy(
     Production deployments with nginx should use the nginx raster-tiles path
     for better caching and performance.
     """
-    import httpx
-
     # Reuse the auth-check logic to get the open path and render params
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
     open_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
@@ -241,8 +270,7 @@ async def raster_tile_proxy(
     else:
         titiler_url = f"{titiler_url}?url={open_path}"
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(titiler_url)
+    resp = await _titiler_client.get(titiler_url)
 
     if resp.status_code == 404:
         # Tile outside raster extent — empty response
@@ -372,22 +400,43 @@ async def tile_endpoint(
     if x < 0 or x > max_tile or y < 0 or y > max_tile:
         raise HTTPException(status_code=400, detail="Tile coordinates out of range")
 
-    # Look up dataset with eagerly loaded Record for visibility check
-    result = await db.execute(
-        select(Dataset)
-        .options(joinedload(Dataset.record))
-        .where(Dataset.table_name == table_name)
-    )
-    dataset = result.scalar_one_or_none()
+    # Look up dataset metadata — use in-memory cache to avoid DB hit per tile
+    now = time.monotonic()
+    meta: _DatasetMeta | None = None
+    with _dataset_cache_lock:
+        cached_entry = _dataset_cache.get(table_name)
+        if cached_entry is not None:
+            ts, cached_meta = cached_entry
+            if now - ts < _DATASET_CACHE_TTL:
+                meta = cached_meta
 
-    if dataset is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    if meta is None:
+        result = await db.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.table_name == table_name)
+        )
+        dataset = result.scalar_one_or_none()
+
+        if dataset is None:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+        meta = _DatasetMeta(
+            dataset_id=dataset.id,
+            record_id=dataset.record_id,
+            table_name=dataset.table_name,
+            visibility=dataset.record.visibility,
+            column_info=dataset.column_info or [],
+            tile_cache_ttl=dataset.tile_cache_ttl,
+        )
+        with _dataset_cache_lock:
+            _dataset_cache[table_name] = (now, meta)
 
     # Embed token auth (check before HMAC)
     embed_token_header = request.headers.get("X-Embed-Token")
     if embed_token_header:
         is_valid = await validate_embed_token_access(
-            embed_token_header, dataset.id, db, request
+            embed_token_header, meta.dataset_id, db, request
         )
         if not is_valid:
             raise HTTPException(
@@ -395,7 +444,7 @@ async def tile_endpoint(
                 detail="Invalid or expired embed token, or dataset not in scope",
             )
         # Valid embed token -- skip HMAC check, proceed to tile serving
-    elif dataset.record.visibility != "public":
+    elif meta.visibility != "public":
         # Existing HMAC signature check (unchanged)
         if not sig or not exp or not scope:
             raise HTTPException(
@@ -407,10 +456,10 @@ async def tile_endpoint(
             raise HTTPException(status_code=403, detail="Invalid or expired signature")
 
     # Get column info for attribute selection
-    columns = dataset.column_info or []
+    columns = meta.column_info
 
     # Use per-dataset cache TTL when set, else global default
-    cache_ttl = dataset.tile_cache_ttl or settings.tile_cache_ttl
+    cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
     cache_scope = "private" if embed_token_header else "public"
 
     # Check tile cache before hitting PostGIS
@@ -444,7 +493,7 @@ async def tile_endpoint(
     # Log successful tile access
     logger.debug(
         "tile_access",
-        dataset_id=str(dataset.record_id),
+        dataset_id=str(meta.record_id),
         table_name=table_name,
         z=z,
         x=x,

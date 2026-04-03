@@ -484,46 +484,6 @@ async def _bulk_check_dataset_access(
     return accessible
 
 
-async def _can_access_layer_dataset(
-    session: AsyncSession,
-    dataset_id: uuid.UUID,
-    user: User,
-    user_roles: set[str],
-) -> bool:
-    """Check if user can access a dataset. Returns bool (no exceptions)."""
-    if "admin" in user_roles:
-        return True
-
-    # Fetch the dataset with its record
-    result = await session.execute(
-        select(Record.visibility, Record.created_by)
-        .join(Dataset, Dataset.record_id == Record.id)
-        .where(Dataset.id == dataset_id)
-    )
-    row = result.one_or_none()
-    if row is None:
-        return False
-
-    visibility, created_by = row
-
-    if visibility == "public":
-        return True
-    if visibility == "private":
-        return created_by == user.id
-    if visibility == "restricted":
-        grant_result = await session.execute(
-            select(DatasetGrant.dataset_id)
-            .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
-            .where(
-                DatasetGrant.dataset_id == dataset_id,
-                UserRole.user_id == user.id,
-            )
-        )
-        return grant_result.scalar_one_or_none() is not None
-
-    return False
-
-
 async def duplicate_map(
     session: AsyncSession,
     map_id: uuid.UUID,

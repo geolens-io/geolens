@@ -14,20 +14,14 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    """Look up a user's ID by username."""
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -128,7 +122,7 @@ async def rows_dataset(test_db_session, rows_table, admin_auth_header):
         await test_db_session.delete(existing)
         await test_db_session.commit()
 
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_dataset(
         test_db_session,
         created_by=admin_id,
@@ -202,7 +196,7 @@ async def geom_rows_dataset(test_db_session, geom_rows_table, admin_auth_header)
         await test_db_session.delete(existing)
         await test_db_session.commit()
 
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_dataset(
         test_db_session,
         created_by=admin_id,
@@ -271,7 +265,7 @@ class TestRowsVisibility:
             await test_db_session.delete(existing)
             await test_db_session.commit()
 
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session,
             created_by=admin_id,

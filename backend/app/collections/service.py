@@ -128,25 +128,25 @@ async def add_datasets_to_collection(
     if collection is None:
         raise ValueError(f"Collection {collection_id} not found")
 
-    added_count = 0
-    for dataset_id in dataset_ids:
-        # Check for existing membership
-        existing = await session.execute(
-            select(CollectionDataset).where(
-                CollectionDataset.collection_id == collection_id,
-                CollectionDataset.dataset_id == dataset_id,
+    # Fetch all existing memberships in one query to avoid N+1
+    existing_result = await session.execute(
+        select(CollectionDataset.dataset_id).where(
+            CollectionDataset.collection_id == collection_id,
+            CollectionDataset.dataset_id.in_(dataset_ids),
+        )
+    )
+    existing_ids = {row[0] for row in existing_result.all()}
+
+    new_ids = [did for did in dataset_ids if did not in existing_ids]
+    for dataset_id in new_ids:
+        session.add(
+            CollectionDataset(
+                collection_id=collection_id,
+                dataset_id=dataset_id,
+                added_by=added_by,
             )
         )
-        if existing.scalar_one_or_none() is not None:
-            continue
-
-        membership = CollectionDataset(
-            collection_id=collection_id,
-            dataset_id=dataset_id,
-            added_by=added_by,
-        )
-        session.add(membership)
-        added_count += 1
+    added_count = len(new_ids)
 
     if added_count > 0:
         await session.flush()

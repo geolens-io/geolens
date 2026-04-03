@@ -550,6 +550,73 @@ class TestOAuthLoginEndpoint:
         assert resp.status_code == 404
 
 
+class TestOAuthCallbackCSRF:
+    """Test that OAuth callback rejects invalid state/code parameters."""
+
+    async def test_callback_missing_state_returns_error(self, client, test_db_session):
+        """OAuth callback with no state/code params returns error redirect, not account takeover."""
+        from app.auth.oauth.schemas import OAuthProviderCreate
+        from app.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        await create_provider(
+            test_db_session,
+            OAuthProviderCreate(
+                slug=f"csrf-test-{suffix}",
+                display_name="CSRF Test",
+                provider_type="oidc",
+                client_id=f"client-{suffix}",
+                client_secret="test-secret",
+                authorize_url="https://idp.example.com/authorize",
+                token_url="https://idp.example.com/token",
+                userinfo_url="https://idp.example.com/userinfo",
+                enabled=True,
+            ),
+        )
+        await test_db_session.commit()
+
+        # Call callback with no state/code — should error, not create a session
+        resp = await client.get(
+            f"/auth/oauth/csrf-test-{suffix}/callback",
+            follow_redirects=False,
+        )
+        # The callback catches exceptions and redirects with error fragment
+        assert resp.status_code == 302
+        location = resp.headers.get("location", "")
+        assert "error" in location
+
+    async def test_callback_invalid_code_returns_error(self, client, test_db_session):
+        """OAuth callback with an invalid authorization code returns error redirect."""
+        from app.auth.oauth.schemas import OAuthProviderCreate
+        from app.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        await create_provider(
+            test_db_session,
+            OAuthProviderCreate(
+                slug=f"badcode-test-{suffix}",
+                display_name="Bad Code Test",
+                provider_type="oidc",
+                client_id=f"client-{suffix}",
+                client_secret="test-secret",
+                authorize_url="https://idp.example.com/authorize",
+                token_url="https://idp.example.com/token",
+                userinfo_url="https://idp.example.com/userinfo",
+                enabled=True,
+            ),
+        )
+        await test_db_session.commit()
+
+        # Call callback with bogus code and state — should error
+        resp = await client.get(
+            f"/auth/oauth/badcode-test-{suffix}/callback?code=bogus&state=malicious",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        location = resp.headers.get("location", "")
+        assert "error" in location
+
+
 class TestOAuthProvidersEndpoint:
     """Test the GET /auth/oauth/providers endpoint."""
 
