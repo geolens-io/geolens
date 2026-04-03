@@ -211,3 +211,94 @@ async def test_api_key_inherits_user_roles(client: AsyncClient):
         headers={"X-Api-Key": raw_key},
     )
     assert admin_resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Self-service API key CRUD tests (/auth/api-keys/)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_self_service_list_api_keys(client: AsyncClient):
+    """Authenticated user can list their own API keys via GET /auth/api-keys/."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    resp = await client.get("/auth/api-keys/", headers=admin_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "items" in data
+    assert "total" in data
+    assert isinstance(data["items"], list)
+
+
+@pytest.mark.anyio
+async def test_self_service_create_api_key(client: AsyncClient):
+    """Authenticated user can create an API key via POST /auth/api-keys/."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Self-Service Key"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "id" in data
+    assert "key" in data
+    assert data["name"] == "Self-Service Key"
+    assert len(data["key"]) > 20
+
+
+@pytest.mark.anyio
+async def test_self_service_delete_own_api_key(client: AsyncClient):
+    """Authenticated user can delete their own API key via DELETE /auth/api-keys/{id}."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    # Create a key
+    create_resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Delete Me Self"},
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    key_id = create_resp.json()["id"]
+
+    # Delete it
+    del_resp = await client.delete(
+        f"/auth/api-keys/{key_id}",
+        headers=admin_headers,
+    )
+    assert del_resp.status_code == 204
+
+
+@pytest.mark.anyio
+async def test_self_service_list_api_keys_unauthenticated(client: AsyncClient):
+    """GET /auth/api-keys/ without authentication returns 401."""
+    resp = await client.get("/auth/api-keys/")
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_self_service_cannot_delete_another_users_key(client: AsyncClient):
+    """User cannot delete another user's API key (returns 404)."""
+    admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+
+    # Create a second user
+    viewer_headers, viewer_id = await _create_test_user(client, admin_headers, "viewer")
+
+    # Admin creates a key for themselves via self-service
+    create_resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Admin Only Key"},
+        headers=admin_headers,
+    )
+    assert create_resp.status_code == 201
+    admin_key_id = create_resp.json()["id"]
+
+    # Viewer tries to delete admin's key
+    del_resp = await client.delete(
+        f"/auth/api-keys/{admin_key_id}",
+        headers=viewer_headers,
+    )
+    # The endpoint filters by current_user.id, so another user's key is "not found"
+    assert del_resp.status_code == 404

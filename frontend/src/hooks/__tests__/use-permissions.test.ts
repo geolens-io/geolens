@@ -47,4 +47,24 @@ describe('usePermissions', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.can('upload')).toBe(false);
   });
+
+  it('returns error state on network failure', async () => {
+    useAuthStore.setState({ token: 'test-token', refreshToken: null, expiresAt: null, user: null });
+    mockGetMyPermissions.mockRejectedValueOnce(new Error('Network error'));
+
+    const { result } = renderHook(() => usePermissions());
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.permissions).toBeNull();
+    expect(result.current.can('edit_metadata')).toBe(false);
+  });
+
+  it('starts in loading state when authenticated', () => {
+    useAuthStore.setState({ token: 'test-token', refreshToken: null, expiresAt: null, user: null });
+    mockGetMyPermissions.mockReturnValueOnce(new Promise(() => {}) as never);
+
+    const { result } = renderHook(() => usePermissions());
+
+    expect(result.current.isLoading).toBe(true);
+  });
 });

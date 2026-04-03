@@ -17,21 +17,14 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_enriched_dataset(
@@ -95,7 +88,7 @@ _DEFAULT_VINTAGE_END = date(2023, 12, 31)
 async def test_record_has_formats_list(client: AsyncClient, test_db_session):
     """GET a record returns properties.formats as a list of 4 media type strings."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session, created_by=admin_id, name="Formats Test"
     )
@@ -122,7 +115,7 @@ async def test_record_has_formats_list(client: AsyncClient, test_db_session):
 async def test_record_has_language(client: AsyncClient, test_db_session):
     """GET a record returns properties.language as 'en'."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session, created_by=admin_id, name="Language Test"
     )
@@ -144,7 +137,7 @@ async def test_record_has_themes_from_theme_category(
 ):
     """Record with theme_category has themes in OGC concepts structure."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -171,7 +164,7 @@ async def test_record_themes_null_when_no_theme_category(
 ):
     """Record with no theme_category has themes as None."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -194,7 +187,7 @@ async def test_record_themes_null_when_no_theme_category(
 async def test_record_has_rights_from_license(client: AsyncClient, test_db_session):
     """Record with license has rights matching the license string."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -212,7 +205,7 @@ async def test_record_has_rights_from_license(client: AsyncClient, test_db_sessi
 async def test_record_rights_null_when_no_license(client: AsyncClient, test_db_session):
     """Record with no license has rights as None."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -239,7 +232,7 @@ async def test_record_contacts_from_record_contacts_table(
     from app.datasets.models import RecordContact
 
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -261,9 +254,10 @@ async def test_record_contacts_from_record_contacts_table(
     assert props["contacts"] is not None
     assert isinstance(props["contacts"], list)
     assert len(props["contacts"]) == 1
-    assert props["contacts"][0]["name"] == "Jane Doe"
-    assert props["contacts"][0]["organization"] == "ACME GIS"
-    assert props["contacts"][0]["role"] == "pointOfContact"
+    contacts = sorted(props["contacts"], key=lambda c: c["name"])
+    assert contacts[0]["name"] == "Jane Doe"
+    assert contacts[0]["organization"] == "ACME GIS"
+    assert contacts[0]["role"] == "pointOfContact"
 
 
 @pytest.mark.anyio
@@ -272,7 +266,7 @@ async def test_record_contacts_empty_when_no_contacts(
 ):
     """Record without contacts has null contacts list."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -294,7 +288,7 @@ async def test_record_contacts_empty_when_no_contacts(
 async def test_record_has_time_from_vintage(client: AsyncClient, test_db_session):
     """Record with data_vintage_start/end has time.interval with ISO dates."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -316,7 +310,7 @@ async def test_record_has_time_from_vintage(client: AsyncClient, test_db_session
 async def test_record_time_with_open_start(client: AsyncClient, test_db_session):
     """Record with only data_vintage_end uses '..' for start."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -335,7 +329,7 @@ async def test_record_time_with_open_start(client: AsyncClient, test_db_session)
 async def test_record_time_with_open_end(client: AsyncClient, test_db_session):
     """Record with only data_vintage_start uses '..' for end."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -354,7 +348,7 @@ async def test_record_time_with_open_end(client: AsyncClient, test_db_session):
 async def test_record_time_null_when_no_vintage(client: AsyncClient, test_db_session):
     """Record with no vintage dates has time as None."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,
@@ -378,7 +372,7 @@ async def test_record_time_null_when_no_vintage(client: AsyncClient, test_db_ses
 async def test_existing_properties_still_present(client: AsyncClient, test_db_session):
     """All original properties exist alongside new enriched properties."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_enriched_dataset(
         session,
         created_by=admin_id,

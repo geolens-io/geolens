@@ -23,16 +23,12 @@ from app.datasets.models import (
     RecordKeyword,
 )
 
+from tests.factories import get_user_id
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_validation_dataset(
@@ -152,7 +148,7 @@ async def test_validate_endpoint_returns_errors_for_incomplete_record(
     test_db_session,
 ):
     """A minimal dataset missing required fields shows errors."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     ds = await _create_validation_dataset(
         test_db_session,
@@ -191,7 +187,7 @@ async def test_validate_endpoint_returns_warnings(
     test_db_session,
 ):
     """A dataset with all required fields but missing recommended fields shows warnings."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     # Create fully valid dataset (passes hard checks)
     ds = await _make_fully_valid_dataset(test_db_session, created_by=admin_id)
@@ -225,7 +221,7 @@ async def test_publish_blocked_when_hard_validation_fails(
     """PATCH with record_status=published on incomplete record returns 422 when require_metadata is ON."""
     from app.settings.models import AppSetting
 
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     # Enable require_metadata_for_publish so validation gate is active
     test_db_session.add(
@@ -270,7 +266,7 @@ async def test_publish_succeeds_when_all_required_fields_present(
     test_db_session,
 ):
     """PATCH with record_status=published on complete record succeeds."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     ds = await _make_fully_valid_dataset(test_db_session, created_by=admin_id)
 
@@ -296,7 +292,7 @@ async def test_already_published_record_can_be_edited(
     test_db_session,
 ):
     """Editing a published record does not trigger validation."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     # Create a published record directly (bypassing validation, like pre-existing data)
     ds = await _create_validation_dataset(
@@ -330,7 +326,7 @@ async def test_quality_score_includes_iso_fields(test_db_session):
     """
     from app.ingest.metadata import compute_quality_score as _compute
 
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     # Create dataset with some ISO fields filled
     ds = await _create_validation_dataset(
@@ -430,7 +426,7 @@ async def test_publish_allowed_when_require_metadata_off(
     test_db_session,
 ):
     """With require_metadata_for_publish=False (default), incomplete records can be published."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     ds = await _create_validation_dataset(
         test_db_session,

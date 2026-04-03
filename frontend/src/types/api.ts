@@ -121,6 +121,9 @@ export interface DatasetResponse {
   } | null;
   record_type: string;
   raster: RasterMetadata | null;
+  stac_assets?: Record<string, unknown>;
+  stac_extensions?: string[];
+  language?: string;
 }
 
 export interface DatasetListResponse {
@@ -786,6 +789,8 @@ export interface SharedLayerResponse {
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   show_in_legend?: boolean;
+  layer_type?: string;
+  dataset_record_type?: string;
   tile_url: string;
 }
 

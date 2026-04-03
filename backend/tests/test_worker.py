@@ -189,8 +189,8 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     # Should have individual log calls with job_id kwarg
     warning_calls = [c for c in mock_log.warning.call_args_list]
     assert len(warning_calls) == 2
-    assert warning_calls[0].kwargs.get("job_id") == str(job1.id)
-    assert warning_calls[1].kwargs.get("job_id") == str(job2.id)
+    logged_job_ids = {c.kwargs.get("job_id") for c in warning_calls}
+    assert logged_job_ids == {str(job1.id), str(job2.id)}
 
 
 # ---------------------------------------------------------------------------

@@ -170,3 +170,57 @@ async def test_create_saved_search_unauthenticated(
         json={"name": "No Auth", "params": {"q": "test"}},
     )
     assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_get_saved_search_not_found(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """GET /search/saved/{random_uuid} returns 404 for non-existent ID."""
+    import uuid
+
+    resp = await client.get(
+        f"/search/saved/{uuid.uuid4()}",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_delete_saved_search_not_found(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """DELETE /search/saved/{random_uuid} returns 404 for non-existent ID."""
+    import uuid
+
+    resp = await client.delete(
+        f"/search/saved/{uuid.uuid4()}",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_get_saved_search_unauthenticated(
+    client: AsyncClient,
+):
+    """GET /search/saved/{id} without auth returns 401."""
+    import uuid
+
+    resp = await client.get(f"/search/saved/{uuid.uuid4()}")
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_delete_saved_search_unauthenticated(
+    client: AsyncClient,
+):
+    """DELETE /search/saved/{id} without auth returns 401."""
+    import uuid
+
+    resp = await client.delete(f"/search/saved/{uuid.uuid4()}")
+    assert resp.status_code == 401

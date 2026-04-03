@@ -5,19 +5,13 @@ import uuid
 from typing import TYPE_CHECKING
 
 from httpx import AsyncClient
-from sqlalchemy import select
-
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
 from app.collections.models import Collection, CollectionDataset
 from app.datasets.models import Dataset, Record
 
-
-async def _get_user_id(session: "AsyncSession", username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    return result.scalar_one().id
+from tests.factories import get_user_id
 
 
 async def _create_raster_dataset(
@@ -96,7 +90,7 @@ class TestSTACConformance:
 class TestSTACCollections:
     async def test_list_collections(self, client: AsyncClient, test_db_session):
         """GET /stac/collections returns collections with links."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         await _create_raster_dataset(test_db_session, created_by=admin_id)
 
         resp = await client.get("/stac/collections")
@@ -108,7 +102,7 @@ class TestSTACCollections:
 
     async def test_get_collection_by_id(self, client: AsyncClient, test_db_session):
         """GET /stac/collections/{id} returns a single STAC collection."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_raster_dataset(
             test_db_session, created_by=admin_id, name="STAC Single"
         )
@@ -141,7 +135,7 @@ class TestSTACCollections:
         self, client: AsyncClient, test_db_session
     ):
         """GET /stac/collections/{id} for private dataset returns 404 to anonymous."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_raster_dataset(
             test_db_session,
             created_by=admin_id,

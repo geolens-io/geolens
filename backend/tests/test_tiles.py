@@ -14,22 +14,17 @@ from unittest.mock import AsyncMock, patch
 import asyncpg
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from app.auth.models import User
 from app.config import settings
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_tile_test_dataset(
@@ -142,7 +137,7 @@ class TestTileEndpoint:
     ):
         """GET /tiles/data.{table}/{z}/{x}/{y}.pbf returns 200 with MVT bytes."""
         table_name = f"tile_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )
@@ -163,7 +158,7 @@ class TestTileEndpoint:
     ):
         """Response has correct Content-Type, gzip encoding, and Cache-Control."""
         table_name = f"tile_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )
@@ -183,7 +178,7 @@ class TestTileEndpoint:
     ):
         """GET for area with no features returns 204 No Content."""
         table_name = f"tile_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )
@@ -201,7 +196,7 @@ class TestTileEndpoint:
     ):
         """Cached empty sentinel (b'') returns 204 without hitting PostGIS."""
         table_name = f"tile_test_{uuid.uuid4().hex[:8]}"
-        user_id = await _get_user_id(test_db_session, settings.geolens_admin_username)
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
             test_db_session, created_by=user_id, table_name=table_name
         )

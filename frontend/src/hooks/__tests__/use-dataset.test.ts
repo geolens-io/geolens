@@ -41,6 +41,24 @@ describe('useDataset', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
+
+  it('returns error state on 404', async () => {
+    mockGetDataset.mockRejectedValueOnce(Object.assign(new Error('Not Found'), { status: 404 }));
+
+    const { result } = renderHook(() => useDataset('nonexistent'));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('starts in loading state', () => {
+    mockGetDataset.mockReturnValueOnce(new Promise(() => {}) as never);
+
+    const { result } = renderHook(() => useDataset('ds-1'));
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.data).toBeUndefined();
+  });
 });
 
 describe('useDatasetRows', () => {

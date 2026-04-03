@@ -100,8 +100,10 @@ async function selectSource(
   title: string,
 ) {
   await user.clear(searchInput);
-  // Wait for the onBlur 150ms timeout to settle before re-typing
-  await new Promise((r) => setTimeout(r, 200));
+  // Advance past the onBlur 150ms debounce timeout before re-typing
+  vi.useFakeTimers();
+  vi.advanceTimersByTime(200);
+  vi.useRealTimers();
   await user.click(searchInput);
   await user.type(searchInput, 'cog');
   await waitFor(

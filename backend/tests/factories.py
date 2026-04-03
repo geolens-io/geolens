@@ -1,7 +1,15 @@
-"""Centralized test data factories.
+"""Centralized test data factories — canonical source for test entity creation.
 
 Provides reusable helpers for creating test entities (datasets, maps,
 collections, users) to reduce duplication across test files.
+
+Usage:
+    from tests.factories import create_dataset, get_user_id
+
+For test-specific variants that need extra parameters (e.g. extent_wkt,
+column_info), either pass them through ``**kwargs`` or define a thin
+wrapper in the test file that calls ``create_dataset`` and then applies
+additional mutations.
 """
 
 import uuid
@@ -36,6 +44,7 @@ async def create_dataset(
     source_filename: str = "test.geojson",
     record_status: str = "published",
     theme_category: list[str] | None = None,
+    column_info: list[dict] | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB.
 
@@ -58,7 +67,7 @@ async def create_dataset(
     session.add(record)
     await session.flush()
 
-    dataset = Dataset(
+    ds_kwargs = dict(
         record_id=record.id,
         table_name=table_name,
         srid=srid,
@@ -67,6 +76,9 @@ async def create_dataset(
         source_format=source_format,
         source_filename=source_filename,
     )
+    if column_info is not None:
+        ds_kwargs["column_info"] = column_info
+    dataset = Dataset(**ds_kwargs)
     session.add(dataset)
     await session.commit()
     await session.refresh(dataset)

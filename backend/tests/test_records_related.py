@@ -18,59 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.models import User
 from app.datasets.models import (
     Dataset,
-    Record,
     RecordContact,
     RecordDistribution,
     RecordKeyword,
 )
 
+from tests.factories import create_dataset, get_user_id
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session: AsyncSession, username: str) -> uuid.UUID:
-    """Look up a user's ID by username."""
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
-
-
-async def _create_dataset(
-    session: AsyncSession,
-    *,
-    created_by: uuid.UUID,
-    name: str = "Test Dataset",
-    table_name: str | None = None,
-    visibility: str = "public",
-) -> Dataset:
-    """Insert a Record + Dataset pair directly into the DB (no distributions)."""
-    if table_name is None:
-        table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary="A test dataset",
-        theme_category=["test"],
-        visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
-        feature_count=42,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 async def _create_dataset_with_distributions(
@@ -111,8 +69,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """GET contacts for a fresh dataset returns empty list."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/records/{ds.record_id}/contacts/", headers=admin_auth_header
         )
@@ -128,8 +86,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """POST a contact returns 201 with correct shape including extra_json."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/contacts/",
             json={
@@ -155,8 +113,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """All 20 ISO CI_RoleCode values are accepted."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         roles = [
             "resourceProvider",
             "custodian",
@@ -194,8 +152,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """POST with invalid role triggers DB CHECK violation."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/contacts/",
             json={"role": "invalid_role", "name": "Test"},
@@ -210,8 +168,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """extra_json JSONB field is preserved in response."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/contacts/",
             json={
@@ -235,8 +193,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """Create 2 contacts, then list returns both."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         for name in ["Alice", "Bob"]:
             await client.post(
                 f"/records/{ds.record_id}/contacts/",
@@ -259,8 +217,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """PATCH a contact updates the specified fields."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         create_resp = await client.post(
             f"/records/{ds.record_id}/contacts/",
             json={"role": "author", "name": "Old Name"},
@@ -282,8 +240,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """DELETE a contact returns 204, then list returns empty."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         create_resp = await client.post(
             f"/records/{ds.record_id}/contacts/",
             json={"role": "publisher", "name": "To Delete"},
@@ -304,8 +262,8 @@ class TestContacts:
         self, client: AsyncClient, test_db_session: AsyncSession
     ):
         """GET contacts without token returns 200 (anonymous allowed on public datasets)."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.get(f"/records/{ds.record_id}/contacts/")
         assert resp.status_code == 200
 
@@ -316,8 +274,8 @@ class TestContacts:
         test_db_session: AsyncSession,
     ):
         """POST with viewer token returns 403."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/contacts/",
             json={"role": "author", "name": "Viewer Attempt"},
@@ -364,8 +322,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """GET keywords for a new dataset returns empty list."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.get(
             f"/records/{ds.record_id}/keywords/", headers=admin_auth_header
         )
@@ -381,8 +339,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """POST a keyword returns 201."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={"keyword": "hydrology", "keyword_type": "theme"},
@@ -400,8 +358,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """All 15 ISO MD_KeywordTypeCode values are accepted."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         types = [
             "discipline",
             "place",
@@ -436,8 +394,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """Duplicate keyword+type+vocabulary_uri returns 409."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         payload = {"keyword": "duplicate_test", "keyword_type": "theme"}
         resp1 = await client.post(
             f"/records/{ds.record_id}/keywords/",
@@ -459,8 +417,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """Same keyword text with different types both succeed."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp1 = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={"keyword": "water", "keyword_type": "theme"},
@@ -481,8 +439,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """Same keyword+type but different vocabulary_uri both succeed."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp1 = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={
@@ -511,8 +469,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """Same keyword+type with NULL vocabulary_uri twice returns 409."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         payload = {"keyword": "null_vocab_test", "keyword_type": "theme"}
         resp1 = await client.post(
             f"/records/{ds.record_id}/keywords/",
@@ -534,8 +492,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """DELETE a keyword returns 204."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         create_resp = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={"keyword": "to_delete", "keyword_type": "theme"},
@@ -569,8 +527,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """Keywords are normalized: stripped and lowercased on insert."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={"keyword": "  Hydrology  ", "keyword_type": "theme"},
@@ -586,8 +544,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """Normalization makes 'Hydrology' and 'hydrology' identical -> 409."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp1 = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={"keyword": "Normalization", "keyword_type": "theme"},
@@ -608,8 +566,8 @@ class TestKeywords:
         test_db_session: AsyncSession,
     ):
         """vocabulary_uri trailing slash is stripped on insert."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/keywords/",
             json={
@@ -636,7 +594,7 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """Dataset created via service gets 6 auto-generated distributions."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_distributions(
             test_db_session, created_by=admin_id
         )
@@ -670,8 +628,8 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """POST a manual distribution returns 201 with all fields."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         resp = await client.post(
             f"/records/{ds.record_id}/distributions/",
             json={
@@ -698,8 +656,8 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """PATCH a manual distribution updates fields."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         create_resp = await client.post(
             f"/records/{ds.record_id}/distributions/",
             json={
@@ -733,8 +691,8 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """DELETE a manual distribution returns 204."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         create_resp = await client.post(
             f"/records/{ds.record_id}/distributions/",
             json={
@@ -758,7 +716,7 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """PATCH an auto-generated distribution returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_distributions(
             test_db_session, created_by=admin_id
         )
@@ -783,7 +741,7 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """DELETE an auto-generated distribution returns 400."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_distributions(
             test_db_session, created_by=admin_id
         )
@@ -822,8 +780,8 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """Duplicate (record_id, distribution_type, format, url) returns conflict."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         payload = {
             "distribution_type": "api",
             "format": "json",
@@ -851,8 +809,8 @@ class TestDistributions:
         """Calling generate_distributions twice produces no duplicates."""
         from app.records.service import generate_distributions
 
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(test_db_session, created_by=admin_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
 
         # First generation
         created1 = await generate_distributions(
@@ -889,7 +847,7 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """System-generated (immutable) and user-created (editable) coexist."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_distributions(
             test_db_session, created_by=admin_id
         )
@@ -961,8 +919,8 @@ class TestCascadeDelete:
         test_db_session: AsyncSession,
     ):
         """Deleting a record cascades to remove all contacts."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=admin_id, name="Cascade Contact Test"
         )
         record_id = ds.record_id
@@ -995,8 +953,8 @@ class TestCascadeDelete:
         test_db_session: AsyncSession,
     ):
         """Deleting a record cascades to remove all keywords."""
-        admin_id = await _get_user_id(test_db_session, "admin")
-        ds = await _create_dataset(
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
             test_db_session, created_by=admin_id, name="Cascade Keyword Test"
         )
         record_id = ds.record_id
@@ -1026,7 +984,7 @@ class TestCascadeDelete:
         test_db_session: AsyncSession,
     ):
         """Deleting a record cascades to remove all distributions."""
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_distributions(
             test_db_session,
             created_by=admin_id,

@@ -4,22 +4,17 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import update
 
-from app.auth.models import User
 from app.collections.models import Collection
 from app.datasets.models import Dataset, Record, RecordKeyword
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers (duplicated from test_search.py for isolation)
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_search_dataset(
@@ -75,7 +70,7 @@ async def _create_search_dataset(
 async def facet_datasets(test_db_session):
     """Create datasets with different record types for facet tests."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     vector_ds = await _create_search_dataset(
         session,
@@ -170,7 +165,7 @@ async def test_facets_with_srid_filter(
 ):
     """GET /search/facets/?srid=3857 returns only datasets with that SRID."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # Create dataset with SRID 3857
     await _create_search_dataset(
@@ -209,7 +204,7 @@ async def test_facets_includes_collection_count(
 ):
     """GET /search/facets returns a 'collection' count when collections exist."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # Create a collection
     coll = Collection(

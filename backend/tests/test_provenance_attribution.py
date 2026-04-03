@@ -9,17 +9,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import joinedload
 
 from app.audit.models import AuditLog
-from app.auth.models import User
 from app.datasets.models import Dataset
 from app.ingest.tasks import _apply_reupload_swap
 
+from tests.factories import get_user_id
+
 pytestmark = pytest.mark.anyio
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_role_user(
@@ -103,7 +98,7 @@ async def test_metadata_patch_stamps_actor_and_is_visible_in_history(
     test_db_session,
     layer_factory,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     layer = await layer_factory(title=f"prov-meta-{uuid.uuid4().hex[:8]}")
 
     before = await client.get(f"/datasets/{layer['id']}", headers=admin_auth_header)
@@ -130,7 +125,7 @@ async def test_attribute_patch_and_reset_stamp_actor_and_emit_dataset_audit(
     test_db_session,
     layer_factory,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     layer = await layer_factory(
         title=f"prov-attr-{uuid.uuid4().hex[:8]}",
         columns=[
@@ -182,7 +177,7 @@ async def test_feature_write_paths_stamp_actor_and_emit_feature_audit_actions(
     test_db_session,
     layer_factory,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     layer = await layer_factory(title=f"prov-feature-{uuid.uuid4().hex[:8]}")
 
     create_resp = await client.post(
@@ -241,7 +236,7 @@ async def test_schema_add_drop_column_stamps_actor_and_emits_dataset_audit(
     test_db_session,
     layer_factory,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     layer = await layer_factory(title=f"prov-schema-{uuid.uuid4().hex[:8]}")
 
     add_resp = await client.post(
@@ -275,7 +270,7 @@ async def test_reupload_swap_stamps_actor_and_emits_reupload_commit_audit(
     test_db_session,
     layer_factory,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     layer = await layer_factory(title=f"prov-reupload-{uuid.uuid4().hex[:8]}")
 
     dataset_result = await test_db_session.execute(
@@ -356,7 +351,7 @@ async def test_non_mutation_operations_do_not_overwrite_last_editor(
     test_db_session,
     layer_factory,
 ):
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     viewer_headers, viewer_id = await _create_role_user(
         client,
         admin_headers=admin_auth_header,

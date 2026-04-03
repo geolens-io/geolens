@@ -7,18 +7,13 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.auth.models import User
 from app.collections.models import DatasetVersion
 from app.datasets.models import Dataset, Record
 from app.ingest.ogr import IngestionError
 from app.ingest.tasks import reupload_service
 from app.jobs.models import IngestJob
 
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
+from tests.factories import get_user_id
 
 
 async def _create_dataset(
@@ -96,7 +91,7 @@ class TestServiceReuploadCommitDispatch:
         admin_auth_header: dict,
         test_db_session,
     ):
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         job = await _create_service_reupload_job(
             test_db_session,
@@ -153,7 +148,7 @@ class TestServiceReuploadWorker:
         client: AsyncClient,  # ensures app.database.async_session points to test DB
         test_db_session,
     ):
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         job = await _create_service_reupload_job(
             test_db_session,
@@ -327,7 +322,7 @@ class TestServiceReuploadWorker:
         client: AsyncClient,  # ensures app.database.async_session points to test DB
         test_db_session,
     ):
-        admin_id = await _get_user_id(test_db_session, "admin")
+        admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         job = await _create_service_reupload_job(
             test_db_session,

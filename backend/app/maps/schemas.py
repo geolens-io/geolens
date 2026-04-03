@@ -13,7 +13,9 @@ class MapVisibility(str, Enum):
 
 class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
-    sort_order: int = Field(default=0, description="Draw order (lower draws first)")
+    sort_order: int = Field(
+        default=0, ge=0, description="Draw order (lower draws first)"
+    )
     visible: bool = True
     opacity: float = Field(
         default=1.0, ge=0.0, le=1.0, description="Layer opacity 0.0-1.0"
@@ -25,7 +27,7 @@ class MapLayerInput(BaseModel):
         default=None, description="MapLibre layout properties override"
     )
     display_name: str | None = Field(
-        default=None, description="Label shown in the layer list"
+        default=None, max_length=255, description="Label shown in the layer list"
     )
     filter: list | dict | None = Field(
         default=None, description="MapLibre filter expression"
@@ -46,17 +48,21 @@ class MapLayerInput(BaseModel):
 
 class MapCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class MapUpdate(BaseModel):
     name: str | None = None
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
-    zoom: float | None = Field(default=None, description="Map zoom level")
-    bearing: float | None = Field(default=None, description="Map rotation in degrees")
-    pitch: float | None = Field(default=None, description="Map tilt in degrees (0-85)")
+    zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")
+    bearing: float | None = Field(
+        default=None, ge=-180, le=180, description="Map rotation in degrees"
+    )
+    pitch: float | None = Field(
+        default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
+    )
     basemap_style: str | None = Field(
         default=None, description="Basemap style ID or URL"
     )

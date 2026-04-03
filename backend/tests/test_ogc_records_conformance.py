@@ -166,7 +166,9 @@ async def test_themes_include_scheme(client: AsyncClient, test_db_session):
     assert themes is not None
 
     # Find theme with scheme
-    scheme_themes = [t for t in themes if "scheme" in t]
+    scheme_themes = sorted(
+        [t for t in themes if "scheme" in t], key=lambda t: t["scheme"]
+    )
     assert len(scheme_themes) >= 1, "Expected at least one theme with scheme URI"
     assert scheme_themes[0]["scheme"] == "https://example.org/vocab/water"
     concept_ids = [c["id"] for c in scheme_themes[0]["concepts"]]
@@ -199,6 +201,7 @@ async def test_contacts_include_email_phone(client: AsyncClient, test_db_session
     contacts = data["properties"]["contacts"]
     assert contacts is not None
     assert len(contacts) >= 1
+    contacts = sorted(contacts, key=lambda c: c.get("email", ""))
     assert contacts[0]["email"] == "jane@acme.org"
     assert contacts[0]["phone"] == "+1-555-0100"
 

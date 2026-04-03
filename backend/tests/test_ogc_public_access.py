@@ -12,58 +12,10 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
 
 from .conftest import _create_test_user
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
-
-
-async def _create_dataset(
-    session,
-    *,
-    created_by: uuid.UUID,
-    name: str,
-    visibility: str = "public",
-    record_status: str = "published",
-) -> Dataset:
-    """Insert a Record + Dataset pair for public access tests."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test dataset: {name}",
-        theme_category=["test"],
-        visibility=visibility,
-        record_status=record_status,
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="MultiPolygon",
-        feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +52,15 @@ async def test_collection_items_no_auth_returns_public_only(
 ):
     """Anonymous GET /collections/datasets/items returns only public datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
-    pub1 = await _create_dataset(
+    pub1 = await create_dataset(
         session, created_by=admin_id, name="Public Alpha", visibility="public"
     )
-    pub2 = await _create_dataset(
+    pub2 = await create_dataset(
         session, created_by=admin_id, name="Public Beta", visibility="public"
     )
-    priv = await _create_dataset(
+    priv = await create_dataset(
         session, created_by=admin_id, name="Private Gamma", visibility="private"
     )
 
@@ -129,9 +81,9 @@ async def test_collection_single_item_no_auth_public_visible(
 ):
     """Anonymous GET /collections/datasets/items/{id} returns a public dataset."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
-    pub = await _create_dataset(
+    pub = await create_dataset(
         session, created_by=admin_id, name="Public Visible", visibility="public"
     )
 
@@ -149,9 +101,9 @@ async def test_collection_single_item_no_auth_private_returns_404(
 ):
     """Anonymous GET /collections/datasets/items/{id} returns 404 for private dataset."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
-    priv = await _create_dataset(
+    priv = await create_dataset(
         session, created_by=admin_id, name="Private Hidden", visibility="private"
     )
 
@@ -167,7 +119,7 @@ async def test_collection_items_authenticated_user_sees_more(
 ):
     """Authenticated user sees public datasets and their own private datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # Create a viewer user who owns a private dataset
     viewer_headers, viewer_id_str = await _create_test_user(
@@ -175,10 +127,10 @@ async def test_collection_items_authenticated_user_sees_more(
     )
     viewer_id = uuid.UUID(viewer_id_str)
 
-    pub = await _create_dataset(
+    pub = await create_dataset(
         session, created_by=admin_id, name="Public Shared", visibility="public"
     )
-    owned_priv = await _create_dataset(
+    owned_priv = await create_dataset(
         session,
         created_by=viewer_id,
         name="Viewer Private",
@@ -223,8 +175,8 @@ async def test_collection_single_item_content_type_is_geo_json(
 ):
     """GET /collections/datasets/items/{id} returns application/geo+json content type."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
-    pub = await _create_dataset(
+    admin_id = await get_user_id(session, "admin")
+    pub = await create_dataset(
         session, created_by=admin_id, name="GeoJSON Type Test", visibility="public"
     )
 
@@ -267,9 +219,9 @@ async def test_anonymous_cannot_see_draft_in_listings(
 ):
     """Anonymous GET /collections/datasets/items does not include draft datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
-    draft = await _create_dataset(
+    draft = await create_dataset(
         session,
         created_by=admin_id,
         name="Draft Dataset Anon Listing",
@@ -290,9 +242,9 @@ async def test_anonymous_gets_404_on_direct_draft_access(
 ):
     """Anonymous GET /collections/datasets/items/{id} returns 404 for draft dataset."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
-    draft = await _create_dataset(
+    draft = await create_dataset(
         session,
         created_by=admin_id,
         name="Draft Dataset Anon Direct",
@@ -312,11 +264,11 @@ async def test_non_owner_cannot_see_others_draft(
 ):
     """Authenticated non-owner cannot see another user's draft in listings."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     viewer_headers, _ = await _create_test_user(client, admin_auth_header, "viewer")
 
-    draft = await _create_dataset(
+    draft = await create_dataset(
         session,
         created_by=admin_id,
         name="Admin Draft Non-Owner Test",
@@ -348,7 +300,7 @@ async def test_owner_can_see_own_draft(
     )
     viewer_id = uuid.UUID(viewer_id_str)
 
-    draft = await _create_dataset(
+    draft = await create_dataset(
         session,
         created_by=viewer_id,
         name="Viewer Owned Draft",
@@ -390,7 +342,7 @@ async def test_admin_sees_all_drafts(
     )
     viewer_id = uuid.UUID(viewer_id_str)
 
-    draft = await _create_dataset(
+    draft = await create_dataset(
         session,
         created_by=viewer_id,
         name="Viewer Draft Admin Sees",

@@ -15,21 +15,16 @@ from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, update
+from sqlalchemy import func, update
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordContact, RecordKeyword
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_search_dataset(
@@ -107,7 +102,7 @@ async def search_datasets(test_db_session):
     Returns dict mapping dataset name keys to Dataset objects.
     """
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # NYC area polygon (approx)
     nyc_wkt = "POLYGON((-74.3 40.4, -73.7 40.4, -73.7 40.95, -74.3 40.95, -74.3 40.4))"
@@ -486,7 +481,7 @@ async def test_search_by_keyword(
     match must come from the EXISTS subquery on record_keywords.
     """
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     ds = await _create_search_dataset(
         session,
@@ -515,7 +510,7 @@ async def test_search_by_contact_name(
 ):
     """Searching for a contact name stored in record_contacts returns the record (SEARCH-02)."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     ds = await _create_search_dataset(
         session,
@@ -554,7 +549,7 @@ async def test_search_by_contact_organization(
 ):
     """Searching for a contact organization returns the record (SEARCH-02, Rec 1)."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     ds = await _create_search_dataset(
         session,
@@ -601,7 +596,7 @@ async def test_search_by_theme_category_camelcase(
     'climatology Meteorology Atmosphere' for FTS indexing.
     """
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     ds = await _create_search_dataset(
         session,
@@ -630,7 +625,7 @@ async def test_search_by_lineage_summary(
 ):
     """Searching 'LiDAR' matches a record with lineage_summary containing 'LiDAR' (SEARCH-01)."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     ds = await _create_search_dataset(
         session,
@@ -861,7 +856,7 @@ async def test_ranking_published_boost(
 ):
     """Published datasets appear before draft datasets when sort_by=relevance."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     # Create a draft dataset
     draft_ds = await _create_search_dataset(

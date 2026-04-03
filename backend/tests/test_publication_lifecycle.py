@@ -11,48 +11,11 @@ Requirements:
   - Alembic migrations must be applied
 """
 
-import uuid
-
 import pytest
-from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
 from app.datasets.router import ALLOWED_TRANSITIONS
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-async def _get_admin_id(session) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == "admin"))
-    return result.scalar_one().id
-
-
-async def _create_dataset_with_status(
-    session, *, admin_id: uuid.UUID, record_status: str = "draft"
-) -> Dataset:
-    """Create a minimal Record + Dataset with a given record_status."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=f"Lifecycle Test {uuid.uuid4().hex[:6]}",
-        visibility="private",
-        record_status=record_status,
-        created_by=admin_id,
-        theme_category=[],
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        source_format="geojson",
-    )
-    session.add(dataset)
-    await session.flush()
-    return dataset
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -77,9 +40,9 @@ class TestValidTransitions:
     async def test_valid_transition(
         self, client, test_db_session, admin_auth_header, from_status, to_status
     ):
-        admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_dataset_with_status(
-            test_db_session, admin_id=admin_id, record_status=from_status
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="private", record_status=from_status
         )
         await test_db_session.commit()
 
@@ -114,9 +77,9 @@ class TestInvalidTransitions:
     async def test_invalid_transition(
         self, client, test_db_session, admin_auth_header, from_status, to_status
     ):
-        admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_dataset_with_status(
-            test_db_session, admin_id=admin_id, record_status=from_status
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="private", record_status=from_status
         )
         await test_db_session.commit()
 
@@ -139,9 +102,9 @@ class TestInvalidStatusValue:
         self, client, test_db_session, admin_auth_header
     ):
         """A status value not in the allowed set should return 422."""
-        admin_id = await _get_admin_id(test_db_session)
-        dataset = await _create_dataset_with_status(
-            test_db_session, admin_id=admin_id, record_status="draft"
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="private", record_status="draft"
         )
         await test_db_session.commit()
 

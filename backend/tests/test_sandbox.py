@@ -17,7 +17,6 @@ import pytest
 from sqlalchemy import select
 
 from app.auth.models import User
-from app.datasets.models import Dataset, Record
 from app.sandbox import validate_and_execute
 from app.sandbox.executor import execute_safe
 from app.sandbox.schemas import SandboxError, SandboxResult, ValidatedQuery
@@ -26,6 +25,8 @@ from app.sandbox.validator import (
     check_table_access,
     validate_sql,
 )
+
+from tests.factories import create_dataset
 
 
 # ---------------------------------------------------------------------------
@@ -37,41 +38,6 @@ async def _get_user(session, username: str) -> User:
     """Look up a user by username."""
     result = await session.execute(select(User).where(User.username == username))
     return result.scalar_one()
-
-
-async def _create_dataset(
-    session,
-    *,
-    created_by: uuid.UUID,
-    table_name: str | None = None,
-    visibility: str = "public",
-) -> Dataset:
-    """Insert a Record + Dataset pair directly into the DB."""
-    if table_name is None:
-        table_name = f"sandbox_test_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=f"Sandbox Test {table_name}",
-        summary="Test dataset for sandbox tests",
-        theme_category=["test"],
-        visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        geometry_type="Point",
-        feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
-    )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +294,7 @@ class TestBuildTableAllowlist:
         session = test_db_session
         admin = await _get_user(session, "admin")
         tbl = f"sandbox_admin_{uuid.uuid4().hex[:8]}"
-        await _create_dataset(session, created_by=admin.id, table_name=tbl)
+        await create_dataset(session, created_by=admin.id, table_name=tbl)
 
         allowlist = await build_table_allowlist(session, admin)
         assert tbl in allowlist
@@ -338,7 +304,7 @@ class TestBuildTableAllowlist:
         session = test_db_session
         admin = await _get_user(session, "admin")
         tbl = f"sandbox_priv_{uuid.uuid4().hex[:8]}"
-        await _create_dataset(
+        await create_dataset(
             session, created_by=admin.id, table_name=tbl, visibility="private"
         )
 
@@ -355,7 +321,7 @@ class TestBuildTableAllowlist:
         session = test_db_session
         admin = await _get_user(session, "admin")
         tbl = f"sandbox_pub_{uuid.uuid4().hex[:8]}"
-        await _create_dataset(
+        await create_dataset(
             session, created_by=admin.id, table_name=tbl, visibility="public"
         )
 
@@ -520,7 +486,7 @@ class TestValidateAndExecuteIntegration:
         session = test_db_session
         admin = await _get_user(session, "admin")
         tbl = f"sandbox_e2e_{uuid.uuid4().hex[:8]}"
-        await _create_dataset(session, created_by=admin.id, table_name=tbl)
+        await create_dataset(session, created_by=admin.id, table_name=tbl)
 
         # generate_series has no schema, so we test with a simple SELECT 1
         # The full RBAC pipeline check is that validate_and_execute wires correctly

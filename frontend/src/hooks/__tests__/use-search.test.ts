@@ -69,3 +69,29 @@ describe('useCatalogSummary', () => {
     expect(result.current.data).toEqual(mockData.summaries);
   });
 });
+
+describe('useSearchResults – error and empty states', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSearchStore.setState(initialState, true);
+  });
+
+  it('returns error state on API failure', async () => {
+    mockSearchDatasets.mockRejectedValueOnce(new Error('Search failed'));
+
+    const { result } = renderHook(() => useSearchResults());
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
+  it('handles empty search results', async () => {
+    const emptyData = { type: 'FeatureCollection', features: [], numberMatched: 0 };
+    mockSearchDatasets.mockResolvedValueOnce(emptyData as never);
+
+    const { result } = renderHook(() => useSearchResults());
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.features).toEqual([]);
+    expect(result.current.data?.numberMatched).toBe(0);
+  });
+});

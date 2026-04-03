@@ -285,6 +285,160 @@ async def list_datasets(
     return datasets, total_count
 
 
+async def get_datasets_list(
+    db: AsyncSession,
+    user: User,
+    user_roles: set[str],
+    *,
+    skip: int = 0,
+    limit: int = 50,
+    base_url: str | None = None,
+) -> tuple[list, int]:
+    """Fetch paginated dataset list with raster assets, VRT source counts, and actor info.
+
+    Returns (dataset_response_list, total_count) ready for the API response.
+    """
+    from app.datasets.helpers import _dataset_to_response, _load_actor_identities
+    from app.raster.models import RasterAsset
+
+    is_admin = "admin" in user_roles
+    datasets, total = await list_datasets(db, user, user_roles, skip=skip, limit=limit)
+
+    actors_by_id = await _load_actor_identities(
+        db,
+        [
+            actor_id
+            for dataset in datasets
+            for actor_id in (dataset.record.created_by, dataset.record.updated_by)
+        ],
+    )
+
+    # Batch-fetch RasterAssets for all raster and VRT datasets in the page
+    raster_ids = [
+        d.id
+        for d in datasets
+        if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
+    ]
+    raster_assets_by_dataset_id: dict = {}
+    if raster_ids:
+        ra_result = await db.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id.in_(raster_ids))
+        )
+        for ra in ra_result.scalars().all():
+            raster_assets_by_dataset_id[ra.dataset_id] = ra
+
+    # Batch source_count query for VRT datasets
+    vrt_ids = [
+        d.id
+        for d in datasets
+        if getattr(d.record, "record_type", None) == "vrt_dataset"
+    ]
+    source_counts: dict = {}
+    if vrt_ids:
+        sc_result = await db.execute(
+            text(
+                "SELECT vrt_dataset_id, COUNT(*) AS cnt FROM catalog.vrt_source_links WHERE vrt_dataset_id = ANY(:ids) GROUP BY vrt_dataset_id"
+            ),
+            {"ids": [str(v) for v in vrt_ids]},
+        )
+        for row in sc_result.all():
+            source_counts[row.vrt_dataset_id] = row.cnt
+
+    response_list = [
+        _dataset_to_response(
+            d,
+            actors_by_id=actors_by_id,
+            raster_asset=raster_assets_by_dataset_id.get(d.id),
+            is_admin=is_admin,
+            source_count=source_counts.get(str(d.id)),
+            base_url=base_url,
+        )
+        for d in datasets
+    ]
+
+    return response_list, total
+
+
+async def get_dataset_detail(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    user: User | None,
+    *,
+    base_url: str | None = None,
+    collections_data: list[dict] | None = None,
+) -> dict | None:
+    """Fetch full dataset detail including raster assets, STAC assets, and collections.
+
+    Returns a DatasetResponse or None if not found.
+    The caller is responsible for visibility checks and audit logging.
+    """
+    from app.datasets.helpers import _dataset_to_response, _load_actor_identities
+    from app.datasets.schemas import StacAsset
+    from app.raster.models import DatasetAsset, RasterAsset
+
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        return None
+
+    actors_by_id = await _load_actor_identities(
+        db,
+        [dataset.record.created_by, dataset.record.updated_by],
+    )
+
+    # Fetch RasterAsset for raster and VRT datasets
+    raster_asset = None
+    source_count = None
+    if getattr(dataset.record, "record_type", None) in (
+        "raster_dataset",
+        "vrt_dataset",
+    ):
+        ra_result = await db.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
+        )
+        raster_asset = ra_result.scalar_one_or_none()
+
+    if getattr(dataset.record, "record_type", None) == "vrt_dataset":
+        sc_result = await db.execute(
+            text(
+                "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+            ),
+            {"id": str(dataset.id)},
+        )
+        source_count = sc_result.scalar()
+
+    # Query DatasetAsset rows for STAC assets
+    da_result = await db.execute(
+        select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)
+    )
+    dataset_asset_rows = da_result.scalars().all()
+    stac_assets_dict = {}
+    for da in dataset_asset_rows:
+        stac_assets_dict[da.key] = StacAsset(
+            href=da.href,
+            type=da.media_type,
+            title=da.title,
+            description=da.description,
+            roles=da.roles,
+            size_bytes=da.size_bytes,
+        )
+
+    from app.auth.visibility import get_user_roles
+
+    user_roles = await get_user_roles(db, user) if user is not None else set()
+    is_admin = "admin" in user_roles
+
+    return _dataset_to_response(
+        dataset,
+        collections=collections_data,
+        actors_by_id=actors_by_id,
+        raster_asset=raster_asset,
+        is_admin=is_admin,
+        source_count=source_count,
+        base_url=base_url,
+        stac_assets=stac_assets_dict or None,
+    )
+
+
 async def delete_dataset(
     session: AsyncSession, dataset_id: uuid.UUID, confirm_title: str
 ) -> str:

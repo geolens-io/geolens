@@ -8,22 +8,16 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    """Look up a user's ID by username."""
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_test_table_and_dataset(
@@ -96,7 +90,7 @@ async def _cleanup_table(session, table_name: str) -> None:
 @pytest.fixture
 async def test_layer(client: AsyncClient, test_db_session, admin_auth_header):
     """Create a Point layer for testing feature CRUD."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_test_table_and_dataset(
         test_db_session,
         created_by=admin_id,
@@ -117,7 +111,7 @@ async def test_layer(client: AsyncClient, test_db_session, admin_auth_header):
 @pytest.fixture
 async def polygon_layer(client: AsyncClient, test_db_session, admin_auth_header):
     """Create a Polygon layer for geometry type mismatch testing."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_test_table_and_dataset(
         test_db_session,
         created_by=admin_id,
@@ -137,7 +131,7 @@ async def polygon_layer(client: AsyncClient, test_db_session, admin_auth_header)
 @pytest.fixture
 async def multipolygon_layer(client: AsyncClient, test_db_session, admin_auth_header):
     """Create a MultiPolygon layer for ST_Multi promotion testing."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_test_table_and_dataset(
         test_db_session,
         created_by=admin_id,
@@ -590,6 +584,67 @@ class TestMultiPromotion:
         )
         geom_type = result.scalar_one()
         assert geom_type == "ST_Point"
+
+
+# ---------------------------------------------------------------------------
+# Private dataset auth tests
+# ---------------------------------------------------------------------------
+
+
+class TestPrivateDatasetFeatureAuth:
+    async def test_unauthenticated_user_cannot_list_private_features(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        admin_auth_header: dict,
+    ):
+        """GET features list for a private dataset without auth returns 401."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_test_table_and_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="POINT",
+            visibility="private",
+        )
+        try:
+            resp = await client.get(f"/datasets/{dataset.id}/features/")
+            assert resp.status_code == 401
+        finally:
+            await _cleanup_table(test_db_session, dataset.table_name)
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": dataset.record_id},
+            )
+            await test_db_session.commit()
+
+    async def test_viewer_cannot_list_private_features_without_permission(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+    ):
+        """Viewer without explicit permission cannot list features of a private dataset."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_test_table_and_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="POINT",
+            visibility="private",
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{dataset.id}/features/",
+                headers=viewer_auth_header,
+            )
+            assert resp.status_code == 403
+        finally:
+            await _cleanup_table(test_db_session, dataset.table_name)
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": dataset.record_id},
+            )
+            await test_db_session.commit()
 
 
 class TestMetadataRefresh:

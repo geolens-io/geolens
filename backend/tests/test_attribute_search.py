@@ -19,21 +19,14 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset(
@@ -88,7 +81,7 @@ async def test_search_by_title(
     test_db_session,
 ):
     """Searching for a word in the title returns the dataset (weight A)."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_dataset(
         test_db_session,
         created_by=admin_id,
@@ -114,7 +107,7 @@ async def test_search_by_summary(
     test_db_session,
 ):
     """Searching for a word in the summary returns the dataset (weight B)."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     unique = uuid.uuid4().hex[:8]
     ds = await _create_dataset(
         test_db_session,
@@ -142,7 +135,7 @@ async def test_search_by_tag(
     test_db_session,
 ):
     """Searching for a tag returns the dataset (weight C)."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     unique_tag = f"hydrology{uuid.uuid4().hex[:6]}"
     ds = await _create_dataset(
         test_db_session,
@@ -171,7 +164,7 @@ async def test_title_ranks_higher_than_summary(
 ):
     """A dataset with a term in the title ranks higher than one
     with the term only in the summary (weight A > weight B)."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     unique = uuid.uuid4().hex[:8]
 
     # This one has the term in the title (weight A)
@@ -222,7 +215,7 @@ async def test_column_names_not_searchable_via_fts(
     column names (which were at weight D on datasets) are no longer
     matched by full-text search.
     """
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     unique = uuid.uuid4().hex[:8]
     await _create_dataset(
         test_db_session,

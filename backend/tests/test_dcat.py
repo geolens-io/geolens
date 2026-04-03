@@ -14,9 +14,6 @@ from datetime import date
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import (
     Dataset,
     Record,
@@ -24,6 +21,8 @@ from app.datasets.models import (
     RecordDistribution,
     RecordKeyword,
 )
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +32,6 @@ from app.datasets.models import (
 _NYC_EXTENT = (
     "SRID=4326;POLYGON((-74.1 40.5, -74.1 40.9, -73.7 40.9, -73.7 40.5, -74.1 40.5))"
 )
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dcat_dataset(
@@ -138,7 +131,7 @@ async def test_single_record_dcat_has_context(
 ):
     """GET /datasets/{id}/dcat/ returns JSON with @context containing all 6 namespace prefixes."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -158,7 +151,7 @@ async def test_single_record_dcat_has_type_and_id(
 ):
     """@type is dcat:Dataset, @id contains the dataset UUID."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -175,7 +168,7 @@ async def test_single_record_dcat_has_title_and_description(
 ):
     """dcterms:title matches record title, dcterms:description matches summary."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(
         session, created_by=admin_id, name="Title Desc Test"
     )
@@ -194,7 +187,7 @@ async def test_single_record_dcat_has_keywords(
 ):
     """dcat:keyword is a list of keyword strings."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -213,7 +206,7 @@ async def test_single_record_dcat_has_contacts(
 ):
     """dcat:contactPoint is a list with vcard properties."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -237,7 +230,7 @@ async def test_single_record_dcat_has_distributions(
 ):
     """dcat:distribution is a list with absolute URLs in dcat:accessURL."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -260,7 +253,7 @@ async def test_single_record_dcat_has_provenance(
 ):
     """dcterms:provenance matches lineage_summary."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -276,7 +269,7 @@ async def test_single_record_dcat_has_temporal(
 ):
     """dcterms:temporal has @type and date fields."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -296,7 +289,7 @@ async def test_single_record_dcat_media_type(
 ):
     """Response Content-Type is application/ld+json."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
@@ -317,7 +310,7 @@ async def test_catalog_dcat_has_context(
 ):
     """GET /datasets/dcat/ returns JSON with @context, @type is dcat:Catalog."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
@@ -336,7 +329,7 @@ async def test_catalog_dcat_includes_visible_datasets(
 ):
     """Catalog feed contains the test dataset in dcat:dataset array."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(
         session, created_by=admin_id, name="Catalog Visible"
     )
@@ -355,7 +348,7 @@ async def test_catalog_dcat_excludes_private_datasets(
 ):
     """Unauthenticated GET /datasets/dcat/ does NOT include private datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_dataset(
         session,
         created_by=admin_id,
@@ -382,7 +375,7 @@ async def test_catalog_datasets_no_context(
 ):
     """Individual datasets within dcat:dataset array do NOT have @context key."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
     await _create_dcat_dataset(session, created_by=admin_id)
 
     resp = await client.get("/datasets/dcat/", headers=admin_auth_header)

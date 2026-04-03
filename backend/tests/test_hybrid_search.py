@@ -19,21 +19,16 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordKeyword
 from app.embeddings.models import RecordEmbedding
 from app.settings.models import AppSetting
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_search_dataset(
@@ -138,7 +133,7 @@ async def _set_semantic_search(session, enabled: bool):
 async def hybrid_datasets(test_db_session):
     """Create datasets for hybrid search tests and return a dict mapping names to Datasets."""
     session = test_db_session
-    admin_id = await _get_user_id(session, "admin")
+    admin_id = await get_user_id(session, "admin")
 
     roads = await _create_search_dataset(
         session,

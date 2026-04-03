@@ -15,21 +15,14 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
-
-from app.auth.models import User
 from app.datasets.models import Dataset, Record, RecordKeyword
+
+from tests.factories import get_user_id
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _get_user_id(session, username: str) -> uuid.UUID:
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalar_one()
-    return user.id
 
 
 async def _create_dataset_with_quality(
@@ -103,7 +96,7 @@ async def test_compute_quality_score_complete_dataset(test_db_session):
     metadata_completeness and crs_defined."""
     from app.ingest.metadata import compute_quality_score as _compute
 
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     ds = await _create_dataset_with_quality(
         test_db_session,
@@ -163,7 +156,7 @@ async def test_compute_quality_score_minimal_dataset(test_db_session):
     and 0 on crs_defined if srid is None."""
     from app.ingest.metadata import compute_quality_score as _compute
 
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
 
     ds = await _create_dataset_with_quality(
         test_db_session,
@@ -217,7 +210,7 @@ async def test_quality_score_in_search_results(
     test_db_session,
 ):
     """quality_score is included in OGC record properties from search."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     score_data = {
         "overall": 82,
         "metadata_completeness": 83.3,
@@ -253,7 +246,7 @@ async def test_quality_score_in_dataset_response(
     test_db_session,
 ):
     """GET /datasets/{id} includes quality_score field."""
-    admin_id = await _get_user_id(test_db_session, "admin")
+    admin_id = await get_user_id(test_db_session, "admin")
     score_data = {
         "overall": 75,
         "metadata_completeness": 66.7,

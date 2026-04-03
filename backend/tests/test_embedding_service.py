@@ -137,3 +137,48 @@ async def test_generate_embedding_truncates_long_input():
     call_args = mock_client_instance.embeddings.create.call_args
     actual_input = call_args.kwargs.get("input") or call_args[1].get("input")
     assert len(actual_input) <= 100_000  # should be truncated
+
+
+@pytest.mark.asyncio
+async def test_generate_embedding_dimension_mismatch():
+    """When the model returns a vector whose length differs from configured dims,
+    the raw vector is returned as-is (no truncation or padding). Callers storing
+    the result into a pgvector column with a fixed dimension will get a DB error
+    at INSERT time if the sizes do not match."""
+    # Model returns 768-dim but config says 1536
+    fake_vector = [0.1] * 768
+    mock_response = MagicMock()
+    mock_response.data = [MagicMock(embedding=fake_vector)]
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.embeddings.create.return_value = mock_response
+
+    mock_session = AsyncMock()
+
+    with (
+        patch(
+            "app.embeddings.service.build_openai_client",
+            return_value=mock_client_instance,
+        ),
+        patch("app.embeddings.service.settings") as mock_settings,
+        patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
+        patch("app.embeddings.service.EMBEDDING_DIMS") as mock_dims,
+        patch(
+            "app.embeddings.service.resolve_embedding_base_url",
+            new_callable=AsyncMock,
+            return_value="",
+        ),
+    ):
+        mock_settings.openai_api_key = "test-key"
+        mock_model.get = AsyncMock(return_value="text-embedding-3-small")
+        mock_dims.get = AsyncMock(return_value=1536)
+
+        result = await generate_embedding("test text", mock_session)
+
+    # The service passes through whatever the API returns — no dimension enforcement
+    assert len(result) == 768
+    assert len(result) != 1536
+
+    # Verify the configured dims were sent to the API (provider may ignore it)
+    call_kwargs = mock_client_instance.embeddings.create.call_args.kwargs
+    assert call_kwargs.get("dimensions") == 1536

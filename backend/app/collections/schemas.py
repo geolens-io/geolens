@@ -8,12 +8,12 @@ from app.datasets.schemas import DatasetResponse
 
 class CollectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class CollectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class CollectionSummary(BaseModel):
