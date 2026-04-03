@@ -2,7 +2,6 @@
 
 import math
 
-import pytest
 
 from scripts.seed_tiles import bbox_to_tiles, lat_to_tile_y, lng_to_tile_x
 

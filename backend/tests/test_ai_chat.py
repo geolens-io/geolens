@@ -171,7 +171,6 @@ async def test_generate_map_success(
 ):
     """POST /ai/generate-map/ returns a map when LLM succeeds."""
     from app.ai import router as ai_router
-    from app.ai import service as ai_service
 
     fake_result = {
         "map_id": str(uuid.uuid4()),
@@ -183,7 +182,8 @@ async def test_generate_map_success(
     async def mock_generate(*args, **kwargs):
         return fake_result
 
-    monkeypatch.setattr(ai_service, "generate_map_from_prompt", mock_generate)
+    # Patch both the module-level import in the router AND the availability check
+    monkeypatch.setattr(ai_router, "generate_map_from_prompt", mock_generate)
     monkeypatch.setattr(ai_router, "_check_ai_available", _noop_check)
 
     resp = await client.post(
