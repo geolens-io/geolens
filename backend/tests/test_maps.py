@@ -12,6 +12,10 @@ import json
 import uuid
 
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from app.auth.models import User
+from app.datasets.models import Dataset, Record
 
 from tests.factories import create_dataset, get_user_id
 

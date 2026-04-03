@@ -24,7 +24,6 @@ import gzip
 import math
 import sys
 import time
-import logging
 
 import structlog
 
@@ -154,10 +153,7 @@ async def _seed_dataset(
     print(f"  Seeding {table_name}: {total} tiles...")
 
     sem = asyncio.Semaphore(concurrency)
-    done_count = 0
-    error_count = 0
     start = time.monotonic()
-    last_report = start
 
     # Shared mutable state via list (avoids nonlocal for compatibility)
     counter = [0]
@@ -261,7 +257,7 @@ async def main() -> None:
         print("ERROR: redis_url is not configured. Set REDIS_URL env var.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Initializing tile pool...")
+    print("Initializing tile pool...")
     pool = await init_tile_pool()
 
     cache = TileCacheProvider(url=settings.redis_url)
