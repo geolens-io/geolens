@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useSearchStore } from '@/stores/search-store';
 
+const SEARCH_WORKSPACE_PATH = '/search';
+
 /**
  * Two-way sync between the search store and URL search params.
  * On mount: restores store state from URL params.
@@ -55,7 +57,11 @@ export function useUrlSearchSync() {
       }
       const search = urlParams.toString();
 
-      window.history.replaceState(null, '', search ? `/?${search}` : '/');
+      window.history.replaceState(
+        null,
+        '',
+        search ? `${SEARCH_WORKSPACE_PATH}?${search}` : SEARCH_WORKSPACE_PATH,
+      );
     });
 
     return unsub;

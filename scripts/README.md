@@ -83,7 +83,7 @@ Creates minimal test datasets for end-to-end test suites.
 | Script | Purpose |
 |--------|---------|
 | `init-db.sh` | Initialize the PostGIS database schema |
-| `init-test-db.sh` | Initialize a test database |
+| `init-test-db.sh` | Initialize a host-accessible `geolens_test` database with the extensions, schemas, and roles expected by CI and local debugging |
 | `restore.sh` | Restore a database backup |
 | `check-env.sh` | Validate required environment variables |
 | `run-baseline.sh` | Run performance baselines |

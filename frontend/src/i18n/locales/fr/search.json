@@ -1,11 +1,27 @@
 {
-  "title": "Trouver des données géospatiales",
-  "subtitle": "Recherchez, prévisualisez et exportez des données géospatiales du catalogue",
+  "title": "Les données spatiales de votre équipe, consultables en un seul endroit",
+  "subtitle": "Téléversez des Shapefiles, GeoTIFFs, GeoPackages ou CSVs. Recherchez par sens, créez et partagez des cartes, prévisualisez des couches et exportez via les APIs OGC.",
+  "workspaceTitle": "Rechercher dans le catalogue GeoLens",
+  "landing": {
+    "eyebrow": "Catalogue géospatial open source",
+    "searchHelper": "Commencez par un mot-clé, un lieu, un format ou une organisation, puis passez à l'espace complet de recherche et de création de cartes.",
+    "primaryCta": "Explorer le catalogue",
+    "openSourceTitle": "Auto-héberger ou intégrer",
+    "openSourceBody": "Déployez GeoLens avec une licence ouverte, une distribution via GitHub et des API normalisées pour les catalogues et les données spatiales.",
+    "workspaceTitle": "Connectez-vous pour créer et partager des cartes",
+    "workspaceBody": "Enregistrez des recherches, composez des cartes interactives, stylisez des couches, importez des données et gérez le catalogue dans l'application."
+  },
+  "heroStats_one": "{{count}} jeu de données dans le catalogue",
+  "heroStats_other": "{{count}} jeux de données dans le catalogue",
+  "trust": {
+    "license": "Apache 2.0",
+    "ogc": "Conforme OGC API",
+    "deploy": "Déployer en 2 minutes",
+    "github": "Voir sur GitHub"
+  },
   "placeholder": "Rechercher des jeux de données par nom, description, tags...",
   "updating": "Mise à jour des résultats...",
   "loadingDatasets": "Chargement des jeux de données...",
-  "resultCount_one": "{{count}} résultat",
-  "resultCount_other": "{{count}} résultats",
   "empty": {
     "title": "Aucun jeu de données trouvé",
     "description": "Essayez d'ajuster votre recherche ou vos filtres",
@@ -69,6 +85,7 @@
     "previewUnavailable": "Apercu non disponible"
   },
   "card": {
+    "testData": "Données de test",
     "featureCount_one": "{{count}} entité",
     "featureCount_other": "{{count}} entités",
     "rowCount_one": "{{count}} ligne",

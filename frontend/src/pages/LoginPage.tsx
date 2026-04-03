@@ -44,7 +44,7 @@ export function LoginPage() {
   });
   if (token) {
     const from = (location.state as { from?: string } | null)?.from;
-    const target = from && from.startsWith('/') ? from : '/';
+    const target = from && from.startsWith('/') ? from : '/search';
     return <Navigate to={target} replace />;
   }
 
@@ -117,7 +117,7 @@ export function LoginPage() {
               defaultValue: 'No account needed to browse the public catalog.',
             })}{' '}
             <Button asChild variant="link" className="h-auto p-0 align-baseline text-sm">
-              <Link to="/">
+              <Link to="/search">
                 {t('browseCatalog', {
                   defaultValue: 'Browse Catalog',
                 })}

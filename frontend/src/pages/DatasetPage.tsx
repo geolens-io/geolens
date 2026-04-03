@@ -261,7 +261,7 @@ export function DatasetPage() {
           message={error instanceof Error ? error.message : t('page.errorMessage')}
           action={
             <Link
-              to="/"
+              to="/search"
               className="text-sm text-primary hover:underline inline-flex items-center gap-1 transition-colors duration-150"
             >
               <ArrowLeft className="h-4 w-4" />

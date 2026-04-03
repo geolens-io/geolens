@@ -21,12 +21,12 @@ test.describe('Authentication Flow', () => {
     // Submit
     await page.getByRole('button', { name: 'Sign In' }).click();
 
-    // Wait for redirect to dashboard
-    await page.waitForURL('/');
+    // Wait for redirect to the search workspace
+    await page.waitForURL('/search');
 
-    // Verify dashboard loaded
+    // Verify workspace loaded
     await expect(
-      page.getByRole('heading', { name: 'Find Geospatial Data' }),
+      page.getByRole('combobox', { name: 'Search geospatial data...' }),
     ).toBeVisible();
 
     // Verify username displayed in navbar

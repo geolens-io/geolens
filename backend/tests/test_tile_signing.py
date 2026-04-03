@@ -98,7 +98,7 @@ async def _cleanup_data_table(session, table_name: str) -> None:
     await session.commit()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 async def _init_tile_pool_for_tests():
     """Initialize asyncpg pool for tile tests."""
     import app.tiles.pool as pool_module
@@ -192,6 +192,7 @@ class TestTileSigningModule:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestTileTokenEndpoint:
     """Integration tests for GET /tiles/token/{dataset_id}/."""
 
@@ -294,6 +295,7 @@ class TestTileTokenEndpoint:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestTileSignatureValidation:
     """Test signature enforcement on the tile endpoint."""
 
@@ -467,6 +469,7 @@ class TestTileSignatureValidation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestTileCacheTTL:
     """Test per-dataset tile_cache_ttl in Cache-Control header."""
 
@@ -520,6 +523,7 @@ class TestTileCacheTTL:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestTileAccessLogging:
     """Test that tile access events are logged with expected fields."""
 

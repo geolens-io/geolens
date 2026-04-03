@@ -163,7 +163,7 @@ export function AdminSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip={t('adminNav.backToApp')}>
-              <Link to="/">
+              <Link to="/search">
                 <ArrowLeft />
                 <span>{t('adminNav.backToApp')}</span>
               </Link>

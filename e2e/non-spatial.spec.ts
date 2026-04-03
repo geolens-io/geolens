@@ -34,7 +34,7 @@ test.describe.serial('Non-spatial CSV', () => {
   });
 
   test('dataset page shows graceful non-spatial state', async ({ page }) => {
-    await page.goto('/?q=sample-nonspatial');
+    await page.goto('/search?q=sample-nonspatial');
     const link = page
       .getByRole('link', { name: /sample-nonspatial/i })
       .first();
@@ -55,7 +55,7 @@ test.describe.serial('Non-spatial CSV', () => {
   test('attribute table shows rows for non-spatial dataset', async ({
     page,
   }) => {
-    await page.goto('/?q=sample-nonspatial');
+    await page.goto('/search?q=sample-nonspatial');
     const link = page
       .getByRole('link', { name: /sample-nonspatial/i })
       .first();
