@@ -64,9 +64,7 @@ class TestRelatedDatasets:
         ds_a = await create_dataset(
             test_db_session, created_by=user_id, name="DS Alpha"
         )
-        ds_b = await create_dataset(
-            test_db_session, created_by=user_id, name="DS Beta"
-        )
+        ds_b = await create_dataset(test_db_session, created_by=user_id, name="DS Beta")
         ds_c = await create_dataset(
             test_db_session, created_by=user_id, name="DS Gamma"
         )

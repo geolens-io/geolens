@@ -580,7 +580,14 @@ class TestCreateEmbedTokenWithOrigins:
 class TestTileDomainLocking:
     """DOMAIN-02, DOMAIN-03, DOMAIN-04: Origin validation on tile requests."""
 
-    async def _setup(self, test_db_session, client, admin_auth_header, allowed_origins, cleanup_data_tables):
+    async def _setup(
+        self,
+        test_db_session,
+        client,
+        admin_auth_header,
+        allowed_origins,
+        cleanup_data_tables,
+    ):
         """Helper: create dataset, map, data table, and embed token."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = cleanup_data_tables(f"embed_dl_{uuid.uuid4().hex[:8]}")
@@ -611,11 +618,19 @@ class TestTileDomainLocking:
         return table_name, raw_token
 
     async def test_tile_allowed_origin_passes(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
     ):
         """Token with allowed_origins, request with matching Origin header -> 200."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["https://example.com"],
+            cleanup_data_tables,
         )
         resp = await client.get(
             f"/tiles/data.{table_name}/0/0/0.pbf",
@@ -624,11 +639,19 @@ class TestTileDomainLocking:
         assert resp.status_code in (200, 204)
 
     async def test_tile_unlisted_origin_rejected(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
     ):
         """Token with allowed_origins, request with unlisted Origin -> 403."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["https://example.com"],
+            cleanup_data_tables,
         )
         resp = await client.get(
             f"/tiles/data.{table_name}/0/0/0.pbf",
@@ -637,11 +660,19 @@ class TestTileDomainLocking:
         assert resp.status_code == 403
 
     async def test_tile_no_origin_header_rejected(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
     ):
         """Token with domain-locking, no Origin/Referer -> 403."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["https://example.com"],
+            cleanup_data_tables,
         )
         resp = await client.get(
             f"/tiles/data.{table_name}/0/0/0.pbf",
@@ -650,7 +681,11 @@ class TestTileDomainLocking:
         assert resp.status_code == 403
 
     async def test_tile_null_origins_unrestricted(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
     ):
         """Token with allowed_origins=None, any origin -> 200."""
         table_name, raw_token = await self._setup(
@@ -663,11 +698,19 @@ class TestTileDomainLocking:
         assert resp.status_code in (200, 204)
 
     async def test_tile_localhost_auto_allowed(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
     ):
         """Token with domain-locking, localhost Origin -> 200 (auto-allowed)."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["https://example.com"],
+            cleanup_data_tables,
         )
         resp = await client.get(
             f"/tiles/data.{table_name}/0/0/0.pbf",
@@ -676,11 +719,19 @@ class TestTileDomainLocking:
         assert resp.status_code in (200, 204)
 
     async def test_tile_referer_fallback(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, cleanup_data_tables
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
     ):
         """Token with domain-locking, no Origin but Referer matches -> 200."""
         table_name, raw_token = await self._setup(
-            test_db_session, client, admin_auth_header, ["https://example.com"], cleanup_data_tables
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["https://example.com"],
+            cleanup_data_tables,
         )
         resp = await client.get(
             f"/tiles/data.{table_name}/0/0/0.pbf",

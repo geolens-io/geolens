@@ -1250,9 +1250,7 @@ class TestMapLayers:
 
 
 class TestMapThumbnail:
-    async def test_upload_thumbnail(
-        self, client: AsyncClient, admin_auth_header: dict
-    ):
+    async def test_upload_thumbnail(self, client: AsyncClient, admin_auth_header: dict):
         """PUT /maps/{id}/thumbnail/ uploads a thumbnail and returns 204."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
