@@ -6,12 +6,31 @@ import { useTranslation } from 'react-i18next';
  */
 export function SkipToContent() {
   const { t } = useTranslation('common');
+
+  const focusMainContent = () => {
+    const mainContent = document.getElementById('main-content');
+    if (!(mainContent instanceof HTMLElement)) return;
+
+    mainContent.focus({ preventScroll: true });
+    if (typeof mainContent.scrollIntoView === 'function') {
+      mainContent.scrollIntoView({ block: 'start' });
+    }
+
+    if (window.location.hash !== '#main-content') {
+      window.history.replaceState(null, '', '#main-content');
+    }
+  };
+
   return (
     <a
-      href="#map-viewport"
+      href="#main-content"
+      onClick={(event) => {
+        event.preventDefault();
+        focusMainContent();
+      }}
       className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:text-sm focus:font-medium focus:shadow-lg"
     >
-      {t('viewer.skipToMap')}
+      {t('nav.skipToContent')}
     </a>
   );
 }

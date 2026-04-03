@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo } from 'react';
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -137,7 +137,7 @@ function buildAutoDescription(
   return t('card.autoDesc.fallback');
 }
 
-export const SearchResultCard = React.memo(function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
+export const SearchResultCard = memo(function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const { t, i18n } = useTranslation('search');
   const { properties } = feature;
   const recordType = properties.record_type ?? 'vector_dataset';
@@ -251,7 +251,7 @@ export const SearchResultCard = React.memo(function SearchResultCard({ feature }
                           {index > 0 && (
                             <span className="me-1 text-muted-foreground/40">&middot;</span>
                           )}
-                          <item.icon className="size-3 shrink-0" />
+                          <item.icon className="size-3 shrink-0" aria-hidden="true" />
                           {item.label}
                         </span>
                       ))}
@@ -311,7 +311,7 @@ export const SearchResultCard = React.memo(function SearchResultCard({ feature }
                   <div className="size-[160px] shrink-0 overflow-hidden rounded-lg border border-border/40">
                     {isTable ? (
                       <div className="flex size-[160px] items-center justify-center bg-muted/20 text-muted-foreground">
-                        <ImageOff className="h-5 w-5 opacity-45" />
+                        <ImageOff className="h-5 w-5 opacity-45" aria-hidden="true" />
                       </div>
                     ) : quicklookSrc ? (
                       <img

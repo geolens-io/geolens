@@ -13,8 +13,7 @@ function deriveDistinctDraft(currentSummary: string, marker: string): string {
 }
 
 async function openAdminCountriesDataset(page: Page) {
-  // Navigate with query param to land in browse mode (single SearchBar, no hero transition race)
-  await page.goto('/?q=Admin+0+Countries');
+  await page.goto('/search?q=Admin+0+Countries');
   const link = page.getByRole('link', { name: /Admin 0 Countries \(10m\)/ }).first();
   await expect(link).toBeVisible({ timeout: 15_000 });
   await link.click();

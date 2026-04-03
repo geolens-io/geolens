@@ -13,7 +13,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,8 @@ import { CreateDatasetDialog } from '@/components/create/CreateDatasetDialog';
 import { CollectionCreateDialog } from '@/components/collections/CollectionCreateDialog';
 import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
+import { GitHubIcon } from '@/components/icons/GitHubIcon';
+import { GEOLENS_GITHUB_URL } from '@/lib/external-links';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -213,22 +216,23 @@ function MobileNav() {
   return (
     <>
       <Sheet open={open} onOpenChange={setOpen}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden"
-          onClick={() => setOpen(true)}
-        >
-          <Menu className="h-5 w-5" />
-          <span className="sr-only">{t('nav.menu')}</span>
-        </Button>
+        <SheetTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+          >
+            <Menu className="h-5 w-5" />
+            <span className="sr-only">{t('nav.menu')}</span>
+          </Button>
+        </SheetTrigger>
         <SheetContent side="left" className="w-64">
           <SheetHeader>
             <SheetTitle><GeoLensLogo size="sm" /></SheetTitle>
             <SheetDescription className="sr-only">{t('nav.navigationMenu')}</SheetDescription>
           </SheetHeader>
-          <nav className="flex flex-col gap-1 px-2">
-            <NavLink to="/" end className={mobileNavLinkClass}>
+          <nav aria-label={t('nav.navigationMenu')} className="flex flex-col gap-1 px-2">
+            <NavLink to="/search" end className={mobileNavLinkClass}>
               {t('nav.search')}
             </NavLink>
             <NavLink to="/collections" className={mobileNavLinkClass}>
@@ -317,15 +321,15 @@ export function Navbar() {
 
   return (
     <header className="border-b bg-background">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <MobileNav />
-          <Link to="/" className="hover:text-primary transition-colors duration-150">
+          <Link to="/" aria-label={t('appName')} className="hover:text-primary transition-colors duration-150">
             <GeoLensLogo size="sm" />
           </Link>
           <Separator orientation="vertical" className="hidden md:block h-6" />
-          <nav className="hidden md:flex items-center gap-2">
-            <NavLink to="/" end className={navLinkClass}>
+          <nav aria-label={t('nav.mainNavigation')} className="hidden md:flex items-center gap-2">
+            <NavLink to="/search" end className={navLinkClass}>
               {t('nav.search')}
             </NavLink>
             <NavLink to="/collections" className={navLinkClass}>
@@ -340,6 +344,17 @@ export function Navbar() {
           <div className="hidden md:block">
             <CreateMenu />
           </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" asChild className="hidden md:inline-flex">
+                <a href={GEOLENS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
+                  <GitHubIcon className="h-4 w-4" />
+                  <span className="sr-only">GitHub</span>
+                </a>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('nav.github')}</TooltipContent>
+          </Tooltip>
           <UserMenu />
         </div>
       </div>

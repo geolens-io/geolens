@@ -98,9 +98,9 @@ test.describe('Permissions', () => {
   test('navbar: admin sees Maps, Import, and Admin links', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/search');
     await expect(
-      page.getByRole('heading', { name: 'Find Geospatial Data' }),
+      page.getByRole('combobox', { name: 'Search geospatial data...' }),
     ).toBeVisible();
 
     // Admin should see all permission-gated nav links

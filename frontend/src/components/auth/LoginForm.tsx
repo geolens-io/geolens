@@ -33,7 +33,7 @@ export function LoginForm() {
     try {
       await login(username, password);
       const from = (location.state as { from?: string } | null)?.from;
-      const target = from && from.startsWith('/') ? from : '/';
+      const target = from && from.startsWith('/') ? from : '/search';
       sessionStorage.removeItem('geolens-login-redirect');
       navigate(target, { replace: true });
     } catch (err) {

@@ -102,7 +102,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
           aria-label={t('clearSearch', { defaultValue: 'Clear search' })}
           className={cn(
             'absolute right-4 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground/75 transition-colors hover:text-foreground',
-            isCompact ? 'p-0' : 'p-0.5 hover:bg-accent/50',
+            isCompact ? 'p-1' : 'p-1 hover:bg-accent/50',
           )}
         >
           <X className="size-4" />

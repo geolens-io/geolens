@@ -105,7 +105,7 @@ async def _cleanup_data_table(session, table_name: str) -> None:
     await session.commit()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 async def _init_tile_pool_for_tests():
     """Initialize a real asyncpg pool pointing at the test database for tile tests.
 
@@ -129,6 +129,7 @@ async def _init_tile_pool_for_tests():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestTileEndpoint:
     """Test tile endpoint returns MVT bytes with correct headers."""
 

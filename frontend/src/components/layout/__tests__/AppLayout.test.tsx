@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { AppLayout } from '../AppLayout';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
@@ -22,9 +24,11 @@ function renderAppLayout(initialEntries: string[] = ['/']) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={initialEntries}>
-        <AppLayout />
-      </MemoryRouter>
+      <TooltipProvider>
+        <MemoryRouter initialEntries={initialEntries}>
+          <AppLayout />
+        </MemoryRouter>
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -96,5 +100,19 @@ describe('AppLayout', () => {
     } as ReturnType<typeof useBranding>);
     renderAppLayout();
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+  });
+
+  it('moves focus to the main landmark when the skip link is activated', async () => {
+    const user = userEvent.setup();
+    renderAppLayout();
+
+    const skipLink = screen.getByRole('link', { name: /skip to main content/i });
+    const main = screen.getByRole('main');
+
+    await user.click(skipLink);
+
+    expect(main).toHaveFocus();
+    expect(main).toHaveAttribute('id', 'main-content');
+    expect(main).toHaveAttribute('tabindex', '-1');
   });
 });

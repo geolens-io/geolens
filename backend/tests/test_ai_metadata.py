@@ -127,7 +127,7 @@ async def test_service_functions_importable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_summary_endpoint_returns_draft(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -163,7 +163,7 @@ async def test_summary_endpoint_returns_draft(
     assert len(data["draft"]) > 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_keywords_endpoint_returns_suggestions(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -206,7 +206,7 @@ async def test_keywords_endpoint_returns_suggestions(
     assert len(data["keywords"]) > 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_lineage_endpoint_returns_draft(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -242,7 +242,7 @@ async def test_lineage_endpoint_returns_draft(
     assert len(data["draft"]) > 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_returns_403_when_ai_disabled(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -271,7 +271,7 @@ async def test_returns_403_when_ai_disabled(
     assert "disabled" in resp.json()["detail"].lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_returns_503_when_no_api_key(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -300,7 +300,7 @@ async def test_returns_503_when_no_api_key(
     assert "not configured" in resp.json()["detail"].lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_returns_401_unauthenticated(client: AsyncClient):
     """POST without auth token returns 401."""
     resp = await client.post(
@@ -310,7 +310,7 @@ async def test_returns_401_unauthenticated(client: AsyncClient):
     assert resp.status_code == 401
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_returns_422_invalid_dataset(
     client: AsyncClient,
     admin_auth_header: dict,

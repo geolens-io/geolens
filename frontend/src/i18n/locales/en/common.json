@@ -34,7 +34,10 @@
     "map": "Map",
     "navigationMenu": "Navigation menu",
     "userMenu": "User menu",
-    "virtualRaster": "Virtual Raster"
+    "virtualRaster": "Virtual Raster",
+    "skipToContent": "Skip to main content",
+    "mainNavigation": "Main navigation",
+    "github": "Star on GitHub"
   },
   "theme": {
     "toggle": "Toggle theme",
@@ -99,7 +102,6 @@
     },
     "heatmapLow": "Low",
     "heatmapHigh": "High",
-    "skipToMap": "Skip to map",
     "showDescription": "Show map description",
     "hideDescription": "Hide map description",
     "changeBasemap": "Change basemap",
@@ -309,7 +311,11 @@
   },
   "footer": {
     "poweredBy": "Powered by GeoLens",
-    "community": "Community"
+    "community": "Community",
+    "docs": "Docs",
+    "github": "GitHub",
+    "api": "API",
+    "license": "Apache 2.0"
   },
   "notFound": {
     "title": "Page not found",

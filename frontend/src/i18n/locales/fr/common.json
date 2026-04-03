@@ -34,7 +34,10 @@
     "map": "Carte",
     "navigationMenu": "Menu de navigation",
     "userMenu": "Menu utilisateur",
-    "virtualRaster": "Raster Virtuel"
+    "virtualRaster": "Raster Virtuel",
+    "skipToContent": "Aller au contenu principal",
+    "mainNavigation": "Navigation principale",
+    "github": "Donner une étoile sur GitHub"
   },
   "theme": {
     "toggle": "Changer le thème",
@@ -148,7 +151,11 @@
   },
   "footer": {
     "poweredBy": "Propulsé par GeoLens",
-    "community": "Communauté"
+    "community": "Communauté",
+    "docs": "Documentation",
+    "github": "GitHub",
+    "api": "API",
+    "license": "Apache 2.0"
   },
   "viewer": {
     "loading": "Chargement de la carte...",
@@ -172,7 +179,6 @@
     },
     "heatmapLow": "Faible",
     "heatmapHigh": "Élevé",
-    "skipToMap": "Aller à la carte",
     "showDescription": "Afficher la description",
     "hideDescription": "Masquer la description",
     "changeBasemap": "Changer le fond de carte",

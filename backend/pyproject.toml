@@ -57,7 +57,11 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
+# Let AnyIO own the project’s coroutine tests and plain async fixtures. Keep
+# pytest-asyncio strict so it only handles the explicit asyncio-only unit-test
+# slice and does not hijack DB-backed integration fixtures onto a second runner.
+anyio_mode = "auto"
+asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-m 'not perf'"
