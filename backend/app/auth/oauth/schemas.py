@@ -10,19 +10,19 @@ from pydantic import BaseModel, ConfigDict, Field
 class OAuthProviderCreate(BaseModel):
     """Schema for creating a new OAuth provider."""
 
-    slug: str
-    display_name: str
+    slug: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
+    display_name: str = Field(min_length=1, max_length=200)
     provider_type: Literal["google", "microsoft", "oidc", "saml"]
     client_id: str | None = Field(default=None, min_length=1, max_length=500)
     client_secret: str | None = Field(default=None, min_length=1, max_length=1000)
-    metadata_xml: str | None = None
-    discovery_url: str | None = None
-    authorize_url: str | None = None
-    token_url: str | None = None
-    userinfo_url: str | None = None
-    scopes: str = "openid profile email"
-    default_role: str = "viewer"
-    group_claim: str | None = None
+    metadata_xml: str | None = Field(default=None, max_length=100000)
+    discovery_url: str | None = Field(default=None, max_length=2000)
+    authorize_url: str | None = Field(default=None, max_length=2000)
+    token_url: str | None = Field(default=None, max_length=2000)
+    userinfo_url: str | None = Field(default=None, max_length=2000)
+    scopes: str = Field(default="openid profile email", max_length=500)
+    default_role: str = Field(default="viewer", max_length=50)
+    group_claim: str | None = Field(default=None, max_length=200)
     group_role_mapping: dict | None = None
     enabled: bool = True
 

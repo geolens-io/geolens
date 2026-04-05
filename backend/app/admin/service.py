@@ -20,6 +20,20 @@ class AdminService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _ensure_not_last_admin(self, user: User, action: str = "modify") -> None:
+        """Raise ValueError if this is the last admin user."""
+        user_roles = {r.name for r in user.roles}
+        if "admin" in user_roles:
+            admin_count_result = await self.db.execute(
+                select(func.count())
+                .select_from(UserRole)
+                .join(Role, UserRole.role_id == Role.id)
+                .where(Role.name == "admin", UserRole.user_id != user.id)
+            )
+            other_admins = admin_count_result.scalar() or 0
+            if other_admins == 0:
+                raise ValueError(f"Cannot {action} the last admin user")
+
     async def create_user(
         self,
         username: str,
@@ -82,18 +96,7 @@ class AdminService:
         if current_user_id is not None and user_id == current_user_id:
             raise ValueError("Cannot deactivate your own account")
 
-        # Check last-admin guard
-        user_roles = {r.name for r in user.roles}
-        if "admin" in user_roles:
-            admin_count_result = await self.db.execute(
-                select(func.count())
-                .select_from(UserRole)
-                .join(Role, UserRole.role_id == Role.id)
-                .where(Role.name == "admin", UserRole.user_id != user_id)
-            )
-            other_admins = admin_count_result.scalar() or 0
-            if other_admins == 0:
-                raise ValueError("Cannot deactivate the last admin user")
+        await self._ensure_not_last_admin(user, "deactivate")
 
         # Note: sets is_active=False while keeping status="active".
         # Auth checks enforce BOTH (status=="active" AND is_active==True),
@@ -128,6 +131,8 @@ class AdminService:
             user.email = updates.email
 
         if updates.is_active is not None:
+            if updates.is_active is False:
+                await self._ensure_not_last_admin(user, "deactivate")
             user.is_active = updates.is_active
 
         # Handle role change
@@ -264,18 +269,7 @@ class AdminService:
         if user_id == current_user_id:
             raise ValueError("Cannot delete your own account")
 
-        # Check last-admin guard
-        user_roles = {r.name for r in user.roles}
-        if "admin" in user_roles:
-            admin_count_result = await self.db.execute(
-                select(func.count())
-                .select_from(UserRole)
-                .join(Role, UserRole.role_id == Role.id)
-                .where(Role.name == "admin", UserRole.user_id != user_id)
-            )
-            other_admins = admin_count_result.scalar() or 0
-            if other_admins == 0:
-                raise ValueError("Cannot delete the last admin user")
+        await self._ensure_not_last_admin(user, "delete")
 
         # Delete related records that have CASCADE or need explicit cleanup
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))

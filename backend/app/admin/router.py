@@ -32,6 +32,7 @@ from app.auth.models import ApiKey, User
 from app.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.config import settings as app_settings
 from app.dependencies import get_client_ip, get_db
+from app.audit.service import log_action
 from app.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
-def _user_response(user) -> UserResponse:
+def _user_response(user: User) -> UserResponse:
     """Convert a User ORM object to a UserResponse schema."""
     return UserResponse(
         id=user.id,
@@ -583,13 +584,21 @@ async def get_embedding_stats(
     db: AsyncSession = Depends(get_db),
 ) -> EmbeddingStatsResponse:
     """Return embedding coverage statistics (admin only)."""
-    total_result = await db.execute(text("SELECT COUNT(*) FROM catalog.records"))
-    total_records = total_result.scalar_one()
+    try:
+        total_result = await db.execute(text("SELECT COUNT(*) FROM catalog.records"))
+        total_records = total_result.scalar_one()
 
-    embedded_result = await db.execute(
-        text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
-    )
-    embedded_records = embedded_result.scalar_one()
+        embedded_result = await db.execute(
+            text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
+        )
+        embedded_records = embedded_result.scalar_one()
+    except Exception:
+        return EmbeddingStatsResponse(
+            total_records=0,
+            embedded_records=0,
+            missing_records=0,
+            coverage_percent=0.0,
+        )
 
     missing_records = total_records - embedded_records
     coverage_percent = (
@@ -620,7 +629,13 @@ async def trigger_backfill(
     """
     from app.embeddings.backfill import backfill_embeddings
 
-    result = await backfill_embeddings(db, force=force)
+    try:
+        result = await backfill_embeddings(db, force=force)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Embedding backfill failed: {e}",
+        )
     return BackfillResponse(**result)
 
 
@@ -742,7 +757,6 @@ async def admin_revoke_share_token(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) a share token and cascade to its embed tokens (admin only)."""
-    from app.audit.service import log_action
     from app.embed_tokens.models import EmbedToken
     from app.embed_tokens.service import bulk_revoke_embed_tokens
     from app.maps.service import revoke_share_token
