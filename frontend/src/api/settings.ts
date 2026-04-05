@@ -57,8 +57,8 @@ export async function getTileConfig(): Promise<TileConfig> {
   return apiFetch<TileConfig>('/settings/tile-config/');
 }
 
-export async function getEnabledWidgets(): Promise<string[]> {
-  return apiFetch<string[]>('/settings/enabled-widgets/');
+export async function getEnabledWidgets(): Promise<string[] | null> {
+  return apiFetch<string[] | null>('/settings/enabled-widgets/');
 }
 
 // --- Unified admin endpoints ---
@@ -67,8 +67,8 @@ export async function getAllSettings(): Promise<AllSettingsResponse> {
   return apiFetch<AllSettingsResponse>('/settings/all/');
 }
 
-export async function updateSettings(settings: Record<string, unknown>): Promise<void> {
-  return apiFetch<void>('/settings/', {
+export async function updateSettings(settings: Record<string, unknown>): Promise<AllSettingsResponse> {
+  return apiFetch<AllSettingsResponse>('/settings/', {
     method: 'PUT',
     body: JSON.stringify({ settings }),
   });
@@ -116,11 +116,10 @@ export async function getBranding(): Promise<BrandingConfig> {
   return apiFetch<BrandingConfig>('/settings/branding/');
 }
 
-export async function updateBranding(config: BrandingConfig): Promise<BrandingConfig> {
-  return apiFetch<BrandingConfig>('/settings/branding/', {
-    method: 'PUT',
-    body: JSON.stringify(config),
-  });
+export async function updateBranding(data: Partial<BrandingConfig>): Promise<void> {
+  const settings: Record<string, unknown> = {};
+  if (data.show_badge !== undefined) settings.branding_show_badge = data.show_badge;
+  await updateSettings(settings);
 }
 
 // --- OAuth provider types and endpoints (admin-only) ---
