@@ -155,7 +155,7 @@ async def update_settings(
             ip = request.client.host if request.client else None
             await EMBEDDING_DIMS.set(db, dims, user_id=user.id, ip_address=ip)
         except Exception:
-            pass  # non-fatal — admin can still set manually
+            logger.warning("Failed to auto-detect embedding dimensions", exc_info=True)
 
     # When embedding dimensions change, delete incompatible embeddings and
     # rebuild the column + HNSW index so the backfill button reappears in the UI.
@@ -195,6 +195,7 @@ async def update_settings(
                 await db.commit()
             except Exception:
                 await db.rollback()
+                logger.error("Failed to rebuild embedding column", exc_info=True)
 
     # Return updated settings
     return await get_all_settings(request=request, _user=user, db=db)
