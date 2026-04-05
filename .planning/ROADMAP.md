@@ -200,7 +200,10 @@ Plans:
   1. A CSS-rendered browser-frame component showing the GeoLens search/catalog UI (dataset cards, search bar, filter facets) renders correctly in isolation and in a page context
   2. A CSS-rendered browser-frame component showing the map builder UI (map canvas with a visible layer panel or toolbar) renders correctly in isolation and in a page context
   3. A CSS-rendered browser-frame component showing the dataset detail page (metadata fields, map thumbnail area) renders correctly in isolation and in a page context
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 214-01-PLAN.md — BrowserFrame wrapper + SearchPreview (search bar, filter tabs, 3 dataset cards with SVG quicklooks)
+- [ ] 214-02-PLAN.md — MapBuilderPreview, DatasetDetailPreview, and visual review test page
 **UI hint**: yes
 
 ### Phase 215: Homepage
@@ -241,7 +244,7 @@ Plans:
 
 ## Progress
 
-**Execution Order:** 212 → 213 → 214 → 215 → 216 → 217
+**Execution Order:** 212 → 213 → 214 → 215 �� 216 → 217
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -253,7 +256,7 @@ Plans:
 | 211. Licensing & Public Documentation | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
-| 214. Product Preview Assets | v14.0 | 0/? | Not started | - |
+| 214. Product Preview Assets | v14.0 | 0/2 | Not started | - |
 | 215. Homepage | v14.0 | 0/? | Not started | - |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
