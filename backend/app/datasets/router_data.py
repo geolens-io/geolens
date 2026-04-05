@@ -156,7 +156,7 @@ async def dataset_maps(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
-):
+) -> MapListResponse:
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.maps.service import get_maps_for_dataset
 
@@ -201,13 +201,13 @@ async def update_publication_status(
     )
     dataset = dataset.unique().scalar_one_or_none()
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     current = dataset.record.record_status
     target = body.status
     if target not in ALLOWED_TRANSITIONS.get(current, set()):
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"Cannot transition from '{current}' to '{target}'. "
                 f"Allowed: {ALLOWED_TRANSITIONS.get(current, set())}"
