@@ -160,42 +160,13 @@ async def update_settings(
     # When embedding dimensions change, delete incompatible embeddings and
     # rebuild the column + HNSW index so the backfill button reappears in the UI.
     if "embedding_dims" in body.settings:
-        new_dims = int(body.settings["embedding_dims"])
-        from sqlalchemy import text as sa_text
+        from app.embeddings.service import rebuild_embedding_column
 
-        # Check current column dimensions
-        col_check = await db.execute(
-            sa_text(
-                "SELECT atttypmod FROM pg_attribute "
-                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-                "AND attname = 'embedding'"
-            )
-        )
-        current_dims = col_check.scalar_one_or_none()
-        if current_dims is not None and current_dims != new_dims:
-            try:
-                await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
-                await db.execute(
-                    sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
-                )
-                await db.execute(
-                    sa_text(
-                        f"ALTER TABLE catalog.record_embeddings "
-                        f"ALTER COLUMN embedding TYPE vector({new_dims}) "
-                        f"USING embedding::vector({new_dims})"
-                    )
-                )
-                await db.execute(
-                    sa_text(
-                        "CREATE INDEX ix_record_embeddings_hnsw "
-                        "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                        "WITH (m=16, ef_construction=64)"
-                    )
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                logger.error("Failed to rebuild embedding column", exc_info=True)
+        new_dims = int(body.settings["embedding_dims"])
+        try:
+            await rebuild_embedding_column(db, new_dims)
+        except Exception:
+            pass  # error already logged and rolled back inside helper
 
     # Return updated settings
     return await get_all_settings(request=request, _user=user, db=db)
