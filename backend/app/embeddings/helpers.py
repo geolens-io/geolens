@@ -92,6 +92,7 @@ def build_openai_client(base_url: str) -> OpenAI:
             api_key=settings.openai_api_key,
             base_url=base_url,
             timeout=httpx.Timeout(60.0, connect=10.0),
+            max_retries=2,
         )
     return _cached_openai_clients[base_url]
 
