@@ -15,7 +15,7 @@ function formatViolations(violations: any[]): string {
 }
 
 test.describe('Accessibility - WCAG 2AA', () => {
-  test('public landing page has no accessibility violations', async ({ page }) => {
+  test('public search page has no accessibility violations', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -42,7 +42,8 @@ test.describe('Accessibility - WCAG 2AA', () => {
   });
 
   test('dataset detail page has no accessibility violations', async ({ page }) => {
-    await page.goto('/search?q=Reefs');
+    // Navigate with query param to bypass hero→sticky SearchBar transition
+    await page.goto('/?q=Reefs');
     await page.waitForLoadState('networkidle');
     const link = page.getByRole('link', { name: /Reefs \(10m\)/ }).first();
     await expect(link).toBeVisible({ timeout: 15_000 });
