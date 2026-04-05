@@ -153,7 +153,7 @@ Plans:
 
 **Note:** This milestone lives in a separate repo (`getgeolens.com`), not the GeoLens monorepo. Phase work targets that repo.
 
-- [ ] **Phase 212: Repo Bootstrap and Design System** — Initialize the getgeolens.com repo with Astro 6, Tailwind 4, GeoLens brand tokens, Cloudflare Pages deployment, and accessible layout shell (SITE-01, SITE-02, SITE-03, SITE-04, SITE-05, A11Y-01, A11Y-03)
+- [x] **Phase 212: Repo Bootstrap and Design System** — Initialize the getgeolens.com repo with Astro 6, Tailwind 4, GeoLens brand tokens, Cloudflare Pages deployment, and accessible layout shell (SITE-01, SITE-02, SITE-03, SITE-04, SITE-05, A11Y-01, A11Y-03) (completed 2026-04-05)
 - [ ] **Phase 213: SEO Infrastructure** — Build BaseHead component, Satori OG image endpoint, sitemap/robots, and JSON-LD so every page gets correct SEO automatically (SEO-01, SEO-02, SEO-03, SEO-04)
 - [ ] **Phase 214: Product Preview Assets** — Create the three CSS-rendered browser-frame product previews (search UI, map builder, dataset detail) that make the product tangible to evaluators (ASSET-01, ASSET-02, ASSET-03)
 - [ ] **Phase 215: Homepage** — Build the primary conversion surface with outcome-focused hero, trust bar, feature highlights, product preview, and quickstart teaser (HOME-01, HOME-02, HOME-03, HOME-04, HOME-05)
@@ -175,7 +175,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 212-01-PLAN.md — Astro 6 project scaffold, Tailwind 4, OKLCH design tokens, CI/Cloudflare config
-- [ ] 212-02-PLAN.md — Layout shell: SiteLayout, Nav, Footer, stub homepage
+- [x] 212-02-PLAN.md — Layout shell: SiteLayout, Nav, Footer, stub homepage
 **UI hint**: yes
 
 ### Phase 213: SEO Infrastructure
@@ -248,7 +248,7 @@ Plans:
 | 209. SAML SSO | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 210. Enterprise Overlay Repo | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 211. Licensing & Public Documentation | v13.0 | 2/2 | Complete | 2026-03-27 |
-| 212. Repo Bootstrap and Design System | v14.0 | 1/2 | In Progress|  |
+| 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 213. SEO Infrastructure | v14.0 | 0/? | Not started | - |
 | 214. Product Preview Assets | v14.0 | 0/? | Not started | - |
 | 215. Homepage | v14.0 | 0/? | Not started | - |
