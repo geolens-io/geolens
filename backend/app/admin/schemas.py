@@ -25,7 +25,7 @@ class AdminUserCreate(BaseModel):
 
 
 class ApproveRequest(BaseModel):
-    role: str
+    role: str = Field(max_length=50)
 
     @field_validator("role")
     @classmethod
@@ -38,7 +38,7 @@ class ApproveRequest(BaseModel):
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
     is_active: bool | None = None
-    role: str | None = None
+    role: str | None = Field(default=None, max_length=50)
 
     @field_validator("role")
     @classmethod

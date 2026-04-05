@@ -33,7 +33,11 @@ async function tryRefresh(): Promise<boolean> {
         tokens.refresh_token,
         tokens.expires_in,
       );
-    } catch {
+    } catch (err) {
+      // If rate-limited, wait before giving up so the next attempt isn't also blocked
+      if (err instanceof ApiError && err.status === 429) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
       // Refresh failed -- will fall through to logout
     }
   })();

@@ -382,7 +382,6 @@ async def delete_dataset_relationship(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# TODO: add response_model once a schema for related records response is created
 @router.get("/{dataset_id}/features/{gid}/related/{relationship_id}/")
 async def get_feature_related_records(
     dataset_id: uuid.UUID,

@@ -297,8 +297,7 @@ export function DatasetPage() {
       return;
     }
     try {
-      const steps = ['ready', 'internal', 'published'];
-      for (const step of steps) {
+      for (const step of ['ready', 'internal', 'published']) {
         await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
       }
       toast.success(t('publish.success'));

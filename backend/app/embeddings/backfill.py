@@ -155,6 +155,6 @@ if __name__ == "__main__":
     async def _run():
         async with async_session() as session:
             result = await backfill_embeddings(session)
-            print(f"Backfill complete: {result}")
+            logger.info("Backfill complete", result=result)
 
     asyncio.run(_run())

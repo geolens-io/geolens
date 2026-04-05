@@ -85,7 +85,7 @@ class KeywordListResponse(BaseModel):
 class DistributionCreate(BaseModel):
     distribution_type: str = Field(description="e.g. download, api, ogc_wms, ogc_wfs")
     format: str = Field(description="File or service format, e.g. GeoJSON, SHP, WMS")
-    url: str = Field(description="Access URL for this distribution")
+    url: str = Field(max_length=2048, description="Access URL for this distribution")
     title: str | None = None
     description: str | None = None
     protocol: str | None = Field(

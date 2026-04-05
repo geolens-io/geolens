@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from app.ai.constants import tool_label
 from app.ai.llm_loop import (
@@ -490,7 +490,7 @@ def _build_tool_executor(
     user: User,
     user_roles: set[str],
     send_sample_values: bool,
-):
+) -> "Callable[[str, dict], Awaitable[dict]]":
     """Build a tool executor closure bound to the given session/user."""
 
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:

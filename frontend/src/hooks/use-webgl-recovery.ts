@@ -30,8 +30,8 @@ export function useWebGLRecovery(
       try {
         const style = map.getStyle();
         if (style) map.setStyle(style);
-      } catch {
-        // map may be in a broken state — reload will handle it
+      } catch (err) {
+        console.error('WebGL recovery: style restoration failed', err);
       }
     };
 

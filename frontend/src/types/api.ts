@@ -162,6 +162,9 @@ export interface ContactCreate {
   name?: string | null;
   email?: string | null;
   organization?: string | null;
+  phone?: string | null;
+  extra_json?: Record<string, unknown> | null;
+  sort_order?: number;
 }
 
 export interface ContactResponse {
@@ -893,7 +896,7 @@ export interface ChatAction {
   dataset_id?: string;
   visible?: boolean;
   opacity?: number;
-  geojson?: Record<string, unknown>;
+  geojson?: GeoJSON.FeatureCollection;
   bbox?: [number, number, number, number];
 }
 

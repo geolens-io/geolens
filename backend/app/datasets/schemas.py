@@ -32,6 +32,28 @@ DOMAIN_TYPES = Literal[
 ]
 
 
+class ColumnInfo(BaseModel):
+    """Describes a single column in a dataset's attribute table."""
+
+    name: str
+    type: str
+    semantic_role: str | None = None
+    domain_type: str | None = None
+    sample_values: list | None = None
+    stats: dict | None = None
+
+
+class QualityDetail(BaseModel):
+    """Automated quality assessment results."""
+
+    overall: float = Field(ge=0.0, le=1.0)
+    metadata_completeness: float = Field(ge=0.0, le=1.0)
+    geometry_validity: float = Field(ge=0.0, le=1.0)
+    attribute_completeness: float = Field(ge=0.0, le=1.0)
+    crs_defined: float = Field(ge=0.0, le=1.0)
+    computed_at: datetime | None = None
+
+
 class ColumnDefinition(BaseModel):
     name: str
     type: Literal["text", "integer", "float", "date", "boolean"]
@@ -152,7 +174,7 @@ class DatasetResponse(BaseModel):
     extent_bbox: list[float] | None = Field(
         default=None, description="Bounding box [minx, miny, maxx, maxy]"
     )
-    column_info: list[dict] | None = Field(
+    column_info: list[ColumnInfo | dict] | None = Field(
         default=None, description="Column names, types, and stats"
     )
     license: str | None = None
@@ -163,7 +185,7 @@ class DatasetResponse(BaseModel):
     data_vintage_end: date | None = Field(
         default=None, description="End of temporal coverage"
     )
-    quality_detail: dict | None = Field(
+    quality_detail: QualityDetail | dict | None = Field(
         default=None, description="Automated quality assessment results"
     )
     source_format: str | None = Field(

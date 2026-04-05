@@ -3,7 +3,7 @@
 import re
 
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -259,6 +259,25 @@ class ChatRequest(BaseModel):
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
 
 
+class GeoJSONFeature(BaseModel):
+    """A GeoJSON Feature."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str = "Feature"
+    geometry: dict | None = None
+    properties: dict | None = None
+
+
+class GeoJSONFeatureCollection(BaseModel):
+    """A GeoJSON FeatureCollection."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str = "FeatureCollection"
+    features: list[GeoJSONFeature] = []
+
+
 class ChatAction(BaseModel):
     type: str  # set_filter, set_style, set_data_driven_style, set_label, toggle_visibility, add_layer, remove_layer, show_query_result, set_opacity
     layer_id: str | None = None
@@ -269,7 +288,7 @@ class ChatAction(BaseModel):
     dataset_id: str | None = None  # for add_layer
     visible: bool | None = None  # for toggle_visibility
     opacity: float | None = None  # for set_opacity
-    geojson: dict | None = None  # for show_query_result
+    geojson: GeoJSONFeatureCollection | None = None  # for show_query_result
     bbox: list[float] | None = None  # for show_query_result
 
 

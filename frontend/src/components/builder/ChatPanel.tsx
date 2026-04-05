@@ -119,8 +119,8 @@ export function ChatPanel({
       case 'show_query_result':
         if (action.geojson && action.bbox) {
           onQueryResult?.(
-            action.geojson as unknown as GeoJSON.FeatureCollection,
-            action.bbox as [number, number, number, number],
+            action.geojson,
+            action.bbox,
           );
         }
         break;

@@ -6,8 +6,11 @@ W3C DCAT 3 Recommendation: https://www.w3.org/TR/vocab-dcat-3/
 
 from __future__ import annotations
 
+import structlog
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+logger = structlog.stdlib.get_logger(__name__)
 
 
 if TYPE_CHECKING:
@@ -134,7 +137,7 @@ def record_to_dcat(
                 ),
             }
         except Exception:
-            pass
+            logger.debug("DCAT spatial extent serialization failed", record_id=str(record.id))
 
     # Theme categories
     if record.theme_category:
