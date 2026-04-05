@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field, field_validator
 
 class BasemapEntry(BaseModel):
     id: str = Field(max_length=30)
-    label: str
-    url: str
+    label: str = Field(max_length=200)
+    url: str = Field(max_length=2000)
     enabled: bool = True
     is_preset: bool = False
     attribution: str | None = None
@@ -108,6 +108,13 @@ class SettingsUpdateRequest(BaseModel):
     """Request for PUT /settings/."""
 
     settings: dict[str, Any]
+
+    @field_validator("settings")
+    @classmethod
+    def limit_settings_count(cls, v: dict) -> dict:
+        if len(v) > 50:
+            raise ValueError("Too many settings in single request (max 50)")
+        return v
 
 
 class SettingsResetRequest(BaseModel):
