@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Bookmark, Map, Upload } from 'lucide-react';
+import { Bookmark, Loader2, Map, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
@@ -37,7 +37,7 @@ export function LoginPage() {
     }
   }, [oauthError, t]);
 
-  const { data: config } = useQuery({
+  const { data: config, isLoading: configLoading } = useQuery({
     queryKey: queryKeys.authConfig.config,
     queryFn: getAuthConfig,
     staleTime: 5 * 60 * 1000,
@@ -46,6 +46,14 @@ export function LoginPage() {
     const from = (location.state as { from?: string } | null)?.from;
     const target = from && from.startsWith('/') ? from : '/';
     return <Navigate to={target} replace />;
+  }
+
+  if (configLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return (

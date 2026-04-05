@@ -153,6 +153,9 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
     const combinator = expr[0] as 'all' | 'any';
     const results: FilterCondition[] = [];
     for (let i = 1; i < expr.length; i++) {
+      if (!Array.isArray(expr[i])) {
+        return { kind: 'opaque', raw: expr };
+      }
       const parsed = parseSingle(expr[i] as unknown[]);
       if (parsed === null) {
         // Any unparseable sub-expression makes the whole thing opaque
