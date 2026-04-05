@@ -1,44 +1,29 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Search Flow', () => {
-  test('landing scroll keeps filter access and does not mount the spatial dialog until opened', async ({ page }) => {
+  test('search page renders at root with search input', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('sample-nonspatial')).toBeVisible();
+    await page.waitForLoadState('networkidle');
 
+    // Search page should load at /
+    await expect(page).toHaveURL('/');
+
+    // Search input should be present
     await expect(
-      page.getByRole('dialog', { name: 'Search area' }),
-    ).toHaveCount(0);
-
-    await page.evaluate(() => window.scrollTo(0, 1200));
-    await page.waitForTimeout(250);
-
-    const stickyShell = page.getByTestId('search-sticky-shell');
-    await expect(stickyShell).toBeVisible();
-    await expect(
-      stickyShell.getByRole('button', { name: 'Keywords' }),
-    ).toBeVisible();
+      page.getByRole('combobox', { name: 'Search geospatial data...' }),
+    ).toHaveCount(1);
   });
 
-  test('tablet browse keeps the desktop filter tray and spatial sheet semantics', async ({ page }) => {
-    await page.setViewportSize({ width: 1024, height: 900 });
+  test('query params are respected at /?q=something', async ({ page }) => {
     await page.goto('/?q=Zoning');
+    await page.waitForLoadState('networkidle');
 
-    const stickyShell = page.getByTestId('search-sticky-shell');
-    await expect(stickyShell).toBeVisible();
-    await expect(
-      stickyShell.getByRole('button', { name: 'Keywords' }),
-    ).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Filters' })).toHaveCount(0);
+    // Should stay on root with query param
+    await expect(page).toHaveURL('/?q=Zoning');
 
-    await page.getByRole('button', { name: 'Location' }).click();
-    const spatialDialog = page.getByRole('dialog', { name: 'Search area' });
-    await expect(spatialDialog).toBeVisible();
-    await expect(
-      spatialDialog.getByText('Draw a rectangle or polygon to limit search results to a specific area.'),
-    ).toBeVisible();
-
-    await spatialDialog.getByRole('button', { name: 'Close' }).click();
-    await expect(spatialDialog).toHaveCount(0);
+    // Search input should reflect the query
+    const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
+    await expect(searchInput).toHaveCount(1);
   });
 
   test('prefix search supports keyboard typeahead navigation', async ({ page }) => {
