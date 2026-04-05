@@ -71,6 +71,7 @@ git filter-repo --force \
   --path .agents/ \
   --path .codex/ \
   --path .claude/ \
+  --path docs-internal/ \
   --path docs/audits/ \
   --path docs/GTM/ \
   --path docs/decisions/ \
