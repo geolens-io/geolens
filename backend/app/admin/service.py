@@ -63,8 +63,7 @@ class AdminService:
             raise ValueError(f"Role '{role_name}' not found")
 
         self.db.add(UserRole(user_id=user.id, role_id=role.id))
-        await self.db.commit()
-        # Refresh to load relationships (roles)
+        await self.db.flush()
         await self.db.refresh(user)
         return user
 
@@ -96,8 +95,12 @@ class AdminService:
             if other_admins == 0:
                 raise ValueError("Cannot deactivate the last admin user")
 
+        # Note: sets is_active=False while keeping status="active".
+        # Auth checks enforce BOTH (status=="active" AND is_active==True),
+        # so the user is effectively locked out. The list_users endpoint
+        # interprets "deactivated" as status="active" + is_active=False.
         user.is_active = False
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(user)
         return user
 
@@ -137,12 +140,25 @@ class AdminService:
             if new_role is None:
                 raise ValueError(f"Role '{updates.role}' not found")
 
+            # Last-admin guard: prevent demoting the sole admin
+            user_roles = {r.name for r in user.roles}
+            if "admin" in user_roles and updates.role != "admin":
+                admin_count_result = await self.db.execute(
+                    select(func.count())
+                    .select_from(UserRole)
+                    .join(Role, UserRole.role_id == Role.id)
+                    .where(Role.name == "admin", UserRole.user_id != user_id)
+                )
+                other_admins = admin_count_result.scalar() or 0
+                if other_admins == 0:
+                    raise ValueError("Cannot demote the last admin user")
+
             # Remove existing roles
             await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))
             # Add new role
             self.db.add(UserRole(user_id=user_id, role_id=new_role.id))
 
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(user)
         return user
 
@@ -215,7 +231,7 @@ class AdminService:
             raise ValueError(f"Role '{role_name}' not found")
 
         self.db.add(UserRole(user_id=user.id, role_id=role.id))
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(user)
         return user
 
@@ -232,7 +248,7 @@ class AdminService:
             raise ValueError("User is not in pending status")
 
         await self.db.delete(user)
-        await self.db.commit()
+        await self.db.flush()
 
     async def delete_user(self, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
         """Hard-delete a user.
@@ -267,7 +283,45 @@ class AdminService:
 
         # Hard delete the user (FK SET NULL handles audit_logs, datasets, ingest_jobs)
         await self.db.delete(user)
-        await self.db.commit()
+        await self.db.flush()
+
+    async def list_jobs(
+        self,
+        *,
+        status: str | None = None,
+        user_id: uuid.UUID | None = None,
+        search: str | None = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> tuple[list, int]:
+        """List ingestion jobs with optional filters. Returns (rows, total)."""
+        from app.auth.models import User as UserModel
+        from app.jobs.models import IngestJob
+
+        filters = []
+        if status is not None:
+            filters.append(IngestJob.status == status)
+        if user_id is not None:
+            filters.append(IngestJob.created_by == user_id)
+        if search is not None:
+            filters.append(IngestJob.source_filename.ilike(f"%{search}%"))
+
+        count_stmt = select(func.count()).select_from(IngestJob)
+        for f in filters:
+            count_stmt = count_stmt.where(f)
+        total = (await self.db.execute(count_stmt)).scalar_one()
+
+        list_stmt = (
+            select(IngestJob, UserModel.username)
+            .outerjoin(UserModel, IngestJob.created_by == UserModel.id)
+            .order_by(IngestJob.created_at.desc())
+        )
+        for f in filters:
+            list_stmt = list_stmt.where(f)
+        list_stmt = list_stmt.offset(skip).limit(limit)
+        rows = (await self.db.execute(list_stmt)).all()
+
+        return rows, total
 
     async def get_catalog_stats(self) -> CatalogStatsResponse:
         """Return catalog statistics: counts, storage, breakdowns."""

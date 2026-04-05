@@ -121,87 +121,141 @@ async def export_config(db: AsyncSession) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def dry_run_import(
+async def _diff_settings(
     db: AsyncSession,
-    data: dict,
-    mode: ImportMode,
-) -> DryRunResponse:
-    """Compare imported config against current without modifying the database."""
+    import_settings: dict,
+) -> list[dict]:
+    """Compare imported settings against current values."""
     from app.persistent_config import _registry
-    from app.auth.oauth import service as oauth_service
 
-    # --- Settings diff ---
     registry_map = {cfg.key: cfg for cfg in _registry}
-    setting_changes: list[dict] = []
-
-    import_settings = data.get("settings") or {}
+    changes: list[dict] = []
     for key, imported_value in import_settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
-            # Unknown key -- will be skipped during import
             continue
         current_value = await cfg.get(db)
-        if current_value == imported_value:
-            setting_changes.append(
-                SettingChange(
-                    key=key,
-                    current=current_value,
-                    imported=imported_value,
-                    action="no_change",
-                ).model_dump()
-            )
-        else:
-            setting_changes.append(
-                SettingChange(
-                    key=key,
-                    current=current_value,
-                    imported=imported_value,
-                    action="update",
-                ).model_dump()
-            )
+        action = "no_change" if current_value == imported_value else "update"
+        changes.append(
+            SettingChange(
+                key=key, current=current_value, imported=imported_value, action=action
+            ).model_dump()
+        )
+    return changes
 
-    # --- OAuth providers diff ---
+
+async def _diff_oauth_providers(
+    db: AsyncSession,
+    import_providers: list[dict],
+    mode: ImportMode,
+) -> list[dict]:
+    """Compare imported OAuth providers against existing ones."""
+    from app.auth.oauth import service as oauth_service
+
     existing_providers = await oauth_service.list_providers(db)
     existing_by_slug = {p.slug: p for p in existing_providers}
-    import_providers = data.get("oauth_providers") or []
     import_slugs = {p["slug"] for p in import_providers if "slug" in p}
 
-    provider_changes: list[dict] = []
+    changes: list[dict] = []
     for imp in import_providers:
         slug = imp.get("slug")
         if not slug:
             continue
         existing = existing_by_slug.get(slug)
         if existing is None:
-            provider_changes.append(
-                OAuthProviderChange(slug=slug, action="create").model_dump()
-            )
+            changes.append(OAuthProviderChange(slug=slug, action="create").model_dump())
         else:
-            existing_dict = _provider_to_dict(existing)
-            changed = _diff_provider(existing_dict, imp)
-            if changed:
-                provider_changes.append(
-                    OAuthProviderChange(
-                        slug=slug, action="update", changed_fields=changed
-                    ).model_dump()
-                )
-            else:
-                provider_changes.append(
-                    OAuthProviderChange(slug=slug, action="no_change").model_dump()
-                )
+            changed = _diff_provider(_provider_to_dict(existing), imp)
+            action = "update" if changed else "no_change"
+            changes.append(
+                OAuthProviderChange(
+                    slug=slug, action=action, changed_fields=changed or None
+                ).model_dump()
+            )
 
-    # In overwrite mode, existing providers not in import are marked for deletion
     if mode == "overwrite":
         for slug in existing_by_slug:
             if slug not in import_slugs:
-                provider_changes.append(
+                changes.append(
                     OAuthProviderChange(slug=slug, action="delete").model_dump()
                 )
+    return changes
 
+
+async def dry_run_import(
+    db: AsyncSession,
+    data: dict,
+    mode: ImportMode,
+) -> DryRunResponse:
+    """Compare imported config against current without modifying the database."""
+    setting_changes = await _diff_settings(db, data.get("settings") or {})
+    provider_changes = await _diff_oauth_providers(
+        db, data.get("oauth_providers") or [], mode
+    )
     return DryRunResponse(
         settings={"changes": setting_changes},
         oauth_providers={"changes": provider_changes},
     )
+
+
+# ---------------------------------------------------------------------------
+# Import helpers
+# ---------------------------------------------------------------------------
+
+
+async def _apply_oauth_providers(
+    db: AsyncSession,
+    import_providers: list[dict],
+    mode: ImportMode,
+) -> tuple[int, int, int]:
+    """Apply OAuth provider changes. Returns (created, updated, deleted) counts."""
+    from app.auth.oauth import service as oauth_service
+
+    created = updated = deleted = 0
+
+    if mode == "overwrite":
+        existing = await oauth_service.list_providers(db)
+        for provider in existing:
+            await oauth_service.delete_provider(db, provider)
+            deleted += 1
+        await db.flush()
+
+        for imp in import_providers:
+            if not imp.get("client_secret"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"client_secret required for provider '{imp.get('slug', '?')}' in overwrite mode",
+                )
+            await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
+            created += 1
+    else:
+        existing_providers = await oauth_service.list_providers(db)
+        existing_by_slug = {p.slug: p for p in existing_providers}
+
+        for imp in import_providers:
+            slug = imp.get("slug")
+            if not slug:
+                continue
+            existing = existing_by_slug.get(slug)
+            if existing is None:
+                if not imp.get("client_secret"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"client_secret required for new provider '{slug}'",
+                    )
+                await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
+                created += 1
+            else:
+                update_fields = {
+                    k: v for k, v in imp.items() if k != "slug" and v is not None
+                }
+                if update_fields:
+                    await oauth_service.update_provider(
+                        db, existing, OAuthProviderUpdate(**update_fields)
+                    )
+                    updated += 1
+
+    return created, updated, deleted
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +280,6 @@ async def import_config(
     Skips unknown setting keys for forward compatibility.
     """
     from app.persistent_config import _registry, _is_env_only
-    from app.auth.oauth import service as oauth_service
     from app.audit.service import log_action
 
     if _is_env_only():
@@ -280,53 +333,12 @@ async def import_config(
         settings_applied += 1
 
     # --- OAuth providers ---
-    if mode == "overwrite":
-        # Delete all existing providers first
-        existing = await oauth_service.list_providers(db)
-        for provider in existing:
-            await oauth_service.delete_provider(db, provider)
-            oauth_deleted += 1
-        await db.commit()
-
-        # Create all imported providers
-        for imp in import_providers:
-            if "client_secret" not in imp or not imp["client_secret"]:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"client_secret required for provider '{imp.get('slug', '?')}' in overwrite mode",
-                )
-            create_data = OAuthProviderCreate(**imp)
-            await oauth_service.create_provider(db, create_data)
-            oauth_created += 1
-
-    else:  # merge mode
-        existing_providers = await oauth_service.list_providers(db)
-        existing_by_slug = {p.slug: p for p in existing_providers}
-
-        for imp in import_providers:
-            slug = imp.get("slug")
-            if not slug:
-                continue
-            existing = existing_by_slug.get(slug)
-            if existing is None:
-                # New provider -- client_secret required
-                if "client_secret" not in imp or not imp["client_secret"]:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"client_secret required for new provider '{slug}'",
-                    )
-                create_data = OAuthProviderCreate(**imp)
-                await oauth_service.create_provider(db, create_data)
-                oauth_created += 1
-            else:
-                # Update existing -- client_secret optional (keeps current if omitted)
-                update_fields = {
-                    k: v for k, v in imp.items() if k not in ("slug",) and v is not None
-                }
-                if update_fields:
-                    update_data = OAuthProviderUpdate(**update_fields)
-                    await oauth_service.update_provider(db, existing, update_data)
-                    oauth_updated += 1
+    created, updated, deleted = await _apply_oauth_providers(
+        db, import_providers, mode
+    )
+    oauth_created = created
+    oauth_updated = updated
+    oauth_deleted = deleted
 
     await db.commit()
 

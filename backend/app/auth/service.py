@@ -9,7 +9,7 @@ import jwt
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import RefreshToken, Role, User, UserRole
+from app.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.auth.providers import AuthenticatedIdentity
 from app.auth.providers.local import hash_password
 from app.config import settings
@@ -203,3 +203,27 @@ class AuthService:
             .where(UserRole.user_id == user_id)
         )
         return {row[0] for row in result.all()}
+
+
+# ------------------------------------------------------------------
+# Shared API key helper (used by admin and self-service routers)
+# ------------------------------------------------------------------
+
+
+async def create_api_key_for_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    name: str,
+) -> tuple[ApiKey, str]:
+    """Create an API key for a user. Returns (api_key, raw_key).
+
+    The raw key is only available at creation time. Flushes but does
+    NOT commit — caller controls the transaction.
+    """
+    raw_key = secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    api_key = ApiKey(user_id=user_id, key_hash=key_hash, name=name)
+    db.add(api_key)
+    await db.flush()
+    await db.refresh(api_key)
+    return api_key, raw_key

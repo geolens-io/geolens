@@ -1,7 +1,5 @@
 """Auth API endpoints: login, register, me, and self-service API keys."""
 
-import hashlib
-import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -20,6 +18,7 @@ from app.auth.schemas import (
     ApiKeyCreateResponse,
     ApiKeyListItem,
     ApiKeyListResponse,
+    ChangePasswordRequest,
     ConfigResponse,
     PermissionsResponse,
     RefreshRequest,
@@ -29,7 +28,7 @@ from app.auth.schemas import (
     UserResponse,
 )
 from app.auth.service import AuthService
-from app.dependencies import get_db
+from app.dependencies import get_client_ip, get_db
 from app.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -274,6 +273,7 @@ async def list_my_api_keys(
 )
 async def create_my_api_key(
     body: ApiKeyCreateRequest,
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
@@ -281,17 +281,22 @@ async def create_my_api_key(
 
     The raw key is returned only in this response and cannot be retrieved again.
     """
-    raw_key = secrets.token_urlsafe(32)
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    from app.audit.service import log_action
+    from app.auth.service import create_api_key_for_user
 
-    api_key = ApiKey(
+    api_key, raw_key = await create_api_key_for_user(db, current_user.id, body.name)
+
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
         user_id=current_user.id,
-        key_hash=key_hash,
-        name=body.name,
+        action="api_key.create",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        details={"name": body.name},
+        ip_address=ip,
     )
-    db.add(api_key)
     await db.commit()
-    await db.refresh(api_key)
 
     return ApiKeyCreateResponse(
         id=api_key.id,
@@ -304,10 +309,13 @@ async def create_my_api_key(
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_my_api_key(
     key_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) one of the current user's API keys."""
+    from app.audit.service import log_action
+
     result = await db.execute(
         select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == current_user.id)
     )
@@ -318,5 +326,58 @@ async def revoke_my_api_key(
             detail="API key not found",
         )
     api_key.is_active = False
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="api_key.revoke",
+        resource_type="api_key",
+        resource_id=key_id,
+        details={"name": api_key.name},
+        ip_address=ip,
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Password change
+# ---------------------------------------------------------------------------
+
+
+@router.post("/change-password/", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Change the current user's password (requires current password)."""
+    from app.audit.service import log_action
+    from app.auth.providers.local import hash_password, verify_password
+
+    if current_user.auth_provider != "local":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password change only available for local accounts",
+        )
+    if not current_user.password_hash or not verify_password(
+        body.current_password, current_user.password_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    current_user.password_hash = hash_password(body.new_password)
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.change_password",
+        resource_type="user",
+        resource_id=current_user.id,
+        ip_address=ip,
+    )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

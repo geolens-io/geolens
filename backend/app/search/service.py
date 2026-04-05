@@ -113,6 +113,9 @@ async def _get_vector_ranks(
     # Get current model name for filtering
     model_name = await EMBEDDING_MODEL.get(session)
 
+    # Tune HNSW recall — default ef_search=40 may miss relevant results
+    await session.execute(text("SET LOCAL hnsw.ef_search = 100"))
+
     # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
     vector_stmt = (
         select(
