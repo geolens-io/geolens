@@ -110,6 +110,7 @@ export async function detectEmbeddingDims(): Promise<DetectEmbeddingDimsResponse
 
 export interface BrandingConfig {
   show_badge: boolean;
+  show_landing_page: boolean;
 }
 
 export async function getBranding(): Promise<BrandingConfig> {
