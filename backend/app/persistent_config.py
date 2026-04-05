@@ -527,13 +527,6 @@ BRANDING_SHOW_BADGE = PersistentConfig[bool](
     label="Show Powered by GeoLens Badge",
 )
 
-SHOW_LANDING_PAGE = PersistentConfig[bool](
-    key="branding.show_landing_page",
-    env_default=True,
-    tab="branding",
-    label="Show Landing Page",
-)
-
 
 # ---------------------------------------------------------------------------
 # Sync rate limit accessor (for slowapi)
