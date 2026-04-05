@@ -49,9 +49,25 @@ artifacts/
 data/
 prd.md
 todo.md
-docs/
 smoke-check.md
 cache/
+
+# AI assistant working directories
+.agents/
+.codex/
+
+# Internal docs (not for public release)
+docs/audits/
+docs/GTM/
+docs/decisions/
+docs/handoff-*.md
+docs/ux-plan-*.md
+docs/ux-review-*.md
+docs/dep-audit-*.md
+docs/sec-audit-*.md
+docs/api-contract-*.md
+docs/cloud-readiness-*.md
+docs/connection-budget.md
 
 # Stray screenshots
 *.png
