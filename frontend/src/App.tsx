@@ -51,9 +51,10 @@ export const appRoutes = (
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       <Route index element={<SearchPage />} />
+      <Route path="search" element={<Navigate to="/" replace />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} />
-      <Route path="collections/:id" element={<CollectionDetailPage />} />
+      <Route path="collections/:id" element={<CollectionDetailPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="maps" element={<MapsPage />} />
       <Route path="maps/:id" element={<MapViewerGate />} errorElement={<RouteErrorBoundary />} />
 
