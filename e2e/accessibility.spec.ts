@@ -15,7 +15,7 @@ function formatViolations(violations: any[]): string {
 }
 
 test.describe('Accessibility - WCAG 2AA', () => {
-  test('search/landing page has no accessibility violations', async ({ page }) => {
+  test('public search page has no accessibility violations', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
