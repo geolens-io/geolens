@@ -111,6 +111,60 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Embedding column DDL helpers
+# ---------------------------------------------------------------------------
+
+
+async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
+    """Resize the embedding column to new_dims if it currently differs.
+
+    Deletes all existing embeddings, drops the HNSW index, alters the column
+    type, then recreates the index. Commits on success; rolls back on failure.
+
+    Returns True if the column was rebuilt, False if dimensions were unchanged.
+    """
+    from sqlalchemy import text as sa_text
+
+    col_check = await db.execute(
+        sa_text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+            "AND attname = 'embedding'"
+        )
+    )
+    current_dims = col_check.scalar_one_or_none()
+    if current_dims is None or current_dims == new_dims:
+        return False
+
+    try:
+        await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
+        await db.execute(
+            sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
+        )
+        await db.execute(
+            sa_text(
+                f"ALTER TABLE catalog.record_embeddings "
+                f"ALTER COLUMN embedding TYPE vector({new_dims}) "
+                f"USING embedding::vector({new_dims})"
+            )
+        )
+        await db.execute(
+            sa_text(
+                "CREATE INDEX ix_record_embeddings_hnsw "
+                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m=16, ef_construction=64)"
+            )
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.error("Failed to rebuild embedding column", exc_info=True)
+        raise
+
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Embedding pipeline helpers
 # ---------------------------------------------------------------------------
 
