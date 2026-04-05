@@ -154,7 +154,7 @@ Plans:
 **Note:** This milestone lives in a separate repo (`getgeolens.com`), not the GeoLens monorepo. Phase work targets that repo.
 
 - [x] **Phase 212: Repo Bootstrap and Design System** — Initialize the getgeolens.com repo with Astro 6, Tailwind 4, GeoLens brand tokens, Cloudflare Pages deployment, and accessible layout shell (SITE-01, SITE-02, SITE-03, SITE-04, SITE-05, A11Y-01, A11Y-03) (completed 2026-04-05)
-- [ ] **Phase 213: SEO Infrastructure** — Build BaseHead component, Satori OG image endpoint, sitemap/robots, and JSON-LD so every page gets correct SEO automatically (SEO-01, SEO-02, SEO-03, SEO-04)
+- [x] **Phase 213: SEO Infrastructure** — Build BaseHead component, Satori OG image endpoint, sitemap/robots, and JSON-LD so every page gets correct SEO automatically (SEO-01, SEO-02, SEO-03, SEO-04) (completed 2026-04-05)
 - [ ] **Phase 214: Product Preview Assets** — Create the three CSS-rendered browser-frame product previews (search UI, map builder, dataset detail) that make the product tangible to evaluators (ASSET-01, ASSET-02, ASSET-03)
 - [ ] **Phase 215: Homepage** — Build the primary conversion surface with outcome-focused hero, trust bar, feature highlights, product preview, and quickstart teaser (HOME-01, HOME-02, HOME-03, HOME-04, HOME-05)
 - [ ] **Phase 216: Features and Quickstart Pages** — Build the /features capability breakdown and /quickstart docker-compose walkthrough (FEAT-01, FEAT-02, FEAT-03, QUICK-01, QUICK-02, QUICK-03)
@@ -189,8 +189,8 @@ Plans:
   4. The homepage `<head>` includes a valid JSON-LD block with `@type: SoftwareApplication`, product name, description, license, and URL
 **Plans**: 2 plans
 Plans:
-- [ ] 213-01-PLAN.md — SEO meta tags (canonical, OG, Twitter Card), sitemap filter, JSON-LD on homepage
-- [ ] 213-02-PLAN.md — Satori OG image generation pipeline (install, font, endpoint, wiring)
+- [x] 213-01-PLAN.md — SEO meta tags (canonical, OG, Twitter Card), sitemap filter, JSON-LD on homepage
+- [x] 213-02-PLAN.md — Satori OG image generation pipeline (install, font, endpoint, wiring)
 
 ### Phase 214: Product Preview Assets
 **Goal**: Three self-contained Astro components render stylized browser-frame product previews of the GeoLens search UI, map builder, and dataset detail page using only CSS and inline HTML — no external images or live backend required
@@ -252,7 +252,7 @@ Plans:
 | 210. Enterprise Overlay Repo | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 211. Licensing & Public Documentation | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
-| 213. SEO Infrastructure | v14.0 | 0/2 | Planned | - |
+| 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 214. Product Preview Assets | v14.0 | 0/? | Not started | - |
 | 215. Homepage | v14.0 | 0/? | Not started | - |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
