@@ -122,6 +122,7 @@ class PersistentConfig(Generic[T]):
         *,
         user_id: uuid.UUID | None = None,
         ip_address: str | None = None,
+        commit: bool = True,
     ) -> None:
         """Upsert value into app_settings, audit, and invalidate cache."""
         if _is_env_only():
@@ -157,7 +158,8 @@ class PersistentConfig(Generic[T]):
                 ip_address=ip_address,
             )
 
-        await db.commit()
+        if commit:
+            await db.commit()
 
         # Invalidate cache
         cache = _get_cache_safe()
