@@ -34,6 +34,7 @@ from app.auth.models import ApiKey, User
 from app.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.config import settings as app_settings
 from app.dependencies import get_db
+from app.audit.service import log_action
 from app.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
-def _user_response(user) -> UserResponse:
+def _user_response(user: User) -> UserResponse:
     """Convert a User ORM object to a UserResponse schema."""
     return UserResponse(
         id=user.id,
@@ -657,7 +658,6 @@ async def admin_revoke_share_token(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) a share token and cascade to its embed tokens (admin only)."""
-    from app.audit.service import log_action
     from app.embed_tokens.models import EmbedToken
     from app.embed_tokens.service import bulk_revoke_embed_tokens
     from app.maps.service import revoke_share_token
