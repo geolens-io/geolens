@@ -87,5 +87,10 @@ def register_error_handlers(app: FastAPI) -> None:
         )
         return JSONResponse(
             status_code=500,
-            content={"detail": "Internal server error"},
+            content=ProblemDetail(
+                title="Internal Server Error",
+                status=500,
+                detail="Internal server error",
+            ).model_dump(),
+            media_type="application/problem+json",
         )

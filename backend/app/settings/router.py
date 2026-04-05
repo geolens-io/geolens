@@ -2,9 +2,12 @@
 
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = structlog.stdlib.get_logger(__name__)
 
 from app.audit.service import log_action
 from app.auth.dependencies import require_permission
@@ -164,9 +167,14 @@ async def get_all_settings(
     env_only = _is_env_only()
     enterprise = is_enterprise()
 
-    # Fetch all DB overrides in one query
-    result = await db.execute(select(AppSetting.key))
-    db_keys = {row[0] for row in result.all()}
+    # Bulk-fetch all DB overrides in one query (key + value)
+    result = await db.execute(select(AppSetting.key, AppSetting.value))
+    db_settings: dict[str, object] = {}
+    for row in result.all():
+        raw = row[1]
+        # AppSetting.value is JSONB — unwrap the stored scalar wrapper
+        db_settings[row[0]] = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+    db_keys = set(db_settings.keys())
 
     tabs: dict[str, list[SettingItem]] = {}
     for cfg in _registry:
@@ -177,8 +185,10 @@ async def get_all_settings(
             value = await get_public_app_url(db, request=request)
         elif cfg.key == "public_api_url":
             value = await get_public_api_url(db, request=request)
+        elif cfg.key in db_settings:
+            value = db_settings[cfg.key]
         else:
-            value = await cfg.get(db)
+            value = cfg.env_default
 
         if env_only:
             source = "env_only"
@@ -218,7 +228,10 @@ async def update_settings(
             )
 
         ip = get_client_ip(request)
-        await cfg.set(db, value, user_id=user.id, ip_address=ip)
+        await cfg.set(db, value, user_id=user.id, ip_address=ip, commit=False)
+
+    # Single commit for all setting writes
+    await db.commit()
 
     # Auto-detect embedding dimensions when embedding_model changes
     if "embedding_model" in body.settings and "embedding_dims" not in body.settings:
@@ -227,7 +240,13 @@ async def update_settings(
 
     # Rebuild column + index when embedding dimensions change
     if "embedding_dims" in body.settings:
-        await _rebuild_embedding_column(db, int(body.settings["embedding_dims"]))
+        from app.embeddings.service import rebuild_embedding_column
+
+        new_dims = int(body.settings["embedding_dims"])
+        try:
+            await rebuild_embedding_column(db, new_dims)
+        except Exception:
+            pass  # error already logged and rolled back inside helper
 
     return await get_all_settings(request=request, _user=user, db=db)
 
