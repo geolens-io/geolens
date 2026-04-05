@@ -250,7 +250,11 @@ async def upload_file(
                 try:
                     await get_storage().delete(saved_path)
                 except Exception:
-                    pass  # Best-effort cleanup
+                    logger.warning(
+                        "S3 cleanup failed during validation error — file may be orphaned",
+                        s3_key=str(saved_path),
+                        job_id=str(job.id),
+                    )
             if downloaded_validation_path is not None:
                 downloaded_validation_path.unlink(missing_ok=True)
             raise HTTPException(
@@ -312,7 +316,11 @@ async def upload_file(
             detail=str(exc),
         )
     except Exception:
-        logger.exception("Unexpected error during file upload")
+        logger.exception(
+            "Unexpected error during file upload",
+            filename=file.filename,
+            content_type=file.content_type,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during upload",

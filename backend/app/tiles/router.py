@@ -1,5 +1,6 @@
 """FastAPI tile endpoint serving vector tiles via PostGIS ST_AsMVT."""
 
+import asyncio
 import gzip
 import re
 import threading
@@ -270,7 +271,16 @@ async def raster_tile_proxy(
     else:
         titiler_url = f"{titiler_url}?url={open_path}"
 
-    resp = await _titiler_client.get(titiler_url)
+    # Retry with exponential backoff for transient failures
+    resp = None
+    for attempt in range(3):
+        try:
+            resp = await _titiler_client.get(titiler_url)
+            break
+        except httpx.TransportError:
+            if attempt == 2:
+                raise HTTPException(status_code=503, detail="Tile service unavailable")
+            await asyncio.sleep(0.5 * (2 ** attempt))
 
     if resp.status_code == 404:
         # Tile outside raster extent — empty response
@@ -330,6 +340,10 @@ async def get_tile_token(
                 shape = to_shape(dataset.record.spatial_extent)
                 bounds = list(shape.bounds)  # [xmin, ymin, xmax, ymax]
             except Exception:
+                logger.warning(
+                    "Failed to parse spatial extent bounds",
+                    dataset_id=str(dataset_id),
+                )
                 bounds = None
 
         return RasterTileToken(
@@ -481,7 +495,10 @@ async def tile_endpoint(
             )
 
     # Get tile from PostGIS
-    pool = get_tile_pool()
+    try:
+        pool = get_tile_pool()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Tile service unavailable")
     tile_data = await get_tile(pool, table_name, z, x, y, columns)
 
     if tile_data is None:

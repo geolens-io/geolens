@@ -2,10 +2,12 @@
 
 import asyncio
 import time
+from typing import Any, Coroutine
 
 import structlog
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import engine
 
@@ -14,7 +16,7 @@ logger = structlog.stdlib.get_logger(__name__)
 HEALTH_TIMEOUT = 5.0
 
 
-async def _probe(name: str, coro) -> dict:
+async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
     """Run a health probe coroutine with timeout, returning status dict."""
     start = time.monotonic()
     try:
@@ -49,7 +51,7 @@ async def _check_cache() -> None:
     await cache.health_check()
 
 
-async def check_health() -> dict:
+async def check_health() -> dict[str, Any]:
     """Run all health probes in parallel and return aggregate status."""
     db, storage, cache = await asyncio.gather(
         _probe("database", _check_database()),
@@ -67,7 +69,7 @@ async def check_health() -> dict:
     }
 
 
-async def check_oidc_health(db) -> dict[str, dict]:
+async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
     """Probe all enabled OIDC providers and return status dict keyed by slug."""
     from app.config_ops.service import _check_oidc_endpoint
 

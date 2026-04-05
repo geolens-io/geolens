@@ -183,7 +183,13 @@ async def lifespan(app: FastAPI):
                 addressing_style=settings.s3_addressing_style,
             )
         except Exception as exc:
-            logger.error("S3 health check failed -- cannot start", error=str(exc))
+            logger.error(
+                "S3 health check failed -- cannot start",
+                error=str(exc),
+                bucket=settings.s3_bucket,
+                endpoint=settings.s3_endpoint_url,
+                region=settings.s3_region,
+            )
             raise RuntimeError(f"S3 health check failed: {exc}") from exc
 
     # AWS Marketplace metering (non-blocking)

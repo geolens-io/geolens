@@ -2,6 +2,7 @@
 
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,79 @@ from app.settings.schemas import (
 )
 
 router = APIRouter(prefix="/settings", tags=["Admin"])
+
+logger = structlog.stdlib.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Setting-update helpers (extracted from route handler)
+# ---------------------------------------------------------------------------
+
+
+def _validate_setting(key: str, value: object) -> object:
+    """Run permission and custom validators for a setting key. Returns validated value."""
+    if key == "role_permissions":
+        from app.auth.permissions import validate_permission_matrix
+
+        validate_permission_matrix(value)
+
+    validator = SETTING_VALIDATORS.get(key)
+    if validator is not None:
+        value = validator(value)
+
+    return value
+
+
+async def _auto_detect_embedding_dims(
+    db: AsyncSession, user_id: uuid.UUID, ip: str | None
+) -> None:
+    """Probe the current embedding model and persist its dimension count."""
+    try:
+        from app.embeddings.service import probe_embedding_dimensions
+
+        dims = await probe_embedding_dimensions(db)
+        await EMBEDDING_DIMS.set(db, dims, user_id=user_id, ip_address=ip)
+    except Exception:
+        pass  # non-fatal — admin can still set manually
+
+
+async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
+    """Delete incompatible embeddings and rebuild the column + HNSW index."""
+    from sqlalchemy import text as sa_text
+
+    col_check = await db.execute(
+        sa_text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+            "AND attname = 'embedding'"
+        )
+    )
+    current_dims = col_check.scalar_one_or_none()
+    if current_dims is None or current_dims == new_dims:
+        return
+
+    try:
+        await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
+        await db.execute(
+            sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
+        )
+        await db.execute(
+            sa_text(
+                f"ALTER TABLE catalog.record_embeddings "
+                f"ALTER COLUMN embedding TYPE vector({new_dims}) "
+                f"USING embedding::vector({new_dims})"
+            )
+        )
+        await db.execute(
+            sa_text(
+                "CREATE INDEX ix_record_embeddings_hnsw "
+                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m=16, ef_construction=64)"
+            )
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -97,94 +171,31 @@ async def update_settings(
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Update one or more settings (admin only). Returns updated settings."""
-    # Build a lookup from registry
     registry_map = {cfg.key: cfg for cfg in _registry}
+    ip = request.client.host if request.client else None
 
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
+            raise HTTPException(status_code=400, detail=f"Unknown setting key: {key}")
+
+        try:
+            value = _validate_setting(key, value)
+        except (ValueError, TypeError) as e:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unknown setting key: {key}",
+                status_code=422, detail=f"Validation error for '{key}': {e}"
             )
 
-        # Lockout prevention for role_permissions
-        if key == "role_permissions":
-            from app.auth.permissions import validate_permission_matrix
-
-            try:
-                validate_permission_matrix(value)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Validation error for '{key}': {e}",
-                )
-
-        # Run validator if one exists
-        validator = SETTING_VALIDATORS.get(key)
-        if validator is not None:
-            try:
-                value = validator(value)
-            except (ValueError, TypeError) as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Validation error for '{key}': {e}",
-                )
-
-        ip = request.client.host if request.client else None
         await cfg.set(db, value, user_id=user.id, ip_address=ip)
 
     # Auto-detect embedding dimensions when embedding_model changes
     if "embedding_model" in body.settings and "embedding_dims" not in body.settings:
-        try:
-            from app.embeddings.service import probe_embedding_dimensions
+        await _auto_detect_embedding_dims(db, user.id, ip)
 
-            dims = await probe_embedding_dimensions(db)
-            ip = request.client.host if request.client else None
-            await EMBEDDING_DIMS.set(db, dims, user_id=user.id, ip_address=ip)
-        except Exception:
-            pass  # non-fatal — admin can still set manually
-
-    # When embedding dimensions change, delete incompatible embeddings and
-    # rebuild the column + HNSW index so the backfill button reappears in the UI.
+    # Rebuild column + index when embedding dimensions change
     if "embedding_dims" in body.settings:
-        new_dims = int(body.settings["embedding_dims"])
-        from sqlalchemy import text as sa_text
+        await _rebuild_embedding_column(db, int(body.settings["embedding_dims"]))
 
-        # Check current column dimensions
-        col_check = await db.execute(
-            sa_text(
-                "SELECT atttypmod FROM pg_attribute "
-                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-                "AND attname = 'embedding'"
-            )
-        )
-        current_dims = col_check.scalar_one_or_none()
-        if current_dims is not None and current_dims != new_dims:
-            try:
-                await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
-                await db.execute(
-                    sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
-                )
-                await db.execute(
-                    sa_text(
-                        f"ALTER TABLE catalog.record_embeddings "
-                        f"ALTER COLUMN embedding TYPE vector({new_dims}) "
-                        f"USING embedding::vector({new_dims})"
-                    )
-                )
-                await db.execute(
-                    sa_text(
-                        "CREATE INDEX ix_record_embeddings_hnsw "
-                        "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                        "WITH (m=16, ef_construction=64)"
-                    )
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-
-    # Return updated settings
     return await get_all_settings(request=request, _user=user, db=db)
 
 
