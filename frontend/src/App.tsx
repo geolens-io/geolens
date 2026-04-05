@@ -13,7 +13,6 @@ const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m
 const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage })));
 const PublicViewerPage = lazy(() => import('./pages/PublicViewerPage').then(m => ({ default: m.PublicViewerPage })));
-const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 const DatasetPage = lazy(() => import('./pages/DatasetPage').then(m => ({ default: m.DatasetPage })));
 const CollectionsPage = lazy(() => import('./pages/CollectionsPage').then(m => ({ default: m.CollectionsPage })));
@@ -51,8 +50,7 @@ export const appRoutes = (
     <Route path="/m/:token" element={<PublicViewerPage />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
-      <Route index element={<LandingPage />} />
-      <Route path="search" element={<SearchPage />} errorElement={<RouteErrorBoundary />} />
+      <Route index element={<SearchPage />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} />
