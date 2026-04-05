@@ -2,13 +2,13 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
 from app.auth.dependencies import require_permission
 from app.auth.models import User
-from app.dependencies import get_db
+from app.dependencies import get_client_ip, get_db
 from app.embed_tokens.schemas import (
     AdminEmbedTokenListResponse,
     AdminEmbedTokenResponse,
@@ -62,12 +62,14 @@ async def list_all_embed_tokens(
 @router.post("/bulk-revoke/", response_model=BulkRevokeResponse)
 async def bulk_revoke(
     body: BulkRevokeRequest,
+    request: Request,
     user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> BulkRevokeResponse:
     """Bulk-revoke multiple embed tokens (admin only)."""
     count = await bulk_revoke_embed_tokens(db, body.token_ids)
 
+    ip = get_client_ip(request)
     await log_action(
         db,
         user_id=user.id,
@@ -78,6 +80,7 @@ async def bulk_revoke(
             "revoked_count": count,
             "token_ids": [str(tid) for tid in body.token_ids],
         },
+        ip_address=ip,
     )
     await db.commit()
 

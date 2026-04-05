@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,7 @@ from app.auth.oauth.schemas import (
     OAuthProviderUpdate,
 )
 from app.auth.oauth import service as oauth_service
-from app.dependencies import get_db
+from app.dependencies import get_client_ip, get_db
 from app.persistent_config import (
     BASEMAPS,
     BRANDING_SHOW_BADGE,
@@ -49,6 +49,105 @@ router = APIRouter(prefix="/settings", tags=["Admin"])
 
 
 # ---------------------------------------------------------------------------
+# Setting-update helpers (extracted from route handler)
+# ---------------------------------------------------------------------------
+
+
+_ENTERPRISE_ONLY_TABS = frozenset({"branding"})
+
+
+def _validate_setting(key: str, value: object) -> object:
+    """Run permission and custom validators for a setting key. Returns validated value."""
+    if key == "role_permissions":
+        from app.auth.permissions import validate_permission_matrix
+
+        validate_permission_matrix(value)
+
+    validator = SETTING_VALIDATORS.get(key)
+    if validator is not None:
+        value = validator(value)
+
+    return value
+
+
+_registry_by_key: dict[str, object] | None = None
+
+
+def _get_registry_map() -> dict[str, object]:
+    """Return a cached key→PersistentConfig lookup."""
+    global _registry_by_key
+    if _registry_by_key is None:
+        _registry_by_key = {cfg.key: cfg for cfg in _registry}
+    return _registry_by_key
+
+
+def _require_enterprise_for_key(key: str) -> None:
+    """Raise 403 if a setting key belongs to an enterprise-only tab."""
+    from app.edition import is_enterprise
+
+    if is_enterprise():
+        return
+    cfg = _get_registry_map().get(key)
+    if cfg is not None and cfg.tab in _ENTERPRISE_ONLY_TABS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Setting '{key}' requires enterprise edition",
+        )
+
+
+async def _auto_detect_embedding_dims(
+    db: AsyncSession, user_id: uuid.UUID, ip: str | None
+) -> None:
+    """Probe the current embedding model and persist its dimension count."""
+    try:
+        from app.embeddings.service import probe_embedding_dimensions
+
+        dims = await probe_embedding_dimensions(db)
+        await EMBEDDING_DIMS.set(db, dims, user_id=user_id, ip_address=ip)
+    except Exception:
+        pass  # non-fatal — admin can still set manually
+
+
+async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
+    """Delete incompatible embeddings and rebuild the column + HNSW index."""
+    from sqlalchemy import text as sa_text
+
+    col_check = await db.execute(
+        sa_text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+            "AND attname = 'embedding'"
+        )
+    )
+    current_dims = col_check.scalar_one_or_none()
+    if current_dims is None or current_dims == new_dims:
+        return
+
+    try:
+        await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
+        await db.execute(
+            sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
+        )
+        await db.execute(
+            sa_text(
+                f"ALTER TABLE catalog.record_embeddings "
+                f"ALTER COLUMN embedding TYPE vector({new_dims}) "
+                f"USING embedding::vector({new_dims})"
+            )
+        )
+        await db.execute(
+            sa_text(
+                "CREATE INDEX ix_record_embeddings_hnsw "
+                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m=16, ef_construction=64)"
+            )
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
+# ---------------------------------------------------------------------------
 # Unified admin endpoints
 # ---------------------------------------------------------------------------
 
@@ -60,7 +159,10 @@ async def get_all_settings(
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Return all settings grouped by tab with source indicators (admin only)."""
+    from app.edition import is_enterprise
+
     env_only = _is_env_only()
+    enterprise = is_enterprise()
 
     # Fetch all DB overrides in one query
     result = await db.execute(select(AppSetting.key))
@@ -68,6 +170,9 @@ async def get_all_settings(
 
     tabs: dict[str, list[SettingItem]] = {}
     for cfg in _registry:
+        # Hide enterprise-only tabs in community edition
+        if not enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+            continue
         if cfg.key == "public_app_url":
             value = await get_public_app_url(db, request=request)
         elif cfg.key == "public_api_url":
@@ -96,94 +201,34 @@ async def update_settings(
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Update one or more settings (admin only). Returns updated settings."""
-    # Build a lookup from registry
-    registry_map = {cfg.key: cfg for cfg in _registry}
+    registry_map = _get_registry_map()
 
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
+            raise HTTPException(status_code=400, detail=f"Unknown setting key: {key}")
+
+        _require_enterprise_for_key(key)
+
+        try:
+            value = _validate_setting(key, value)
+        except (ValueError, TypeError) as e:
             raise HTTPException(
-                status_code=400,
-                detail=f"Unknown setting key: {key}",
+                status_code=422, detail=f"Validation error for '{key}': {e}"
             )
 
-        # Lockout prevention for role_permissions
-        if key == "role_permissions":
-            from app.auth.permissions import validate_permission_matrix
-
-            try:
-                validate_permission_matrix(value)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Validation error for '{key}': {e}",
-                )
-
-        # Run validator if one exists
-        validator = SETTING_VALIDATORS.get(key)
-        if validator is not None:
-            try:
-                value = validator(value)
-            except (ValueError, TypeError) as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Validation error for '{key}': {e}",
-                )
-
-        ip = request.client.host if request.client else None
+        ip = get_client_ip(request)
         await cfg.set(db, value, user_id=user.id, ip_address=ip)
 
     # Auto-detect embedding dimensions when embedding_model changes
     if "embedding_model" in body.settings and "embedding_dims" not in body.settings:
-        try:
-            from app.embeddings.service import probe_embedding_dimensions
+        ip = get_client_ip(request)
+        await _auto_detect_embedding_dims(db, user.id, ip)
 
-            dims = await probe_embedding_dimensions(db)
-            ip = request.client.host if request.client else None
-            await EMBEDDING_DIMS.set(db, dims, user_id=user.id, ip_address=ip)
-        except Exception:
-            pass  # non-fatal — admin can still set manually
-
-    # When embedding dimensions change, delete incompatible embeddings and
-    # rebuild the column + HNSW index so the backfill button reappears in the UI.
+    # Rebuild column + index when embedding dimensions change
     if "embedding_dims" in body.settings:
-        new_dims = int(body.settings["embedding_dims"])
-        from sqlalchemy import text as sa_text
+        await _rebuild_embedding_column(db, int(body.settings["embedding_dims"]))
 
-        # Check current column dimensions
-        col_check = await db.execute(
-            sa_text(
-                "SELECT atttypmod FROM pg_attribute "
-                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-                "AND attname = 'embedding'"
-            )
-        )
-        current_dims = col_check.scalar_one_or_none()
-        if current_dims is not None and current_dims != new_dims:
-            try:
-                await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
-                await db.execute(
-                    sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
-                )
-                await db.execute(
-                    sa_text(
-                        f"ALTER TABLE catalog.record_embeddings "
-                        f"ALTER COLUMN embedding TYPE vector({new_dims}) "
-                        f"USING embedding::vector({new_dims})"
-                    )
-                )
-                await db.execute(
-                    sa_text(
-                        "CREATE INDEX ix_record_embeddings_hnsw "
-                        "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                        "WITH (m=16, ef_construction=64)"
-                    )
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-
-    # Return updated settings
     return await get_all_settings(request=request, _user=user, db=db)
 
 
@@ -195,7 +240,7 @@ async def reset_settings(
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Reset one or more settings to their defaults (admin only). Returns updated settings."""
-    registry_map = {cfg.key: cfg for cfg in _registry}
+    registry_map = _get_registry_map()
 
     for key in body.keys:
         cfg = registry_map.get(key)
@@ -204,7 +249,8 @@ async def reset_settings(
                 status_code=400,
                 detail=f"Unknown setting key: {key}",
             )
-        ip = request.client.host if request.client else None
+        _require_enterprise_for_key(key)
+        ip = get_client_ip(request)
         await cfg.reset(db, user_id=user.id, ip_address=ip)
 
     return await get_all_settings(request=request, _user=user, db=db)
@@ -266,7 +312,7 @@ async def list_oauth_providers(
 @router.post(
     "/oauth-providers/",
     response_model=OAuthProviderResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
 )
 async def create_oauth_provider(
     body: OAuthProviderCreate,
@@ -276,7 +322,7 @@ async def create_oauth_provider(
 ) -> OAuthProviderResponse:
     """Create a new OAuth provider (admin only)."""
     provider = await oauth_service.create_provider(db, body)
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     await log_action(
         session=db,
         user_id=user.id,
@@ -306,7 +352,7 @@ async def update_oauth_provider(
     if provider is None:
         raise HTTPException(status_code=404, detail="OAuth provider not found")
     provider = await oauth_service.update_provider(db, provider, body)
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     await log_action(
         session=db,
         user_id=user.id,
@@ -322,7 +368,7 @@ async def update_oauth_provider(
 
 @router.delete(
     "/oauth-providers/{provider_id}",
-    status_code=204,
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_oauth_provider(
     provider_id: uuid.UUID,
@@ -336,7 +382,7 @@ async def delete_oauth_provider(
         raise HTTPException(status_code=404, detail="OAuth provider not found")
     slug = provider.slug
     await oauth_service.delete_provider(db, provider)
-    ip = request.client.host if request.client else None
+    ip = get_client_ip(request)
     await log_action(
         session=db,
         user_id=user.id,

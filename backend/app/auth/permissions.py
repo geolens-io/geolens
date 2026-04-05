@@ -84,6 +84,7 @@ def validate_permission_matrix(matrix: Any) -> None:
     Raises ValueError if:
     - matrix is not a dict
     - admin role is missing manage_users or manage_settings (lockout prevention)
+    - a non-admin role has manage_users or manage_settings (escalation prevention)
     """
     if not isinstance(matrix, dict):
         raise ValueError("Permission matrix must be a dict")
@@ -100,6 +101,19 @@ def validate_permission_matrix(matrix: Any) -> None:
         raise ValueError(
             "Cannot remove manage_settings from admin role (lockout prevention)"
         )
+
+    # Prevent granting admin-only capabilities to non-admin roles
+    for role_name, caps in matrix.items():
+        if role_name == "admin" or not isinstance(caps, dict):
+            continue
+        if caps.get(MANAGE_USERS, False):
+            raise ValueError(
+                f"Cannot grant manage_users to non-admin role '{role_name}'"
+            )
+        if caps.get(MANAGE_SETTINGS, False):
+            raise ValueError(
+                f"Cannot grant manage_settings to non-admin role '{role_name}'"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
-stopped_at: Completed 212-01-PLAN.md
-last_updated: "2026-04-05T11:24:11.333Z"
+stopped_at: Phase 214 UI-SPEC approved
+last_updated: "2026-04-05T13:31:53.301Z"
 last_activity: 2026-04-05
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 213 — seo-infrastructure
+**Current focus:** Phase 214 — product-preview-assets
 
 ## Current Position
 
-Phase: 214
+Phase: 215
 Plan: Not started
-Status: Executing Phase 213
+Status: Executing Phase 214
 Last activity: 2026-04-05
 
 Progress: [░░░░░░░░░░] 0%
@@ -36,7 +36,7 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity:**
 
-- Total plans completed: 4
+- Total plans completed: 6
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -46,6 +46,7 @@ Progress: [░░░░░░░░░░] 0%
 |-------|-------|-------|----------|
 | 212 | 2 | - | - |
 | 213 | 2 | - | - |
+| 214 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -85,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-05T10:30:37.373Z
-Stopped at: Completed 212-01-PLAN.md
-Resume file: None
+Last session: 2026-04-05T12:50:02.930Z
+Stopped at: Phase 214 UI-SPEC approved
+Resume file: .planning/phases/214-product-preview-assets/214-UI-SPEC.md

@@ -1,11 +1,9 @@
 """Admin API endpoints: user management and catalog stats (admin-only)."""
 
 import asyncio
-import hashlib
 import logging
-import secrets
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,11 +27,11 @@ from app.admin.schemas import (
     UserUpdate,
 )
 from app.admin.service import AdminService
-from app.auth.dependencies import get_current_active_user, require_permission
+from app.auth.dependencies import require_permission
 from app.auth.models import ApiKey, User
 from app.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.config import settings as app_settings
-from app.dependencies import get_db
+from app.dependencies import get_client_ip, get_db
 from app.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
 
 logger = logging.getLogger(__name__)
@@ -59,13 +57,16 @@ def _user_response(user) -> UserResponse:
     "/users/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def create_user(
     body: AdminUserCreate,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Create a new user with the specified role (admin only)."""
+    from app.audit.service import log_action
+
     service = AdminService(db)
     try:
         user = await service.create_user(
@@ -79,6 +80,17 @@ async def create_user(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         )
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.create",
+        resource_type="user",
+        resource_id=user.id,
+        details={"username": body.username, "role": body.role},
+        ip_address=ip,
+    )
+    await db.commit()
     return _user_response(user)
 
 
@@ -114,7 +126,9 @@ async def list_user_names(
     db: AsyncSession = Depends(get_db),
 ) -> list[UserNameItem]:
     """Return lightweight id+username list for all users (for filter dropdowns)."""
-    result = await db.execute(select(User.id, User.username).order_by(User.username))
+    result = await db.execute(
+        select(User.id, User.username).order_by(User.username).limit(1000)
+    )
     return [UserNameItem(id=row.id, username=row.username) for row in result.all()]
 
 
@@ -142,14 +156,22 @@ async def get_user(
 @router.patch(
     "/users/{user_id}",
     response_model=UserResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def update_user(
     user_id: uuid.UUID,
     body: UserUpdate,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Update a user's fields and/or role (admin only)."""
+    from app.audit.service import log_action
+
+    if user_id == current_user.id and body.role is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot change your own role",
+        )
     service = AdminService(db)
     try:
         user = await service.update_user(user_id, body)
@@ -164,6 +186,17 @@ async def update_user(
             status_code=status.HTTP_409_CONFLICT,
             detail=detail,
         )
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.update",
+        resource_type="user",
+        resource_id=user_id,
+        details=body.model_dump(exclude_none=True),
+        ip_address=ip,
+    )
+    await db.commit()
     return _user_response(user)
 
 
@@ -173,10 +206,13 @@ async def update_user(
 )
 async def deactivate_user(
     user_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Deactivate a user (admin only)."""
+    from app.audit.service import log_action
+
     service = AdminService(db)
     try:
         user = await service.deactivate_user(user_id, current_user.id)
@@ -191,6 +227,17 @@ async def deactivate_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
         )
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.deactivate",
+        resource_type="user",
+        resource_id=user_id,
+        details={"username": user.username},
+        ip_address=ip,
+    )
+    await db.commit()
     return _user_response(user)
 
 
@@ -201,10 +248,13 @@ async def deactivate_user(
 async def approve_user(
     user_id: uuid.UUID,
     body: ApproveRequest,
+    request: Request,
     current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Approve a pending user with the specified role (admin only)."""
+    from app.audit.service import log_action
+
     service = AdminService(db)
     try:
         user = await service.approve_user(user_id, body.role)
@@ -219,6 +269,17 @@ async def approve_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
         )
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.approve",
+        resource_type="user",
+        resource_id=user_id,
+        details={"username": user.username, "role": body.role},
+        ip_address=ip,
+    )
+    await db.commit()
     return _user_response(user)
 
 
@@ -228,10 +289,13 @@ async def approve_user(
 )
 async def reject_user(
     user_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Reject a pending user by hard-deleting them (admin only)."""
+    from app.audit.service import log_action
+
     service = AdminService(db)
     try:
         await service.reject_user(user_id)
@@ -246,6 +310,16 @@ async def reject_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
         )
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.reject",
+        resource_type="user",
+        resource_id=user_id,
+        ip_address=ip,
+    )
+    await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -255,10 +329,18 @@ async def reject_user(
 )
 async def delete_user(
     user_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin."""
+    from app.audit.service import log_action
+
+    # Fetch username before deletion for audit trail
+    target = await db.execute(select(User).where(User.id == user_id))
+    target_user = target.scalar_one_or_none()
+    target_username = target_user.username if target_user else None
+
     service = AdminService(db)
     try:
         await service.delete_user(user_id, current_user.id)
@@ -273,6 +355,17 @@ async def delete_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail,
         )
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="user.delete",
+        resource_type="user",
+        resource_id=user_id,
+        details={"username": target_username},
+        ip_address=ip,
+    )
+    await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -303,37 +396,10 @@ async def list_admin_jobs(
     db: AsyncSession = Depends(get_db),
 ) -> AdminJobListResponse:
     """List all ingestion jobs with optional status/user/search filters (admin only)."""
-    from app.auth.models import User as UserModel
-    from app.jobs.models import IngestJob
-
-    # Build filters
-    filters = []
-    if status is not None:
-        filters.append(IngestJob.status == status)
-    if user_id is not None:
-        filters.append(IngestJob.created_by == user_id)
-    if search is not None:
-        filters.append(IngestJob.source_filename.ilike(f"%{search}%"))
-
-    # Count query
-    count_stmt = select(func.count()).select_from(IngestJob)
-    for f in filters:
-        count_stmt = count_stmt.where(f)
-    result = await db.execute(count_stmt)
-    total = result.scalar_one()
-
-    # List query with username via outerjoin
-    list_stmt = (
-        select(IngestJob, UserModel.username)
-        .outerjoin(UserModel, IngestJob.created_by == UserModel.id)
-        .order_by(IngestJob.created_at.desc())
+    service = AdminService(db)
+    rows, total = await service.list_jobs(
+        status=status, user_id=user_id, search=search, skip=skip, limit=limit
     )
-    for f in filters:
-        list_stmt = list_stmt.where(f)
-    list_stmt = list_stmt.offset(skip).limit(limit)
-    result = await db.execute(list_stmt)
-    rows = result.all()
-
     jobs = [
         AdminJobResponse(
             id=job.id,
@@ -350,7 +416,6 @@ async def list_admin_jobs(
         )
         for job, username in rows
     ]
-
     return AdminJobListResponse(jobs=jobs, total=total)
 
 
@@ -363,27 +428,33 @@ async def list_admin_jobs(
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def create_api_key(
     body: AdminApiKeyCreateRequest,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
     """Create an API key for a user (admin only).
 
     The raw key is returned only in this response and cannot be retrieved again.
     """
-    raw_key = secrets.token_urlsafe(32)
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    from app.audit.service import log_action
+    from app.auth.service import create_api_key_for_user
 
-    api_key = ApiKey(
-        user_id=body.user_id,
-        key_hash=key_hash,
-        name=body.name,
+    api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
+
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="api_key.create",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        details={"name": body.name, "target_user_id": str(body.user_id)},
+        ip_address=ip,
     )
-    db.add(api_key)
     await db.commit()
-    await db.refresh(api_key)
 
     return ApiKeyCreateResponse(
         id=api_key.id,
@@ -464,12 +535,12 @@ def _ai_status(
 @router.get(
     "/ai-status/",
     response_model=AIStatusResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def get_ai_status(
-    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
-    """Return AI provider status and runtime toggle (any authenticated user)."""
+    """Return AI provider status and runtime toggle (admin only)."""
     from app.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
 
     from app.embeddings.helpers import has_embeddings
@@ -556,13 +627,16 @@ async def trigger_backfill(
 @router.delete(
     "/api-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def revoke_api_key(
     key_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) an API key (admin only)."""
+    from app.audit.service import log_action
+
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     api_key = result.scalar_one_or_none()
     if api_key is None:
@@ -571,6 +645,16 @@ async def revoke_api_key(
             detail="API key not found",
         )
     api_key.is_active = False
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="api_key.revoke",
+        resource_type="api_key",
+        resource_id=key_id,
+        details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
+        ip_address=ip,
+    )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -653,6 +737,7 @@ async def list_share_tokens_endpoint(
 )
 async def admin_revoke_share_token(
     token_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -680,8 +765,9 @@ async def admin_revoke_share_token(
     if embed_ids:
         await bulk_revoke_embed_tokens(db, embed_ids)
 
+    ip = get_client_ip(request)
     await log_action(
-        db,
+        session=db,
         user_id=current_user.id,
         action="map.admin_share_revoke",
         resource_type="map_share_token",
@@ -690,6 +776,7 @@ async def admin_revoke_share_token(
             "map_id": str(token_obj.map_id),
             "cascade_embed_count": len(embed_ids),
         },
+        ip_address=ip,
     )
 
     await db.commit()

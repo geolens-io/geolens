@@ -246,6 +246,34 @@ def validate_enabled_widgets(v: Any) -> list[str] | None:
     return [item.strip() for item in v]
 
 
+def _validate_bounded_int(v: Any, name: str, min_val: int, max_val: int) -> int:
+    if isinstance(v, bool):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        result = int(v)
+    except (ValueError, TypeError):
+        raise ValueError(f"{name} must be a valid integer")
+    if result < min_val or result > max_val:
+        raise ValueError(f"{name} must be between {min_val} and {max_val}")
+    return result
+
+
+def validate_access_token_expire(v: Any) -> int:
+    return _validate_bounded_int(v, "access_token_expire_minutes", 1, 1440)
+
+
+def validate_refresh_token_expire(v: Any) -> int:
+    return _validate_bounded_int(v, "refresh_token_expire_days", 1, 365)
+
+
+def validate_embedding_dims(v: Any) -> int:
+    return _validate_bounded_int(v, "embedding_dims", 1, 4096)
+
+
+def validate_tile_cache_ttl(v: Any) -> int:
+    return _validate_bounded_int(v, "tile_cache_ttl", 0, 86400)
+
+
 SETTING_VALIDATORS: dict[str, Any] = {
     "login_rate_limit": validate_login_rate_limit,
     "global_rate_limit": validate_global_rate_limit,
@@ -261,4 +289,8 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "public_api_url": validate_public_api_url,
     "public_base_url": validate_public_api_url,
     "enabled_widgets": validate_enabled_widgets,
+    "access_token_expire_minutes": validate_access_token_expire,
+    "refresh_token_expire_days": validate_refresh_token_expire,
+    "embedding_dims": validate_embedding_dims,
+    "tile_cache_ttl": validate_tile_cache_ttl,
 }

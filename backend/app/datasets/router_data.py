@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.auth.dependencies import (
-    get_current_active_user,
     get_optional_user,
+    require_permission,
 )
 from app.auth.models import User
 from app.auth.visibility import (
@@ -186,7 +186,7 @@ async def update_publication_status(
     dataset_id: uuid.UUID,
     body: StatusUpdate,
     request: Request,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StatusUpdateResponse:
     """Transition a dataset's publication status following allowed paths.
