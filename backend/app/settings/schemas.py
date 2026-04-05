@@ -127,6 +127,7 @@ class BrandingResponse(BaseModel):
     """Response for GET /settings/branding/."""
 
     show_badge: bool
+    show_landing_page: bool
 
 
 class ConfigModeResponse(BaseModel):

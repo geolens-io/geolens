@@ -187,7 +187,10 @@ Plans:
   2. A 1200x630 OG image PNG is generated at build time for each page, and the `og:image` meta tag points to it — verified by checking `dist/` after `astro build`
   3. `sitemap.xml` lists all pages and `robots.txt` allows crawlers — both exist at the site root after build
   4. The homepage `<head>` includes a valid JSON-LD block with `@type: SoftwareApplication`, product name, description, license, and URL
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 213-01-PLAN.md — SEO meta tags (canonical, OG, Twitter Card), sitemap filter, JSON-LD on homepage
+- [ ] 213-02-PLAN.md — Satori OG image generation pipeline (install, font, endpoint, wiring)
 
 ### Phase 214: Product Preview Assets
 **Goal**: Three self-contained Astro components render stylized browser-frame product previews of the GeoLens search UI, map builder, and dataset detail page using only CSS and inline HTML — no external images or live backend required
@@ -249,7 +252,7 @@ Plans:
 | 210. Enterprise Overlay Repo | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 211. Licensing & Public Documentation | v13.0 | 2/2 | Complete | 2026-03-27 |
 | 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
-| 213. SEO Infrastructure | v14.0 | 0/? | Not started | - |
+| 213. SEO Infrastructure | v14.0 | 0/2 | Planned | - |
 | 214. Product Preview Assets | v14.0 | 0/? | Not started | - |
 | 215. Homepage | v14.0 | 0/? | Not started | - |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |

@@ -22,6 +22,7 @@ from app.persistent_config import (
     EMBEDDING_DIMS,
     ENABLED_WIDGETS,
     MAP_DEFAULTS,
+    SHOW_LANDING_PAGE,
     _is_env_only,
     _registry,
 )
@@ -367,7 +368,8 @@ async def get_branding(
 ) -> BrandingResponse:
     """Return branding configuration (public, no auth required)."""
     show_badge = await BRANDING_SHOW_BADGE.get(db)
-    return BrandingResponse(show_badge=show_badge)
+    show_landing_page = await SHOW_LANDING_PAGE.get(db)
+    return BrandingResponse(show_badge=show_badge, show_landing_page=show_landing_page)
 
 
 @router.get("/basemaps/", response_model=list[BasemapPublicResponse])

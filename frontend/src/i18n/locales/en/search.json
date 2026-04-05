@@ -1,22 +1,30 @@
 {
-  "title": "Your team's spatial data, searchable in one place",
-  "subtitle": "Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. Search by meaning, build and share maps, preview layers, and export via standard OGC APIs.",
+  "title": "Search, map, and share your team's spatial data",
+  "subtitle": "Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. Discover datasets by meaning, preview and style layers, and export via OGC APIs.",
   "workspaceTitle": "Search the GeoLens catalog",
   "landing": {
     "eyebrow": "Open-source geospatial catalog",
     "searchHelper": "Start with a keyword, place, format, or organization, then move into the full search and map-building workspace.",
     "primaryCta": "Explore catalog",
+    "searchCta": "Search",
     "openSourceTitle": "Self-host or integrate",
     "openSourceBody": "Run GeoLens with open licensing, GitHub-first distribution, and standards-based APIs for catalogs and spatial data.",
     "workspaceTitle": "Sign in to build and share maps",
-    "workspaceBody": "Save searches, compose interactive maps, style layers, import data, and manage the catalog once you are inside the app."
+    "workspaceBody": "Save searches, compose interactive maps, style layers, import data, and manage the catalog once you are inside the app.",
+    "features": {
+      "searchTitle": "Semantic search",
+      "searchDesc": "Find datasets by meaning across your entire catalog",
+      "mapTitle": "Map builder",
+      "mapDesc": "Compose layers, apply styles, and share interactive maps",
+      "hostTitle": "Self-hosted",
+      "hostDesc": "Run on your own infrastructure with full data control"
+    }
   },
   "heroStats_one": "{{count}} dataset in the catalog",
   "heroStats_other": "{{count}} datasets in the catalog",
   "trust": {
     "license": "Apache 2.0",
     "ogc": "OGC API Compliant",
-    "deploy": "Deploy in 2 minutes",
     "github": "View on GitHub"
   },
   "placeholder": "Search geospatial data...",

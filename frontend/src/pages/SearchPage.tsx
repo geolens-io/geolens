@@ -60,7 +60,7 @@ export function SearchPage() {
 
       <PageShell maxWidth="wide" className="space-y-5 pb-8 pt-5 sm:pt-6">
         <section className="rounded-[22px] border border-border/50 bg-background/95 px-4 py-4 shadow-sm sm:px-5">
-          <SearchControls totalResults={totalMatched || undefined}>
+          <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined}>
             {token ? <SavedSearches className="justify-center md:justify-start" /> : null}
           </SearchControls>
         </section>

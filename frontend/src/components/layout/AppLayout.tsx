@@ -24,7 +24,6 @@ export function AppLayout() {
   const footerLinks = [
     { href: GEOLENS_GITHUB_URL, label: t('footer.poweredBy') },
     { href: GEOLENS_DOCS_URL, label: t('footer.docs') },
-    { href: GEOLENS_GITHUB_URL, label: t('footer.github') },
     { href: GEOLENS_DISCUSSIONS_URL, label: t('footer.community') },
     { href: GEOLENS_API_DOCS_URL, label: t('footer.api') },
     { href: GEOLENS_LICENSE_URL, label: t('footer.license') },

@@ -52,7 +52,7 @@ export const appRoutes = (
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       <Route index element={<LandingPage />} />
-      <Route path="search" element={<SearchPage />} />
+      <Route path="search" element={<SearchPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} />

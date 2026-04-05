@@ -8,22 +8,26 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-40 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete.
+41 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete.
+
+## Current Milestone: v14.0 getgeolens.com Marketing Site
+
+**Goal:** Launch a public marketing site at getgeolens.com that converts GIS analysts and IT managers in enterprise/government toward self-hosted community deployment, with a secondary enterprise contact path.
+
+**Target features:**
+- Separate repo with static site (Astro or similar — fast, zero-JS-by-default, SEO-friendly)
+- Homepage with hero, value proposition, feature highlights, trust signals (Apache 2.0, OGC), and dual CTAs (Get Started / Contact for Enterprise)
+- Features page with deeper capability breakdown (search, map builder, ingestion, raster/VRT, AI chat, RBAC, OGC APIs)
+- Editions comparison (Community vs Enterprise) — feature matrix showing what's in each
+- Quickstart section or page (docker compose up flow, time-to-running emphasis)
+- Enterprise contact form or CTA (demo request / talk to us)
+- Stylized product preview assets (mock UI screenshots showing search, map builder, detail pages)
+- Responsive design, dark/light mode, consistent with GeoLens brand identity (emerald accent, Inter font)
+- SEO fundamentals (meta tags, OG images, structured data)
 
 ## Last Milestone: v13.0 Open-Core Pre-Release (shipped 2026-03-27)
 
 **Delivered:** 6 phases (206-211), 12 plans, 19 requirements — extension seam architecture (Protocol interfaces, entry_point loader, edition detection), enterprise overlay repo (geolens-enterprise with SAML SSO, audit export, branding toggle), Apache 2.0 licensing, public README with quickstart, and CONTRIBUTING guide.
-
-**Target features:**
-- Apache 2.0 LICENSE file and clean public README with quickstart
-- Extension seam architecture (Protocol interfaces for auth, audit, branding)
-- Private geolens-enterprise repo with enterprise overlay structure
-- Refactor existing enterprise-boundary code to use extension seams
-- Branding removal toggle ("Powered by GeoLens" → removable via config)
-- SAML SSO (alongside existing OIDC, for government buyers)
-- Audit log export (CSV/JSON download of existing audit data)
-- Enterprise feature flag / edition detection infrastructure
-- Installation quickstart documentation (< 10 min to working deployment)
 
 ## Core Value
 
@@ -279,15 +283,14 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-- [ ] GeoLens is released under Apache 2.0 license with clean public README and installation quickstart
-- [ ] Extension seam architecture with Protocol interfaces enables enterprise overlays for auth, audit, and branding
-- [ ] Enterprise features live in a separate private repo that overlays the public core
-- [ ] Existing enterprise-boundary code (OIDC advanced config, branding) uses extension seam interfaces
-- [ ] "Powered by GeoLens" branding is removable via configuration toggle (enterprise lever)
-- [ ] SAML SSO is available alongside existing OIDC for government buyers
-- [ ] Audit logs can be exported as CSV/JSON from the admin UI
-- [ ] Edition detection infrastructure distinguishes community vs enterprise at runtime
-- [ ] Installation quickstart documentation enables working deployment in under 10 minutes
+- [ ] Public marketing site at getgeolens.com with hero, value proposition, and product previews
+- [ ] Features page showcasing GeoLens capabilities for GIS analysts and IT managers
+- [ ] Editions comparison page (Community vs Enterprise) with feature matrix
+- [ ] Quickstart page guiding users from zero to running GeoLens via docker compose
+- [ ] Enterprise contact path (demo request / contact form)
+- [ ] Stylized product preview assets (search, map builder, detail pages)
+- [ ] Responsive design with dark/light mode matching GeoLens brand identity
+- [ ] SEO fundamentals (meta tags, OG images, structured data)
 
 ### Out of Scope
 

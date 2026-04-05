@@ -136,8 +136,8 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
       vintage_end: params.vintage_end || '',
       spatial_predicate: params.spatial_predicate || 'intersects',
       sort_by: params.sort_by || 'relevance',
-      offset: params.offset ? parseInt(params.offset, 10) : 0,
-      limit: params.limit ? parseInt(params.limit, 10) : DEFAULT_PAGE_SIZE,
+      offset: params.offset ? parseInt(params.offset, 10) || 0 : 0,
+      limit: params.limit ? parseInt(params.limit, 10) || DEFAULT_PAGE_SIZE : DEFAULT_PAGE_SIZE,
       exclude_synthetic: params.exclude_synthetic === 'false' ? false : true,
     }),
 }));

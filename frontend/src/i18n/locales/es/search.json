@@ -1,22 +1,30 @@
 {
-  "title": "Los datos espaciales de tu equipo, buscables en un solo lugar",
-  "subtitle": "Sube Shapefiles, GeoTIFFs, GeoPackages o CSVs. Busca por significado, crea y comparte mapas, previsualiza capas y exporta por APIs OGC estándar.",
+  "title": "Busca, mapea y comparte los datos espaciales de tu equipo",
+  "subtitle": "Sube Shapefiles, GeoTIFFs, GeoPackages o CSVs. Descubre conjuntos de datos por significado, previsualiza y estiliza capas, y exporta por APIs OGC.",
   "workspaceTitle": "Buscar en el catálogo de GeoLens",
   "landing": {
     "eyebrow": "Catálogo geoespacial de código abierto",
     "searchHelper": "Empieza con una palabra clave, lugar, formato u organización y luego pasa al espacio completo de búsqueda y creación de mapas.",
     "primaryCta": "Explorar catálogo",
+    "searchCta": "Buscar",
     "openSourceTitle": "Autohospeda o integra",
     "openSourceBody": "Ejecuta GeoLens con licencia abierta, distribución desde GitHub y APIs basadas en estándares para catálogos y datos espaciales.",
     "workspaceTitle": "Inicia sesión para crear y compartir mapas",
-    "workspaceBody": "Guarda búsquedas, compón mapas interactivos, estiliza capas, importa datos y administra el catálogo dentro de la app."
+    "workspaceBody": "Guarda búsquedas, compón mapas interactivos, estiliza capas, importa datos y administra el catálogo dentro de la app.",
+    "features": {
+      "searchTitle": "Búsqueda semántica",
+      "searchDesc": "Encuentra conjuntos de datos por significado en todo tu catálogo",
+      "mapTitle": "Constructor de mapas",
+      "mapDesc": "Compón capas, aplica estilos y comparte mapas interactivos",
+      "hostTitle": "Autoalojado",
+      "hostDesc": "Ejecuta en tu propia infraestructura con control total de datos"
+    }
   },
   "heroStats_one": "{{count}} conjunto de datos en el catálogo",
   "heroStats_other": "{{count}} conjuntos de datos en el catálogo",
   "trust": {
     "license": "Apache 2.0",
     "ogc": "Compatible con OGC API",
-    "deploy": "Despliega en 2 minutos",
     "github": "Ver en GitHub"
   },
   "placeholder": "Buscar conjuntos de datos por nombre, descripción, etiquetas...",
