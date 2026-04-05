@@ -513,13 +513,21 @@ async def get_embedding_stats(
     db: AsyncSession = Depends(get_db),
 ) -> EmbeddingStatsResponse:
     """Return embedding coverage statistics (admin only)."""
-    total_result = await db.execute(text("SELECT COUNT(*) FROM catalog.records"))
-    total_records = total_result.scalar_one()
+    try:
+        total_result = await db.execute(text("SELECT COUNT(*) FROM catalog.records"))
+        total_records = total_result.scalar_one()
 
-    embedded_result = await db.execute(
-        text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
-    )
-    embedded_records = embedded_result.scalar_one()
+        embedded_result = await db.execute(
+            text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
+        )
+        embedded_records = embedded_result.scalar_one()
+    except Exception:
+        return EmbeddingStatsResponse(
+            total_records=0,
+            embedded_records=0,
+            missing_records=0,
+            coverage_percent=0.0,
+        )
 
     missing_records = total_records - embedded_records
     coverage_percent = (
