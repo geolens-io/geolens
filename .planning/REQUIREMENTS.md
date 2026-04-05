@@ -1,115 +1,131 @@
-# Requirements: GeoLens v13.0 Open-Core Pre-Release
+# Requirements: getgeolens.com Marketing Site
 
-**Defined:** 2026-03-26
+**Defined:** 2026-04-04
 **Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 
-## v13.0 Requirements
+## v14.0 Requirements
 
-Requirements for open-core pre-release. Each maps to roadmap phases.
+Requirements for the getgeolens.com marketing site launch. Each maps to roadmap phases.
 
-### Extension Architecture
+### Site Foundation
 
-- [x] **EXT-01**: Backend discovers and loads enterprise extensions at startup via `importlib.metadata` entry_points without importing enterprise code from core
-- [x] **EXT-02**: Protocol interfaces exist for auth, audit, and branding extension points that enterprise implementations can fulfill
-- [x] **EXT-03**: Edition detection (`community` vs `enterprise`) is determined at startup from package presence and/or `GEOLENS_EDITION` env var
-- [x] **EXT-04**: Enterprise-gated API endpoints return 404 (not 403) in community mode — no feature leakage
-- [x] **EXT-05**: Existing enterprise-boundary code (OIDC advanced config, branding footer) is refactored to use extension seam interfaces
+- [x] **SITE-01**: Separate repo initialized with Astro 6 + Tailwind CSS 4, GeoLens brand tokens (emerald accent, Inter font, OKLCH color space)
+- [x] **SITE-02**: Site deploys to Cloudflare Pages with git-push auto-deploy and PR preview deploys
+- [ ] **SITE-03**: Shared nav with logo, page links (Home, Features, Quickstart), and GitHub link
+- [ ] **SITE-04**: Footer with project links, license badge, and "Powered by GeoLens" attribution
+- [ ] **SITE-05**: Responsive layout works across phone (375px), tablet (768px), and desktop (1280px+)
 
-### SAML SSO
+### Homepage
 
-- [x] **SAML-01**: Admin can configure a SAML IdP via admin UI (metadata paste, entity ID, ACS URL display)
-- [x] **SAML-02**: Users can authenticate via SP-initiated SAML flow with configured IdP
-- [x] **SAML-03**: SAML assertions are validated for signatures, expiry, audience, and replay protection
-- [x] **SAML-04**: SAML-authenticated users are mapped to existing accounts or auto-provisioned via the existing `find_or_create_oauth_user()` flow
-- [x] **SAML-05**: SAML provider appears alongside OIDC providers on the login page
+- [ ] **HOME-01**: Hero section with outcome-focused headline, subtitle, and primary "Get Started" CTA
+- [ ] **HOME-02**: Trust signal bar visible near hero — Apache 2.0, OGC API Compliant, Self-Hosted badges
+- [ ] **HOME-03**: Feature highlights section showcasing 3-4 key capabilities with icons and short descriptions
+- [ ] **HOME-04**: Stylized product preview showing the GeoLens search UI in a browser frame
+- [ ] **HOME-05**: Quickstart teaser section linking to the quickstart page
 
-### Compliance
+### Features Page
 
-- [x] **COMP-01**: Admin can export audit logs as CSV from the admin UI with date range and event type filters
-- [x] **COMP-02**: Admin can export audit logs as JSON from the admin UI with the same filters
-- [x] **COMP-03**: Audit export streams results for large datasets (no full materialization in memory)
-- [x] **COMP-04**: "Powered by GeoLens" branding in the footer is removable via a `PersistentConfig` toggle in admin settings
-- [x] **COMP-05**: Branding toggle is enterprise-gated — only available when enterprise edition is detected
+- [ ] **FEAT-01**: Capability sections covering search, map builder, data ingestion, raster/VRT, AI chat, and RBAC
+- [ ] **FEAT-02**: Each capability section includes a description, key points, and a stylized product preview
+- [ ] **FEAT-03**: OGC API compliance and standards section with supported conformance classes
 
-### Enterprise Repo
+### Quickstart Page
 
-- [x] **REPO-01**: A `geolens-enterprise` repo scaffold exists with `pyproject.toml` defining entry_points that register with the core extension system
-- [x] **REPO-02**: Enterprise repo installs as an editable pip package (`pip install -e`) into the existing Docker Compose setup via a compose override file
-- [x] **REPO-03**: Enterprise Alembic migrations use a separate branch label and do not conflict with core migrations
-- [x] **REPO-04**: At least one enterprise feature (branding toggle or SAML) lives in the enterprise repo, proving the overlay pattern end-to-end
+- [ ] **QUICK-01**: Step-by-step guide from zero to running GeoLens via docker compose
+- [ ] **QUICK-02**: Copyable code blocks with environment setup, docker compose commands, and first-login instructions
+- [ ] **QUICK-03**: Expected outcome description (what the user sees after completing the quickstart)
 
-### Licensing & Documentation
+### Visual Assets
 
-- [x] **DOCS-01**: Apache 2.0 LICENSE file exists at repo root
-- [x] **DOCS-02**: README.md is rewritten for public consumption — features, screenshots, quickstart, contributing guidelines link
-- [x] **DOCS-03**: Installation quickstart documentation enables a working deployment in under 10 minutes (clone, .env, docker compose up)
-- [x] **DOCS-04**: CONTRIBUTING.md exists with development setup, PR guidelines, and code style notes
+- [ ] **ASSET-01**: Stylized product preview for search/catalog UI (CSS-rendered browser frame)
+- [ ] **ASSET-02**: Stylized product preview for map builder UI
+- [ ] **ASSET-03**: Stylized product preview for dataset detail page
 
-## v2 Requirements (Deferred)
+### SEO
 
-### Enterprise Auth
+- [ ] **SEO-01**: Unique title and meta description on every page
+- [ ] **SEO-02**: OG images generated per page via Satori at build time
+- [ ] **SEO-03**: sitemap.xml and robots.txt generated automatically
+- [ ] **SEO-04**: JSON-LD structured data (SoftwareApplication + Organization)
 
-- **SAML-06**: IdP-initiated SAML flow support
-- **SAML-07**: SAML Single Logout (SLO)
-- **SCIM-01**: SCIM user provisioning/deprovisioning from IdP
+### Accessibility
 
-### Enterprise Features
+- [x] **A11Y-01**: All text meets WCAG 2.1 AA contrast ratios (emerald-700 minimum for accent on white)
+- [ ] **A11Y-02**: Full keyboard navigation across all pages and interactive elements
+- [ ] **A11Y-03**: Semantic HTML landmarks (nav, main, footer, headings hierarchy)
+- [ ] **A11Y-04**: Axe accessibility scan passes with zero critical/serious violations
 
-- **ENT-01**: Multi-organization tenancy
-- **ENT-02**: License key validation and expiry enforcement
-- **ENT-03**: Usage metering and seat-based limits
+## Future Requirements
 
-### Documentation
+Deferred to future milestone. Tracked but not in current roadmap.
 
-- **DOCS-05**: Landing page / marketing site
-- **DOCS-06**: Live demo instance with sample data
+### Enterprise Conversion
+
+- **ENT-01**: Editions comparison page (Community vs Enterprise feature matrix)
+- **ENT-02**: Enterprise contact form with email delivery (Resend or Formspree)
+- **ENT-03**: Demo request CTA and workflow
+
+### Content Expansion
+
+- **CONT-01**: Competitor positioning page (vs GeoServer/GeoNode/CARTO)
+- **CONT-02**: Documentation site at docs.getgeolens.com (Starlight/Astro docs)
+- **CONT-03**: Case studies or testimonial section
+
+### Technical
+
+- **TECH-01**: Dark/light mode theme toggle matching GeoLens brand
+- **TECH-02**: Privacy-first analytics (Plausible or Fathom) with CTA tracking
+- **TECH-03**: VPAT accessibility conformance report for federal procurement
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| IdP-initiated SAML | Complexity; SP-initiated covers 95% of use cases |
-| SAML SLO | Rarely enforced at evaluation stage; defer to v2 |
-| SCIM provisioning | No customer demand yet; manual user management sufficient |
-| License key system | Premature; trust-based enterprise licensing first |
-| Multi-org tenancy | Major architecture change; not needed for initial enterprise tier |
-| Pricing page / landing site | Operational, not code — separate effort |
-| Frontend module federation | Over-engineered; simple conditional imports sufficient for 3-4 enterprise components |
-| Private PyPI for enterprise distribution | `pip install -e` from local clone or GitHub Packages sufficient initially |
+| Live interactive demo | Scope explosion — quickstart + screenshots covers the need at 5% of the cost |
+| CMS integration | All copy is hardcoded; migrate to content collections when a non-developer needs to edit |
+| Blog | No content pipeline yet; add when there are regular posts to publish |
+| Pricing page | No paid tier pricing finalized; editions comparison deferred |
+| i18n / multi-language | English-only for launch; localize based on adoption geography |
 
 ## Traceability
 
+Which phases cover which requirements. Updated during roadmap creation.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXT-01 | Phase 206 | Pending |
-| EXT-02 | Phase 206 | Pending |
-| EXT-03 | Phase 206 | Pending |
-| EXT-04 | Phase 206 | Pending |
-| EXT-05 | Phase 206 | Pending |
-| COMP-04 | Phase 207 | Pending |
-| COMP-05 | Phase 207 | Pending |
-| COMP-01 | Phase 208 | Pending |
-| COMP-02 | Phase 208 | Pending |
-| COMP-03 | Phase 208 | Pending |
-| SAML-01 | Phase 209 | Complete |
-| SAML-02 | Phase 209 | Complete |
-| SAML-03 | Phase 209 | Complete |
-| SAML-04 | Phase 209 | Complete |
-| SAML-05 | Phase 209 | Complete |
-| REPO-01 | Phase 210 | Complete |
-| REPO-02 | Phase 210 | Complete |
-| REPO-03 | Phase 210 | Complete |
-| REPO-04 | Phase 210 | Complete |
-| DOCS-01 | Phase 211 | Pending |
-| DOCS-02 | Phase 211 | Pending |
-| DOCS-03 | Phase 211 | Pending |
-| DOCS-04 | Phase 211 | Pending |
+| SITE-01 | Phase 212 | Complete |
+| SITE-02 | Phase 212 | Complete |
+| SITE-03 | Phase 212 | Pending |
+| SITE-04 | Phase 212 | Pending |
+| SITE-05 | Phase 212 | Pending |
+| A11Y-01 | Phase 212 | Complete |
+| A11Y-03 | Phase 212 | Pending |
+| SEO-01 | Phase 213 | Pending |
+| SEO-02 | Phase 213 | Pending |
+| SEO-03 | Phase 213 | Pending |
+| SEO-04 | Phase 213 | Pending |
+| ASSET-01 | Phase 214 | Pending |
+| ASSET-02 | Phase 214 | Pending |
+| ASSET-03 | Phase 214 | Pending |
+| HOME-01 | Phase 215 | Pending |
+| HOME-02 | Phase 215 | Pending |
+| HOME-03 | Phase 215 | Pending |
+| HOME-04 | Phase 215 | Pending |
+| HOME-05 | Phase 215 | Pending |
+| FEAT-01 | Phase 216 | Pending |
+| FEAT-02 | Phase 216 | Pending |
+| FEAT-03 | Phase 216 | Pending |
+| QUICK-01 | Phase 216 | Pending |
+| QUICK-02 | Phase 216 | Pending |
+| QUICK-03 | Phase 216 | Pending |
+| A11Y-02 | Phase 217 | Pending |
+| A11Y-04 | Phase 217 | Pending |
 
 **Coverage:**
-- v13.0 requirements: 23 total
-- Mapped to phases: 23
-- Unmapped: 0
+- v14.0 requirements: 27 total
+- Mapped to phases: 27
+- Unmapped: 0 ✓
 
 ---
-*Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after roadmap creation*
+*Requirements defined: 2026-04-04*
+*Last updated: 2026-04-04 — traceability populated after roadmap creation*
