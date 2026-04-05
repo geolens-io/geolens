@@ -550,7 +550,13 @@ async def trigger_backfill(
     """
     from app.embeddings.backfill import backfill_embeddings
 
-    result = await backfill_embeddings(db, force=force)
+    try:
+        result = await backfill_embeddings(db, force=force)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Embedding backfill failed: {e}",
+        )
     return BackfillResponse(**result)
 
 
