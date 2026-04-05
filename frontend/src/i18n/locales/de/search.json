@@ -1,35 +1,11 @@
 {
-  "title": "Geodaten durchsuchen, kartieren und teilen",
-  "subtitle": "Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. Finden Sie Datensätze nach Bedeutung, sehen und gestalten Sie Layer und exportieren Sie über OGC-APIs.",
-  "workspaceTitle": "GeoLens-Katalog durchsuchen",
-  "landing": {
-    "eyebrow": "Open-Source-Geodatenkatalog",
-    "searchHelper": "Starten Sie mit einem Stichwort, Ort, Format oder einer Organisation und wechseln Sie dann in die vollständige Such- und Kartenarbeitsfläche.",
-    "primaryCta": "Katalog öffnen",
-    "searchCta": "Suchen",
-    "openSourceTitle": "Selbst hosten oder integrieren",
-    "openSourceBody": "Betreiben Sie GeoLens mit offener Lizenz, GitHub-basierter Distribution und standardbasierten APIs für Kataloge und Geodaten.",
-    "workspaceTitle": "Anmelden, um Karten zu erstellen und zu teilen",
-    "workspaceBody": "Speichern Sie Suchen, erstellen Sie interaktive Karten, gestalten Sie Layer, importieren Sie Daten und verwalten Sie den Katalog in der App.",
-    "features": {
-      "searchTitle": "Semantische Suche",
-      "searchDesc": "Finden Sie Datensätze nach Bedeutung in Ihrem gesamten Katalog",
-      "mapTitle": "Kartenerstellung",
-      "mapDesc": "Layer erstellen, Stile anwenden und interaktive Karten teilen",
-      "hostTitle": "Selbst gehostet",
-      "hostDesc": "Betreiben Sie es auf Ihrer eigenen Infrastruktur mit voller Datenkontrolle"
-    }
-  },
-  "heroStats_one": "{{count}} Datensatz im Katalog",
-  "heroStats_other": "{{count}} Datensätze im Katalog",
-  "trust": {
-    "license": "Apache 2.0",
-    "ogc": "OGC API-konform",
-    "github": "Auf GitHub ansehen"
-  },
+  "title": "Geodaten finden",
+  "subtitle": "Geodaten aus dem Katalog suchen, ansehen und exportieren",
   "placeholder": "Datensätze nach Name, Beschreibung, Tags suchen...",
   "updating": "Ergebnisse werden aktualisiert...",
   "loadingDatasets": "Datensätze werden geladen...",
+  "resultCount_one": "{{count}} Ergebnis",
+  "resultCount_other": "{{count}} Ergebnisse",
   "empty": {
     "title": "Keine Datensätze gefunden",
     "description": "Passen Sie Ihre Suchanfrage oder Filter an",
@@ -93,7 +69,6 @@
     "previewUnavailable": "Vorschau nicht verfugbar"
   },
   "card": {
-    "testData": "Testdaten",
     "featureCount_one": "{{count}} Feature",
     "featureCount_other": "{{count}} Features",
     "rowCount_one": "{{count}} Zeile",
