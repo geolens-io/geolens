@@ -62,6 +62,10 @@ function SearchControls({
   );
 }
 
+function handlePageChange(offset: number) {
+  useSearchStore.getState().setPage(offset);
+}
+
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
@@ -194,7 +198,7 @@ export function SearchPage() {
             total={Math.max(data.numberMatched, data.features.length)}
             offset={offset}
             limit={limit}
-            onPageChange={(newOffset) => useSearchStore.getState().setPage(newOffset)}
+            onPageChange={handlePageChange}
           />
         )}
       </PageShell>

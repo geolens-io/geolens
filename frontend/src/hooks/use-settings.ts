@@ -65,6 +65,7 @@ export function useConfigMode() {
   return useQuery({
     queryKey: queryKeys.settings.configMode,
     queryFn: getConfigMode,
+    staleTime: Infinity,
   });
 }
 
