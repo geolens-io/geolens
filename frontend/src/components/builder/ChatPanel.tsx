@@ -116,14 +116,16 @@ export function ChatPanel({
       case 'toggle_visibility':
         if (action.layer_id) onToggleVisibility(action.layer_id, action.visible ?? undefined);
         break;
-      case 'show_query_result':
-        if (action.geojson && action.bbox) {
+      case 'show_query_result': {
+        const geojson = action.geojson;
+        if (geojson && typeof geojson === 'object' && 'type' in geojson && geojson.type === 'FeatureCollection' && action.bbox) {
           onQueryResult?.(
-            action.geojson,
-            action.bbox,
+            geojson as GeoJSON.FeatureCollection,
+            action.bbox as [number, number, number, number],
           );
         }
         break;
+      }
       case 'add_layer':
         if (action.dataset_id) onAddDataset(action.dataset_id);
         break;
@@ -188,10 +190,13 @@ export function ChatPanel({
           case 'actions':
             for (const action of data.actions as ChatAction[]) {
               if (action.type === 'show_query_result') {
-                onQueryResult?.(
-                  action.geojson as unknown as GeoJSON.FeatureCollection,
-                  action.bbox as [number, number, number, number],
-                );
+                const geojson = action.geojson;
+                if (geojson && typeof geojson === 'object' && 'type' in geojson && geojson.type === 'FeatureCollection') {
+                  onQueryResult?.(
+                    geojson as GeoJSON.FeatureCollection,
+                    action.bbox as [number, number, number, number],
+                  );
+                }
                 continue;
               }
               handleChatAction(action);

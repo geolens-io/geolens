@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
@@ -31,7 +32,13 @@ export function RegisterPage() {
 
   if (token) return <Navigate to="/search" replace />;
 
-  if (isLoading) return null;
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (config?.registration_enabled === false) {
     return (

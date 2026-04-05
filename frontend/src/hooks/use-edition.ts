@@ -3,6 +3,8 @@ import { queryKeys } from '@/lib/query-keys';
 import { fetchEdition } from '@/api/edition';
 import type { EditionInfo } from '@/api/edition';
 
+const EMPTY_FEATURES: string[] = [];
+
 export function useEdition() {
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.edition.info,
@@ -13,7 +15,7 @@ export function useEdition() {
 
   return {
     edition: data?.edition ?? 'community',
-    features: data?.features ?? [],
+    features: data?.features ?? EMPTY_FEATURES,
     isEnterprise: data?.edition === 'enterprise',
     isLoading,
   };
