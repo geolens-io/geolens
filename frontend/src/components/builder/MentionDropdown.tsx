@@ -1,4 +1,5 @@
 import { Layers, Terminal } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface MentionItem {
   id: string;
@@ -32,9 +33,10 @@ export function MentionDropdown({ id, items, selectedIndex, onSelect, type, labe
           role="option"
           aria-selected={index === selectedIndex}
           tabIndex={-1}
-          className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${
-            index === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50'
-          }`}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 cursor-pointer',
+            index === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50',
+          )}
           onMouseDown={(e) => {
             e.preventDefault(); // prevent textarea blur
             onSelect(index);

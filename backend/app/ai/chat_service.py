@@ -200,7 +200,7 @@ def _build_label_action(tool_input: dict) -> dict:
                 "fontSize": tool_input.get("font_size", 12),
                 "textColor": tool_input.get("text_color", "#333333"),
                 "haloColor": "#ffffff",
-                "haloWidth": 1,
+                "haloWidth": 1.5,
             },
         }
     return {
@@ -393,11 +393,12 @@ def _validate_filter_columns(
 
 def _validate_actions(
     actions: list[ChatAction], layers: list[ChatMapLayer]
-) -> list[ChatAction]:
+) -> tuple[list[ChatAction], list[str]]:
     """Validate layer_id references in actions. Filter out invalid ones."""
     valid_layer_ids = {layer.id for layer in layers}
     layer_map = {layer.id: layer for layer in layers}
     validated = []
+    dropped: list[str] = []
     for action in actions:
         # add_layer and search_datasets don't need layer_id validation
         if action.type in ("add_layer",):
@@ -409,16 +410,18 @@ def _validate_actions(
                 action_type=action.type,
                 layer_id=action.layer_id,
             )
+            dropped.append(f"{action.type} (invalid layer_id: {action.layer_id})")
             continue
         # Validate column refs in filter expressions
         if action.type == "set_filter" and action.expression is not None:
             target_layer = layer_map.get(action.layer_id) if action.layer_id else None
             validated_expr = _validate_filter_columns(action.expression, target_layer)
             if validated_expr is None:
+                dropped.append(f"{action.type} (invalid column refs in filter expression)")
                 continue  # skip action with invalid column refs
             action.expression = validated_expr
         validated.append(action)
-    return validated
+    return validated, dropped
 
 
 # ---------------------------------------------------------------------------
@@ -920,9 +923,13 @@ async def chat_edit_map(
     actions = [ChatAction(**a) for a in result.actions]
 
     # Validate layer_id references
-    actions = _validate_actions(actions, layers)
+    actions, dropped = _validate_actions(actions, layers)
+
+    explanation = result.text
+    if dropped:
+        explanation += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
 
     return ChatResponse(
-        explanation=result.text,
+        explanation=explanation,
         actions=actions,
     )

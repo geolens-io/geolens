@@ -121,7 +121,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const { isEnterprise } = useEdition();
   const queryClient = useQueryClient();
 
-  const { data: providers = [], isLoading } = useQuery({
+  const { data: providers = [], isLoading, isError } = useQuery({
     queryKey: queryKeys.settingsOAuth.providers,
     queryFn: listOAuthProviders,
   });
@@ -327,6 +327,8 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t('settings.oauth.loading')}</p>
+        ) : isError ? (
+          <p className="text-sm text-destructive">{t('settings.oauth.loadFailed')}</p>
         ) : providers.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">
             {t('settings.oauth.emptyState')}

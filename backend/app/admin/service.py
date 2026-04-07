@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.admin.schemas import CatalogStatsResponse, UserUpdate
+from app.admin.schemas import CatalogStatsResponse, EmbeddingStatsResponse, UserUpdate
 from app.auth.models import ApiKey, Role, User, UserRole
 from app.auth.providers.local import hash_password
 from app.datasets.models import Dataset, Record
@@ -316,6 +316,36 @@ class AdminService:
         rows = (await self.db.execute(list_stmt)).all()
 
         return rows, total
+
+    async def get_embedding_stats(self) -> EmbeddingStatsResponse:
+        """Return embedding coverage statistics."""
+        try:
+            total_result = await self.db.execute(text("SELECT COUNT(*) FROM catalog.records"))
+            total_records = total_result.scalar_one()
+
+            embedded_result = await self.db.execute(
+                text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
+            )
+            embedded_records = embedded_result.scalar_one()
+        except Exception:
+            logger.warning("Failed to query embedding stats", exc_info=True)
+            return EmbeddingStatsResponse(
+                total_records=0,
+                embedded_records=0,
+                missing_records=0,
+                coverage_percent=0.0,
+            )
+
+        missing_records = total_records - embedded_records
+        coverage_percent = (
+            (embedded_records / total_records * 100) if total_records > 0 else 0.0
+        )
+        return EmbeddingStatsResponse(
+            total_records=total_records,
+            embedded_records=embedded_records,
+            missing_records=missing_records,
+            coverage_percent=round(coverage_percent, 1),
+        )
 
     async def get_catalog_stats(self) -> CatalogStatsResponse:
         """Return catalog statistics: counts, storage, breakdowns."""

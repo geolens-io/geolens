@@ -410,6 +410,7 @@ function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defa
       <button
         className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         <Code className="h-3 w-3" />

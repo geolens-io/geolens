@@ -46,6 +46,9 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
     { labelKey: 'filters.operators.notEquals', value: '!=' },
     { labelKey: 'filters.operators.contains', value: 'contains' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
+    { value: 'in_list', label: 'in list' },
+    { value: 'not_in_list', label: 'not in list' },
+    { value: 'has', label: 'exists' },
   ],
   number: [
     { label: '=', value: '==' },
@@ -55,10 +58,14 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
     { label: '>=', value: '>=' },
     { label: '<=', value: '<=' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
+    { value: 'in_list', label: 'in list' },
+    { value: 'not_in_list', label: 'not in list' },
+    { value: 'has', label: 'exists' },
   ],
   boolean: [
     { labelKey: 'filters.operators.equals', value: '==' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
+    { value: 'has', label: 'exists' },
   ],
   other: [
     { labelKey: 'filters.operators.equals', value: '==' },
@@ -84,7 +91,12 @@ export function buildFilterExpression(
   columnInfo: { name: string; type: string }[],
   combinator: 'all' | 'any' = 'all',
 ): FilterSpecification | null {
-  const valid = conditions.filter((c) => c.field && c.operator);
+  const valid = conditions.filter((c) => {
+    if (!c.field || !c.operator) return false;
+    if (c.operator === 'is_null' || c.operator === 'has') return true;
+    if (c.value === '' || c.value === undefined || c.value === null) return false;
+    return true;
+  });
   if (valid.length === 0) return null;
 
   const expressions: unknown[] = [];
@@ -94,7 +106,17 @@ export function buildFilterExpression(
     const pgType = col?.type ?? 'text';
 
     if (cond.operator === 'is_null') {
-      expressions.push(['!', ['has', cond.field]]);
+      expressions.push(['any', ['!', ['has', cond.field]], ['==', ['get', cond.field], null]]);
+    } else if (cond.operator === 'has') {
+      expressions.push(['has', cond.field]);
+    } else if (cond.operator === 'in_list') {
+      const values = String(cond.value).split(',').map(v => v.trim()).filter(Boolean);
+      const coerced = values.map(v => coerceValue(v, pgType));
+      expressions.push(['in', ['get', cond.field], ['literal', coerced]]);
+    } else if (cond.operator === 'not_in_list') {
+      const values = String(cond.value).split(',').map(v => v.trim()).filter(Boolean);
+      const coerced = values.map(v => coerceValue(v, pgType));
+      expressions.push(['!', ['in', ['get', cond.field], ['literal', coerced]]]);
     } else if (cond.operator === 'contains') {
       expressions.push(['in', cond.value, ['get', cond.field]]);
     } else {
@@ -103,7 +125,7 @@ export function buildFilterExpression(
     }
   }
 
-  if (expressions.length === 1) return expressions[0] as FilterSpecification;
+  // Always wrap to preserve combinator intent on round-trip
   return [combinator, ...expressions] as FilterSpecification;
 }
 
@@ -182,7 +204,7 @@ export function LayerFilterEditor({
   onFilterChange,
 }: LayerFilterEditorProps) {
   const { t } = useTranslation('builder');
-  const initializedRef = useRef(false);
+  const lastEmittedFilterRef = useRef<unknown>(null);
   const [conditions, setConditions] = useState<FilterCondition[]>([]);
   const [combinator, setCombinator] = useState<'all' | 'any'>('all');
   const [rawMode, setRawMode] = useState(false);
@@ -203,12 +225,11 @@ export function LayerFilterEditor({
     }
   }
 
-  // Sync from filter prop on initial mount only
+  // Sync from filter prop when it changes externally (not from our own emit)
   useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      applyParseResult(parseFilterExpression(filter));
-    }
+    if (filter === lastEmittedFilterRef.current) return;
+    const result = parseFilterExpression(filter);
+    applyParseResult(result);
   }, [filter]);
 
   function getFieldType(fieldName: string): ColumnType {
@@ -218,7 +239,9 @@ export function LayerFilterEditor({
 
   function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
     setConditions(updated);
-    onFilterChange(buildFilterExpression(updated, columnInfo, combo));
+    const newFilter = buildFilterExpression(updated, columnInfo, combo);
+    lastEmittedFilterRef.current = newFilter;
+    onFilterChange(newFilter);
   }
 
   function addCondition() {
@@ -256,7 +279,9 @@ export function LayerFilterEditor({
   function handleCombinatorChange(value: string) {
     const combo = value as 'all' | 'any';
     setCombinator(combo);
-    onFilterChange(buildFilterExpression(conditions, columnInfo, combo));
+    const newFilter = buildFilterExpression(conditions, columnInfo, combo);
+    lastEmittedFilterRef.current = newFilter;
+    onFilterChange(newFilter);
   }
 
   function handleRawModeToggle() {
@@ -277,6 +302,11 @@ export function LayerFilterEditor({
   function handleRawApply() {
     try {
       const parsed = JSON.parse(rawText) as FilterSpecification;
+      if (parsed !== null && !Array.isArray(parsed)) {
+        setRawError(t('filters.rawJsonError'));
+        return;
+      }
+      lastEmittedFilterRef.current = parsed;
       onFilterChange(parsed);
       const result = parseFilterExpression(parsed);
       applyParseResult(result);
@@ -400,8 +430,8 @@ export function LayerFilterEditor({
                   </SelectContent>
                 </Select>
 
-                {/* Value input (hidden for is_null) */}
-                {cond.operator !== 'is_null' && (
+                {/* Value input (hidden for is_null and has) */}
+                {cond.operator !== 'is_null' && cond.operator !== 'has' && (
                   <Input
                     className="h-7 text-xs flex-1 min-w-0"
                     placeholder={t('filters.value')}
@@ -416,6 +446,7 @@ export function LayerFilterEditor({
                   size="icon"
                   className="h-6 w-6 shrink-0"
                   onClick={() => removeCondition(cond.id)}
+                  aria-label="Remove condition"
                 >
                   <X className="h-3 w-3" />
                 </Button>

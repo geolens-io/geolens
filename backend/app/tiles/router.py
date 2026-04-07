@@ -272,15 +272,21 @@ async def raster_tile_proxy(
         titiler_url = f"{titiler_url}?url={open_path}"
 
     # Retry with exponential backoff for transient failures
+    max_retries = 2
     resp = None
-    for attempt in range(3):
+    for attempt in range(max_retries + 1):
         try:
             resp = await _titiler_client.get(titiler_url)
-            break
         except httpx.TransportError:
-            if attempt == 2:
+            if attempt == max_retries:
                 raise HTTPException(status_code=503, detail="Tile service unavailable")
             await asyncio.sleep(0.5 * (2 ** attempt))
+            continue
+        else:
+            if resp.status_code == 503 and attempt < max_retries:
+                await asyncio.sleep(0.5 * (2 ** attempt))
+                continue
+            break
 
     if resp.status_code == 404:
         # Tile outside raster extent — empty response

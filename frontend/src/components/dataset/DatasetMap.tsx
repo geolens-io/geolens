@@ -619,7 +619,7 @@ export function DatasetMap({
     >
       <MapGL
         initialViewState={initialViewState}
-        mapStyle={initialBasemapStyle.current as string}
+        mapStyle={initialBasemapStyle.current ?? ''}
         style={{ width: '100%', height: '100%' }}
         cursor={cursor}
         interactive

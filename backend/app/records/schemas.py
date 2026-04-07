@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ContactCreate(BaseModel):
-    role: str = Field(description="ISO CI_RoleCode, e.g. pointOfContact, author")
+    role: str = Field(max_length=100, description="ISO CI_RoleCode, e.g. pointOfContact, author")
     name: str | None = None
     email: EmailStr | None = None
     organization: str | None = None
@@ -54,9 +54,9 @@ class ContactListResponse(BaseModel):
 
 
 class KeywordCreate(BaseModel):
-    keyword: str
+    keyword: str = Field(max_length=500)
     vocabulary_uri: str | None = Field(
-        default=None, description="URI of the controlled vocabulary"
+        default=None, max_length=2048, description="URI of the controlled vocabulary"
     )
     keyword_type: str = Field(
         default="theme",
@@ -83,8 +83,8 @@ class KeywordListResponse(BaseModel):
 
 
 class DistributionCreate(BaseModel):
-    distribution_type: str = Field(description="e.g. download, api, ogc_wms, ogc_wfs")
-    format: str = Field(description="File or service format, e.g. GeoJSON, SHP, WMS")
+    distribution_type: str = Field(max_length=200, description="e.g. download, api, ogc_wms, ogc_wfs")
+    format: str | None = Field(default=None, max_length=200, description="File or service format, e.g. GeoJSON, SHP, WMS")
     url: str = Field(max_length=2048, description="Access URL for this distribution")
     title: str | None = None
     description: str | None = None

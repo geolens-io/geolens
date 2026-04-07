@@ -73,7 +73,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
             dimensions=dims,
         )
     except Exception as exc:
-        logger.error("Embedding API call failed", error=str(exc), model=model)
+        logger.error("Embedding API call failed", error=str(exc), model=model, exc_info=True)
         raise EmbeddingUnavailableError(f"Embedding API call failed: {exc}") from exc
 
     return response.data[0].embedding

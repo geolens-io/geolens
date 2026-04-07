@@ -11,6 +11,7 @@ import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { MapErrorBoundary } from '@/components/error';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 
@@ -106,16 +107,18 @@ export function PublicViewerPage() {
   return (
     <main id="map-viewport" className="w-full h-screen relative overflow-hidden">
       {/* Full-viewport map */}
-      <ViewerMap
-        layers={data.layers}
-        basemapStyle={basemapId ?? data.basemap_style}
-        basemapOverride={basemapId !== null}
-        showBasemapLabels={data.show_basemap_labels ?? true}
-        initialViewState={viewState}
-        visibleLayers={visibleLayers}
-        apiKey={apiKey}
-        embedToken={embedToken}
-      />
+      <MapErrorBoundary>
+        <ViewerMap
+          layers={data.layers}
+          basemapStyle={basemapId ?? data.basemap_style}
+          basemapOverride={basemapId !== null}
+          showBasemapLabels={data.show_basemap_labels ?? true}
+          initialViewState={viewState}
+          visibleLayers={visibleLayers}
+          apiKey={apiKey}
+          embedToken={embedToken}
+        />
+      </MapErrorBoundary>
 
       <MapTitlePill name={data.name} description={data.description} />
 

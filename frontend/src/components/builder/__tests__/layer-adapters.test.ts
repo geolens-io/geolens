@@ -28,6 +28,7 @@ function createMockMap() {
     setPaintProperty: vi.fn(),
     getPaintProperty: vi.fn(),
     getLayoutProperty: vi.fn(),
+    getFilter: vi.fn().mockReturnValue(null),
     setFilter: vi.fn(),
     removeLayer: vi.fn(),
     removeSource: vi.fn(),

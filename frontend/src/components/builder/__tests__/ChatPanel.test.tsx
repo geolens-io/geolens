@@ -70,6 +70,7 @@ async function typeAndSend(
 describe('ChatPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
   });
 
   it('passes explicit visible value to onToggleVisibility', async () => {

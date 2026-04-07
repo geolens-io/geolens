@@ -119,7 +119,7 @@ describe('buildFilterExpression', () => {
   it('returns bare expression for single condition with "all" combinator', () => {
     const conditions = [{ id: '1', field: 'name', operator: '==', value: 'hello' }];
     const result = buildFilterExpression(conditions, columns, 'all');
-    expect(result).toEqual(['==', ['get', 'name'], 'hello']);
+    expect(result).toEqual(['all', ['==', ['get', 'name'], 'hello']]);
   });
 
   it('returns ["all", ...] for multiple conditions with "all" combinator', () => {
@@ -156,8 +156,8 @@ describe('buildFilterExpression', () => {
   it('returns bare expression for single condition with "any" combinator (no wrapping needed)', () => {
     const conditions = [{ id: '1', field: 'name', operator: '==', value: 'solo' }];
     const result = buildFilterExpression(conditions, columns, 'any');
-    // Single condition — no need to wrap
-    expect(result).toEqual(['==', ['get', 'name'], 'solo']);
+    // Single condition — always wrapped in combinator
+    expect(result).toEqual(['any', ['==', ['get', 'name'], 'solo']]);
   });
 });
 

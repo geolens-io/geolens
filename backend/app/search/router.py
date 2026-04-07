@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from typing import Literal
 from urllib.parse import urlencode
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
@@ -43,6 +44,8 @@ from app.search.service import (
     search_collections,
     search_datasets,
 )
+
+logger = structlog.stdlib.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pagination helpers
@@ -842,7 +845,7 @@ async def list_collections(
                     "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
                 }
             except Exception:
-                pass
+                logger.warning("Failed to serialize OGC bbox extent", exc_info=True)
         if ds.record.temporal_start is not None or ds.record.temporal_end is not None:
             extent["temporal"] = {
                 "interval": [

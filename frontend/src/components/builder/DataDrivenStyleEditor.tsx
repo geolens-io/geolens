@@ -254,6 +254,20 @@ export function DataDrivenStyleEditor({
     onStyleConfigChange(layer.id, null, resetPaint);
   }
 
+  function handleColumnChange(newColumn: string) {
+    if (!newColumn) {
+      setColumn('');
+      const colorProp = getColorProperty(layer.dataset_geometry_type);
+      const basePaint: Record<string, unknown> = {
+        ...layer.paint,
+        [colorProp]: MAP_COLORS.default.fill,
+      };
+      onStyleConfigChange(layer.id, null, basePaint);
+    } else {
+      setColumn(newColumn);
+    }
+  }
+
   function handleModeChange(newMode: 'categorical' | 'graduated') {
     setMode(newMode);
     setColumn('');
@@ -387,7 +401,7 @@ export function DataDrivenStyleEditor({
 
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{t('dataDriven.column')}</span>
-        <Select value={column} onValueChange={setColumn}>
+        <Select value={column} onValueChange={handleColumnChange}>
           <SelectTrigger className="h-7 text-xs flex-1">
             <SelectValue placeholder={t('dataDriven.selectColumn')} />
           </SelectTrigger>
@@ -411,7 +425,12 @@ export function DataDrivenStyleEditor({
       {column && !isSizeTarget && (
         <>
           <div className="text-xs text-muted-foreground">{t('dataDriven.colorRamp')}</div>
-          <ColorRampPicker rampName={ramp} onChange={setRamp} mode={mode} />
+          <ColorRampPicker
+            rampName={ramp}
+            onChange={setRamp}
+            mode={mode}
+            customColors={ramp === 'custom' && layer.style_config?.colors ? layer.style_config.colors : undefined}
+          />
         </>
       )}
 
@@ -472,7 +491,7 @@ export function DataDrivenStyleEditor({
                           handleCategoryColorChange(cat.value, hex);
                         }
                       }}
-                      className="mt-2 w-full text-xs border rounded px-2 py-1"
+                      className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
                       prefixed
                     />
                   </PopoverContent>
@@ -519,7 +538,7 @@ export function DataDrivenStyleEditor({
                             handleGraduatedColorChange(i, hex);
                           }
                         }}
-                        className="mt-2 w-full text-xs border rounded px-2 py-1"
+                        className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
                         prefixed
                       />
                     </PopoverContent>

@@ -163,7 +163,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     expect(map.addSource).toHaveBeenCalledWith('source-r1', {
       type: 'raster',
@@ -187,7 +187,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(addLayerCall.paint['raster-opacity']).toBe(0.6);
@@ -202,7 +202,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-r3', 'visibility', 'none');
   });
@@ -215,7 +215,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     expect(map.addSource).toHaveBeenCalledWith(
       'source-v1',
@@ -234,7 +234,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     const addLayerCalls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     expect(addLayerCalls[0][0].type).toBe('circle');
@@ -248,7 +248,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     const addLayerCalls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     expect(addLayerCalls[0][0].type).toBe('line');
@@ -268,7 +268,7 @@ describe('syncLayersToMap', () => {
       return null;
     });
 
-    syncLayersToMap(map, [], new Map(), undefined, managedSourcesRef);
+    syncLayersToMap(map, [], new Map(), undefined, managedSourcesRef, { current: '' });
 
     expect(map.removeLayer).toHaveBeenCalledWith('layer-old');
     expect(map.removeSource).toHaveBeenCalledWith('source-old');
@@ -295,7 +295,7 @@ describe('syncLayersToMap', () => {
     (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(1);
     (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     expect(map.addSource).not.toHaveBeenCalled();
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4', 'raster-opacity', 0.7);
@@ -309,7 +309,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op1', 'circle-opacity', 1);
   });
@@ -322,7 +322,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     // fill-opacity = 0.3 (default) * 1 = 0.3
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2', 'fill-opacity', 0.3);
@@ -349,7 +349,7 @@ describe('syncLayersToMap', () => {
     });
     (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     // Label layer filter should be synced
     expect(map.setFilter).toHaveBeenCalledWith('layer-lf1-label', ['==', 'type', 'park']);
@@ -373,7 +373,7 @@ describe('syncLayersToMap', () => {
 
     // Should not throw
     expect(() => {
-      syncLayersToMap(map, [layer, layer2], tokenMap, undefined, managedSourcesRef);
+      syncLayersToMap(map, [layer, layer2], tokenMap, undefined, managedSourcesRef, { current: '' });
     }).not.toThrow();
 
     // Both layers attempted
@@ -393,7 +393,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     const addLayerCalls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     // Fill layer paint should NOT contain outline-width or outline-color

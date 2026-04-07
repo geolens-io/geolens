@@ -26,6 +26,7 @@ export function getLayerType(geometryType: string | null): 'circle' | 'line' | '
 export function simplifyPaint(paint: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(paint)) {
+    if (typeof value === 'boolean') { result[key] = value; continue; }
     if (Array.isArray(value) && value.length >= 3) {
       const op = value[0];
       const fallback = op === 'match' ? value[value.length - 1] : value[2];

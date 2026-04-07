@@ -429,6 +429,35 @@ UPLOAD_ALLOWED_EXTENSIONS = PersistentConfig[str](
 )
 
 
+async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
+    """Batch-load all registry settings in a single DB query.
+
+    Returns a dict mapping each registered key to its effective value
+    (DB override if present, otherwise env_default). Bypassed when ENV_ONLY_CONFIG
+    is set — returns env_defaults directly without hitting the DB.
+    """
+    settings_dict: dict[str, Any] = {}
+
+    if _is_env_only():
+        for cfg in _registry:
+            settings_dict[cfg.key] = cfg.env_default
+        return settings_dict
+
+    # Batch-load all settings in one query
+    result = await db.execute(select(AppSetting))
+    all_settings = {row.key: row.value for row in result.scalars().all()}
+
+    for cfg in _registry:
+        raw = all_settings.get(cfg.key)
+        if raw is not None:
+            # AppSetting.value is JSONB — unwrap the stored scalar wrapper
+            settings_dict[cfg.key] = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+        else:
+            settings_dict[cfg.key] = cfg.env_default
+
+    return settings_dict
+
+
 async def get_allowed_extensions_list(db: AsyncSession) -> list[str]:
     """Return the allowed upload extensions as a parsed list."""
     raw = await UPLOAD_ALLOWED_EXTENSIONS.get(db)

@@ -96,7 +96,7 @@ async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
                 f"{bounds[2]:.4f}, {bounds[3]:.4f}"
             )
         except Exception:
-            pass
+            logger.debug("Failed to parse spatial bounds for AI context", exc_info=True)
 
     if record.access_constraints:
         parts.append(f"Access constraints: {record.access_constraints}")

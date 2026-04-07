@@ -95,20 +95,11 @@ export async function removeLayerFromMapApi(
 }
 
 export async function getSharedMap(token: string, apiKey?: string): Promise<SharedMapResponse> {
-  const headers: Record<string, string> = {};
+  const extraHeaders: Record<string, string> = {};
   if (apiKey) {
-    headers['X-Api-Key'] = apiKey;
+    extraHeaders['X-Api-Key'] = apiKey;
   }
-  const response = await fetch(`/api/maps/shared/${token}`, { headers });
-  if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const body = await response.json();
-      if (body.detail) detail = body.detail;
-    } catch { /* not JSON */ }
-    throw new ApiError(detail, response.status);
-  }
-  return response.json();
+  return apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
 }
 
 export async function checkMapVisibility(mapId: string): Promise<{ non_public_datasets: string[]; has_non_public: boolean }> {
@@ -196,7 +187,8 @@ export async function* streamGenerateMap(
     throw new Error(detail);
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) throw new Error('No response body');
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let eventType = 'message';
@@ -256,6 +248,7 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
     dataset_id: l.dataset_id,
     dataset_table_name: l.dataset_table_name,
     geometry_type: l.dataset_geometry_type,
+    layer_type: l.layer_type ?? null,
     column_info: l.dataset_column_info,
     visible: l.visible,
     filter: l.filter ?? null,
@@ -328,7 +321,8 @@ export async function* streamChatMessage(
     throw new ApiError(body || `Stream request failed: ${response.status}`, response.status);
   }
 
-  const reader = response.body!.getReader();
+  if (!response.body) throw new Error('No response body');
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let eventType = 'message';

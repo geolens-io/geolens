@@ -224,7 +224,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
       params.set('et', embedTokenRaw);
     }
     const url = `${window.location.origin}/m/${shareToken}?${params.toString()}`;
-    return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
+    return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts" style="border:none;"></iframe>`;
   }
 
   async function handleCopyShareLink() {
@@ -289,6 +289,9 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                 );
               })}
             </div>
+            {!isPublic && (
+              <p className="text-xs text-muted-foreground mt-2">Make this map public to generate a share link</p>
+            )}
           </div>
 
           {publishMap.isPending && (
@@ -316,6 +319,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                         size="sm"
                         className="flex-1"
                         onClick={handleCopyShareLink}
+                        disabled={isExpired}
                       >
                         <Copy className="h-3.5 w-3.5 me-1.5" />
                         {t('share.copyLink')}
@@ -324,6 +328,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                         variant="outline"
                         size="sm"
                         onClick={() => window.open(getShareUrl(), '_blank')}
+                        disabled={isExpired}
                       >
                         <ExternalLink className="h-3.5 w-3.5 me-1.5" />
                         {t('share.open')}
@@ -510,6 +515,14 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                       <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
                       <p className="text-xs text-foreground">
                         {t('share.embedTokenInfo')}
+                      </p>
+                    </div>
+                  )}
+                  {hasNonPublic && !embedTokenRaw && (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-foreground">
+                        {t('share.embedTokenMissing', { defaultValue: 'This map contains non-public layers. Viewers may not be able to see all layers without an embed token.' })}
                       </p>
                     </div>
                   )}

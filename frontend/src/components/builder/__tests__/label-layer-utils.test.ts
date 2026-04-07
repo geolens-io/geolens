@@ -160,8 +160,8 @@ describe('syncLabelLayer', () => {
     syncLabelLayer(map, 'label-2', { column: 'road', placement: 'line' }, 'line');
 
     expect(map.setLayoutProperty).toHaveBeenCalledWith('label-2', 'symbol-placement', 'line');
-    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-2', 'text-anchor', undefined);
-    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-2', 'text-offset', undefined);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-2', 'text-anchor', 'center');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-2', 'text-offset', [0, 0]);
   });
 
   it('defaults to line placement for line geometry when placement not specified', () => {
@@ -169,7 +169,7 @@ describe('syncLabelLayer', () => {
     syncLabelLayer(map, 'label-3', { column: 'name' }, 'line');
 
     expect(map.setLayoutProperty).toHaveBeenCalledWith('label-3', 'symbol-placement', 'line');
-    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-3', 'text-anchor', undefined);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-3', 'text-anchor', 'center');
   });
 
   it('uses default zoom range when not specified', () => {

@@ -4,6 +4,7 @@ import { AlertCircle, Loader2, RotateCcw, SendHorizontal, Square } from 'lucide-
 import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
+import { cn } from '@/lib/utils';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import { ChatInput } from './ChatInput';
@@ -47,48 +48,68 @@ export function ChatPanel({
   onOpacityChange,
 }: ChatPanelProps) {
   const { t, i18n } = useTranslation('builder');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) { if (import.meta.env.DEV) console.warn('[ChatPanel] sessionStorage error:', e); return []; }
+  });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [toolProgress, setToolProgress] = useState<string | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Persist chat history to sessionStorage
+  useEffect(() => {
+    if (messages.length > 0) {
+      try { sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(messages.slice(-50))); } catch (e) { if (import.meta.env.DEV) console.warn('[ChatPanel] sessionStorage error:', e); }
+    }
+  }, [messages, mapId]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' });
   }, [messages, isLoading, streamingText]);
 
-  // Progressive timeout timer
+  // Progressive timeout with targeted setTimeouts
   useEffect(() => {
-    if (isLoading) {
-      setElapsedSeconds(0);
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      setElapsedSeconds(0);
-    }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [isLoading]);
+    if (!isLoading) { setTimeoutMessage(null); return; }
+    const timers = [
+      setTimeout(() => setTimeoutMessage(t('chat.stillWorking')), 5000),
+      setTimeout(() => setTimeoutMessage(t('chat.takingLonger')), 15000),
+      setTimeout(() => setTimeoutMessage(t('chat.almostThere')), 30000),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [isLoading, t]);
 
-  function getTimeoutMessage(seconds: number): string | null {
-    if (seconds < 5) return null;
-    if (seconds < 15) return t('chat.stillWorking');
-    if (seconds < 30) return t('chat.takingLonger');
-    return t('chat.almostThere');
+  function mapApiErrorToMessage(err: unknown): string {
+    if (err instanceof ApiError) {
+      if (err.status === 401) return t('chat.errorSessionExpired');
+      if (err.status === 403) return t('chat.errorForbidden');
+      if (err.status === 502 || err.status === 503) return t('chat.errorAiUnavailable');
+    }
+    return t('chat.errorFriendly');
+  }
+
+  function dispatchQueryResult(action: ChatAction) {
+    const geojson = action.geojson;
+    if (
+      geojson &&
+      typeof geojson === 'object' &&
+      'type' in geojson &&
+      geojson.type === 'FeatureCollection' &&
+      Array.isArray(action.bbox) &&
+      action.bbox.length === 4 &&
+      action.bbox.every((n: unknown) => typeof n === 'number')
+    ) {
+      onQueryResult?.(
+        geojson as GeoJSON.FeatureCollection,
+        action.bbox as [number, number, number, number],
+      );
+    }
   }
 
   function handleChatAction(action: ChatAction) {
@@ -116,16 +137,9 @@ export function ChatPanel({
       case 'toggle_visibility':
         if (action.layer_id) onToggleVisibility(action.layer_id, action.visible ?? undefined);
         break;
-      case 'show_query_result': {
-        const geojson = action.geojson;
-        if (geojson && typeof geojson === 'object' && 'type' in geojson && geojson.type === 'FeatureCollection' && action.bbox) {
-          onQueryResult?.(
-            geojson as GeoJSON.FeatureCollection,
-            action.bbox as [number, number, number, number],
-          );
-        }
+      case 'show_query_result':
+        dispatchQueryResult(action);
         break;
-      }
       case 'add_layer':
         if (action.dataset_id) onAddDataset(action.dataset_id);
         break;
@@ -182,7 +196,7 @@ export function ChatPanel({
             setStreamingText(text);
             break;
           case 'tool_start':
-            setToolProgress(data.label as string);
+            setToolProgress(typeof data.label === 'string' ? data.label : '');
             break;
           case 'tool_result':
             setToolProgress(null);
@@ -190,13 +204,7 @@ export function ChatPanel({
           case 'actions':
             for (const action of data.actions as ChatAction[]) {
               if (action.type === 'show_query_result') {
-                const geojson = action.geojson;
-                if (geojson && typeof geojson === 'object' && 'type' in geojson && geojson.type === 'FeatureCollection') {
-                  onQueryResult?.(
-                    geojson as GeoJSON.FeatureCollection,
-                    action.bbox as [number, number, number, number],
-                  );
-                }
+                dispatchQueryResult(action);
                 continue;
               }
               handleChatAction(action);
@@ -204,7 +212,7 @@ export function ChatPanel({
             }
             break;
           case 'done': {
-            const finalText = (data.explanation as string) || text;
+            const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || text;
             setMessages((prev) => [
               ...prev,
               {
@@ -242,14 +250,6 @@ export function ChatPanel({
         return;
       }
 
-      // Map known status codes to user-friendly messages
-      const knownApiError = err instanceof ApiError
-        ? err.status === 401 ? t('chat.errorSessionExpired')
-        : err.status === 403 ? t('chat.errorForbidden')
-        : err.status === 502 || err.status === 503 ? t('chat.errorAiUnavailable')
-        : null
-        : null;
-
       // Only fall back to non-streaming if no actions were already applied
       if (pendingActions.length > 0) {
         // Streaming already applied some actions before failing
@@ -262,14 +262,14 @@ export function ChatPanel({
             actions: pendingActions,
           },
         ]);
-      } else if (knownApiError) {
+      } else if (err instanceof ApiError && (err.status === 401 || err.status === 403 || err.status === 502 || err.status === 503)) {
         // Known auth/permission/service error — don't retry, show directly
         setMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             role: 'error',
-            content: knownApiError,
+            content: mapApiErrorToMessage(err),
             retryMessage: userMsg,
           },
         ]);
@@ -288,19 +288,12 @@ export function ChatPanel({
             },
           ]);
         } catch (fallbackErr) {
-          let errorMsg = t('chat.errorFriendly');
-          if (fallbackErr instanceof ApiError) {
-            if (fallbackErr.status === 401) errorMsg = t('chat.errorSessionExpired');
-            else if (fallbackErr.status === 403) errorMsg = t('chat.errorForbidden');
-            else if (fallbackErr.status === 502 || fallbackErr.status === 503)
-              errorMsg = t('chat.errorAiUnavailable');
-          }
           setMessages((prev) => [
             ...prev,
             {
               id: crypto.randomUUID(),
               role: 'error',
-              content: errorMsg,
+              content: mapApiErrorToMessage(fallbackErr),
               retryMessage: userMsg,
             },
           ]);
@@ -315,11 +308,9 @@ export function ChatPanel({
   }
 
   function handleRetry(msg: ChatMessage) {
-    setInput(msg.retryMessage!);
+    if (msg.retryMessage) setInput(msg.retryMessage);
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
   }
-
-  const timeoutMessage = getTimeoutMessage(elapsedSeconds);
 
   return (
     <div className="flex flex-col h-full">
@@ -373,14 +364,13 @@ export function ChatPanel({
           ) : (
             <div
               key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
             >
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-1.5 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
-                }`}
+                className={cn(
+                  'max-w-[85%] rounded-lg px-3 py-1.5 text-sm',
+                  msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
+                )}
               >
                 <p className="whitespace-pre-wrap">{msg.content}</p>
                 {msg.actions && msg.actions.length > 0 && (
