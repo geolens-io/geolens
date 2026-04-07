@@ -1,6 +1,7 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
 import uuid
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -131,7 +132,9 @@ async def _check_map_read_access(
         user_roles = await get_user_roles(db, user)
         is_admin = "admin" in user_roles
         is_owner = map_obj.created_by == user.id
-        if map_obj.visibility != "public" and not is_owner and not is_admin:
+        is_internal = map_obj.visibility == "internal"
+        is_public = map_obj.visibility == "public"
+        if not (is_public or is_owner or is_admin or is_internal):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Map not found",
@@ -204,8 +207,8 @@ async def list_maps_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     search: str | None = None,
-    sort_by: str = "updated_at",
-    sort_dir: str = "desc",
+    sort_by: Literal["name", "created_at", "updated_at"] = "updated_at",
+    sort_dir: Literal["asc", "desc"] = "desc",
     visibility: str | None = None,
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -325,6 +328,11 @@ async def update_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
+    # Auto-revoke share tokens when visibility moves away from public
+    if body.visibility is not None and body.visibility != MapVisibility.public:
+        if map_obj.visibility == "public":
+            await revoke_share_token_by_map(db, map_id)
+
     # Hard block: prevent publishing maps with non-public datasets
     if body.visibility == MapVisibility.public:
         non_public = await validate_public_visibility(db, map_id)
@@ -406,6 +414,7 @@ async def delete_map_endpoint(
 async def duplicate_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
+    # Any authenticated user may fork — does not require editor role
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> DuplicateMapResponse:

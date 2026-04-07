@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { semanticBadgeColors } from '@/lib/status-colors';
+import { cn } from '@/lib/utils';
 
 interface DatasetSearchPanelProps {
   onAddDataset: (datasetId: string) => void;
@@ -36,6 +37,7 @@ export function DatasetSearchPanel({
     queryKey: queryKeys.datasetSearch.results(debouncedQuery, recordType),
     queryFn: () => searchDatasets(searchParams),
     enabled: debouncedQuery.trim().length > 0 || recordType !== '',
+    staleTime: 30_000,
   });
 
   const results = data?.features ?? [];
@@ -70,6 +72,10 @@ export function DatasetSearchPanel({
         </ToggleGroup>
       </div>
 
+      {!debouncedQuery.trim() && !recordType && (
+        <p className="text-xs text-muted-foreground px-2 py-2">{t('search.hint', { defaultValue: 'Type to search for datasets to add to your map.' })}</p>
+      )}
+
       {isLoading && (
         <div className="flex items-center justify-center py-3">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -92,7 +98,7 @@ export function DatasetSearchPanel({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate">{record.properties.title}</p>
                   {record.properties.record_type === 'raster_dataset' ? (
-                    <Badge variant="outline" className={`text-[10px] mt-0.5 ${semanticBadgeColors.success}`}>
+                    <Badge variant="outline" className={cn('text-[10px] mt-0.5', semanticBadgeColors.success)}>
                       {t('search.raster', { defaultValue: 'Raster' })}
                     </Badge>
                   ) : record.properties.geometry_type ? (
@@ -111,7 +117,7 @@ export function DatasetSearchPanel({
                     onClick={() => onAddDataset(record.id)}
                     disabled={isAdding}
                     title={t('search.addToMap')}
-                    aria-label={t('search.addToMap')}
+                    aria-label={`${t('search.addToMap')} ${record.properties.title}`}
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </Button>

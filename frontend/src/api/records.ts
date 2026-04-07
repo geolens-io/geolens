@@ -67,6 +67,7 @@ export interface DistributionCreate {
   description?: string;
   protocol?: string;
   media_type?: string;
+  is_primary?: boolean;
 }
 
 export async function createDistribution(

@@ -27,9 +27,8 @@ export function useBuilderLayers(
   mapId: string | undefined,
   addLayerMutation: ReturnType<typeof useAddLayer>,
   removeLayerMutation: ReturnType<typeof useRemoveLayer>,
-  searchParams: URLSearchParams,
-  setSearchParams: ReturnType<typeof useSearchParams>[1],
 ) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
 
   const initializedRef = useRef(false);
@@ -192,6 +191,17 @@ export function useBuilderLayers(
       ),
     );
     setHasUnsavedChanges(true);
+    // Live map update
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      const newVis = (visible !== undefined ? visible : !(localLayers.find(l => l.id === layerId)?.visible)) ? 'visible' : 'none';
+      const mapLayerId = `layer-${layerId}`;
+      const outlineId = `layer-${layerId}-outline`;
+      const labelId = `layer-${layerId}-label`;
+      if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
+      if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', newVis);
+      if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
+    }
   }
 
   function handleMoveUp(layerId: string) {
@@ -222,8 +232,9 @@ export function useBuilderLayers(
   }
 
   function handleDisplayNameChange(layerId: string, newName: string | null) {
+    const normalized = newName?.trim() || null;
     setLocalLayers((prev) =>
-      prev.map((l) => (l.id === layerId ? { ...l, display_name: newName } : l)),
+      prev.map((l) => (l.id === layerId ? { ...l, display_name: normalized } : l)),
     );
     setHasUnsavedChanges(true);
   }
@@ -263,6 +274,9 @@ export function useBuilderLayers(
   }
 
   function handleLabelChange(layerId: string, config: LabelConfig | null) {
+    const layer = localLayers.find((l) => l.id === layerId);
+    const geomType = layer ? getLayerType(layer.dataset_geometry_type) : 'fill';
+
     setLocalLayers((prev) =>
       prev.map((l) => (l.id === layerId ? { ...l, label_config: config } : l)),
     );
@@ -273,8 +287,6 @@ export function useBuilderLayers(
     if (!map || !map.isStyleLoaded()) return;
 
     const labelLayerId = `layer-${layerId}-label`;
-    const layer = localLayers.find((l) => l.id === layerId);
-    const geomType = layer ? getLayerType(layer.dataset_geometry_type) : 'fill';
 
     // Remove label layer if config is null or column is empty
     if (!config || !config.column) {
@@ -297,17 +309,13 @@ export function useBuilderLayers(
     if (!map.getSource(sourceId)) return;
 
     const sourceLayer = `data.${layer.dataset_table_name}`;
-    map.addLayer(buildLabelLayerSpec({ labelId: labelLayerId, sourceId, sourceLayer, lc: config, geomType }));
-
-    // Match parent visibility
-    const parentLayerId = `layer-${layerId}`;
-    if (map.getLayer(parentLayerId)) {
-      const vis = map.getLayoutProperty(parentLayerId, 'visibility') ?? 'visible';
-      map.setLayoutProperty(labelLayerId, 'visibility', vis);
-    }
+    const parentVis = (map.getLayer(`layer-${layerId}`)
+      ? (map.getLayoutProperty(`layer-${layerId}`, 'visibility') ?? 'visible')
+      : 'visible') as 'visible' | 'none';
+    map.addLayer(buildLabelLayerSpec({ labelId: labelLayerId, sourceId, sourceLayer, lc: config, geomType, visibility: parentVis }));
 
     // Apply parent filter if any
-    if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+    if (layer.filter) {
       map.setFilter(labelLayerId, layer.filter);
     }
   }
@@ -399,6 +407,12 @@ export function useBuilderLayers(
       }
     }
 
+    // Also compound circle-stroke-opacity with master opacity
+    if (adapterType === 'circle' && newPaint['circle-stroke-opacity'] !== undefined && map.getLayer(mapLayerId)) {
+      const strokeOpacity = (newPaint['circle-stroke-opacity'] as number) * (layer.opacity ?? 1);
+      map.setPaintProperty(mapLayerId, 'circle-stroke-opacity', strokeOpacity);
+    }
+
     // Custom outline props -> outline line layer (not applicable for heatmap)
     if (adapterType !== 'heatmap' && map.getLayer(outlineId)) {
       const oc = newPaint['_outline-color'] ?? newPaint['outline-color'];
@@ -436,7 +450,8 @@ export function useBuilderLayers(
       }
     } else if (adapterType === 'heatmap') {
       if (map.getLayer(mapLayerId)) {
-        map.setPaintProperty(mapLayerId, 'heatmap-opacity', newOpacity * 0.8);
+        const storedHeatmapOpacity = ((layer.paint as Record<string, unknown>)?.['heatmap-opacity'] as number) ?? 0.8;
+        map.setPaintProperty(mapLayerId, 'heatmap-opacity', newOpacity * storedHeatmapOpacity);
       }
     } else {
       const geomType = adapterType as 'fill' | 'line' | 'circle';
@@ -494,11 +509,6 @@ export function useBuilderLayers(
 
   function handleAddDataset(datasetId: string) {
     if (!mapId) return;
-    // Prevent duplicate layer for the same dataset
-    if (localLayers.some((l) => l.dataset_id === datasetId)) {
-      toast.error(t('toasts.layerAlreadyAdded', { defaultValue: 'Dataset already added as a layer' }));
-      return;
-    }
     const nextSortOrder = localLayers.length;
     addLayerMutation.mutate(
       { mapId, data: { dataset_id: datasetId, sort_order: nextSortOrder } },
@@ -544,6 +554,10 @@ export function useBuilderLayers(
     // Remove old layer
     if (map.getLayer(mapLayerId)) {
       map.removeLayer(mapLayerId);
+    }
+    const outlineId = `layer-${layer.id}-outline`;
+    if (map.getLayer(outlineId)) {
+      map.removeLayer(outlineId);
     }
 
     // Get tile URL from existing source

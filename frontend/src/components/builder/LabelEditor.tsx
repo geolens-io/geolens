@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -35,12 +36,22 @@ const ANCHOR_OPTIONS = [
   { value: 'bottom', labelKey: 'labels.anchorBottom' },
   { value: 'left', labelKey: 'labels.anchorLeft' },
   { value: 'right', labelKey: 'labels.anchorRight' },
+  { value: 'top-left', label: 'Top Left' },
+  { value: 'top-right', label: 'Top Right' },
+  { value: 'bottom-left', label: 'Bottom Left' },
+  { value: 'bottom-right', label: 'Bottom Right' },
 ] as const;
 
 export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType }: LabelEditorProps) {
   const { t } = useTranslation('builder');
   const isOn = labelConfig !== null;
   const isLine = (geometryType ?? '').toUpperCase().includes('LINE');
+
+  const filteredPlacements = useMemo(() => {
+    const gt = (geometryType ?? '').toUpperCase();
+    if (gt.includes('LINE')) return PLACEMENT_OPTIONS;
+    return PLACEMENT_OPTIONS.filter(p => p.value === 'point');
+  }, [geometryType]);
 
   function handleToggle(checked: boolean) {
     if (checked) {
@@ -138,7 +149,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           {/* Placement presets */}
           <div className="text-xs font-medium mt-2 pt-2 border-t">{t('labels.placement')}</div>
           <div className="flex gap-1">
-            {PLACEMENT_OPTIONS.map((opt) => (
+            {filteredPlacements.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
@@ -169,7 +180,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                 <SelectContent>
                   {ANCHOR_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                      {t(opt.labelKey, { defaultValue: opt.value })}
+                      {'labelKey' in opt ? t(opt.labelKey, { defaultValue: opt.value }) : opt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

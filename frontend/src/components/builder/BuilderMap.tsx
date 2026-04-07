@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
-import { syncLayersToMap, reorderDataLayers, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
+import { syncLayersToMap, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
@@ -40,6 +40,8 @@ export function BuilderMap({
   const { t } = useTranslation('builder');
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
+  const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
+  const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
@@ -82,6 +84,9 @@ export function BuilderMap({
   const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels });
   syncInputsRef.current = { layers, tokenMap, tileConfig, showBasemapLabels };
 
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
+
   // Track basemap URL to detect style changes
   const prevBasemapUrlRef = useRef<string | null>(null);
 
@@ -104,7 +109,7 @@ export function BuilderMap({
       });
 
       // Suppress expected raster tile errors (no-data tiles outside extent)
-      map.on('error', (e: { error: { message?: string; status?: number } }) => {
+      errorHandlerRef.current = (e: { error: { message?: string; status?: number } }) => {
         const msg = e.error?.message ?? '';
         // Only suppress errors from our managed tile sources
         if (msg.includes('source-') || e.error?.status === 404) {
@@ -112,7 +117,8 @@ export function BuilderMap({
         }
         // Non-tile errors: let MapLibre default handling proceed
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
-      });
+      };
+      map.on('error', errorHandlerRef.current);
 
       onMapRef?.(map);
     },
@@ -133,7 +139,7 @@ export function BuilderMap({
       const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      syncLayersToMap(map, l, t, tileBaseUrl, managedSourcesRef);
+      syncLayersToMap(map, l, t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
       reorderBasemapLabels(map, sbl);
     };
 
@@ -155,7 +161,7 @@ export function BuilderMap({
     if (!map || !map.isStyleLoaded()) return;
 
     const handleClick = (e: MapMouseEvent) => {
-      const queryLayers = layers
+      const queryLayers = layersRef.current
         .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
         .map((l) => getLayerId(l.id))
         .filter((id) => map.getLayer(id));
@@ -172,7 +178,7 @@ export function BuilderMap({
           latitude: e.lngLat.lat,
           features: hits.map((feature) => {
             const layerId = feature.layer.id.replace(/^layer-/, '');
-            const matchedLayer = layers.find((l) => l.id === layerId);
+            const matchedLayer = layersRef.current.find((l) => l.id === layerId);
             return {
               properties: (feature.properties ?? {}) as Record<string, unknown>,
               layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('common:viewer.featureFallback'),
@@ -189,7 +195,7 @@ export function BuilderMap({
     return () => {
       map.off('click', handleClick);
     };
-  }, [layers, mapReady]);
+  }, [mapReady, t]);
 
   // Mousemove: pointer cursor on interactive features (RAF-throttled)
   useEffect(() => {
@@ -201,7 +207,7 @@ export function BuilderMap({
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (!map.isStyleLoaded()) return;
-        const queryLayers = layers
+        const queryLayers = layersRef.current
           .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
           .map((l) => getLayerId(l.id))
           .filter((id) => map.getLayer(id));
@@ -222,7 +228,7 @@ export function BuilderMap({
       map.off('mousemove', handleMouseMove);
       if (map.getCanvas()) map.getCanvas().style.cursor = '';
     };
-  }, [layers, mapReady]);
+  }, [mapReady]);
 
   // Clear popup when layer visibility changes
   useEffect(() => {
@@ -235,7 +241,7 @@ export function BuilderMap({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-    syncLayersToMap(map, layers, tokenMap, tileBaseUrl, managedSourcesRef);
+    syncLayersToMap(map, layers, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
     reorderBasemapLabels(map, showBasemapLabels);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap]);
@@ -258,18 +264,6 @@ export function BuilderMap({
       }
     }
   }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url]);
-
-  // Layer ordering — runs on reorder to sync MapLibre z-order with UI list.
-  // syncLayersToMap handles ordering on initial add and basemap switch;
-  // this effect catches user-triggered reorders (move up/down, drag).
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-
-    reorderDataLayers(map, layers);
-    reorderBasemapLabels(map, showBasemapLabels);
-  }, [layers, mapReady, showBasemapLabels]);
-
 
   // Track whether we've restored a saved view (skip auto-fit on initial load)
   const hasSavedView = !!(initialViewState?.center_lng != null && initialViewState?.center_lat != null);
@@ -328,6 +322,9 @@ export function BuilderMap({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (mapRef.current && errorHandlerRef.current) {
+        mapRef.current.off('error', errorHandlerRef.current);
+      }
       onMapRef?.(null);
     };
   }, [onMapRef]);
@@ -366,11 +363,16 @@ export function BuilderMap({
           />
         )}
       </MapGL>
+      {!mapReady && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
+          <div className="text-sm text-muted-foreground animate-pulse">Loading map...</div>
+        </div>
+      )}
       {contextLost && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">{t('errors.mapMessage')}</p>
-            <button onClick={reload} className="text-sm underline text-primary">{t('common.reload')}</button>
+            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded px-1">{t('common.reload')}</button>
           </div>
         </div>
       )}

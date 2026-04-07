@@ -11,6 +11,7 @@ import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { MapErrorBoundary } from '@/components/error';
 import type { MapLayerResponse, SharedLayerResponse } from '@/types/api';
 
 /**
@@ -91,14 +92,16 @@ export function PublicMapViewerPage() {
 
   return (
     <main id="map-viewport" className="w-full h-[calc(100dvh-3.5rem-1px)] relative overflow-hidden">
-      <ViewerMap
-        layers={layers}
-        basemapStyle={basemapId ?? data.basemap_style}
-        basemapOverride={basemapId !== null}
-        showBasemapLabels={data.show_basemap_labels ?? true}
-        initialViewState={viewState}
-        visibleLayers={visibleLayers}
-      />
+      <MapErrorBoundary>
+        <ViewerMap
+          layers={layers}
+          basemapStyle={basemapId ?? data.basemap_style}
+          basemapOverride={basemapId !== null}
+          showBasemapLabels={data.show_basemap_labels ?? true}
+          initialViewState={viewState}
+          visibleLayers={visibleLayers}
+        />
+      </MapErrorBoundary>
 
       <MapTitlePill name={data.name} description={data.description} />
 

@@ -37,6 +37,51 @@ def _make_stage_callback(tool_name: str, stage_events: list[dict]):
     )
 
 
+async def _execute_and_yield_tools(
+    tool_calls: list[tuple[str, dict]],
+    session: AsyncSession,
+    user: User,
+    user_roles: set[str],
+    layers: list,
+    collected_actions: list[dict],
+    results_out: list[dict] | None = None,
+) -> AsyncGenerator[dict, None]:
+    """Execute a list of (name, args) tool calls and yield SSE events for each.
+
+    If *results_out* is provided, each raw tool result dict is appended to it
+    so callers can build conversation-history messages without re-executing.
+    """
+    for fn_name, fn_args in tool_calls:
+        stage_events: list[dict] = []
+        stage_cb = _make_stage_callback(fn_name, stage_events)
+
+        result = await _execute_chat_tool(
+            fn_name,
+            fn_args,
+            session,
+            user,
+            user_roles,
+            layers,
+            stage_callback=stage_cb,
+        )
+
+        if results_out is not None:
+            results_out.append(result)
+
+        action = _collect_chat_action(fn_name, fn_args, result)
+        if action:
+            collected_actions.append(action)
+
+        for evt in stage_events:
+            yield evt
+
+        yield {
+            "type": "tool_result",
+            "tool": fn_name,
+            "success": "error" not in result,
+        }
+
+
 async def _stream_anthropic_chat(
     message: str,
     system_prompt: str,
@@ -125,38 +170,19 @@ async def _stream_anthropic_chat(
             tool_results = []
             for block in final_message.content:
                 if block.type == "tool_use":
-                    stage_events: list[dict] = []
-                    stage_cb = _make_stage_callback(block.name, stage_events)
-
-                    result = await _execute_chat_tool(
-                        block.name,
-                        block.input,
-                        session,
-                        user,
-                        user_roles,
-                        layers,
-                        stage_callback=stage_cb,
-                    )
-
-                    action = _collect_chat_action(block.name, block.input, result)
-                    if action:
-                        collected_actions.append(action)
-
-                    # Yield sub-stage events before tool_result
-                    for evt in stage_events:
+                    raw_results: list[dict] = []
+                    async for evt in _execute_and_yield_tools(
+                        [(block.name, block.input)],
+                        session, user, user_roles, layers, collected_actions,
+                        results_out=raw_results,
+                    ):
                         yield evt
-
-                    yield {
-                        "type": "tool_result",
-                        "tool": block.name,
-                        "success": "error" not in result,
-                    }
 
                     tool_results.append(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            "content": json.dumps(result),
+                            "content": json.dumps(raw_results[0] if raw_results else {}),
                         }
                     )
 
@@ -291,6 +317,8 @@ async def _stream_openai_chat(
                 }
             )
 
+            parsed_native: list[tuple[str, dict]] = []
+            parsed_native_ids: list[str] = []
             for idx in sorted(tool_calls_by_index.keys()):
                 tc_data = tool_calls_by_index[idx]
                 fn_name = tc_data["name"]
@@ -307,38 +335,21 @@ async def _stream_openai_chat(
                             args=tc_data["arguments"],
                         )
                         continue
+                parsed_native.append((fn_name, fn_args))
+                parsed_native_ids.append(tc_data["id"])
 
-                stage_events: list[dict] = []
-                stage_cb = _make_stage_callback(fn_name, stage_events)
+            native_results: list[dict] = []
+            async for evt in _execute_and_yield_tools(
+                parsed_native, session, user, user_roles, layers,
+                collected_actions, results_out=native_results,
+            ):
+                yield evt
 
-                result = await _execute_chat_tool(
-                    fn_name,
-                    fn_args,
-                    session,
-                    user,
-                    user_roles,
-                    layers,
-                    stage_callback=stage_cb,
-                )
-
-                action = _collect_chat_action(fn_name, fn_args, result)
-                if action:
-                    collected_actions.append(action)
-
-                # Yield sub-stage events before tool_result
-                for evt in stage_events:
-                    yield evt
-
-                yield {
-                    "type": "tool_result",
-                    "tool": fn_name,
-                    "success": "error" not in result,
-                }
-
+            for (fn_name, _), call_id, result in zip(parsed_native, parsed_native_ids, native_results):
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc_data["id"],
+                        "tool_call_id": call_id,
                         "content": json.dumps(result),
                     }
                 )
@@ -357,32 +368,10 @@ async def _stream_openai_chat(
                     "tool": fn_name,
                     "label": tool_label(fn_name),
                 }
-
-                stage_events: list[dict] = []
-                stage_cb = _make_stage_callback(fn_name, stage_events)
-
-                result = await _execute_chat_tool(
-                    fn_name,
-                    fn_args,
-                    session,
-                    user,
-                    user_roles,
-                    layers,
-                    stage_callback=stage_cb,
-                )
-
-                action = _collect_chat_action(fn_name, fn_args, result)
-                if action:
-                    collected_actions.append(action)
-
-                for evt in stage_events:
-                    yield evt
-
-                yield {
-                    "type": "tool_result",
-                    "tool": fn_name,
-                    "success": "error" not in result,
-                }
+            async for evt in _execute_and_yield_tools(
+                parsed_calls, session, user, user_roles, layers, collected_actions,
+            ):
+                yield evt
 
             # Emit cleaned text (without XML blocks) as tokens
             if cleaned_text:
@@ -451,5 +440,8 @@ async def stream_chat_edit(
         else:
             raise ValueError(f"Unknown LLM provider: {provider}")
     except Exception as e:
-        logger.exception("Stream chat error")
-        yield {"type": "error", "message": str(e)}
+        error_msg = "An unexpected error occurred. Please try again."
+        if isinstance(e, (ValueError, KeyError)):
+            error_msg = str(e)
+        logger.exception("Chat streaming error")
+        yield {"type": "error", "message": error_msg}

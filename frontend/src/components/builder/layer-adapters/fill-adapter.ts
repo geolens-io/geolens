@@ -67,12 +67,12 @@ export const fillAdapter: LayerAdapter = {
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(layerId, filter);
       } else {
-        map.setFilter(layerId, null);
+        if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
       }
       // Sync fill-outline-color based on _stroke-disabled
       const strokeDisabled = !!rawPaint['_stroke-disabled'];
       try {
-        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'transparent' : undefined);
+        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'transparent' : 'transparent');
       } catch { /* fill-outline-color may not be supported on all styles */ }
     }
     // Sync outline companion layer
@@ -95,7 +95,7 @@ export const fillAdapter: LayerAdapter = {
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(outlineId, filter);
       } else {
-        map.setFilter(outlineId, null);
+        if (map.getFilter(outlineId) != null) map.setFilter(outlineId, null);
       }
     }
   },

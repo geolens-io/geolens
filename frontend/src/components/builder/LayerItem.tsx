@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Eye,
@@ -92,7 +92,7 @@ interface LayerItemProps {
   inspectorMode?: boolean;
 }
 
-export function LayerItem({
+export const LayerItem = memo(function LayerItem({
   layer,
   index,
   totalLayers,
@@ -179,7 +179,7 @@ export function LayerItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0"
+          className="h-7 w-7 shrink-0 min-h-[44px] min-w-[44px]"
           onClick={() => onToggleVisibility(layer.id)}
           title={layer.visible ? t('layerItem.hideLayer') : t('layerItem.showLayer')}
           aria-label={layer.visible ? t('layerItem.hideLayer') : t('layerItem.showLayer')}
@@ -258,7 +258,7 @@ export function LayerItem({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0"
+          className="h-7 w-7 shrink-0 min-h-[44px] min-w-[44px]"
           onClick={() => onToggleExpand(layer.id)}
           aria-label={isExpanded ? t('layerItem.collapseOptions') : t('layerItem.expandOptions')}
         >
@@ -270,7 +270,7 @@ export function LayerItem({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 shrink-0"
+              className="h-6 w-6 shrink-0 min-h-[44px] min-w-[44px]"
               aria-label={t('layerItem.moreActions')}
             >
               <MoreVertical className="h-3 w-3" />
@@ -343,10 +343,12 @@ export function LayerItem({
 
       {isExpanded && !inspectorMode && !isRaster && (
         <div className="px-2 pb-2">
-          <div className="flex gap-1 mb-2 border-b">
+          <div className="flex gap-1 mb-2 border-b" role="tablist">
             {(['style', 'filter', 'labels'] as const).map((tab) => (
               <button
                 key={tab}
+                role="tab"
+                aria-selected={activeTab === tab}
                 className={cn(
                   'px-2 py-1.5 text-xs font-semibold transition-colors',
                   activeTab === tab
@@ -390,4 +392,4 @@ export function LayerItem({
       )}
     </div>
   );
-}
+});

@@ -20,6 +20,7 @@ export function EphemeralBadge({ featureCount, onDismiss }: EphemeralBadgeProps)
         onClick={onDismiss}
         className="text-muted-foreground hover:text-foreground transition-colors"
         title={t('ephemeralBadge.dismiss')}
+        aria-label={t('ephemeralBadge.dismiss')}
       >
         <X className="h-3 w-3" />
       </button>

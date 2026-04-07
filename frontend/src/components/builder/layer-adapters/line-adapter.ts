@@ -47,7 +47,7 @@ export const lineAdapter: LayerAdapter = {
     if (filter && Array.isArray(filter) && filter.length > 0) {
       map.setFilter(layerId, filter);
     } else {
-      map.setFilter(layerId, null);
+      if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
     }
   },
 

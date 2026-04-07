@@ -29,6 +29,7 @@ export function useMaps(params: MapBrowseParams = {}) {
     queryKey: queryKeys.maps.list(params),
     queryFn: () => listMaps(params),
     placeholderData: keepPreviousData,
+    staleTime: 60_000,
   });
 }
 

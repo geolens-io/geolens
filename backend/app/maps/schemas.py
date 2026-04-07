@@ -1,8 +1,8 @@
 import uuid
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MapVisibility(str, Enum):
@@ -52,7 +52,7 @@ class MapCreate(BaseModel):
 
 
 class MapUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
@@ -115,7 +115,7 @@ class MapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool
-    visibility: str
+    visibility: MapVisibility
     thumbnail_url: str | None = None
     forked_from_id: uuid.UUID | None = Field(
         default=None, description="Source map UUID if this is a fork"
@@ -142,7 +142,7 @@ class MapSummaryResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    visibility: str
+    visibility: MapVisibility
     thumbnail_url: str | None = None
     layer_count: int
     created_by_username: str | None = None
@@ -196,6 +196,13 @@ class ShareTokenRequest(BaseModel):
     expires_at: datetime | None = Field(
         default=None, description="Expiration timestamp; null = never expires"
     )
+
+    @field_validator("expires_at")
+    @classmethod
+    def expires_at_must_be_future(cls, v):
+        if v is not None and v < datetime.now(timezone.utc):
+            raise ValueError("expires_at must be in the future")
+        return v
 
 
 class ShareTokenResponse(BaseModel):

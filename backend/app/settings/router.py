@@ -147,6 +147,7 @@ async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
         )
         await db.commit()
     except Exception:
+        logger.error("Failed to rebuild embedding column", exc_info=True)
         await db.rollback()
 
 

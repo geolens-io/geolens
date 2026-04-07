@@ -18,7 +18,7 @@ const actionLabelKeys: Record<string, string> = {
 
 export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useDatasetHistory(datasetId, 0, 20);
+  const { data, isLoading, isError } = useDatasetHistory(datasetId, 0, 20);
 
   function getActionLabel(action: string): string {
     const key = actionLabelKeys[action];
@@ -48,6 +48,8 @@ export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
       <CardContent>
         {isLoading ? (
           <LoadingState className="py-6" />
+        ) : isError ? (
+          <p className="text-sm text-muted-foreground">Failed to load.</p>
         ) : entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('changeHistory.noChanges')}</p>
         ) : (

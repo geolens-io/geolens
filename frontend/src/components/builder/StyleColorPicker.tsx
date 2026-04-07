@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
 import {
   Popover,
@@ -14,6 +15,7 @@ interface StyleColorPickerProps {
 
 const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
+// Map symbol preset colors — not UI chrome; exempt from design token rule
 const PRESET_COLORS = [
   '#3b82f6', // blue
   '#ef4444', // red
@@ -34,6 +36,15 @@ const PRESET_COLORS = [
 ];
 
 export function StyleColorPicker({ label, color, onChange }: StyleColorPickerProps) {
+  const [localColor, setLocalColor] = useState(color);
+  useEffect(() => { setLocalColor(color); }, [color]);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const debouncedChange = useCallback((c: string) => {
+    setLocalColor(c);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => onChange(c), 50);
+  }, [onChange]);
+
   function handleInputChange(hex: string) {
     if (HEX_REGEX.test(hex)) {
       onChange(hex);
@@ -47,8 +58,9 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
         <PopoverTrigger asChild>
           <button
             className="w-8 h-6 rounded border border-border cursor-pointer"
-            style={{ background: color }}
-            title={color}
+            style={{ background: localColor }}
+            title={localColor}
+            aria-label={label}
           />
         </PopoverTrigger>
         <PopoverContent className="w-auto p-3" align="start">
@@ -61,7 +73,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
                 onClick={() => onChange(hex)}
                 className={cn(
                   'w-5 h-5 rounded-sm border transition-transform hover:scale-125',
-                  color === hex ? 'ring-2 ring-primary ring-offset-1' : 'border-border',
+                  localColor === hex ? 'ring-2 ring-primary ring-offset-background' : 'border-border',
                 )}
                 style={{ background: hex }}
                 title={hex}
@@ -71,11 +83,11 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
           </div>
 
           {/* Full color picker */}
-          <HexColorPicker color={color} onChange={onChange} />
+          <HexColorPicker color={localColor} onChange={debouncedChange} />
           <HexColorInput
-            color={color}
+            color={localColor}
             onChange={handleInputChange}
-            className="mt-2 w-full text-xs border rounded px-2 py-1"
+            className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
             prefixed
           />
         </PopoverContent>

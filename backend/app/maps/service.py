@@ -3,10 +3,13 @@
 Handles CRUD operations for maps and map layers, plus default style generation.
 """
 
+import logging
 import re
 import secrets
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, or_, select
@@ -38,6 +41,8 @@ def generate_default_style(geometry_type: str | None) -> dict:
     Returns {"paint": {...}, "layout": {...}} ready to store in map_layers.
     """
     gt = (geometry_type or "").upper()
+    if not gt:
+        logger.warning("generate_default_style called with null geometry_type; defaulting to fill")
 
     if "POINT" in gt:
         return {

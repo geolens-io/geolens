@@ -11,11 +11,10 @@ import {
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
 } from '@/lib/basemap-utils';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { getTileTokenWithApiKey } from '@/api/tiles';
 import type { TileToken } from '@/api/tiles';
-import { getEnvConfig } from '@/lib/env';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -296,7 +295,7 @@ export function ViewerMap({
     const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
     const currentSources = new Set(managedSourcesRef.current);
     const desiredSources = new Set<string>();
-    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url;
+    const tileBaseUrl = resolveTileBaseUrl(tc);
 
     for (const layer of ls) {
       const sourceId = getSourceId(layer.sort_order);
@@ -397,7 +396,7 @@ export function ViewerMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || (!embedToken && tokenMap.size === 0)) return;
-    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
+    const tileBaseUrl = resolveTileBaseUrl(tileConfig);
 
     for (const layer of layers) {
       const sourceId = getSourceId(layer.sort_order);

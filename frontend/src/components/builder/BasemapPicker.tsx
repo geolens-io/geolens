@@ -56,7 +56,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
                 setOpen(false);
               }}
               className={cn(
-                'flex flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out',
+                'flex flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                 value === b.id
                   ? 'ring-2 ring-primary bg-accent'
                   : 'hover:bg-accent/50',
@@ -67,7 +67,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
                 alt={b.label}
                 className="w-full aspect-square rounded object-cover"
               />
-              <span className="text-[9px] text-center leading-tight truncate w-full">
+              <span className="text-[11px] text-center leading-tight truncate w-full">
                 {b.label}
               </span>
             </button>
@@ -77,15 +77,17 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
 
       {/* Basemap labels toggle */}
       {onToggleLabels && (
-        <label className="flex items-center gap-1.5 px-2 pt-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showLabels}
-            onChange={(e) => onToggleLabels(e.target.checked)}
-            className="h-4 w-4 rounded accent-primary"
-          />
-          {t('basemap.showLabels')}
-        </label>
+        <div role="group" aria-label={t('basemap.options', { defaultValue: 'Basemap options' })}>
+          <label className="flex items-center gap-1.5 px-2 pt-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showLabels}
+              onChange={(e) => onToggleLabels(e.target.checked)}
+              className="h-4 w-4 rounded accent-primary"
+            />
+            {t('basemap.showLabels')}
+          </label>
+        </div>
       )}
     </div>
   );

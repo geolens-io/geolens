@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -73,6 +74,8 @@ export function LayerPanel({
     useSensor(KeyboardSensor),
   );
 
+  const sortableIds = useMemo(() => layers.map((l) => l.id), [layers]);
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -104,9 +107,22 @@ export function LayerPanel({
       </div>
 
       {layers.length === 0 ? (
-        <p className="text-xs text-muted-foreground px-2">
-          {t('layers.emptyState')}
-        </p>
+        <div className="px-2 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {t('layers.emptyState')}
+          </p>
+          {onAddDataClick && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1 text-xs"
+              onClick={onAddDataClick}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t('layers.addData')}
+            </Button>
+          )}
+        </div>
       ) : (
         <DndContext
           sensors={sensors}
@@ -115,10 +131,10 @@ export function LayerPanel({
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={layers.map((l) => l.id)}
+            items={sortableIds}
             strategy={verticalListSortingStrategy}
           >
-            <div className="space-y-0.5 max-h-[28rem] overflow-y-auto" role="list" aria-label={t('layers.title')}>
+            <div className="space-y-0.5 max-h-[calc(100dvh-22rem)] overflow-y-auto" role="list" aria-label={t('layers.title')}>
               {layers.map((layer, idx) => (
                 <LayerItem
                   key={layer.id}

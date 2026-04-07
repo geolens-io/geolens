@@ -53,6 +53,7 @@ export function syncLayersToMap(
   tokenMap: Map<string, TileToken>,
   tileBaseUrl: string | undefined,
   managedSourcesRef: { current: Set<string> },
+  lastOrderKeyRef: { current: string },
 ) {
 
   const currentSources = new Set(managedSourcesRef.current);
@@ -140,12 +141,12 @@ export function syncLayersToMap(
 
         if (!map.getLayer(labelId)) {
           map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType }));
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+          if (layer.filter) {
             map.setFilter(labelId, layer.filter);
           }
         } else {
           syncLabelLayer(map, labelId, lc, geomType);
-          if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
+          if (layer.filter) {
             map.setFilter(labelId, layer.filter);
           } else {
             map.setFilter(labelId, null);
@@ -194,9 +195,6 @@ export function syncLayersToMap(
     reorderDataLayers(map, layers);
   }
 }
-
-/** Tracks the last layer order to avoid redundant moveLayer calls. */
-const lastOrderKeyRef = { current: '' };
 
 /** Reorder MapLibre layers so first in array renders on top (matches UI list).
  *  Reverse iterate: moveLayer() without beforeId moves to top of stack,

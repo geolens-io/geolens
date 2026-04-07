@@ -120,7 +120,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     setCursorHistory([0]);
   }, [debouncedFilters]);
 
-  const { data, isLoading, isFetching } = useDatasetRows(
+  const { data, isLoading, isFetching, isError } = useDatasetRows(
     datasetId,
     pageSize,
     cursor,
@@ -241,6 +241,8 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       </div>
     );
   }
+
+  if (isError) return <div className="p-4 text-sm text-destructive">Failed to load data. Please try again.</div>;
 
   if (effectiveTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
     return (

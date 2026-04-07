@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, Globe, Users, Lock, MoreHorizontal } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -9,7 +9,7 @@ import { LayerPanel } from '@/components/builder/LayerPanel';
 import { LayerInspector } from '@/components/builder/LayerInspector';
 import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
 import { ShareDialog } from '@/components/builder/SharePanel';
-import { ChatPanel } from '@/components/builder/ChatPanel';
+const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { experimentalBadgeColor } from '@/lib/status-colors';
 import {
@@ -84,19 +84,21 @@ function ChatPanelContent({
         </Button>
       </div>
       <div className="flex-1 overflow-hidden">
-        <ChatPanel
-          mapId={mapId}
-          layers={layers.localLayers}
-          onFilterChange={layers.handleFilterChange}
-          onPaintChange={layers.handlePaintChange}
-          onStyleConfigChange={layers.handleStyleConfigChange}
-          onLabelChange={layers.handleLabelChange}
-          onToggleVisibility={layers.handleToggleVisibility}
-          onAddDataset={layers.handleAddDataset}
-          onRemove={layers.handleAiRemoveLayer}
-          onQueryResult={layers.handleQueryResult}
-          onOpacityChange={layers.handleOpacityChange}
-        />
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
+          <ChatPanel
+            mapId={mapId}
+            layers={layers.localLayers}
+            onFilterChange={layers.handleFilterChange}
+            onPaintChange={layers.handlePaintChange}
+            onStyleConfigChange={layers.handleStyleConfigChange}
+            onLabelChange={layers.handleLabelChange}
+            onToggleVisibility={layers.handleToggleVisibility}
+            onAddDataset={layers.handleAddDataset}
+            onRemove={layers.handleAiRemoveLayer}
+            onQueryResult={layers.handleQueryResult}
+            onOpacityChange={layers.handleOpacityChange}
+          />
+        </Suspense>
       </div>
     </>
   );
@@ -163,7 +165,6 @@ export function MapBuilderPage() {
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
-  const [searchParams, setSearchParams] = useSearchParams();
 
   // Resizable sidebar state (persisted to localStorage)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -185,10 +186,17 @@ export function MapBuilderPage() {
     const startX = e.clientX;
     const startWidth = sidebarWidthRef.current;
 
+    let rafPending = false;
     const onMove = (moveEvent: PointerEvent) => {
       const w = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), SIDEBAR_MIN), SIDEBAR_MAX);
       sidebarWidthRef.current = w;
-      setSidebarWidth(w);
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(() => {
+          rafPending = false;
+          setSidebarWidth(sidebarWidthRef.current);
+        });
+      }
     };
 
     const onUp = () => {
@@ -211,8 +219,6 @@ export function MapBuilderPage() {
     id,
     addLayer,
     removeLayer,
-    searchParams,
-    setSearchParams,
   );
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
@@ -295,7 +301,7 @@ export function MapBuilderPage() {
       {/* Mobile sidebar as Sheet */}
       {isMobile && (
         <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
-          <SheetContent side="left" className="w-80 p-0 flex flex-col" showCloseButton={false}>
+          <SheetContent side="left" className="w-80 max-w-[calc(100vw-3rem)] p-0 flex flex-col" showCloseButton={false}>
             <SheetHeader className="sr-only">
               <SheetTitle>{localName || t('mapBuilder')}</SheetTitle>
               <SheetDescription>{t('descriptionLabel')}</SheetDescription>
@@ -338,7 +344,7 @@ export function MapBuilderPage() {
         )}
         style={dialogs.sidebarCollapsed ? undefined : { width: sidebarWidth }}
         onTransitionEnd={() => { mapInstanceRef.current?.resize(); }}
-        {...(dialogs.sidebarCollapsed ? { inert: true, 'aria-hidden': true } : {})}
+        {...(dialogs.sidebarCollapsed ? { inert: true } : {})}
       >
         {/* Drag handle for resize */}
         {!dialogs.sidebarCollapsed && (
@@ -354,6 +360,7 @@ export function MapBuilderPage() {
             onClick={() => dialogs.setSidebarCollapsed(true)}
             title={t('tooltips.collapseSidebar')}
             aria-label={t('tooltips.collapseSidebar')}
+            aria-expanded={true}
             className="absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center h-10 w-7 rounded-e-md bg-background border border-s-0 shadow-sm hover:bg-accent/50 transition-colors"
           >
             <PanelLeftClose className="h-4 w-4 text-foreground/70 hover:text-foreground transition-colors" />
@@ -470,7 +477,10 @@ export function MapBuilderPage() {
                       )}
                       {t('actions.save')}
                       {layers.hasUnsavedChanges && (
-                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
+                        <>
+                          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
+                          <span className="sr-only">Unsaved changes</span>
+                        </>
                       )}
                     </Button>
                   </TooltipTrigger>
@@ -515,6 +525,7 @@ export function MapBuilderPage() {
             onClick={() => dialogs.setSidebarCollapsed(false)}
             title={t('tooltips.expandSidebar')}
             aria-label={t('tooltips.expandSidebar')}
+            aria-expanded={false}
             className="absolute left-0 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-10 w-7 rounded-e-md bg-background/95 backdrop-blur-sm border border-s-0 shadow-md hover:bg-accent/50 transition-colors"
           >
             <PanelLeftOpen className="h-4 w-4 text-foreground/70 hover:text-foreground transition-colors" />

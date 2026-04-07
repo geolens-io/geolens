@@ -4,7 +4,7 @@ import asyncio
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.schemas import (
@@ -66,8 +66,6 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Create a new user with the specified role (admin only)."""
-    from app.audit.service import log_action
-
     service = AdminService(db)
     try:
         user = await service.create_user(
@@ -166,8 +164,6 @@ async def update_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Update a user's fields and/or role (admin only)."""
-    from app.audit.service import log_action
-
     if user_id == current_user.id and body.role is not None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -212,8 +208,6 @@ async def deactivate_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Deactivate a user (admin only)."""
-    from app.audit.service import log_action
-
     service = AdminService(db)
     try:
         user = await service.deactivate_user(user_id, current_user.id)
@@ -254,8 +248,6 @@ async def approve_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Approve a pending user with the specified role (admin only)."""
-    from app.audit.service import log_action
-
     service = AdminService(db)
     try:
         user = await service.approve_user(user_id, body.role)
@@ -295,8 +287,6 @@ async def reject_user(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Reject a pending user by hard-deleting them (admin only)."""
-    from app.audit.service import log_action
-
     service = AdminService(db)
     try:
         await service.reject_user(user_id)
@@ -335,8 +325,6 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin."""
-    from app.audit.service import log_action
-
     # Fetch username before deletion for audit trail
     target = await db.execute(select(User).where(User.id == user_id))
     target_user = target.scalar_one_or_none()
@@ -440,7 +428,6 @@ async def create_api_key(
 
     The raw key is returned only in this response and cannot be retrieved again.
     """
-    from app.audit.service import log_action
     from app.auth.service import create_api_key_for_user
 
     api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
@@ -584,33 +571,8 @@ async def get_embedding_stats(
     db: AsyncSession = Depends(get_db),
 ) -> EmbeddingStatsResponse:
     """Return embedding coverage statistics (admin only)."""
-    try:
-        total_result = await db.execute(text("SELECT COUNT(*) FROM catalog.records"))
-        total_records = total_result.scalar_one()
-
-        embedded_result = await db.execute(
-            text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
-        )
-        embedded_records = embedded_result.scalar_one()
-    except Exception:
-        return EmbeddingStatsResponse(
-            total_records=0,
-            embedded_records=0,
-            missing_records=0,
-            coverage_percent=0.0,
-        )
-
-    missing_records = total_records - embedded_records
-    coverage_percent = (
-        (embedded_records / total_records * 100) if total_records > 0 else 0.0
-    )
-
-    return EmbeddingStatsResponse(
-        total_records=total_records,
-        embedded_records=embedded_records,
-        missing_records=missing_records,
-        coverage_percent=round(coverage_percent, 1),
-    )
+    service = AdminService(db)
+    return await service.get_embedding_stats()
 
 
 @router.post(
@@ -650,8 +612,6 @@ async def revoke_api_key(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) an API key (admin only)."""
-    from app.audit.service import log_action
-
     result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     api_key = result.scalar_one_or_none()
     if api_key is None:
@@ -748,7 +708,6 @@ async def list_share_tokens_endpoint(
 @router.delete(
     "/share-tokens/{token_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def admin_revoke_share_token(
     token_id: uuid.UUID,

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   SEQUENTIAL_RAMPS,
@@ -11,20 +12,31 @@ interface ColorRampPickerProps {
   rampName: string;
   onChange: (name: string) => void;
   mode: 'categorical' | 'graduated';
+  customColors?: string[];
 }
 
-export function ColorRampPicker({ rampName, onChange, mode }: ColorRampPickerProps) {
+export function ColorRampPicker({ rampName, onChange, mode, customColors }: ColorRampPickerProps) {
   const { t } = useTranslation('builder');
+  const allRamps = useMemo(() => [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS], []);
   const ramps =
     mode === 'categorical'
       ? [...QUALITATIVE_RAMPS]
-      : [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS];
+      : allRamps;
 
   return (
     <div className="max-h-40 overflow-y-auto space-y-1">
       {rampName === 'custom' && (
-        <div className="px-1.5 py-1 text-[10px] italic text-muted-foreground">
-          {t('dataDriven.customColors')}
+        <div className="px-1.5 py-1 space-y-1">
+          {customColors && customColors.length > 0 && (
+            <div className="flex h-4 rounded-sm overflow-hidden">
+              {customColors.map((color, i) => (
+                <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+              ))}
+            </div>
+          )}
+          <div className="text-[10px] italic text-muted-foreground">
+            {t('dataDriven.customColors')}
+          </div>
         </div>
       )}
       {ramps.map((ramp) => {

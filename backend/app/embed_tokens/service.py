@@ -4,12 +4,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.cache.provider import get_cache
+
+logger = structlog.stdlib.get_logger(__name__)
 from app.embed_tokens.models import EmbedToken
 from app.maps.models import MapLayer
 
@@ -91,7 +94,7 @@ async def create_embed_token(
             for h in revoked_hashes:
                 await cache.delete(f"embed_token:{h}")
         except Exception:
-            pass
+            logger.warning("Cache invalidation failed for embed token", exc_info=True)
 
     # Generate raw token
     raw_token = "et_" + secrets.token_urlsafe(32)
@@ -162,7 +165,7 @@ async def revoke_embed_token(
         cache = get_cache()
         await cache.delete(f"embed_token:{token.token_hash}")
     except Exception:
-        pass  # TTL is the safety net
+        logger.warning("Cache invalidation failed for embed token", exc_info=True)
 
     return token
 
@@ -193,7 +196,7 @@ async def update_embed_token(
         cache = get_cache()
         await cache.delete(f"embed_token:{token.token_hash}")
     except Exception:
-        pass  # TTL is the safety net
+        logger.warning("Cache invalidation failed for embed token", exc_info=True)
 
     return token
 
@@ -381,6 +384,6 @@ async def bulk_revoke_embed_tokens(
         for token in tokens:
             await cache.delete(f"embed_token:{token.token_hash}")
     except Exception:
-        pass
+        logger.warning("Cache invalidation failed for embed token", exc_info=True)
 
     return len(tokens)

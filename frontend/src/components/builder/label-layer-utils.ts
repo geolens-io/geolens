@@ -30,6 +30,7 @@ export function buildLabelLayerSpec(opts: {
       'text-size': lc.fontSize ?? 12,
       'symbol-placement': placement,
       'text-allow-overlap': lc.allowOverlap ?? false,
+      'icon-allow-overlap': lc.allowOverlap ?? false,
       'text-font': ['Noto Sans Regular'],
       'text-max-width': 10,
       ...(visibility ? { visibility } : {}),
@@ -61,12 +62,15 @@ export function syncLabelLayer(
   map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
   map.setLayoutProperty(labelId, 'symbol-placement', placement);
   map.setLayoutProperty(labelId, 'text-allow-overlap', lc.allowOverlap ?? false);
+  map.setLayoutProperty(labelId, 'icon-allow-overlap', lc.allowOverlap ?? false);
+  map.setLayoutProperty(labelId, 'text-font', ['Noto Sans Regular']);
+  map.setLayoutProperty(labelId, 'text-max-width', 10);
   if (placement === 'point') {
     map.setLayoutProperty(labelId, 'text-anchor', lc.textAnchor ?? 'center');
     map.setLayoutProperty(labelId, 'text-offset', lc.textOffset ?? [0, 0]);
   } else {
-    map.setLayoutProperty(labelId, 'text-anchor', undefined);
-    map.setLayoutProperty(labelId, 'text-offset', undefined);
+    map.setLayoutProperty(labelId, 'text-anchor', 'center');
+    map.setLayoutProperty(labelId, 'text-offset', [0, 0]);
   }
   map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
   map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);

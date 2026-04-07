@@ -620,7 +620,8 @@ export interface LabelConfig {
   minZoom?: number;
   maxZoom?: number;
   placement?: 'point' | 'line' | 'line-center';
-  textAnchor?: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  textAnchor?: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  textOpacity?: number;
   textOffset?: [number, number];
   allowOverlap?: boolean;
 }
@@ -643,6 +644,8 @@ export interface StyleConfig {
   sizeRange?: [number, number];
   /** Render mode override — when 'heatmap', the layer renders as a heatmap instead of styled points */
   render_mode?: 'heatmap';
+  /** Heatmap paint config */
+  heatmapPaint?: Record<string, unknown>;
   /** Saved circle paint config from before switching to heatmap mode */
   savedCirclePaint?: Record<string, unknown>;
 }

@@ -49,30 +49,22 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
   }
 }
 
+/** Run `fn` immediately if the map is loaded, otherwise wait for the idle event
+ *  with a 3-second safety timeout to prevent silent drops. */
+function whenMapIdle(map: MaplibreMap, fn: () => void) {
+  if (map.loaded()) { fn(); return; }
+  let done = false;
+  const onIdle = () => { if (done) return; done = true; clearTimeout(timer); fn(); };
+  map.once('idle', onIdle);
+  const timer = setTimeout(() => { if (!done) { done = true; map.off('idle', onIdle); fn(); } }, 3000);
+}
+
 /** Capture a 400x250 JPEG thumbnail from the map canvas and upload it.
  *  If the map is already idle/loaded, captures immediately (preserveDrawingBuffer
  *  guarantees canvas contents persist). Otherwise waits for the idle event with a
  *  3-second safety timeout to prevent silent drops. */
 function captureThumbnail(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
-  if (map.loaded()) {
-    doCapture(map, mapId, queryClient);
-  } else {
-    let captured = false;
-    const onIdle = () => {
-      if (captured) return;
-      captured = true;
-      clearTimeout(timer);
-      doCapture(map, mapId, queryClient);
-    };
-    map.once('idle', onIdle);
-    const timer = setTimeout(() => {
-      if (!captured) {
-        captured = true;
-        map.off('idle', onIdle);
-        doCapture(map, mapId, queryClient);
-      }
-    }, 3000);
-  }
+  whenMapIdle(map, () => doCapture(map, mapId, queryClient));
 }
 
 interface SaveState {
@@ -186,25 +178,7 @@ export function useBuilderSave(state: SaveState) {
       }
     };
 
-    if (map.loaded()) {
-      doExport();
-    } else {
-      let exported = false;
-      const onIdle = () => {
-        if (exported) return;
-        exported = true;
-        clearTimeout(timer);
-        doExport();
-      };
-      map.once('idle', onIdle);
-      const timer = setTimeout(() => {
-        if (!exported) {
-          exported = true;
-          map.off('idle', onIdle);
-          doExport();
-        }
-      }, 3000);
-    }
+    whenMapIdle(map, doExport);
   }
 
   async function handleFork() {
@@ -239,17 +213,18 @@ export function useBuilderSave(state: SaveState) {
   const blocker = useUnsavedGuard(state.hasUnsavedChanges);
 
   // Keyboard shortcut: Ctrl/Cmd+S
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        handleSave();
+        handleSaveRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.mapId, state.localLayers, state.localBasemap, state.localName, state.showBasemapLabels]);
+  }, []);
 
   return {
     handleSave,

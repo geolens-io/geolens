@@ -16,7 +16,7 @@ interface VersionHistoryProps {
 
 export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useDatasetVersions(datasetId);
+  const { data, isLoading, isError } = useDatasetVersions(datasetId);
 
   const versions = useMemo(() => {
     const fetched = data?.versions ?? [];
@@ -60,6 +60,8 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
       <CardContent>
         {isLoading ? (
           <LoadingState className="py-6" />
+        ) : isError ? (
+          <p className="text-sm text-muted-foreground">Failed to load.</p>
         ) : versions.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('versionHistory.noVersions')}</p>
         ) : (

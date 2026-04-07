@@ -61,12 +61,12 @@ export function buildCategoricalExpression(
   valueColorMap: [string, string][],
   fallback: string,
 ): unknown[] {
-  const expr: unknown[] = ['match', ['get', column]];
+  const pairs: unknown[] = [];
   for (const [value, color] of valueColorMap) {
-    expr.push(value, color);
+    pairs.push(value, color);
   }
-  expr.push(fallback);
-  return expr;
+  const matchExpr = ['match', ['get', column], ...pairs, fallback];
+  return ['case', ['==', ['get', column], null], fallback, matchExpr];
 }
 
 /**

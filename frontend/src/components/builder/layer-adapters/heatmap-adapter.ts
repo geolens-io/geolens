@@ -87,6 +87,10 @@ export const heatmapAdapter: LayerAdapter = {
       }
     }
 
+    // Compound stored heatmap-opacity with master opacity
+    const storedOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
+    map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
+
     if (filter && Array.isArray(filter) && filter.length > 0) {
       map.setFilter(layerId, filter);
     } else {

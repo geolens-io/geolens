@@ -286,6 +286,9 @@ export function DatasetPage() {
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
   const requireMetadata = allSettings?.tabs?.general?.find((s: { key: string }) => s.key === 'require_metadata_for_publish')?.value ?? false;
 
+  const PUBLISH_CHAIN = ['ready', 'internal', 'published'] as const;
+  const UNPUBLISH_CHAIN = ['internal', 'ready', 'draft'] as const;
+
   const handlePublishToggle = async () => {
     if (!id) return;
     if (isPublished) {
@@ -296,8 +299,12 @@ export function DatasetPage() {
       toast.error(t('publish.validationBlocker', { defaultValue: 'Resolve validation issues before publishing' }));
       return;
     }
+    // Only transition the steps not yet completed based on current status
+    const currentStatus = dataset.record_status;
+    const startIdx = PUBLISH_CHAIN.indexOf(currentStatus as typeof PUBLISH_CHAIN[number]);
+    const steps = startIdx === -1 ? PUBLISH_CHAIN : PUBLISH_CHAIN.slice(startIdx + 1);
     try {
-      for (const step of ['ready', 'internal', 'published']) {
+      for (const step of steps) {
         await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
       }
       toast.success(t('publish.success'));
@@ -308,8 +315,11 @@ export function DatasetPage() {
 
   const handleUnpublish = async () => {
     if (!id) return;
+    // Only transition the steps not yet completed based on current status
+    const currentStatus = dataset.record_status;
+    const startIdx = UNPUBLISH_CHAIN.indexOf(currentStatus as typeof UNPUBLISH_CHAIN[number]);
+    const steps = startIdx === -1 ? UNPUBLISH_CHAIN : UNPUBLISH_CHAIN.slice(startIdx + 1);
     try {
-      const steps = ['internal', 'ready', 'draft'];
       for (const step of steps) {
         await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
       }

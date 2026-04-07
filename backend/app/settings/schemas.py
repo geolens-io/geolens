@@ -120,7 +120,7 @@ class SettingsUpdateRequest(BaseModel):
 class SettingsResetRequest(BaseModel):
     """Request for POST /settings/reset/."""
 
-    keys: list[str]
+    keys: list[str] = Field(max_length=100)
 
 
 class EditionInfoResponse(BaseModel):
