@@ -65,12 +65,25 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader
 
 EOSQL
 
+echo "Stopping API to prevent write conflicts during restore..."
+docker compose -f "$PROJECT_ROOT/docker-compose.yml" stop api worker 2>/dev/null || true
+
 echo "Restoring from: $BACKUP_FILE"
 
 docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner < "$BACKUP_FILE"
 
-echo "Restore complete."
+# Post-restore validation
+echo ""
+echo "Verifying restore..."
+docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+    "SELECT 'records' AS tbl, COUNT(*) FROM catalog.records UNION ALL SELECT 'datasets', COUNT(*) FROM catalog.datasets;" \
+    2>/dev/null || echo "WARNING: Post-restore validation query failed (non-fatal)"
+
+echo ""
+echo "Restore complete. Restarting services..."
+docker compose -f "$PROJECT_ROOT/docker-compose.yml" start api worker 2>/dev/null || true
 
 # ==============================================================================
 # WAL Archiving (Optional PITR Upgrade)

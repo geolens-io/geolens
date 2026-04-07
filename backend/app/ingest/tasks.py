@@ -16,7 +16,7 @@ from app.raster.quicklook import generate_quicklook
 from app.raster.vrt import build_vrt, resolve_vrt_source_path
 from app.storage import get_storage
 
-_connector_kwargs: dict = {}
+_connector_kwargs: dict = {"min_size": 1, "max_size": 3}
 if settings.db_use_external_pooler:
     _connector_kwargs["kwargs"] = {"prepare_threshold": None}
 
