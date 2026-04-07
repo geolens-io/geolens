@@ -54,7 +54,7 @@ services:
     restart: "no"
 
   reset:
-    image: postgis/postgis:17-3.6
+    image: postgis/postgis:17-3.5
     entrypoint: ["/scripts/reset-demo.sh"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}

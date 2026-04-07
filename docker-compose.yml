@@ -215,10 +215,11 @@ services:
         condition: service_healthy
 
   backup:
-    # Production backup scripts live in geolens-deploy repo.
-    # Enable locally with: docker compose --profile backup up -d
+    # Enable with: docker compose --profile backup up -d
+    # Configure schedule/retention via BACKUP_* env vars (see .env.example)
     profiles: ["backup"]
-    image: postgis/postgis:17-3.5
+    build:
+      context: ./db
     restart: unless-stopped
     volumes:
       - ./scripts:/scripts:ro
@@ -245,7 +246,7 @@ services:
 
   # --- cloud-dev profile: local S3 + cache for testing ---
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-02-18T16-25-55Z
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     profiles: ["cloud-dev"]
     command: server /data --console-address ":9001"
     ports:
@@ -264,7 +265,7 @@ services:
       start_period: 5s
 
   minio-setup:
-    image: quay.io/minio/mc:RELEASE.2025-02-18T16-25-36Z
+    image: quay.io/minio/mc:RELEASE.2025-04-22T03-17-43Z
     profiles: ["cloud-dev"]
     depends_on:
       minio:

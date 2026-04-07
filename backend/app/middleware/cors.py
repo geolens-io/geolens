@@ -1,15 +1,21 @@
 """Dynamic CORS middleware that reads allowed origins from PersistentConfig."""
 
+import time
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+# In-memory cache to avoid a DB pool checkout on every CORS request.
+_origins_cache: tuple[float, set[str]] = (0.0, set())
+_ORIGINS_CACHE_TTL = 30  # seconds — matches PersistentConfig cache TTL
 
 
 class DynamicCORSMiddleware(BaseHTTPMiddleware):
     """CORS middleware that dynamically resolves allowed origins from PersistentConfig.
 
     Unlike static CORSMiddleware, this reads CORS_ALLOWED_ORIGINS on each request
-    (cached for 30s via PersistentConfig). Changes take effect without restart.
+    (cached in-memory for 30s). Changes take effect without restart.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -19,7 +25,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if not origin:
             return await call_next(request)
 
-        # Resolve allowed origins from PersistentConfig (cached 30s)
+        # Resolve allowed origins (in-memory cache avoids pool checkout)
         allowed = await self._is_origin_allowed(origin)
 
         if not allowed:
@@ -39,6 +45,14 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     async def _is_origin_allowed(self, origin: str) -> bool:
         """Check if the origin is in the CORS allowed origins list."""
+        global _origins_cache
+
+        now = time.monotonic()
+        cached_at, cached_origins = _origins_cache
+        if now - cached_at < _ORIGINS_CACHE_TTL:
+            return origin in cached_origins
+
+        # Cache miss — need a DB session
         from app.database import async_session
         from app.persistent_config import CORS_ALLOWED_ORIGINS
 
@@ -46,13 +60,17 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             raw = await CORS_ALLOWED_ORIGINS.get(db)
 
         if not raw:
+            _origins_cache = (now, set())
             return False
 
         # Parse comma-separated origins.
         # Wildcard is rejected — credentials=true requires explicit origins.
-        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        origins = {o.strip() for o in raw.split(",") if o.strip()}
         if "*" in origins:
+            _origins_cache = (now, set())
             return False
+
+        _origins_cache = (now, origins)
         return origin in origins
 
     @staticmethod
