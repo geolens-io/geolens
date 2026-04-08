@@ -463,7 +463,9 @@ async def test_table_record_formats_excludes_shapefile(
     and application/geo+json (three entries exactly)."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
-    ds = await _create_table_dataset(session, created_by=admin_id, name="Table Formats Test")
+    ds = await _create_table_dataset(
+        session, created_by=admin_id, name="Table Formats Test"
+    )
 
     resp = await client.get(f"/collections/datasets/items/{ds.id}")
     assert resp.status_code == 200
@@ -498,9 +500,7 @@ async def test_vector_record_formats_includes_shapefile(
 
 
 @pytest.mark.anyio
-async def test_table_record_has_row_count_alias(
-    client: AsyncClient, test_db_session
-):
+async def test_table_record_has_row_count_alias(client: AsyncClient, test_db_session):
     """Table records expose row_count == feature_count AND feature_count itself."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -516,9 +516,7 @@ async def test_table_record_has_row_count_alias(
 
 
 @pytest.mark.anyio
-async def test_vector_record_has_no_row_count(
-    client: AsyncClient, test_db_session
-):
+async def test_vector_record_has_no_row_count(client: AsyncClient, test_db_session):
     """Vector dataset records do NOT expose row_count (or it is None)."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -534,18 +532,41 @@ async def test_vector_record_has_no_row_count(
 
 
 @pytest.mark.anyio
-async def test_table_record_has_column_count(
-    client: AsyncClient, test_db_session
-):
+async def test_table_record_has_column_count(client: AsyncClient, test_db_session):
     """Table records with column_info populated expose column_count == len(column_info)."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     col_info = [
-        {"name": "opportunity_number", "type": "text", "ordinal_position": 1, "is_nullable": True},
-        {"name": "federal_agency", "type": "text", "ordinal_position": 2, "is_nullable": True},
-        {"name": "category", "type": "text", "ordinal_position": 3, "is_nullable": True},
-        {"name": "opening_date", "type": "date", "ordinal_position": 4, "is_nullable": True},
-        {"name": "closing_date", "type": "date", "ordinal_position": 5, "is_nullable": True},
+        {
+            "name": "opportunity_number",
+            "type": "text",
+            "ordinal_position": 1,
+            "is_nullable": True,
+        },
+        {
+            "name": "federal_agency",
+            "type": "text",
+            "ordinal_position": 2,
+            "is_nullable": True,
+        },
+        {
+            "name": "category",
+            "type": "text",
+            "ordinal_position": 3,
+            "is_nullable": True,
+        },
+        {
+            "name": "opening_date",
+            "type": "date",
+            "ordinal_position": 4,
+            "is_nullable": True,
+        },
+        {
+            "name": "closing_date",
+            "type": "date",
+            "ordinal_position": 5,
+            "is_nullable": True,
+        },
     ]
     ds = await _create_table_dataset(
         session,

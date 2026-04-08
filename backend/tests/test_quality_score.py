@@ -469,9 +469,7 @@ async def test_compute_quality_score_table_record(test_db_session):
         )
     )
     await test_db_session.execute(
-        text(
-            f"INSERT INTO data.{table_name} (opportunity_number) VALUES ('OPP-001')"
-        )
+        text(f"INSERT INTO data.{table_name} (opportunity_number) VALUES ('OPP-001')")
     )
     await test_db_session.commit()
 

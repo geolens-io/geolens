@@ -630,7 +630,9 @@ _ARCGIS_LAYER_0_URL = f"{_ARCGIS_BASE}/0"
 _ARCGIS_LAYER_1_URL = f"{_ARCGIS_BASE}/1"
 
 
-async def _create_arcgis_dataset(session, *, created_by, source_url, name="Test ArcGIS Dataset"):
+async def _create_arcgis_dataset(
+    session, *, created_by, source_url, name="Test ArcGIS Dataset"
+):
     """Insert a Dataset simulating a previously registered ArcGIS FeatureServer layer."""
     import uuid as _uuid
     from app.datasets.models import Dataset, Record

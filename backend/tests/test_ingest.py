@@ -687,10 +687,7 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
     # Simulate Case 2: ogr2ogr created only the gid column (no attribute columns)
     table_name = f"tbl_arcgis_{_uuid.uuid4().hex[:10]}"
     await test_db_session.execute(
-        text(
-            f"CREATE TABLE IF NOT EXISTS data.{table_name} "
-            f"(gid serial PRIMARY KEY)"
-        )
+        text(f"CREATE TABLE IF NOT EXISTS data.{table_name} (gid serial PRIMARY KEY)")
     )
     await test_db_session.commit()
 
@@ -737,7 +734,10 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
         assert _arcgis_type_to_column_type("esriFieldTypeString") == "text"
         assert _arcgis_type_to_column_type("esriFieldTypeInteger") == "integer"
         assert _arcgis_type_to_column_type("esriFieldTypeDouble") == "double precision"
-        assert _arcgis_type_to_column_type("esriFieldTypeDate") == "timestamp without time zone"
+        assert (
+            _arcgis_type_to_column_type("esriFieldTypeDate")
+            == "timestamp without time zone"
+        )
         assert _arcgis_type_to_column_type("esriFieldTypeOID") == "integer"
         assert _arcgis_type_to_column_type("esriFieldTypeUnknown") == "text"  # fallback
 
