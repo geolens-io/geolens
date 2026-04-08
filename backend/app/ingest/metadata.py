@@ -329,6 +329,23 @@ async def compute_quality_score(
             pass
 
     # 5. Composite
+    # For table records, geometry_validity and crs_defined are not applicable.
+    # Re-normalize weights over the two applicable dimensions:
+    #   metadata (30) + attribute (25) = 55 total → metadata (30/55) + attribute (25/55)
+    is_table = getattr(record, "record_type", None) == "table"
+    if is_table:
+        overall = round(
+            metadata_score * (30 / 55) + attribute_score * (25 / 55)
+        )
+        return {
+            "overall": overall,
+            "metadata_completeness": metadata_score,
+            "attribute_completeness": attribute_score,
+            "geometry_validity": None,  # N/A for tables
+            "crs_defined": None,  # N/A for tables
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     overall = round(
         metadata_score * 0.30
         + geometry_score * 0.30

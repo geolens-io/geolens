@@ -275,15 +275,17 @@ export interface OGCRecordProperties {
   crs: string | null;
   geometry_type: string | null;
   feature_count: number | null;
+  row_count?: number | null;
+  column_count?: number | null;
   contact: Record<string, unknown> | null;
   license: string | null;
   source_organization: string | null;
   quality_detail?: {
     overall: number;
     metadata_completeness: number;
-    geometry_validity: number;
+    geometry_validity: number | null;
     attribute_completeness: number;
-    crs_defined: number;
+    crs_defined: number | null;
     computed_at: string;
   } | null;
   record_status?: string | null;

@@ -60,6 +60,13 @@ _RASTER_FORMAT_MEDIA = {
     "cog": "image/tiff; application=geotiff; profile=cloud-optimized",
 }
 
+# Non-spatial table formats — shapefile excluded (geometry-specific)
+_TABLE_FORMAT_MEDIA = {
+    "csv": "text/csv",
+    "gpkg": "application/geopackage+sqlite3",
+    "geojson": "application/geo+json",
+}
+
 
 async def _attach_updated_actor_identities(
     session: AsyncSession,
@@ -1190,6 +1197,12 @@ def dataset_to_ogc_record(
             "band_count": None,
             "geometry_type": dataset.geometry_type,
             "feature_count": dataset.feature_count,
+            "row_count": dataset.feature_count
+            if getattr(record, "record_type", None) == "table"
+            else None,
+            "column_count": len(dataset.column_info)
+            if dataset.column_info
+            else None,
             "license": record.license,
             "source_organization": record.source_organization,
             "quality_detail": dataset.quality_detail,
@@ -1203,6 +1216,8 @@ def dataset_to_ogc_record(
                     getattr(record, "record_type", "vector_dataset") or "vector_dataset"
                 )
                 in ("raster_dataset", "vrt_dataset")
+                else list(_TABLE_FORMAT_MEDIA.values())
+                if getattr(record, "record_type", None) == "table"
                 else list(_FORMAT_MEDIA.values())
             ),
             "language": record.language or "en",
