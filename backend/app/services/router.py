@@ -339,6 +339,11 @@ async def preview_service_layer(
         )
 
     # Step 5: Create IngestJob
+    # Store source_columns and geometry_type from preview so that ingest_service
+    # can (a) skip geometry flags for non-spatial tables, and (b) use as a
+    # column_info fallback when the data table has no attribute columns.
+    _preview_cols = preview_data.get("columns") or []
+    _preview_geom_type = preview_data.get("geometry_type")
     job = IngestJob(
         source_filename=request.layer_title or request.layer_name,
         source_url=request.url,
@@ -349,6 +354,8 @@ async def preview_service_layer(
             "service_type": request.service_type,
             "layer_id": request.layer_id,
             "object_id_field": request.object_id_field,
+            "geometry_type": _preview_geom_type,
+            "source_columns": _preview_cols,
         },
     )
     db.add(job)
