@@ -76,6 +76,14 @@ class OGCRecordProperties(BaseModel):
     band_count: int | None = None
     geometry_type: str | None = None
     feature_count: int | None = None
+    row_count: int | None = Field(
+        default=None,
+        description="Row count for tabular records (alias for feature_count when record_type='table').",
+    )
+    column_count: int | None = Field(
+        default=None,
+        description="Number of columns in the dataset (populated from column_info length).",
+    )
     license: str | None = None
     source_organization: str | None = None
     quality_detail: dict | None = None

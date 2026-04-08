@@ -232,7 +232,13 @@ class DatasetResponse(BaseModel):
     published_at: datetime | None = None
     updated_by: uuid.UUID | None = None
     record_type: str = Field(
-        default="vector_dataset", description="vector_dataset or raster_dataset"
+        default="vector_dataset",
+        description=(
+            "Record type: 'vector_dataset' (spatial features), "
+            "'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), "
+            "'table' (non-spatial tabular), 'map' (saved map), "
+            "'service' (catalogued remote service), 'collection' (flat dataset group)."
+        ),
     )
     raster: RasterMetadata | None = Field(
         default=None, description="Raster-specific metadata (null for vectors)"

@@ -407,3 +407,154 @@ async def test_existing_properties_still_present(client: AsyncClient, test_db_se
     assert "rights" in props
     assert "contacts" in props
     assert "time" in props
+
+
+# ---------------------------------------------------------------------------
+# Table-specific OGC record properties (260408-iny)
+# ---------------------------------------------------------------------------
+
+
+async def _create_table_dataset(
+    session,
+    *,
+    created_by,
+    name: str = "Test Table Dataset",
+    feature_count: int = 29,
+    column_info: list | None = None,
+) -> "Dataset":
+    """Insert a Record + Dataset pair for a non-spatial table record."""
+    import uuid
+
+    from app.datasets.models import Dataset, Record
+
+    table_name = f"tbl_{uuid.uuid4().hex[:12]}"
+    record = Record(
+        title=name,
+        summary=f"Table dataset: {name}",
+        visibility="public",
+        record_status="published",
+        created_by=created_by,
+        record_type="table",
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=None,
+        geometry_type=None,
+        feature_count=feature_count,
+        source_format="arcgis_featureserver",
+        source_filename="TestTable",
+        column_info=column_info,
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+@pytest.mark.anyio
+async def test_table_record_formats_excludes_shapefile(
+    client: AsyncClient, test_db_session
+):
+    """Table records must NOT advertise application/x-shapefile in formats list.
+    Table records MUST advertise text/csv, application/geopackage+sqlite3,
+    and application/geo+json (three entries exactly)."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_table_dataset(session, created_by=admin_id, name="Table Formats Test")
+
+    resp = await client.get(f"/collections/datasets/items/{ds.id}")
+    assert resp.status_code == 200
+    props = resp.json()["properties"]
+    assert "formats" in props
+    formats = props["formats"]
+    assert isinstance(formats, list)
+    assert "application/x-shapefile" not in formats
+    assert "text/csv" in formats
+    assert "application/geopackage+sqlite3" in formats
+    assert "application/geo+json" in formats
+    assert len(formats) == 3
+
+
+@pytest.mark.anyio
+async def test_vector_record_formats_includes_shapefile(
+    client: AsyncClient, test_db_session
+):
+    """Vector dataset records still advertise shapefile (regression guard)."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_enriched_dataset(
+        session, created_by=admin_id, name="Vector Formats Regression"
+    )
+
+    resp = await client.get(f"/collections/datasets/items/{ds.id}")
+    assert resp.status_code == 200
+    props = resp.json()["properties"]
+    formats = props["formats"]
+    assert "application/x-shapefile" in formats
+    assert len(formats) == 4
+
+
+@pytest.mark.anyio
+async def test_table_record_has_row_count_alias(
+    client: AsyncClient, test_db_session
+):
+    """Table records expose row_count == feature_count AND feature_count itself."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_table_dataset(
+        session, created_by=admin_id, name="Row Count Alias Test", feature_count=29
+    )
+
+    resp = await client.get(f"/collections/datasets/items/{ds.id}")
+    assert resp.status_code == 200
+    props = resp.json()["properties"]
+    assert props.get("feature_count") == 29
+    assert props.get("row_count") == 29
+
+
+@pytest.mark.anyio
+async def test_vector_record_has_no_row_count(
+    client: AsyncClient, test_db_session
+):
+    """Vector dataset records do NOT expose row_count (or it is None)."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_enriched_dataset(
+        session, created_by=admin_id, name="Vector No Row Count"
+    )
+
+    resp = await client.get(f"/collections/datasets/items/{ds.id}")
+    assert resp.status_code == 200
+    props = resp.json()["properties"]
+    # row_count should be absent or None for vector records
+    assert props.get("row_count") is None
+
+
+@pytest.mark.anyio
+async def test_table_record_has_column_count(
+    client: AsyncClient, test_db_session
+):
+    """Table records with column_info populated expose column_count == len(column_info)."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    col_info = [
+        {"name": "opportunity_number", "type": "text", "ordinal_position": 1, "is_nullable": True},
+        {"name": "federal_agency", "type": "text", "ordinal_position": 2, "is_nullable": True},
+        {"name": "category", "type": "text", "ordinal_position": 3, "is_nullable": True},
+        {"name": "opening_date", "type": "date", "ordinal_position": 4, "is_nullable": True},
+        {"name": "closing_date", "type": "date", "ordinal_position": 5, "is_nullable": True},
+    ]
+    ds = await _create_table_dataset(
+        session,
+        created_by=admin_id,
+        name="Column Count Test",
+        column_info=col_info,
+    )
+
+    resp = await client.get(f"/collections/datasets/items/{ds.id}")
+    assert resp.status_code == 200
+    props = resp.json()["properties"]
+    assert props.get("column_count") == 5

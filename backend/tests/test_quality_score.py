@@ -393,3 +393,105 @@ async def test_validate_dataset_returns_cached_quality_by_default(
     data = resp.json()
     assert data["quality_score"]["overall"] == 42
     assert data["quality_score"]["attribute_completeness"] == 30.0
+
+
+# ---------------------------------------------------------------------------
+# Table record quality scoring tests (260408-iny)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_compute_quality_score_table_record(test_db_session):
+    """Tables skip geometry_validity and crs_defined; overall is re-normalized
+    from metadata (30/55) + attribute (25/55) weights only.
+
+    Record with full metadata and one attribute column should score:
+      - metadata_completeness: 100
+      - attribute_completeness: 100
+      - overall: round(100 * 30/55 + 100 * 25/55) = round(100) = 100
+      - geometry_validity: None (not applicable)
+      - crs_defined: None (not applicable)
+    """
+    from app.ingest.metadata import compute_quality_score as _compute
+
+    admin_id = await get_user_id(test_db_session, "admin")
+
+    # Create a Record with record_type='table' (no geometry, no srid)
+    import uuid
+    from datetime import date as _date
+
+    from sqlalchemy import text
+
+    from app.datasets.models import Dataset, Record, RecordKeyword
+
+    table_name = f"tbl_{uuid.uuid4().hex[:12]}"
+    record = Record(
+        title="Test Table Record",
+        summary="A non-spatial table for quality score testing",
+        theme_category=["finance", "grants"],
+        license="CC-BY-4.0",
+        source_organization="Test Org",
+        temporal_start=_date(2023, 1, 1),
+        visibility="public",
+        record_status="published",
+        created_by=admin_id,
+        record_type="table",
+        lineage_summary="Collected from test source",
+        update_frequency="annually",
+        usage_constraints="Public domain",
+        access_constraints="None",
+    )
+    test_db_session.add(record)
+    await test_db_session.flush()
+    for kw in ["grants", "funding"]:
+        test_db_session.add(
+            RecordKeyword(record_id=record.id, keyword=kw, keyword_type="theme")
+        )
+    await test_db_session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=None,
+        geometry_type=None,
+        feature_count=29,
+        source_format="arcgis_featureserver",
+        source_filename="Bulletin",
+    )
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+    await test_db_session.refresh(dataset)
+
+    # Create the actual data table (only gid — no geometry, one attribute)
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS data.{table_name} "
+            f"(gid serial PRIMARY KEY, opportunity_number text)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (opportunity_number) VALUES ('OPP-001')"
+        )
+    )
+    await test_db_session.commit()
+
+    score = await _compute(
+        test_db_session,
+        table_name,
+        [{"name": "opportunity_number", "type": "text"}],
+        dataset,
+    )
+
+    # Tables get only metadata and attribute dimensions
+    assert score["metadata_completeness"] == 100.0
+    assert score["attribute_completeness"] == 100.0
+    assert score["geometry_validity"] is None
+    assert score["crs_defined"] is None
+
+    # overall = round(100 * 30/55 + 100 * 25/55) = round(54.55 + 45.45) = 100
+    expected_overall = round(100.0 * (30 / 55) + 100.0 * (25 / 55))
+    assert score["overall"] == expected_overall
+
+    # Cleanup
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+    await test_db_session.commit()
