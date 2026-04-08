@@ -297,4 +297,52 @@ describe('useBuilderLayers', () => {
       act(() => { result.current.handleZoomToLayer('layer-1'); });
     });
   });
+
+  // Regression: KISS-2 / PERF-N2 — handlers must keep a stable identity across
+  // unrelated state mutations so React.memo() on LayerItem actually skips
+  // re-renders. A regression here (reverting useCallback) would silently tank
+  // perf on maps with many layers.
+  describe('handler identity stability (KISS-2 / PERF-N2)', () => {
+    it('keeps layer handlers stable across layer mutations', () => {
+      const layer = makeMockLayer({ id: 'layer-1' });
+      const { result } = renderBuilderLayers(makeMapData([layer]));
+
+      const initial = {
+        handleToggleVisibility: result.current.handleToggleVisibility,
+        handlePaintChange: result.current.handlePaintChange,
+        handleOpacityChange: result.current.handleOpacityChange,
+        handleLayoutChange: result.current.handleLayoutChange,
+        handleStyleConfigChange: result.current.handleStyleConfigChange,
+        handleFilterChange: result.current.handleFilterChange,
+        handleLabelChange: result.current.handleLabelChange,
+        handleMoveUp: result.current.handleMoveUp,
+        handleMoveDown: result.current.handleMoveDown,
+        handleReorder: result.current.handleReorder,
+        handleDisplayNameChange: result.current.handleDisplayNameChange,
+        handleToggleExpand: result.current.handleToggleExpand,
+        handleTabChange: result.current.handleTabChange,
+        handleZoomToLayer: result.current.handleZoomToLayer,
+        handleRemove: result.current.handleRemove,
+        handleAddDataset: result.current.handleAddDataset,
+        handleAiRemoveLayer: result.current.handleAiRemoveLayer,
+        handleToggleLegend: result.current.handleToggleLegend,
+        handleRenderModeChange: result.current.handleRenderModeChange,
+      };
+
+      // Trigger a state mutation that would invalidate non-memoized closures.
+      act(() => {
+        result.current.handleDisplayNameChange('layer-1', 'Renamed');
+      });
+
+      // After the state update, every handler should still have the same
+      // reference (useCallback returning a stable identity). If this fails,
+      // someone has likely dropped useCallback or added unstable deps.
+      for (const [name, initialFn] of Object.entries(initial)) {
+        expect(
+          result.current[name as keyof typeof initial],
+          `${name} identity changed after state update`,
+        ).toBe(initialFn);
+      }
+    });
+  });
 });

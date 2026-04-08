@@ -23,6 +23,7 @@ from app.collections.models import Collection, CollectionDataset
 from app.config import settings
 from app.datasets.models import Dataset, Record, RecordKeyword
 from app.dependencies import get_db
+from app.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
 from app.utils.geo import make_bbox_filter
@@ -412,7 +413,7 @@ async def get_collection(
     collection_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> StacCollection:
     """Get a single STAC Collection."""
     stac_api_url, _ = await _resolve_urls(db, request)
 
@@ -492,7 +493,10 @@ async def get_collection(
 @stac_router.get(
     "/collections/{collection_id}/items",
     response_class=JSONResponse,
-    responses={200: {"content": {"application/geo+json": {}}}},
+    responses={
+        200: {"content": {"application/geo+json": {}}},
+        **ERROR_RESPONSES_PUBLIC,
+    },
 )
 async def get_collection_items(
     collection_id: uuid.UUID,
@@ -973,7 +977,10 @@ async def _execute_search(
 @stac_router.get(
     "/search",
     response_class=JSONResponse,
-    responses={200: {"content": {"application/geo+json": {}}}},
+    responses={
+        200: {"content": {"application/geo+json": {}}},
+        **ERROR_RESPONSES_PUBLIC,
+    },
 )
 async def search_get(
     request: Request,
@@ -1021,7 +1028,10 @@ class StacSearchBody(BaseModel):
 @stac_router.post(
     "/search",
     response_class=JSONResponse,
-    responses={200: {"content": {"application/geo+json": {}}}},
+    responses={
+        200: {"content": {"application/geo+json": {}}},
+        **ERROR_RESPONSES_PUBLIC,
+    },
 )
 async def search_post(
     body: StacSearchBody,

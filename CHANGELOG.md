@@ -5,6 +5,50 @@ All notable changes to GeoLens are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **Note on version history.** GeoLens 1.0.0 marks the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 13.0 during pre-public development. The legacy entries below 1.0.0 are preserved for historical context only — they do not represent prior public releases. There is no migration path from any pre-1.0.0 version; 1.0.0 is the first version anyone outside the project has run.
+
+## [Unreleased]
+
+### Added
+- Astro-based marketing site scaffold (phases 212-214)
+- `seed_tiles` CLI script for pre-seeding Redis tile cache
+- Public map viewer UX improvements and legend unification
+- 3D data and maps support feasibility design doc
+
+### Removed
+- **SAML support has been removed.** The OAuth provider system shipped with `provider_type='saml'` accepted by the API but no working SAML login flow ever existed (only an XML metadata parser). An admin could create a SAML provider and have it appear on the login page, but clicking it produced no authentication. The dead code path has been removed across the stack:
+  - `provider_type='saml'` is no longer accepted by the OAuth API; the database CHECK constraint has been tightened to `('oidc', 'google', 'microsoft')`.
+  - The `oauth_providers` table loses 4 columns: `idp_entity_id`, `idp_sso_url`, `idp_certificate`, `sp_entity_id`. Any pre-existing SAML provider rows are deleted by the migration before the constraint tightens.
+  - The `chk_users_auth_provider` constraint on `users.auth_provider` is also tightened to `('local', 'oidc', 'oauth')`.
+  - The `app/auth/saml/` Python module (XML metadata parser) is removed.
+  - The admin UI no longer offers SAML in the OAuth provider dropdown; the metadata-XML upload field, SP Entity ID, and ACS URL display are removed.
+  - SAML i18n keys are removed from all 4 locales (en, es, de, fr).
+
+### Changed
+- Landing page removed — root route (`/`) now serves the Search page directly. The previous `/search` route is no longer used; existing bookmarks redirect to `/`.
+- `SHOW_LANDING_PAGE` environment variable removed from backend config and branding API.
+- Internal documentation moved to a gitignored `docs-internal/` directory; only user-facing docs remain in `docs/`.
+- Connection pool pre-ping now defaults to `True` to detect broken connections in managed databases.
+- Top-level `CONTRIBUTING.md` consolidated into `.github/CONTRIBUTING.md`.
+- OAuth `client_id` and `client_secret` are now required fields when creating a provider (previously optional placeholders for the SAML branch).
+
+### Fixed
+- **Security:** upgraded `anthropic` from 0.86.0 to 0.88.0 to patch CVE-2026-34450 and CVE-2026-34452.
+- Pydantic constraints added to user-input string fields (basemaps, OAuth, settings) to prevent oversized payloads.
+- Embedding backfill now returns a structured 502 on provider failures instead of swallowing exceptions.
+- Embedding stats endpoint guards against missing `record_embeddings` table during early bootstrap.
+- Embedding OpenAI client uses `max_retries=2` for transient failure resilience.
+- Embedding auto-detect and column rebuild log exceptions instead of swallowing them.
+- OGC catch-all 500 handler returns RFC 7807 `ProblemDetail` format.
+- Datasets router uses HTTP status constants and explicit return type annotations.
+- Last-admin guard extracted to a shared private method to prevent admin lockout regressions.
+- Settings updates batched into a single query with deferred commits for performance.
+- Branding update now routes through the unified settings endpoint with type alignment.
+- Admin router authorization, CBAC, and audit logging hardened (admin audit remediation).
+- Builder bug-fix sweep: 68 files, 181 findings from the builder audit (filter persistence, layer styling, drag-and-drop, raster controls).
+- Database tuning sweep: PostgreSQL `random_page_cost` and `jit` settings, missing foreign-key indexes added on high-traffic tables, backup service hardening.
+- Test audit + post-implementation audit remediation: type safety, resilience, KISS refactors across backend.
+
 ## [1.0.0] - 2026-04-01
 
 ### Added
@@ -237,7 +281,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JWT authentication with role-based access control
 - Docker Compose deployment
 
-[13.1]: https://github.com/geolens-io/geolens/compare/v13.0...v13.1
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/geolens-io/geolens/releases/tag/v1.0.0
 [13.0]: https://github.com/geolens-io/geolens/compare/v12.3...v13.0
 [12.3]: https://github.com/geolens-io/geolens/compare/v12.2...v12.3
 [12.2]: https://github.com/geolens-io/geolens/compare/v12.1...v12.2

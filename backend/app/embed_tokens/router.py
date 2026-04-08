@@ -1,4 +1,21 @@
-"""Embed token CRUD endpoints for map-scoped tile access."""
+"""Embed token CRUD endpoints for map-scoped tile access.
+
+# What embed tokens are
+# ---------------------
+# An embed token grants tile-level access to a single shared map without
+# requiring the viewer to log in. The token is signed (not just opaque) so
+# revocation is enforced via DB lookup at request time. Each token can be
+# scoped to:
+#   - A specific map only
+#   - A whitelist of allowed Origin headers (domain locking)
+#   - A view count or expiry date
+#
+# # Why a separate router from share tokens
+# Share tokens (catalog/maps/share_tokens) grant access to the *map metadata*
+# (rendering the viewer page itself), while embed tokens grant access to the
+# *tiles and features* used by the embedded iframe. They have different
+# revocation semantics and audit categories, so they live in separate routers.
+"""
 
 import uuid
 

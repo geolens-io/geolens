@@ -139,7 +139,7 @@ describe('SearchPage', () => {
   it('renders a compact search workspace for anonymous users', () => {
     setAnonymousUser();
 
-    render(<SearchPage />, { route: '/search' });
+    render(<SearchPage />, { route: '/' });
 
     expect(screen.getByTestId('search-bar')).toHaveAttribute('data-mode', 'compact');
     expect(screen.getByTestId('filter-panel')).toHaveTextContent('12');
@@ -152,7 +152,7 @@ describe('SearchPage', () => {
   it('shows saved searches for authenticated users in the workspace header', () => {
     setAuthenticatedUser();
 
-    render(<SearchPage />, { route: '/search' });
+    render(<SearchPage />, { route: '/' });
 
     expect(screen.getByTestId('search-bar')).toHaveAttribute('data-mode', 'compact');
     expect(screen.getByTestId('saved-searches')).toBeInTheDocument();
@@ -168,7 +168,7 @@ describe('SearchPage', () => {
       isFetching: true,
     } as ReturnType<typeof useSearchResults>);
 
-    render(<SearchPage />, { route: '/search' });
+    render(<SearchPage />, { route: '/' });
 
     // The skeleton container is announced via role=status / aria-live
     expect(screen.getByRole('status')).toBeInTheDocument();
@@ -186,7 +186,7 @@ describe('SearchPage', () => {
       isFetching: false,
     } as ReturnType<typeof useSearchResults>);
 
-    render(<SearchPage />, { route: '/search' });
+    render(<SearchPage />, { route: '/' });
 
     // ErrorState includes the error message
     expect(screen.getByText(/Catalog unreachable/)).toBeInTheDocument();
@@ -208,7 +208,7 @@ describe('SearchPage', () => {
       isFetching: false,
     } as unknown as ReturnType<typeof useSearchResults>);
 
-    render(<SearchPage />, { route: '/search' });
+    render(<SearchPage />, { route: '/' });
 
     // EmptyState from layout renders an accessible heading with the title
     // and no result cards are visible.

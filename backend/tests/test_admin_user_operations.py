@@ -201,4 +201,7 @@ async def test_create_user_duplicate_username_returns_409(
         headers=admin_auth_header,
     )
     assert resp.status_code == 409
-    assert "already" in resp.json()["detail"].lower() or "exists" in resp.json()["detail"].lower()
+    assert (
+        "already" in resp.json()["detail"].lower()
+        or "exists" in resp.json()["detail"].lower()
+    )

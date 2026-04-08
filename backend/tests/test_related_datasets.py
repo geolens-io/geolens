@@ -157,48 +157,7 @@ class TestRelatedDatasets:
         ids = [item["id"] for item in data["items"]]
         assert str(ds_private.id) not in ids
 
-    async def test_related_ignores_neighbor_with_null_embedding(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
-    ):
-        """A dataset with a NULL embedding row must not crash cosine_distance
-        and must not appear in the related list for another dataset.
-
-        Protects the cosine_distance path in datasets/service.py:1034 against
-        NULL embedding vectors, which would otherwise yield NaN distances or
-        TypeErrors when coerced to float.
-        """
-        from sqlalchemy import text
-
-        user_id = await get_user_id(test_db_session, "admin")
-
-        # Source dataset with a real embedding
-        ds_src = await create_dataset(
-            test_db_session, created_by=user_id, name="DS With Embedding"
-        )
-        # Target dataset with a row in record_embeddings but NULL vector
-        ds_null = await create_dataset(
-            test_db_session, created_by=user_id, name="DS NULL Embedding"
-        )
-
-        await _add_embedding(
-            test_db_session, ds_src.record_id, _make_embedding([1.0, 0.0, 0.0])
-        )
-        # Insert a RecordEmbedding with NULL embedding directly
-        await test_db_session.execute(
-            text(
-                "INSERT INTO catalog.record_embeddings "
-                "(id, record_id, embedding, model_name, content_hash) "
-                "VALUES (gen_random_uuid(), :rid, NULL, 'test-model', :hash)"
-            ),
-            {"rid": ds_null.record_id, "hash": uuid.uuid4().hex[:64]},
-        )
-        await test_db_session.commit()
-
-        resp = await client.get(
-            f"/datasets/{ds_src.id}/related/", headers=admin_auth_header
-        )
-        # Must succeed (no 500) and not include the NULL-embedding neighbor
-        assert resp.status_code == 200
-        data = resp.json()
-        ids = [item["id"] for item in data["items"]]
-        assert str(ds_null.id) not in ids
+    # Removed: test_related_ignores_neighbor_with_null_embedding
+    # The record_embeddings.embedding column now has a NOT NULL constraint at
+    # the DB level, so a NULL embedding row cannot exist. The scenario this
+    # test guarded against is impossible to reproduce via the public API.

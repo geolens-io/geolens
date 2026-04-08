@@ -1,3 +1,24 @@
+"""S3-compatible storage backend.
+
+Wraps the synchronous boto3 client in `asyncio.to_thread` so callers can
+await uploads/downloads without blocking the event loop. Works with native
+AWS S3, MinIO, GCS via the S3-compatible API, DigitalOcean Spaces, and any
+other S3-compatible provider — addressing style and endpoint URL are both
+configurable via env vars.
+
+# Endpoint behavior
+# -----------------
+# - Native AWS S3: leave `endpoint` unset; boto3 picks the regional endpoint.
+# - MinIO/local: set `endpoint=http://minio:9000` and `allow_http=True`.
+# - GCS: set `endpoint=https://storage.googleapis.com`, `region=auto`, and
+#   use HMAC keys (NOT GCP service account keys) as access_key_id/secret.
+#
+# # Addressing style
+# `path` (`http://endpoint/bucket/key`) is required for MinIO. `virtual`
+# (`http://bucket.endpoint/key`) is required for some AWS S3 buckets in
+# certain regions. `auto` lets the SDK decide — usually correct for AWS.
+"""
+
 from __future__ import annotations
 
 import asyncio

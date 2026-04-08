@@ -281,22 +281,27 @@ async def compute_quality_score(
     crs_score: float = 100.0 if (dataset.srid is not None or not has_geometry) else 0.0
 
     # 3. Geometry validity (weight 0.30)
+    # Wrap in a SAVEPOINT (begin_nested) so that a failed query (e.g. missing
+    # table in tests, permission denied) does not poison the outer transaction.
     geometry_score: float = 100.0
     if has_geometry:
         try:
-            result = await session.execute(
-                text(
-                    f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
-                    f"FROM (SELECT geom FROM data.{table_name} LIMIT :max_rows) sub"
-                ).bindparams(max_rows=max_validity_rows)
-            )
-            val = result.scalar_one_or_none()
-            if val is not None:
-                geometry_score = round(float(val), 1)
+            async with session.begin_nested():
+                result = await session.execute(
+                    text(
+                        f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
+                        f"FROM (SELECT geom FROM data.{table_name} LIMIT :max_rows) sub"
+                    ).bindparams(max_rows=max_validity_rows)
+                )
+                val = result.scalar_one_or_none()
+                if val is not None:
+                    geometry_score = round(float(val), 1)
         except Exception:
             geometry_score = 100.0
 
     # 4. Attribute completeness (weight 0.25)
+    # Compute per-column non-null percentage in a SINGLE query instead of N queries.
+    # A 50-column dataset previously triggered 50 sequential full-table scans.
     attribute_score: float = 100.0
     non_geom_cols = [
         c
@@ -305,23 +310,23 @@ async def compute_quality_score(
         and _TABLE_NAME_RE.match(c.get("name", ""))
     ]
     if non_geom_cols:
-        col_scores: list[float] = []
-        for col in non_geom_cols:
-            col_name = col["name"]
-            try:
+        col_exprs = ", ".join(
+            f'COUNT("{col["name"]}") * 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
+            for i, col in enumerate(non_geom_cols)
+        )
+        try:
+            async with session.begin_nested():
                 result = await session.execute(
-                    text(
-                        f"SELECT COUNT({col_name}) * 100.0 / NULLIF(COUNT(*), 0) "
-                        f"FROM data.{table_name}"
-                    )
+                    text(f"SELECT {col_exprs} FROM data.{table_name}")
                 )
-                val = result.scalar_one_or_none()
-                if val is not None:
-                    col_scores.append(float(val))
-            except Exception:
-                continue
-        if col_scores:
-            attribute_score = round(sum(col_scores) / len(col_scores), 1)
+                row = result.one_or_none()
+                if row is not None:
+                    col_scores: list[float] = [float(v) for v in row if v is not None]
+                    if col_scores:
+                        attribute_score = round(sum(col_scores) / len(col_scores), 1)
+        except Exception:
+            # On failure, leave attribute_score at its 100.0 default (same as prior behavior)
+            pass
 
     # 5. Composite
     overall = round(

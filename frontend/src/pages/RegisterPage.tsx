@@ -30,7 +30,7 @@ export function RegisterPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  if (token) return <Navigate to="/search" replace />;
+  if (token) return <Navigate to="/" replace />;
 
   if (isLoading) {
     return (

@@ -44,7 +44,8 @@ export function LoginPage() {
   });
   if (token) {
     const from = (location.state as { from?: string } | null)?.from;
-    const target = from && from.startsWith('/') ? from : '/search';
+    // CLEAN-N4: search workspace is "/" after landing page removal.
+    const target = from && from.startsWith('/') ? from : '/';
     return <Navigate to={target} replace />;
   }
 
@@ -125,7 +126,7 @@ export function LoginPage() {
               defaultValue: 'No account needed to browse the public catalog.',
             })}{' '}
             <Button asChild variant="link" className="h-auto p-0 align-baseline text-sm">
-              <Link to="/search">
+              <Link to="/">
                 {t('browseCatalog', {
                   defaultValue: 'Browse Catalog',
                 })}

@@ -1,4 +1,17 @@
-"""WFS GetCapabilities fetching and parsing with safe XML handling."""
+"""WFS GetCapabilities fetching and parsing with safe XML handling.
+
+# XML safety
+# ----------
+# All parsing uses `defusedxml.ElementTree`, NOT stdlib `xml.etree`. defusedxml
+# blocks the well-known XML attacks (billion laughs, XXE, external entity
+# expansion, decompression bombs). Never replace this import — the WFS service
+# probe accepts user-supplied URLs, so the response is always untrusted.
+#
+# # Namespace handling
+# WFS 1.0, 1.1, and 2.0 each use slightly different XML namespaces and element
+# names for FeatureType discovery. The parser walks the tree namespace-agnostic
+# (matching by local-name) so the same code path supports all three versions.
+"""
 
 import asyncio
 import json

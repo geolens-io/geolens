@@ -64,6 +64,10 @@ export function useUpdateDataset() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
       qc.invalidateQueries({ queryKey: queryKeys.search.all });
+      // PERF-D1: validation query has a 5-minute staleTime so it wouldn't
+      // otherwise refetch after a metadata edit. Force invalidation so the
+      // quality-score badge reflects the freshly-computed value.
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
     },
   });
 }
@@ -77,6 +81,8 @@ export function useUpdatePublicationStatus() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
       qc.invalidateQueries({ queryKey: queryKeys.search.all });
+      // PERF-D1: keep validation in sync with publication_status changes.
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
     },
   });
 }
@@ -172,6 +178,8 @@ export function useUpdateAttribute(datasetId: string | undefined) {
       updateAttribute(datasetId!, attributeId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(datasetId) });
+      // PERF-D1: attribute metadata changes can affect validation warnings.
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });
     },
   });
 }
@@ -181,6 +189,9 @@ export function useValidation(datasetId: string | undefined) {
     queryKey: queryKeys.datasets.validation(datasetId),
     queryFn: () => validateDataset(datasetId!),
     enabled: !!datasetId,
-    staleTime: 30_000,
+    // Quality score is persisted at ingest time and only changes on explicit
+    // edits; the backend returns the cached value by default. 5 minutes avoids
+    // re-triggering the (still non-trivial) validation run on every navigation.
+    staleTime: 5 * 60_000,
   });
 }

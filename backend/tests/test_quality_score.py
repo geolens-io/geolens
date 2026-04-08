@@ -269,3 +269,127 @@ async def test_quality_score_in_dataset_response(
     data = resp.json()
     assert data["quality_detail"] is not None
     assert data["quality_detail"]["overall"] == 75
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for PERF-N3/N9 — single-query attribute-completeness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_attribute_completeness_uses_single_query(test_db_session):
+    """compute_quality_score must issue one SQL query for attribute completeness,
+    not one per column (PERF-N3/N9).
+
+    Previously a 50-column dataset triggered 50 sequential full-table scans. The
+    refactored implementation coalesces all per-column COUNT(col) aggregations
+    into a single SELECT. This test asserts that by counting executions against
+    the data.* table.
+    """
+    from sqlalchemy import text
+
+    from app.ingest.metadata import compute_quality_score as _compute
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset_with_quality(
+        test_db_session,
+        created_by=admin_id,
+        name="Many Columns Dataset",
+        srid=4326,
+    )
+
+    tmp_table = ds.table_name
+    col_names = [f"c{i}" for i in range(10)]
+    col_defs = ", ".join(f"{c} text" for c in col_names)
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS data.{tmp_table} "
+            f"(gid serial PRIMARY KEY, geom geometry(Point, 4326), {col_defs})"
+        )
+    )
+    values = ", ".join("'x'" for _ in col_names)
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{tmp_table} (geom, {', '.join(col_names)}) VALUES "
+            f"(ST_SetSRID(ST_MakePoint(0, 0), 4326), {values})"
+        )
+    )
+    await test_db_session.commit()
+
+    # Count calls that reference data.{tmp_table} (excludes metadata / keyword
+    # lookups, includes geometry validity + attribute completeness).
+    original_execute = test_db_session.execute
+    recorded: list[str] = []
+
+    async def recording_execute(clause, *args, **kwargs):
+        sql_text = str(clause) if clause is not None else ""
+        if f"data.{tmp_table}" in sql_text:
+            recorded.append(sql_text)
+        return await original_execute(clause, *args, **kwargs)
+
+    test_db_session.execute = recording_execute  # type: ignore[method-assign]
+    try:
+        column_info = [{"name": name, "type": "text"} for name in col_names]
+        score = await _compute(test_db_session, tmp_table, column_info, ds)
+    finally:
+        test_db_session.execute = original_execute  # type: ignore[method-assign]
+
+    # Expect at most 2 executions against the data table: one for the geometry
+    # validity scan, one for the coalesced attribute completeness scan.
+    assert len(recorded) <= 2, (
+        f"expected ≤2 data-table queries (1 geometry, 1 attribute), "
+        f"got {len(recorded)}: {recorded}"
+    )
+    # Attribute query must reference all 10 columns in a single SELECT.
+    attribute_query = next(
+        (q for q in recorded if 'COUNT("c0"' in q or "COUNT(c0)" in q), None
+    )
+    assert attribute_query is not None, (
+        f"attribute completeness query not found in {recorded}"
+    )
+    for name in col_names:
+        assert name in attribute_query, (
+            f"column {name!r} missing from single-query SELECT: {attribute_query}"
+        )
+
+    # Sanity: computed score is structurally valid
+    assert score["attribute_completeness"] == 100.0
+    assert 0 <= score["overall"] <= 100
+
+    # Cleanup
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{tmp_table}"))
+    await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_validate_dataset_returns_cached_quality_by_default(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """GET /datasets/{id}/validate/ returns persisted quality_detail without
+    recomputing. Recomputation requires ?refresh=true."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    cached = {
+        "overall": 42,
+        "metadata_completeness": 50.0,
+        "geometry_validity": 100.0,
+        "attribute_completeness": 30.0,
+        "crs_defined": 100.0,
+        "computed_at": "2026-04-08T00:00:00+00:00",
+    }
+    ds = await _create_dataset_with_quality(
+        test_db_session,
+        created_by=admin_id,
+        name="Cached Quality Dataset",
+        quality_score=cached,
+    )
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/validate/",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["quality_score"]["overall"] == 42
+    assert data["quality_score"]["attribute_completeness"] == 30.0

@@ -181,8 +181,8 @@ For HTTPS:
 
 1. Create an ACM certificate for your domain.
 2. Create an ALB with an HTTPS listener using the ACM certificate.
-3. Route ALB traffic to the nginx container on port 80.
-4. Restrict the instance/task security group to accept port 80 only from the ALB security group.
+3. Route ALB traffic to the `frontend` container on port 5173 (or to the `api` container on port 8000 if your frontend is hosted separately on S3/CloudFront).
+4. Restrict the instance/task security group to accept the target port only from the ALB security group.
 
 ### Complete `.env` Example (AWS)
 
@@ -190,7 +190,7 @@ For HTTPS:
 # --- Managed Database (Amazon RDS for PostgreSQL) ---
 DATABASE_URL_OVERRIDE=postgresql://geolens:MySecurePass@geolens-db.abc123.us-east-1.rds.amazonaws.com:5432/geolens
 DATABASE_SSL_MODE=require
-DATABASE_POOL_PRE_PING=true
+# DATABASE_POOL_PRE_PING defaults to true since 1.0.0; no need to set explicitly.
 
 # --- Storage (Amazon S3) ---
 STORAGE_PROVIDER=s3
@@ -326,6 +326,16 @@ Run GeoLens on **Cloud Run** or **Compute Engine (GCE) with Docker Compose**:
 - **Cloud Run:** Deploy the API and Worker as separate Cloud Run services. Connect to Cloud SQL via the built-in Cloud SQL connector or Cloud SQL Auth Proxy sidecar.
 - **GCE:** Use Docker Compose on a VM instance, similar to the local setup but with managed database and storage env vars.
 
+### HTTPS / TLS Termination
+
+GeoLens does not include a TLS terminator. Terminate HTTPS at the edge using one of:
+
+- **Cloud Load Balancing (HTTPS LB)** with a Google-managed certificate. Point the LB at your Cloud Run service URL or GCE instance group. Cloud Run services already terminate HTTPS by default at `*.run.app` URLs.
+- **Cloud Run custom domain mapping** — bind your domain to a Cloud Run service and Cloud Run will provision and renew the certificate automatically.
+- **Caddy or Traefik** running on the same GCE instance as Docker Compose, with automatic Let's Encrypt issuance.
+
+After terminating TLS, set `PUBLIC_APP_URL=https://your-domain.com` and `PUBLIC_API_URL=https://your-domain.com/api` so OGC self-links and OAuth redirects use the public HTTPS URL.
+
 ### Complete `.env` Example (GCP)
 
 ```env
@@ -333,7 +343,7 @@ Run GeoLens on **Cloud Run** or **Compute Engine (GCE) with Docker Compose**:
 DATABASE_URL_OVERRIDE=postgresql://geolens:MySecurePass@10.20.30.40:5432/geolens
 DATABASE_SSL_MODE=verify-full
 DATABASE_SSL_CA_CERT=/certs/server-ca.pem
-DATABASE_POOL_PRE_PING=true
+# DATABASE_POOL_PRE_PING defaults to true since 1.0.0; no need to set explicitly.
 
 # --- Storage (GCS via S3-Compatible API) ---
 STORAGE_PROVIDER=s3
@@ -444,13 +454,22 @@ Run GeoLens on **App Platform** or a **Droplet with Docker Compose**:
 - **App Platform:** Deploy the API and Worker as separate services. Set environment variables in the app spec.
 - **Droplet:** SSH into the Droplet, clone the repo, and run `docker compose up -d` with cloud env vars -- same as local but pointing at managed services.
 
+### HTTPS / TLS Termination
+
+DigitalOcean offers two simple paths to HTTPS:
+
+- **App Platform** — automatically provisions and renews a Let's Encrypt certificate when you bind a custom domain to your app. No manual certificate management required.
+- **Droplet + Caddy or Traefik** — install Caddy or Traefik on the Droplet alongside Docker Compose; both automatically request and renew Let's Encrypt certificates and proxy traffic to the `frontend` container on port 5173.
+
+After enabling HTTPS, set `PUBLIC_APP_URL=https://your-domain.com` and `PUBLIC_API_URL=https://your-domain.com/api`.
+
 ### Complete `.env` Example (DigitalOcean)
 
 ```env
 # --- Managed Database (DigitalOcean Managed PostgreSQL) ---
 DATABASE_URL_OVERRIDE=postgresql://geolens:MySecurePass@geolens-db-do-user-123456-0.db.ondigitalocean.com:25060/geolens?sslmode=require
 DATABASE_SSL_MODE=require
-DATABASE_POOL_PRE_PING=true
+# DATABASE_POOL_PRE_PING defaults to true since 1.0.0; no need to set explicitly.
 
 # --- Storage (DigitalOcean Spaces) ---
 STORAGE_PROVIDER=s3
@@ -516,6 +535,76 @@ Follow these steps to migrate from a Docker Compose deployment to cloud managed 
    The response should show all providers reporting ok.
 
 10. **Update `PUBLIC_APP_URL` and `PUBLIC_API_URL`.** Use the public frontend URL for `PUBLIC_APP_URL` (for example `https://geolens.example.com`) and the externally reachable API base for `PUBLIC_API_URL` (for example `https://geolens.example.com/api`). These drive browser redirects, OGC self-links, and generated distribution URLs.
+
+---
+
+## Monitoring & Observability
+
+GeoLens exposes Prometheus-format metrics from the API and worker containers. There is no built-in dashboard — point your existing observability stack at the metrics endpoint, or run a lightweight Prometheus + Grafana pair next to the application.
+
+### Metrics endpoint
+
+The API exposes `/metrics` in Prometheus text format on the same port as the rest of the API. The endpoint is unauthenticated and excluded from the OpenAPI schema. Useful series include:
+
+| Metric | Type | Description |
+|---|---|---|
+| `http_requests_total{handler,method,status}` | counter | All HTTP requests handled by FastAPI (from `prometheus_fastapi_instrumentator`) |
+| `http_request_duration_seconds{handler,method}` | histogram | Request latency by route handler |
+| `http_requests_inprogress{handler,method}` | gauge | Currently in-flight requests |
+| `geolens_db_pool_checkedout` | gauge | Connections checked out from the SQLAlchemy pool |
+| `geolens_db_pool_checkedin` | gauge | Idle connections in the pool |
+| `geolens_db_pool_overflow` | gauge | Overflow connections currently open |
+| `geolens_db_pool_size` | gauge | Configured pool size |
+| `geolens_jobs_queue_depth{queue}` | gauge | Procrastinate jobs in `todo` state by queue |
+| `geolens_jobs_active{queue}` | gauge | Procrastinate jobs in `doing` state by queue |
+| `geolens_jobs_completed_total{queue}` | counter | Successfully completed Procrastinate jobs |
+| `geolens_jobs_failed_total{queue}` | counter | Failed Procrastinate jobs |
+
+### Scraping with Prometheus
+
+Add a scrape target to your Prometheus configuration:
+
+```yaml
+scrape_configs:
+  - job_name: geolens
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['geolens-api.internal:8000']
+```
+
+For Cloud Run, use the [Managed Service for Prometheus](https://cloud.google.com/managed-prometheus). For ECS, use the [AWS Distro for OpenTelemetry collector](https://aws-otel.github.io/) sidecar.
+
+### Recommended dashboards
+
+A starter Grafana dashboard JSON is intentionally not bundled — your existing dashboards for FastAPI/Uvicorn services will work as-is once the scrape target is added. At a minimum, panels should cover:
+
+- Request rate, error rate (5xx percentage), and p95 latency per endpoint
+- DB connection pool exhaustion (`checked_out` ≥ `pool_size`)
+- Tile cache hit ratio (alert below 50% sustained)
+- Ingestion job failure rate
+
+### Logs
+
+The API and worker write structured logs to stdout. Set `LOG_JSON=true` in production to emit one JSON object per line, which any log aggregator (CloudWatch Logs, Cloud Logging, Loki, Datadog) can ingest without parsing rules.
+
+### Health checks
+
+Use `GET /health` for liveness/readiness probes:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  periodSeconds: 10
+```
+
+The endpoint returns 200 with `{"status": "ok"}` when the database is reachable.
 
 ---
 

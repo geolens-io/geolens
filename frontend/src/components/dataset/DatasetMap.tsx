@@ -38,6 +38,18 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
 
+/**
+ * Dataset detail map preview.
+ *
+ * Renders a single dataset's vector tiles with the user's currently active
+ * basemap, supports drawing/editing features (when the user has edit permission),
+ * and exposes a fullscreen toggle. The map applies the @vis.gl/react-maplibre v8
+ * `setTransformRequest` workaround imperatively in `onLoad` because the
+ * declarative `transformRequest` prop is silently ignored in v8.
+ *
+ * Used by the dataset detail page (`pages/DatasetPage.tsx`).
+ */
+
 interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;

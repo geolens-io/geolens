@@ -73,6 +73,19 @@ docker compose up -d --build
 
 ## Version-Specific Notes
 
+### About 1.0.0 (the public release)
+
+GeoLens 1.0.0 is the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 13.0 during pre-public development. Those legacy versions never shipped to anyone outside the project.
+
+If you somehow have a checkout from a pre-1.0.0 internal build:
+
+- **No data migration is required.** The 1.0.0 schema is compatible with the most recent pre-public versions; Alembic migrations apply normally on the first 1.0.0 startup.
+- **The version number resets, but the codebase moves forward.** 1.0.0 is the cumulative state of all prior internal work, not a downgrade.
+- **No `git checkout v13.x` rollback path exists from 1.0.0.** If you need to roll back, restore from the database backup you took before upgrading (see [Pre-upgrade checklist](#pre-upgrade-checklist)).
+- **No environment variables changed at the 1.0.0 boundary.** Your existing `.env` from any pre-public build continues to work without modification.
+
+For all subsequent upgrades, follow the standard procedure above.
+
 ### v12.x → v13.0
 
 - **Open-core architecture**: Enterprise extension points added. No action needed for community edition users.

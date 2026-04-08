@@ -1,8 +1,6 @@
 import { apiFetch } from './client';
 import type {
   UploadResponse,
-  RegisterRequest,
-  RegisterResponse,
   JobStatusResponse,
   FilePreviewResponse,
   CommitImportRequest,
@@ -26,15 +24,6 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
   return apiFetch<UploadResponse>('/ingest/upload', {
     method: 'POST',
     body: formData,
-  });
-}
-
-export async function registerTable(
-  request: RegisterRequest,
-): Promise<RegisterResponse> {
-  return apiFetch<RegisterResponse>('/ingest/register/', {
-    method: 'POST',
-    body: JSON.stringify(request),
   });
 }
 

@@ -325,10 +325,21 @@ async def get_column_stats_endpoint(
 )
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
+    skip: int = Query(0, ge=0, description="Number of relationships to skip."),
+    limit: int = Query(
+        100,
+        ge=1,
+        le=1000,
+        description="Maximum number of relationships to return (PERF-N16).",
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[DatasetRelationshipResponse]:
-    """List all FK relationships for a dataset."""
+    """List FK relationships for a dataset.
+
+    Paginated via ``skip`` and ``limit`` to bound response size for datasets
+    with large numbers of auto-detected relationships.
+    """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -338,7 +349,7 @@ async def list_dataset_relationships(
 
     from app.datasets.service import list_relationships
 
-    items = await list_relationships(db, dataset.record_id)
+    items = await list_relationships(db, dataset.record_id, skip=skip, limit=limit)
     return [DatasetRelationshipResponse(**item) for item in items]
 
 
@@ -359,7 +370,9 @@ async def create_dataset_relationship(
     # Resolve dataset_id to record_id (FK references catalog.records.id)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
 
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
@@ -379,7 +392,9 @@ async def delete_dataset_relationship(
         await delete_relationship(db, relationship_id)
         await db.commit()
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found"
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

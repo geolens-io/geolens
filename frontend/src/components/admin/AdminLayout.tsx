@@ -4,6 +4,13 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/s
 import { AdminSidebar } from './AdminSidebar';
 import { Separator } from '@/components/ui/separator';
 
+/**
+ * Top-level layout for all `/admin/*` routes.
+ *
+ * Provides a persistent {@link AdminSidebar} with a mobile-collapsible header
+ * and renders the matched child route inside a padded `SidebarInset`. Used as
+ * the route element for the admin section in the router.
+ */
 export function AdminLayout() {
   const { t } = useTranslation();
 

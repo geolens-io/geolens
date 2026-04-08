@@ -2,6 +2,7 @@
 
 **Document Purpose**: Third-party audit reference for the GeoLens PostgreSQL database.
 **Generated**: 2026-02-16
+**Last reviewed**: 2026-04-08 — schema additions since the original generation date (raster assets, embed tokens, record embeddings, OAuth providers, share tokens, audit log v2) are documented in their respective feature modules and Alembic migrations. The high-level schema/table structure described below is still accurate; the migration history table at the end of this document only covers migrations through the original generation date.
 **Database**: PostgreSQL 17.5 with PostGIS 3.5.2
 
 ---

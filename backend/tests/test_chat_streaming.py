@@ -336,6 +336,13 @@ async def test_stream_unauthenticated(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_stream_ai_disabled(client: AsyncClient, admin_auth_header: dict):
+    """When AI is disabled, the stream opens with 200 and emits an error event.
+
+    The AI-availability check was moved inside the SSE generator so the SSE
+    client can render the failure as a stream error instead of a non-decodable
+    HTTP error. HTTP status is therefore 200 and the error is surfaced via an
+    ``error`` event in the response body.
+    """
     from fastapi import HTTPException
 
     with patch(
@@ -348,4 +355,6 @@ async def test_stream_ai_disabled(client: AsyncClient, admin_auth_header: dict):
             "/ai/chat/stream/", json=CHAT_BODY, headers=admin_auth_header
         )
 
-    assert resp.status_code == 403
+    assert resp.status_code == 200
+    assert "event: error" in resp.text
+    assert "AI features are disabled by administrator" in resp.text

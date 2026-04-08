@@ -137,7 +137,9 @@ def record_to_dcat(
                 ),
             }
         except Exception:
-            logger.debug("DCAT spatial extent serialization failed", record_id=str(record.id))
+            logger.debug(
+                "DCAT spatial extent serialization failed", record_id=str(record.id)
+            )
 
     # Theme categories
     if record.theme_category:

@@ -104,14 +104,20 @@ async def _validate_chat_layers(
     try:
         map_uuid = uuid_mod.UUID(map_id)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid map_id")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid map_id"
+        )
 
     map_obj = await db.execute(select(Map).where(Map.id == map_uuid))
     map_row = map_obj.scalar_one_or_none()
     if not map_row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
+        )
     if map_row.created_by != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this map")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this map"
+        )
 
     if not layers:
         return layers
@@ -124,7 +130,10 @@ async def _validate_chat_layers(
     try:
         dataset_uuids = [uuid_mod.UUID(did) for did in dataset_ids]
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid dataset_id in layers")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid dataset_id in layers",
+        )
 
     result = await db.execute(
         select(Dataset.id, Dataset.table_name, Dataset.geometry_type).where(

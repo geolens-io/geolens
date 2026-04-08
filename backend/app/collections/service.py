@@ -1,6 +1,20 @@
 """Collection service layer.
 
 Handles CRUD operations for collections and collection-dataset membership.
+
+# Module structure
+# ----------------
+# 1. Core CRUD: create, update, delete, get, list collections
+# 2. Membership: add/remove datasets in/out of collections
+# 3. Visibility-aware reads: list collections and their datasets respecting RBAC
+# 4. Stats: dataset counts per collection
+#
+# # Commit semantics
+# Functions that take a session generally **flush** but do not commit.
+# Callers (router endpoints) own the commit boundary so multiple service
+# calls can be batched into a single transaction. The exception is
+# `update_collection`, which commits internally for legacy reasons — if you
+# add a new write function, prefer the flush-only pattern.
 """
 
 import json

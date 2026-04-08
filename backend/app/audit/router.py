@@ -1,4 +1,19 @@
-"""Audit log API endpoints: query audit logs (admin-only)."""
+"""Audit log API endpoints: query audit logs (admin-only).
+
+# Streaming exports
+# -----------------
+# CSV and JSON exports use ASGI `StreamingResponse` with cursor-based pagination
+# inside the underlying `stream_audit_logs` generator. This avoids loading the
+# full result set into memory for large date ranges, which is critical because
+# audit logs can grow to millions of rows on busy instances. Don't refactor
+# the export endpoints to use `query_audit_logs` (which materializes a list)
+# unless you also add a hard limit upstream.
+#
+# # Permissions
+# All endpoints require `view_audit` (admin role only). The audit log contains
+# resource IDs and user IDs that would otherwise be hidden by RBAC, so it
+# must never be exposed at lower roles.
+"""
 
 import csv
 import io

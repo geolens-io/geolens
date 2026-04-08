@@ -181,7 +181,9 @@ async def probe_service_url(
             details={"url": request.url, "result": "unrecognized"},
         )
         await db.commit()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
 
     # Step 3: Audit log on success
     logger.info(

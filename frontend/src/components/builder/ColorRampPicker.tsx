@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   SEQUENTIAL_RAMPS,
@@ -7,6 +6,11 @@ import {
   getRampColors,
 } from '@/lib/color-ramps';
 import { cn } from '@/lib/utils';
+
+// PERF-N15: Ramp arrays are static — hoist to module scope instead of
+// allocating fresh arrays in each render via useMemo(..., []).
+const GRADUATED_RAMPS = [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS];
+const CATEGORICAL_RAMPS = [...QUALITATIVE_RAMPS];
 
 interface ColorRampPickerProps {
   rampName: string;
@@ -17,11 +21,7 @@ interface ColorRampPickerProps {
 
 export function ColorRampPicker({ rampName, onChange, mode, customColors }: ColorRampPickerProps) {
   const { t } = useTranslation('builder');
-  const allRamps = useMemo(() => [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS], []);
-  const ramps =
-    mode === 'categorical'
-      ? [...QUALITATIVE_RAMPS]
-      : allRamps;
+  const ramps = mode === 'categorical' ? CATEGORICAL_RAMPS : GRADUATED_RAMPS;
 
   return (
     <div className="max-h-40 overflow-y-auto space-y-1">

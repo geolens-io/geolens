@@ -14,6 +14,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
+/**
+ * Login form for username + password authentication.
+ *
+ * On success, stores the JWT in `useAuthStore` and navigates to the original
+ * destination (from `location.state.from`) or the catalog home. Renders next
+ * to the optional OAuth provider buttons; both code paths feed the same auth
+ * store. Handles password visibility toggling and inline error display.
+ */
 export function LoginForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -33,7 +41,9 @@ export function LoginForm() {
     try {
       await login(username, password);
       const from = (location.state as { from?: string } | null)?.from;
-      const target = from && from.startsWith('/') ? from : '/search';
+      // CLEAN-N3: the search workspace lives at "/" after the landing page
+      // removal; no more redirect through the legacy "/search" shim.
+      const target = from && from.startsWith('/') ? from : '/';
       sessionStorage.removeItem('geolens-login-redirect');
       navigate(target, { replace: true });
     } catch (err) {

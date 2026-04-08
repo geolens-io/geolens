@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useTileConfig } from '@/hooks/use-settings';
@@ -25,6 +26,18 @@ import { resolveAdapterType, syncLayersToMap } from '@/components/builder/map-sy
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+/**
+ * Public map viewer canvas — used by the standalone viewer page and the
+ * embeddable iframe widget.
+ *
+ * Renders multiple shared layers from a publicly visible map composition with
+ * read-only navigation, popups on click, and a basemap matching the parent
+ * theme. Layer rendering uses the unified `layer-adapters` registry shared
+ * with the builder, ensuring viewer + builder produce identical visuals.
+ *
+ * Authentication is implicit: signed share or embed tokens are passed in via
+ * `apiKey` (query parameter) and used to sign tile URLs.
+ */
 interface ViewerMapProps {
   layers: SharedLayerResponse[];
   basemapStyle: string;
@@ -205,19 +218,26 @@ export function ViewerMap({
         return { url: absUrl, headers };
       });
 
-      // Suppress expected tile errors (no-data tiles outside extent)
+      // Filter expected tile errors (no-data tiles outside extent) and
+      // surface anything else as a deduped toast so users know the map
+      // has a real problem (RES-3). Previously suppressed entirely in prod.
       map.on('error', (e: { error: { message?: string; status?: number } }) => {
         const msg = e.error?.message ?? '';
+        // Expected: 404 tiles outside extent, or our managed source errors
         if (msg.includes('source-') || e.error?.status === 404) {
           return;
         }
         if (import.meta.env.DEV) console.warn('[ViewerMap] Map error:', e.error);
+        // Deduped toast (stable ID replaces prior error instead of stacking)
+        toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
+          id: 'viewer-map-error',
+        });
       });
 
       setMapReady(true);
       onMapReady?.(map);
     },
-    [onMapReady, embedToken],
+    [onMapReady, embedToken, t],
   );
 
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
@@ -235,20 +255,31 @@ export function ViewerMap({
   const layersRef = useRef(layers);
   layersRef.current = layers;
 
+  // KISS-N5: shared helper for click + mousemove handlers. Filters the ref'd
+  // interactive layer IDs down to ones currently attached to the map and runs
+  // queryRenderedFeatures with that guarded set. Returns null when there are
+  // no interactive layers to query (so callers can clear their UI state).
+  const queryInteractiveFeatures = useCallback(
+    (map: MaplibreMap, point: MapMouseEvent['point']) => {
+      const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
+      if (queryIds.length === 0) return null;
+      return map.queryRenderedFeatures(point, { layers: queryIds });
+    },
+    [],
+  );
+
   // Click handler: show popup with feature attributes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
     const handleClick = (e: MapMouseEvent) => {
-      const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
-
-      if (queryIds.length === 0) {
+      const hits = queryInteractiveFeatures(map, e.point);
+      if (hits === null) {
         setPopupInfo(null);
         return;
       }
 
-      const hits = map.queryRenderedFeatures(e.point, { layers: queryIds });
       if (hits.length > 0) {
         setPopupInfo({
           longitude: e.lngLat.lng,
@@ -272,7 +303,7 @@ export function ViewerMap({
     return () => {
       map.off('click', handleClick);
     };
-  }, [mapReady, t]);
+  }, [mapReady, t, queryInteractiveFeatures]);
 
   // Mousemove: pointer cursor on interactive features
   useEffect(() => {
@@ -284,14 +315,11 @@ export function ViewerMap({
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (!map.getCanvas()) return;
-        const queryIds = interactiveLayersRef.current.filter((id) => map.getLayer(id));
-
-        if (queryIds.length === 0) {
+        const features = queryInteractiveFeatures(map, e.point);
+        if (features === null) {
           map.getCanvas().style.cursor = '';
           return;
         }
-
-        const features = map.queryRenderedFeatures(e.point, { layers: queryIds });
         map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
       });
     };
@@ -302,7 +330,7 @@ export function ViewerMap({
       map.off('mousemove', handleMouseMove);
       if (map.getCanvas()) map.getCanvas().style.cursor = '';
     };
-  }, [mapReady]);
+  }, [mapReady, queryInteractiveFeatures]);
 
   // Clear popup when layer visibility changes
   useEffect(() => {

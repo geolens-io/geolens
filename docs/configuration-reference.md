@@ -103,7 +103,7 @@ If this command fails, fix ownership/permissions on the mounted path or set `UPL
 | `DATABASE_URL_OVERRIDE` | None | No | Full PostgreSQL connection URL for managed databases (RDS, Cloud SQL). Overrides individual `POSTGRES_*` variables. |
 | `DATABASE_SSL_MODE` | `prefer` | No | Database SSL mode. Options: `disable`, `prefer`, `require`, `verify-full`. |
 | `DATABASE_SSL_CA_CERT` | None | When `verify-full` | Path to CA certificate file for database SSL verification. |
-| `DATABASE_POOL_PRE_PING` | `false` | No | Enable connection pool pre-ping. Recommended for managed databases to detect broken connections. |
+| `DATABASE_POOL_PRE_PING` | `true` | No | Enable connection pool pre-ping to detect broken connections before use. Adds slight latency per checkout. Set to `false` only if you need to disable this for a specific environment. |
 | `DB_USE_EXTERNAL_POOLER` | `false` | No | Enable external connection pooler mode (PgBouncer, RDS Proxy). Disables prepared statements. |
 
 ## Connection Pool Tuning
@@ -153,6 +153,15 @@ These variables configure the `backup` service (enable with `docker compose --pr
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `GEOLENS_ENTERPRISE_PATH` | `/enterprise` | No | Path to the geolens-enterprise package inside the container. Used by entrypoint scripts to auto-install enterprise extensions on startup. Set via `docker-compose.enterprise.yml` volume mount. |
+
+## AWS Marketplace (BYOL/AMI billing)
+
+These variables enable AWS Marketplace metering for instances launched from the GeoLens AWS Marketplace listing. They are unset by default and only need configuration when running the marketplace AMI. Setting `AWS_MARKETPLACE_PRODUCT_CODE` triggers a one-time `RegisterUsage` call to the AWS metering API on application startup.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `AWS_MARKETPLACE_PRODUCT_CODE` | None | No | AWS Marketplace product code. Setting this enables hourly metering via the AWS metering API. Leave unset for non-marketplace deployments. |
+| `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` | `1` | No | Public key version used for `RegisterUsage` signature verification. Only relevant when `AWS_MARKETPLACE_PRODUCT_CODE` is set. |
 
 ## AI & LLM
 

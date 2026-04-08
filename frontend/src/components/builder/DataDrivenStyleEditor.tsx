@@ -49,6 +49,28 @@ function isTextColumn(type: string): boolean {
   return TEXT_TYPES.some((tt) => t.includes(tt));
 }
 
+/**
+ * KISS-N2: compute classification breaks + effective class count, shared
+ * between the graduated-color and graduated-size effects.
+ * - quantile method: uses precomputed quantiles when available (actual class
+ *   count becomes breaks.length + 1 because each break separates two classes)
+ * - equal-interval: respects the requested classCount exactly
+ */
+function computeBreaks(
+  statsData: { min: number; max: number; quantiles: number[] },
+  method: 'quantile' | 'equal',
+  classCount: number,
+): { breaks: number[]; effectiveClassCount: number } {
+  let breaks: number[];
+  if (method === 'quantile' && statsData.quantiles.length > 0) {
+    breaks = quantileBreaks(statsData.quantiles);
+  } else {
+    breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
+  }
+  const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+  return { breaks, effectiveClassCount };
+}
+
 /** Linearly interpolate classCount values between sizeRange[0] and sizeRange[1]. */
 function computeSizes(sizeRange: [number, number], classCount: number): number[] {
   if (classCount < 2) return [sizeRange[0]];
@@ -155,14 +177,11 @@ export function DataDrivenStyleEditor({
     if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null) return;
     if (target !== 'color' && target) return;
 
-    let breaks: number[];
-    if (method === 'quantile' && statsData.quantiles.length > 0) {
-      breaks = quantileBreaks(statsData.quantiles);
-    } else {
-      breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
-    }
-
-    const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+    const { breaks, effectiveClassCount } = computeBreaks(
+      { min: statsData.min, max: statsData.max, quantiles: statsData.quantiles },
+      method,
+      classCount,
+    );
 
     // Preserve existing graduated colors when config hasn't changed
     const ec = layer.style_config;
@@ -206,14 +225,11 @@ export function DataDrivenStyleEditor({
     if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null) return;
     if (target === 'color' || !target) return;
 
-    let breaks: number[];
-    if (method === 'quantile' && statsData.quantiles.length > 0) {
-      breaks = quantileBreaks(statsData.quantiles);
-    } else {
-      breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
-    }
-
-    const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+    const { breaks, effectiveClassCount } = computeBreaks(
+      { min: statsData.min, max: statsData.max, quantiles: statsData.quantiles },
+      method,
+      classCount,
+    );
 
     // Guard: skip if existing config already matches
     const ec = layer.style_config;

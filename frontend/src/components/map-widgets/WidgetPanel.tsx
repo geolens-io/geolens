@@ -9,6 +9,16 @@ interface WidgetPanelProps {
   children: ReactNode;
 }
 
+/**
+ * Container for an open map builder widget.
+ *
+ * Renders the widget's icon, translated label, and close button in a header
+ * row with the widget body in a scrollable region beneath. Closing the panel
+ * dispatches `useWidgetStore.close()` to remove it from the open-widget set.
+ *
+ * Used internally by {@link WidgetHost} when rendering each visible widget
+ * from the registry; widget authors do not import this directly.
+ */
 export function WidgetPanel({ def, children }: WidgetPanelProps) {
   const { t } = useTranslation('builder');
   const Icon = def.icon;

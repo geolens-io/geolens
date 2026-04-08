@@ -232,7 +232,7 @@ function MobileNav() {
             <SheetDescription className="sr-only">{t('nav.navigationMenu')}</SheetDescription>
           </SheetHeader>
           <nav aria-label={t('nav.navigationMenu')} className="flex flex-col gap-1 px-2">
-            <NavLink to="/search" end className={mobileNavLinkClass}>
+            <NavLink to="/" end className={mobileNavLinkClass}>
               {t('nav.search')}
             </NavLink>
             <NavLink to="/collections" className={mobileNavLinkClass}>
@@ -329,7 +329,7 @@ export function Navbar() {
           </Link>
           <Separator orientation="vertical" className="hidden md:block h-6" />
           <nav aria-label={t('nav.mainNavigation')} className="hidden md:flex items-center gap-2">
-            <NavLink to="/search" end className={navLinkClass}>
+            <NavLink to="/" end className={navLinkClass}>
               {t('nav.search')}
             </NavLink>
             <NavLink to="/collections" className={navLinkClass}>

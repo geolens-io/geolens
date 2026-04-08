@@ -7,18 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = structlog.stdlib.get_logger(__name__)
-
 from app.audit.service import log_action
 from app.auth.dependencies import require_permission
 from app.auth.models import User
+from app.auth.oauth import service as oauth_service
 from app.auth.oauth.schemas import (
     OAuthProviderCreate,
     OAuthProviderResponse,
     OAuthProviderUpdate,
 )
-from app.auth.oauth import service as oauth_service
+from app.config import settings as app_settings
 from app.dependencies import get_client_ip, get_db
+from app.edition import get_edition
 from app.persistent_config import (
     BASEMAPS,
     BRANDING_SHOW_BADGE,
@@ -28,11 +28,10 @@ from app.persistent_config import (
     _is_env_only,
     _registry,
 )
-from app.edition import get_edition
 from app.public_urls import get_public_api_url, get_public_app_url
 from app.settings.models import AppSetting
-from app.config import settings as app_settings
 from app.settings.schemas import (
+    SETTING_VALIDATORS,
     ApiKeyStatusResponse,
     BasemapPublicResponse,
     BrandingResponse,
@@ -40,13 +39,14 @@ from app.settings.schemas import (
     DetectEmbeddingDimsResponse,
     EditionInfoResponse,
     MapDefaultsResponse,
-    SETTING_VALIDATORS,
     SettingItem,
     SettingsAllResponse,
     SettingsResetRequest,
     SettingsUpdateRequest,
     TileConfigResponse,
 )
+
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["Admin"])
 
@@ -108,7 +108,13 @@ async def _auto_detect_embedding_dims(
         dims = await probe_embedding_dimensions(db)
         await EMBEDDING_DIMS.set(db, dims, user_id=user_id, ip_address=ip)
     except Exception:
-        pass  # non-fatal — admin can still set manually
+        # Non-fatal — admin can still set manually. Log with traceback so
+        # operators can diagnose embedding probe failures (bad API key,
+        # provider outage, network timeout) instead of seeing a silent skip.
+        logger.warning(
+            "Failed to auto-detect embedding dimensions",
+            exc_info=True,
+        )
 
 
 async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
@@ -174,7 +180,9 @@ async def get_all_settings(
     for row in result.all():
         raw = row[1]
         # AppSetting.value is JSONB — unwrap the stored scalar wrapper
-        db_settings[row[0]] = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+        db_settings[row[0]] = (
+            raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+        )
     db_keys = set(db_settings.keys())
 
     tabs: dict[str, list[SettingItem]] = {}
@@ -217,7 +225,10 @@ async def update_settings(
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown setting key: {key}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown setting key: {key}",
+            )
 
         _require_enterprise_for_key(key)
 
@@ -225,7 +236,8 @@ async def update_settings(
             value = _validate_setting(key, value)
         except (ValueError, TypeError) as e:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Validation error for '{key}': {e}"
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for '{key}': {e}",
             )
 
         ip = get_client_ip(request)
@@ -301,9 +313,14 @@ async def detect_embedding_dims(
     try:
         dims = await probe_embedding_dimensions(db)
     except EmbeddingUnavailableError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Embedding probe failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Embedding probe failed: {e}",
+        )
 
     return DetectEmbeddingDimsResponse(dimensions=dims)
 
@@ -370,7 +387,9 @@ async def update_oauth_provider(
     """Update an existing OAuth provider (admin only)."""
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
+        )
     provider = await oauth_service.update_provider(db, provider, body)
     ip = get_client_ip(request)
     await log_action(
@@ -399,7 +418,9 @@ async def delete_oauth_provider(
     """Delete an OAuth provider (admin only)."""
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
+        )
     slug = provider.slug
     await oauth_service.delete_provider(db, provider)
     ip = get_client_ip(request)

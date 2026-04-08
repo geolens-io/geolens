@@ -6,8 +6,12 @@ import logging
 import math
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+
+if TYPE_CHECKING:
+    from app.jobs.models import IngestJob
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -211,6 +215,74 @@ async def complete_presigned_upload(
     )
 
 
+async def _cleanup_saved_upload(
+    saved_path: Path | str,
+    job_id: str,
+) -> None:
+    """Delete a saved upload regardless of storage backend.
+
+    Used to roll back a failed upload (e.g., content validation error) so
+    we don't leave orphaned files in local staging or S3. Never raises —
+    S3 failures are logged instead (KISS-N9).
+    """
+    if isinstance(saved_path, Path):
+        saved_path.unlink(missing_ok=True)
+        return
+    try:
+        await get_storage().delete(saved_path)
+    except Exception:
+        logger.warning(
+            "S3 cleanup failed during validation error — file may be orphaned",
+            s3_key=str(saved_path),
+            job_id=job_id,
+        )
+
+
+async def _stamp_raster_metadata(
+    job: "IngestJob",
+    saved_path: Path | str,
+    filename: str | None,
+) -> None:
+    """Perform raster CRS validation and stamp job.user_metadata accordingly.
+
+    Non-fatal: missing CRS is acceptable at upload time (the user can supply
+    srid_override at commit time). This helper isolates the raster-specific
+    branch from the main upload flow (KISS-N9).
+    """
+    lower_filename = (filename or "").lower()
+    if not lower_filename.endswith((".tif", ".tiff", ".vrt")):
+        return
+
+    from app.raster.cog import validate_raster_crs
+
+    raster_check_path: str | None = None
+    downloaded: Path | None = None
+    if isinstance(saved_path, Path):
+        raster_check_path = str(saved_path)
+    else:
+        try:
+            raster_check_path = await resolve_file_path(str(saved_path), str(job.id))
+            downloaded = Path(raster_check_path)
+        except Exception:
+            raster_check_path = None
+
+    if raster_check_path:
+        try:
+            await asyncio.to_thread(validate_raster_crs, raster_check_path)
+        except ValueError:
+            # Allow CRS-missing rasters through; user can provide
+            # srid_override at commit time. Store flag for ingest_raster.
+            job.user_metadata = {
+                **(job.user_metadata or {}),
+                "crs_missing": True,
+            }
+        finally:
+            if downloaded is not None:
+                downloaded.unlink(missing_ok=True)
+
+    job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+
+
 @router.post(
     "/upload",
     response_model=UploadResponse,
@@ -243,18 +315,7 @@ async def upload_file(
         try:
             validate_file_content(validation_path, file.filename)
         except ValueError as exc:
-            # Clean up: local Path or S3 key
-            if isinstance(saved_path, Path):
-                saved_path.unlink(missing_ok=True)
-            else:
-                try:
-                    await get_storage().delete(saved_path)
-                except Exception:
-                    logger.warning(
-                        "S3 cleanup failed during validation error — file may be orphaned",
-                        s3_key=str(saved_path),
-                        job_id=str(job.id),
-                    )
+            await _cleanup_saved_upload(saved_path, str(job.id))
             if downloaded_validation_path is not None:
                 downloaded_validation_path.unlink(missing_ok=True)
             raise HTTPException(
@@ -266,39 +327,7 @@ async def upload_file(
                 downloaded_validation_path.unlink(missing_ok=True)
 
         # Raster-specific CRS validation — reject files without valid CRS at upload time
-        lower_filename = (file.filename or "").lower()
-        if lower_filename.endswith((".tif", ".tiff", ".vrt")):
-            from app.raster.cog import validate_raster_crs
-
-            # Re-resolve path since downloaded_validation_path was cleaned up above
-            raster_check_path: str | None = None
-            _raster_downloaded: Path | None = None
-            if isinstance(saved_path, Path):
-                raster_check_path = str(saved_path)
-            else:
-                try:
-                    raster_check_path = await resolve_file_path(
-                        str(saved_path), str(job.id)
-                    )
-                    _raster_downloaded = Path(raster_check_path)
-                except Exception:
-                    raster_check_path = None
-
-            if raster_check_path:
-                try:
-                    await asyncio.to_thread(validate_raster_crs, raster_check_path)
-                except ValueError:
-                    # Allow CRS-missing rasters through; user can provide
-                    # srid_override at commit time.  Store flag for ingest_raster.
-                    job.user_metadata = {
-                        **(job.user_metadata or {}),
-                        "crs_missing": True,
-                    }
-                finally:
-                    if _raster_downloaded is not None:
-                        _raster_downloaded.unlink(missing_ok=True)
-
-            job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+        await _stamp_raster_metadata(job, saved_path, file.filename)
 
         job.file_path = str(saved_path)
         await db.commit()

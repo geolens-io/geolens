@@ -587,38 +587,47 @@ class TestVrtSourcesEndpoint:
 
 
 class TestTileTokenVrt:
-    """CAT-04: raster_auth_check accepts vrt_dataset record_type (regression guard)."""
+    """CAT-04: raster tile auth accepts vrt_dataset record_type (regression guard).
 
-    def test_raster_auth_check_accepts_vrt_dataset_record_type(self):
-        """raster_auth_check in tiles/router.py accepts both raster_dataset and vrt_dataset."""
-        import app.tiles.router as tiles_module
+    The record_type guard was refactored out of ``raster_auth_check`` into the
+    shared ``_resolve_raster_access`` helper so both the auth_request endpoint
+    and the API-side raster proxy share one code path. Tests inspect the
+    helper's source since that is where the guard lives now.
+    """
+
+    def test_resolve_raster_access_accepts_vrt_dataset_record_type(self):
+        """_resolve_raster_access accepts both raster_dataset and vrt_dataset."""
         import inspect
 
-        source = inspect.getsource(tiles_module.raster_auth_check)
+        import app.tiles.router as tiles_module
+
+        source = inspect.getsource(tiles_module._resolve_raster_access)
 
         # Guard condition must include vrt_dataset
         assert "vrt_dataset" in source, (
-            "raster_auth_check must accept 'vrt_dataset' record_type — "
+            "_resolve_raster_access must accept 'vrt_dataset' record_type — "
             "CAT-04 regression: guard was updated in Phase 171"
         )
 
-    def test_raster_auth_check_uses_tuple_guard_for_both_types(self):
-        """raster_auth_check uses 'in' check that includes both raster_dataset and vrt_dataset."""
-        import app.tiles.router as tiles_module
+    def test_resolve_raster_access_uses_tuple_guard_for_both_types(self):
+        """_resolve_raster_access uses 'in' check including both record types."""
         import inspect
 
-        source = inspect.getsource(tiles_module.raster_auth_check)
+        import app.tiles.router as tiles_module
+
+        source = inspect.getsource(tiles_module._resolve_raster_access)
 
         # Must reject non-raster types; both raster_dataset and vrt_dataset must be in guard
         assert "raster_dataset" in source
         assert "vrt_dataset" in source
 
-    def test_raster_auth_check_not_raster_detail(self):
-        """Confirm vrt_dataset appears in the guard branch, not just in comments."""
-        import app.tiles.router as tiles_module
+    def test_resolve_raster_access_not_raster_detail(self):
+        """Confirm vrt_dataset appears in a real guard line, not just comments."""
         import inspect
 
-        source = inspect.getsource(tiles_module.raster_auth_check)
+        import app.tiles.router as tiles_module
+
+        source = inspect.getsource(tiles_module._resolve_raster_access)
 
         # Find the guard line that checks record_type
         lines = [ln.strip() for ln in source.splitlines() if "vrt_dataset" in ln]

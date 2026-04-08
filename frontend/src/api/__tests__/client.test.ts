@@ -184,4 +184,54 @@ describe('apiFetch', () => {
     await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
     expect(useAuthStore.getState().token).toBeNull();
   });
+
+  // RES-N1: `TypeError: Failed to fetch` is what browsers throw when the
+  // network is unreachable (offline, DNS, CORS preflight block). Without
+  // the safeFetch wrapper, this propagated as an unhandled rejection through
+  // every TanStack Query. We now convert it to a friendly ApiError(status=0).
+  describe('network error handling (RES-N1)', () => {
+    it('converts TypeError from fetch into ApiError with status 0', async () => {
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+      try {
+        await apiFetch('/test/');
+        expect.fail('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ApiError);
+        expect((e as ApiError).status).toBe(0);
+        expect((e as ApiError).message).toMatch(/network/i);
+      }
+    });
+
+    it('converts TypeError from refresh-retry fetch into ApiError with status 0', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce({
+        access_token: 'new-token',
+        refresh_token: 'new-refresh',
+        token_type: 'bearer',
+        expires_in: 900,
+      });
+      useAuthStore.setState({ token: 'expired-token', refreshToken: 'my-refresh' });
+
+      // First call: 401 triggers refresh. Retry: network error.
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+      try {
+        await apiFetch('/protected/');
+        expect.fail('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(ApiError);
+        expect((e as ApiError).status).toBe(0);
+      }
+    });
+
+    it('lets non-TypeError fetch rejections propagate unchanged (e.g. AbortError)', async () => {
+      const abort = new DOMException('The operation was aborted', 'AbortError');
+      mockFetch.mockRejectedValueOnce(abort);
+
+      await expect(apiFetch('/test/')).rejects.toBe(abort);
+    });
+  });
 });

@@ -20,42 +20,23 @@ async def create_provider(
     data: OAuthProviderCreate,
     public_app_url: str = "http://localhost:8080",
 ) -> OAuthProvider:
-    """Create a new OAuth provider, encrypting the client secret.
-
-    For SAML providers, parses metadata_xml to extract IdP fields and
-    generates SP entity ID automatically.
-    """
-    # Base fields
-    kwargs: dict = {
-        "slug": data.slug,
-        "display_name": data.display_name,
-        "provider_type": data.provider_type,
-        "client_id": data.client_id or "saml-not-applicable",
-        "client_secret_encrypted": encrypt_secret(
-            data.client_secret or "saml-not-applicable"
-        ),
-        "discovery_url": data.discovery_url,
-        "authorize_url": data.authorize_url,
-        "token_url": data.token_url,
-        "userinfo_url": data.userinfo_url,
-        "scopes": data.scopes,
-        "default_role": data.default_role,
-        "group_claim": data.group_claim,
-        "group_role_mapping": data.group_role_mapping,
-        "enabled": data.enabled,
-    }
-
-    # SAML-specific: parse metadata XML to extract IdP fields
-    if data.provider_type == "saml" and data.metadata_xml:
-        from app.auth.saml.metadata import parse_idp_metadata
-
-        parsed = parse_idp_metadata(data.metadata_xml)
-        kwargs["idp_entity_id"] = parsed["entity_id"]
-        kwargs["idp_sso_url"] = parsed["sso_url"]
-        kwargs["idp_certificate"] = encrypt_secret(parsed["certificate"])
-        kwargs["sp_entity_id"] = f"{public_app_url}/saml/{data.slug}"
-
-    provider = OAuthProvider(**kwargs)
+    """Create a new OAuth provider, encrypting the client secret."""
+    provider = OAuthProvider(
+        slug=data.slug,
+        display_name=data.display_name,
+        provider_type=data.provider_type,
+        client_id=data.client_id,
+        client_secret_encrypted=encrypt_secret(data.client_secret),
+        discovery_url=data.discovery_url,
+        authorize_url=data.authorize_url,
+        token_url=data.token_url,
+        userinfo_url=data.userinfo_url,
+        scopes=data.scopes,
+        default_role=data.default_role,
+        group_claim=data.group_claim,
+        group_role_mapping=data.group_role_mapping,
+        enabled=data.enabled,
+    )
     db.add(provider)
     await db.flush()
     await db.refresh(provider)
@@ -107,17 +88,6 @@ async def update_provider(
         raw_secret = update_data.pop("client_secret")
         if raw_secret is not None:
             provider.client_secret_encrypted = encrypt_secret(raw_secret)
-
-    # Handle SAML metadata_xml: re-parse and update IdP fields
-    if "metadata_xml" in update_data:
-        metadata_xml = update_data.pop("metadata_xml")
-        if metadata_xml is not None:
-            from app.auth.saml.metadata import parse_idp_metadata
-
-            parsed = parse_idp_metadata(metadata_xml)
-            provider.idp_entity_id = parsed["entity_id"]
-            provider.idp_sso_url = parsed["sso_url"]
-            provider.idp_certificate = encrypt_secret(parsed["certificate"])
 
     for field, value in update_data.items():
         setattr(provider, field, value)

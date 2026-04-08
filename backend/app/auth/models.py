@@ -23,7 +23,7 @@ class User(Base):
             name="chk_users_status",
         ),
         CheckConstraint(
-            "auth_provider IN ('local', 'oidc', 'saml', 'oauth')",
+            "auth_provider IN ('local', 'oidc', 'oauth')",
             name="chk_users_auth_provider",
         ),
         {"schema": "catalog"},

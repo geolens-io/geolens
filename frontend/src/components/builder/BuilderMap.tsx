@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { findBasemapById, toMaplibreStyle } from '@/lib/basemap-utils';
@@ -16,6 +17,18 @@ import type { MapLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+/**
+ * Map builder canvas — the editable composition surface used by `MapBuilderPage`.
+ *
+ * Renders multiple authenticated tile layers stacked over a basemap, with
+ * imperative tile signing and live re-styling as the user edits paint, filters,
+ * and layer order in the sidebar. Mousemove is throttled with
+ * `requestAnimationFrame` to keep interaction responsive on layer-heavy maps.
+ *
+ * Pairs with the read-only `ViewerMap` for shared maps; both components share
+ * the `layer-adapters` registry and `map-sync` helpers so styling renders
+ * identically in editing and viewing modes.
+ */
 interface BuilderMapProps {
   layers: MapLayerResponse[];
   basemapStyle: string;
@@ -108,21 +121,24 @@ export function BuilderMap({
         return { url: absUrl };
       });
 
-      // Suppress expected raster tile errors (no-data tiles outside extent)
+      // Filter expected tile errors (no-data tiles outside extent) and
+      // surface anything else as a deduped toast so the editor knows a
+      // real error has occurred (RES-3). Previously silenced in production.
       errorHandlerRef.current = (e: { error: { message?: string; status?: number } }) => {
         const msg = e.error?.message ?? '';
-        // Only suppress errors from our managed tile sources
         if (msg.includes('source-') || e.error?.status === 404) {
           return; // Expected no-data tile, suppress
         }
-        // Non-tile errors: let MapLibre default handling proceed
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
+        toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
+          id: 'builder-map-error',
+        });
       };
       map.on('error', errorHandlerRef.current);
 
       onMapRef?.(map);
     },
-    [onMapRef],
+    [onMapRef, t],
   );
 
   // Re-add data layers after basemap switch using style.load event

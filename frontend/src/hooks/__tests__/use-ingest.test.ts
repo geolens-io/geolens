@@ -3,7 +3,6 @@ import { vi } from 'vitest';
 
 vi.mock('@/api/ingest', () => ({
   uploadFile: vi.fn(),
-  registerTable: vi.fn(),
   getJobStatus: vi.fn(),
   previewFile: vi.fn(),
   commitImport: vi.fn(),
