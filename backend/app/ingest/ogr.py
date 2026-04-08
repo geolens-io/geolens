@@ -387,6 +387,7 @@ async def run_ogr2ogr_service(
     service_type: str,
     timeout: float = 1800.0,
     token: str | None = None,
+    is_non_spatial: bool = False,
 ) -> None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
@@ -397,6 +398,9 @@ async def run_ogr2ogr_service(
         db_conn_str: PG connection string for ogr2ogr
         service_type: "wfs" or "arcgis_featureserver"
         timeout: Seconds before killing subprocess (default 30 min)
+        is_non_spatial: When True, omit geometry-specific flags (-nlt, -t_srs,
+            GEOMETRY_NAME) to avoid dropping attribute columns for tables with
+            no geometry (ArcGIS Table layers, non-spatial WFS, etc.)
     """
     cmd = [
         "ogr2ogr",
@@ -407,18 +411,10 @@ async def run_ogr2ogr_service(
         "-overwrite",
         "-nln",
         f"data.{table_name}",
-        "-nlt",
-        "PROMOTE_TO_MULTI",
-        "-lco",
-        "GEOMETRY_NAME=geom",
         "-lco",
         "FID=gid",
         "-lco",
         "PRECISION=NO",
-        "-lco",
-        "SPATIAL_INDEX=NONE",
-        "-t_srs",
-        "EPSG:4326",
         "--config",
         "PG_USE_COPY",
         "YES",
@@ -426,6 +422,19 @@ async def run_ogr2ogr_service(
         "GDAL_HTTP_TIMEOUT",
         "120",
     ]
+
+    if not is_non_spatial:
+        # Spatial layers: promote to multi-geometry and reproject to WGS84
+        cmd += [
+            "-nlt",
+            "PROMOTE_TO_MULTI",
+            "-lco",
+            "GEOMETRY_NAME=geom",
+            "-lco",
+            "SPATIAL_INDEX=NONE",
+            "-t_srs",
+            "EPSG:4326",
+        ]
 
     if layer_name:
         cmd.append(layer_name)

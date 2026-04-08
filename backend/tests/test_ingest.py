@@ -625,3 +625,125 @@ class TestCsvNonSpatialPipeline:
                 text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
             )
             await test_db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# ArcGIS column_info fallback test (260408-iny)
+# ---------------------------------------------------------------------------
+
+
+async def _get_admin_id_for_ingest(session):
+    """Helper to get admin user id for Task 3 tests."""
+    from tests.factories import get_user_id
+
+    return await get_user_id(session, "admin")
+
+
+@pytest.mark.anyio
+async def test_arcgis_table_ingest_populates_column_info(test_db_session):
+    """When ogr2ogr creates a table with no attribute columns (only gid),
+    the ArcGIS fields fallback in _finalize_ingest should populate column_info
+    from source_columns stored in user_metadata.
+
+    Verifies _arcgis_type_to_column_type helper and the fallback branch.
+    """
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from app.datasets.models import Dataset
+    from app.ingest.tasks import _arcgis_type_to_column_type, _finalize_ingest
+    from app.jobs.models import IngestJob
+
+    admin_id = await _get_admin_id_for_ingest(test_db_session)
+
+    source_columns = [
+        {"name": "Opportunity_Number", "type": "esriFieldTypeString"},
+        {"name": "Federal_Agency", "type": "esriFieldTypeString"},
+        {"name": "Category", "type": "esriFieldTypeString"},
+        {"name": "Opening_Date", "type": "esriFieldTypeDate"},
+        {"name": "FID2", "type": "esriFieldTypeOID"},
+    ]
+    user_metadata = {
+        "service_type": "ArcGIS:FeatureServer",
+        "layer_id": 0,
+        "geometry_type": None,
+        "source_columns": source_columns,
+        "title": "ArcGIS Column Info Test",
+        "visibility": "private",
+    }
+
+    job = IngestJob(
+        source_filename="TestTable",
+        source_url="https://example.arcgis.com/FeatureServer/0",
+        source_layer="0",
+        created_by=admin_id,
+        status="running",
+        user_metadata=user_metadata,
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+
+    # Simulate Case 2: ogr2ogr created only the gid column (no attribute columns)
+    table_name = f"tbl_arcgis_{_uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS data.{table_name} "
+            f"(gid serial PRIMARY KEY)"
+        )
+    )
+    await test_db_session.commit()
+
+    try:
+        await _finalize_ingest(
+            session=test_db_session,
+            job=job,
+            table_name=table_name,
+            user_id=str(admin_id),
+            has_geometry=False,
+            effective_srid=None,
+            source_format="arcgis_featureserver",
+            source_filename="TestTable",
+            original_srid=None,
+            user_metadata=user_metadata,
+        )
+
+        from sqlalchemy import select
+
+        result = await test_db_session.execute(
+            select(Dataset).where(Dataset.table_name == table_name)
+        )
+        dataset = result.scalar_one()
+
+        assert dataset.column_info is not None
+        assert len(dataset.column_info) == 5
+
+        names = [c["name"] for c in dataset.column_info]
+        assert "Opportunity_Number" in names
+        assert "Federal_Agency" in names
+        assert "Opening_Date" in names
+
+        # Verify type mapping
+        by_name = {c["name"]: c for c in dataset.column_info}
+        assert by_name["Opportunity_Number"]["type"] == "text"
+        assert by_name["Opening_Date"]["type"] == "timestamp without time zone"
+        assert by_name["FID2"]["type"] == "integer"
+
+        # Verify ordinal_position is sequential from 1
+        assert by_name["Opportunity_Number"]["ordinal_position"] == 1
+        assert by_name["FID2"]["ordinal_position"] == 5
+
+        # Verify _arcgis_type_to_column_type helper directly
+        assert _arcgis_type_to_column_type("esriFieldTypeString") == "text"
+        assert _arcgis_type_to_column_type("esriFieldTypeInteger") == "integer"
+        assert _arcgis_type_to_column_type("esriFieldTypeDouble") == "double precision"
+        assert _arcgis_type_to_column_type("esriFieldTypeDate") == "timestamp without time zone"
+        assert _arcgis_type_to_column_type("esriFieldTypeOID") == "integer"
+        assert _arcgis_type_to_column_type("esriFieldTypeUnknown") == "text"  # fallback
+
+    finally:
+        await test_db_session.rollback()
+        async with test_db_session.begin_nested():
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+            )
