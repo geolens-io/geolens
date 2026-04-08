@@ -24,9 +24,19 @@ import json
 from pathlib import Path
 from typing import Any
 
+import sys
+from pathlib import Path as _Path
+
 import httpx
 
-from scripts.demo.lib.fixture_schema import resolve_fixture
+# Support both: imported as scripts.demo.lib.apply_fixture (from project root)
+# and imported as lib.apply_fixture (from scripts/demo/ via orchestrator sys.path insert).
+try:
+    from scripts.demo.lib.fixture_schema import resolve_fixture
+except ModuleNotFoundError:
+    # When called from the orchestrator context (sys.path includes scripts/demo/)
+    sys.path.insert(0, str(_Path(__file__).parent))
+    from fixture_schema import resolve_fixture
 
 
 async def apply_fixture(
