@@ -1,7 +1,8 @@
 ---
 quick_id: 260408-aa5
 authored: 2026-04-08
-status: Draft for review
+reviewed: 2026-04-08
+status: Reviewed — all open questions resolved, ready for ROADMAP promotion
 deliverable: design doc (no code)
 ---
 
@@ -9,7 +10,8 @@ deliverable: design doc (no code)
 
 **Quick task:** 260408-aa5
 **Authored:** 2026-04-08
-**Status:** Draft for review
+**Reviewed:** 2026-04-08
+**Status:** Reviewed — all 7 open questions resolved (see §8). Ready for ROADMAP promotion.
 
 ---
 
@@ -322,30 +324,30 @@ Phase A and Phase B share zero code paths. They can be scheduled sequentially or
 
 ---
 
-## 8. Open Questions
+## 8. Open Questions — RESOLVED 2026-04-08
 
-These questions must be resolved before any of Phases A, B, or C is promoted to a real ROADMAP entry.
+All 7 questions were reviewed and resolved by the project owner on 2026-04-08. Each accepted the recommended default. The resolutions below are the locked decisions that should carry forward into Phase A / B / C planning.
 
-1. **3D toggle UX: per-session vs. persisted?**
-Should the 3D mode toggle persist on the layer or dataset record, or reset to 2D each session? Persisting requires a new column on the `MapLayer` model and a migration. Recommendation: session-only for v1 to avoid schema changes. Re-evaluate after Phase A user feedback.
+1. **3D toggle UX: per-session vs. persisted?** — **RESOLVED: Session-only for v1.**
+Resets to 2D each session. No schema changes for Phase A. Re-evaluate after Phase A ships and user feedback arrives.
 
-2. **DEM detection heuristic: automatic or explicit?**
-Is "single float band" sufficient to flag a raster as a DEM, or should we require an explicit checkbox at upload time? A NDVI raster is also single-band float and would be mis-flagged. Recommendation: soft heuristic (single float band, name/tag pattern) plus a manual override toggle in the dataset metadata editor.
+2. **DEM detection heuristic: automatic or explicit?** — **RESOLVED: Soft heuristic + manual override.**
+Detection uses single-band float + name/tag pattern matching, plus a manual `is_dem` toggle in the dataset metadata editor. This catches false positives like NDVI rasters while keeping the happy path friction-free.
 
-3. **Default terrain exaggeration: fixed or adjustable?**
-Should terrain exaggeration be hardcoded or exposed as a user-adjustable slider? The react-maplibre official example uses `1.5`. MapTiler tutorials show values between 1.0 and 2.5. Recommendation: hardcode `1.5` for the Phase A spike; add a "Terrain Exaggeration" slider in a later UI polish pass.
+3. **Default terrain exaggeration: fixed or adjustable?** — **RESOLVED: Hardcode `1.5` for Phase A.**
+Matches the react-maplibre official example. Add a user-adjustable slider in a later UI polish pass only if demand justifies it.
 
-4. **Embed token compatibility with terrain tiles: verified at runtime?**
-The embed-token analysis above (Section 3) concludes that terrain tiles flow through the existing `X-Embed-Token` proxy path and need no new auth plumbing. This was verified by code reading only. Recommendation: add a smoke test for embed-token-gated terrain rendering to the Phase A acceptance criteria.
+4. **Embed token compatibility with terrain tiles: verified at runtime?** — **RESOLVED: Add a runtime smoke test to Phase A acceptance criteria.**
+The code-reading analysis concluded terrain tiles flow through the existing `X-Embed-Token` proxy path, but Phase A must include an explicit smoke test that renders terrain in an embed-token context before the phase is marked complete.
 
-5. **Height column backwards compatibility on re-upload.**
-If a layer is styled with `fill-extrusion-height: ["get", "height"]` and a future re-upload removes the `height` column, the `coalesce ... 0` fallback degrades gracefully to flat polygons — but the layer config is silently stale. Recommendation: surface a warning in the layer style editor when a bound column is absent, using the existing schema-diff preview infrastructure (precedent from v1.5).
+5. **Height column backwards compatibility on re-upload.** — **RESOLVED: Surface a warning in the layer style editor.**
+Use the existing schema-diff preview infrastructure (v1.5 precedent) to warn when a bound style column is absent after re-upload. The `coalesce ... 0` fallback still degrades gracefully to flat polygons — the warning just prevents silent drift.
 
-6. **POLYHEDRALSURFACE / TIN handling.**
-If a user uploads CityGML or a TIN file, the current pipeline accepts it and PostGIS stores it correctly. Rendering it requires 3D Tiles or glTF — out of scope. Add a deferred-decision item to STATE.md when Phase B is promoted: decide whether to surface a UI warning for these geometry types or silently render their 2D projection.
+6. **POLYHEDRALSURFACE / TIN handling.** — **RESOLVED: Defer the UI-warning decision to Phase B.**
+Current pipeline accepts these geometries and renders their 2D projection silently. Phase B must add a STATE.md decision entry for whether to surface a warning or keep the silent-projection behavior.
 
-7. **Builder map (edit mode) 3D support: Phase A or later?**
-`BuilderMap.tsx` and `ViewerMap.tsx` share the layer adapter registry, but the builder has draw tools and a style editor that both need 3D-mode awareness. Recommendation: ship Phase A in `ViewerMap.tsx` only; defer `BuilderMap.tsx` 3D support to a follow-on phase.
+7. **Builder map (edit mode) 3D support: Phase A or later?** — **RESOLVED: Viewer-only in Phase A; defer builder.**
+Phase A ships 3D in `ViewerMap.tsx` only. A follow-on phase (call it "Phase A.1" or schedule separately) will add 3D-aware draw tools and style editor to `BuilderMap.tsx`. This keeps Phase A's scope at ~5–8 tasks.
 
 ---
 

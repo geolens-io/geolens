@@ -260,3 +260,61 @@ Plans:
 | 215. Homepage | v14.0 | 0/? | Not started | - |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
+
+## Backlog
+
+Unsequenced ideas captured for future milestones. Use `/gsd-review-backlog` to promote to an active milestone.
+
+### Phase 999.1: 3D Viewer Toggle (Terrain + Extrusions) (BACKLOG)
+
+**Goal:** Add a 3D mode toggle to `ViewerMap.tsx` that enables MapLibre terrain (via Titiler `terrainrgb` algorithm on DEM rasters) and building extrusions (via `fill-extrusion` layer reading a height column). Viewer-only — Builder 3D support is a separate follow-on.
+
+**Source:** Promoted from quick task [260408-aa5](../quick/260408-aa5-3d-data-and-maps-support/260408-aa5-DESIGN.md) — feasibility spike recommended shipping this as the first 3D slice. All 7 open questions resolved in the design doc.
+
+**Sizing:** MEDIUM (~5-8 tasks, frontend-heavy)
+**Dependencies:** None — works on data already in PostGIS
+**Requirements:** TBD — draft from DESIGN.md §7 Phase A row
+
+**Key decisions locked from design doc:**
+- Session-only 3D toggle (no schema changes)
+- Hardcoded terrain exaggeration `1.5`
+- Soft DEM detection heuristic + manual `is_dem` override
+- Embed-token smoke test is an acceptance criterion
+- Warn in layer style editor when a bound height column is removed on re-upload
+- Viewer-only scope; defer BuilderMap.tsx 3D
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.2: PostGIS 3D Geometry Detection & Metadata (BACKLOG)
+
+**Goal:** Add backend detection of 3D geometry on ingest. Record `ST_NDims`, `ST_Is3D`, `ST_ZMin`, `ST_ZMax` on the dataset record. Surface Z range in the dataset detail UI ("This dataset has 3D geometry — Z range: 12m to 847m"). Optional attribute-promotion strategy for point geometries (`elev` column).
+
+**Source:** Promoted from quick task [260408-aa5](../quick/260408-aa5-3d-data-and-maps-support/260408-aa5-DESIGN.md) — the design doc's critical finding is that Z survives GeoLens ingestion but is invisible to MVT. This phase surfaces Z in metadata and makes it queryable.
+
+**Sizing:** MEDIUM (~6-10 tasks)
+**Dependencies:** None — can parallelize with Phase 999.1
+**Requirements:** TBD — draft from DESIGN.md §7 Phase B row + §5 Pillar 3
+
+**Key decisions locked from design doc:**
+- Alembic migration adds `is_3d`, `n_dims`, `z_min`, `z_max` to the dataset model
+- Attribute promotion for point geometries is in scope (new `elev` numeric column)
+- POLYHEDRALSURFACE / TIN handling: defer the UI-warning decision; add a STATE.md decision entry when this phase is promoted
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.3: GeoJSON-Z Delivery Endpoint (BACKLOG)
+
+**Goal:** Add a `/api/datasets/{id}/features.geojson?include_z=true` endpoint that streams RFC 7946 GeoJSON with three-coordinate positions. Full auth + RBAC parity with existing endpoints. Feature count cap (recommended: 5,000). Frontend decision logic: use GeoJSON source for small 3D datasets; fall back to MVT for large ones.
+
+**Source:** Promoted from quick task [260408-aa5](../quick/260408-aa5-3d-data-and-maps-support/260408-aa5-DESIGN.md) — this is the non-MVT delivery path needed to expose true PostGIS 3D geometry (not just attribute heights) to the client. Deferred until user demand justifies it.
+
+**Sizing:** LARGE (~10-15 tasks)
+**Dependencies:** Phase 999.2 must ship first (needs `is_3d` metadata)
+**Requirements:** TBD — draft from DESIGN.md §7 Phase C row + §5 Strategy 2
+
+**Key decisions locked from design doc:**
+- Feature count cap at 5,000 (preview path, not production tile path)
+- Frontend auto-decides MVT vs GeoJSON-Z based on dataset size and `is_3d` flag
+- Not recommended to ship unless Phases 999.1 and 999.2 reveal concrete user demand
