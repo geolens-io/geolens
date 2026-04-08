@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
-status: executing
-stopped_at: Phase 214 UI-SPEC approved
-last_updated: "2026-04-05T13:31:53.301Z"
-last_activity: 2026-04-05
+status: planning
+stopped_at: Phase 214 shipped; Phase 215 not yet planned
+last_updated: "2026-04-08T00:00:00.000Z"
+last_activity: 2026-04-08
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 6
   completed_plans: 6
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 214 — product-preview-assets
+**Current focus:** Phase 215 — Homepage (v14.0 marketing site)
 
 ## Current Position
 
 Phase: 215
-Plan: Not started
-Status: Executing Phase 214
+Plan: Not started (no CONTEXT.md yet — discuss-phase recommended)
+Status: Phase 214 shipped; Phase 215 ready to discuss/plan
 Last activity: 2026-04-08 - Completed quick task 260408-aa5: 3d data and maps support
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50% (3/6 phases complete in v14.0)
 
 ## Performance Metrics
 
@@ -88,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-05T12:50:02.930Z
-Stopped at: Phase 214 UI-SPEC approved
-Resume file: .planning/phases/214-product-preview-assets/214-UI-SPEC.md
+Last session: 2026-04-08T00:00:00.000Z
+Stopped at: Session resumed — Phase 214 shipped and verified; Phase 215 Homepage ready to discuss/plan
+Resume file: (none — Phase 215 has no CONTEXT.md yet)
