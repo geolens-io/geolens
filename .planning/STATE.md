@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: planning
-stopped_at: Phase 214 shipped; Phase 215 not yet planned
-last_updated: "2026-04-08T00:00:00.000Z"
+stopped_at: Quick task 260408-iny shipped; Phase 215 Homepage still pending
+last_updated: "2026-04-08T15:07:53-04:00"
 last_activity: 2026-04-08
 progress:
   total_phases: 6
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 215
 Plan: Not started (no CONTEXT.md yet — discuss-phase recommended)
 Status: Phase 214 shipped; Phase 215 ready to discuss/plan
-Last activity: 2026-04-08 - Completed quick task 260408-aa5: 3d data and maps support
+Last activity: 2026-04-08 - Completed quick task 260408-iny: table record_type enhancement pass
 
 Progress: [█████░░░░░] 50% (3/6 phases complete in v14.0)
 
@@ -85,9 +85,10 @@ None yet.
 | 260405-9k2 | lets cleanup the repo and get it ready for public release | 2026-04-05 | b63b47e9 | Needs Review | [260405-9k2-lets-cleanup-the-repo-and-get-it-ready-f](./quick/260405-9k2-lets-cleanup-the-repo-and-get-it-ready-f/) |
 | 260405-dn1 | Review landing page for enterprise/community value — consider extracting to getgeolens.com | 2026-04-05 | 4f3d6e15 | Verified | [260405-dn1-review-landing-page-for-enterprise-commu](./quick/260405-dn1-review-landing-page-for-enterprise-commu/) |
 | 260408-aa5 | 3d data and maps support | 2026-04-08 | 9333cf5d | Verified | [260408-aa5-3d-data-and-maps-support](./quick/260408-aa5-3d-data-and-maps-support/) |
+| 260408-iny | review the table data type — full enhancement pass | 2026-04-08 | 482dc7eb | Needs Review | [260408-iny-review-the-table-data-type-why-are-there](./quick/260408-iny-review-the-table-data-type-why-are-there/) |
 
 ## Session Continuity
 
-Last session: 2026-04-08T00:00:00.000Z
-Stopped at: Session resumed — Phase 214 shipped and verified; Phase 215 Homepage ready to discuss/plan
+Last session: 2026-04-08T15:07:53-04:00
+Stopped at: Quick task 260408-iny shipped (table record_type enhancement pass, 7 commits); Phase 215 Homepage still pending discuss/plan
 Resume file: (none — Phase 215 has no CONTEXT.md yet)
