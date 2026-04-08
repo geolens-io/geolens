@@ -35,7 +35,7 @@ All services (db, migrate, api, worker, frontend, titiler) should show as health
 ### Making changes
 
 - **Backend (FastAPI):** Edit files under `backend/`. The API container mounts the source directory and reloads on changes.
-- **Frontend (React):** Edit files under `frontend/`. Vite provides hot module replacement through the Nginx proxy.
+- **Frontend (React):** Edit files under `frontend/`. The `frontend` Docker service runs Vite, which provides hot module replacement automatically — edits to `frontend/src/` reload in the browser within a second.
 - **Migrations:** Add new Alembic migrations under `backend/alembic/versions/`. Run with `docker compose exec api alembic upgrade head`.
 
 ### Running tests

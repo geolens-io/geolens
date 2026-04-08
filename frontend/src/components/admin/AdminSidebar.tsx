@@ -65,6 +65,15 @@ const settingsItems = [
   { labelKey: 'adminNav.configOps', to: '/admin/config-ops', icon: Wrench, enterpriseOnly: false },
 ] as const;
 
+/**
+ * Admin section navigation sidebar.
+ *
+ * Renders the admin navigation tree (Overview, Users, Jobs, Audit, Shared Maps,
+ * Settings sub-tabs, Config Ops) with active-route highlighting, badge counts
+ * for pending users and failed jobs (live via `usePendingCount` /
+ * `useFailedJobCount`), and visibility filtering for `enterpriseOnly` items
+ * via the `useEdition` hook.
+ */
 export function AdminSidebar() {
   const { pathname } = useLocation();
   const { t } = useTranslation();
@@ -163,7 +172,8 @@ export function AdminSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip={t('adminNav.backToApp')}>
-              <Link to="/search">
+              {/* CLEAN-N5: search workspace is "/" after landing page removal. */}
+              <Link to="/">
                 <ArrowLeft />
                 <span>{t('adminNav.backToApp')}</span>
               </Link>

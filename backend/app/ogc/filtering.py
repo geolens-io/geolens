@@ -1,4 +1,21 @@
-"""OGC API Features Part 3 queryables, schema introspection, and CQL2 filtering."""
+"""OGC API Features Part 3 queryables, schema introspection, and CQL2 filtering.
+
+# What this module does
+# ---------------------
+# OGC API Features Part 3 ("Filtering") defines the `/queryables` endpoint that
+# tells clients which attributes are filterable for each collection, and the
+# `filter` query parameter which accepts CQL2 expressions. This module:
+#
+#   1. Builds the `DatasetQueryables` JSON Schema document from a dataset's
+#      `column_info` (used by `/collections/{id}/queryables`)
+#   2. Parses CQL2-Text expressions into SQL WHERE fragments via cql2-text
+#   3. Validates queryables against the dataset schema before query execution
+#
+# # CQL2 vs CQL1
+# Only CQL2 is supported. CQL1 (the legacy WFS 2.0 filter syntax) is NOT
+# accepted — clients must use the modern CQL2-Text or CQL2-JSON encoding
+# defined in OGC 21-065.
+"""
 
 import json
 from datetime import date, datetime
@@ -91,7 +108,10 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
             ValueError,
             KeyError,
         ) as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid CQL2 expression: {e}",
+            )
     elif filter_lang == "cql2-json":
         from pygeofilter.parsers.cql2_json import parse
 
@@ -100,11 +120,17 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
                 json.loads(filter_expr) if isinstance(filter_expr, str) else filter_expr
             )
         except json.JSONDecodeError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid CQL2 expression: {e}",
+            )
         try:
             return parse(filter_dict)
         except (ValueError, KeyError, TypeError) as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid CQL2 expression: {e}",
+            )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,7 +138,9 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
         )
 
 
-def apply_cql2_filter(stmt: Any, filter_expr: str, filter_lang: str = "cql2-text") -> Any:
+def apply_cql2_filter(
+    stmt: Any, filter_expr: str, filter_lang: str = "cql2-text"
+) -> Any:
     """Parse a CQL2 expression and apply it as a WHERE clause to a SQLAlchemy statement.
 
     Args:
@@ -132,7 +160,10 @@ def apply_cql2_filter(stmt: Any, filter_expr: str, filter_lang: str = "cql2-text
     try:
         sa_filter = to_filter(ast, FIELD_MAPPING)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid CQL2 expression: {e}",
+        )
     return stmt.where(sa_filter)
 
 

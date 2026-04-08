@@ -373,9 +373,7 @@ async def clean_tables(test_db_session):
     ]
     try:
         for table in tables_to_truncate:
-            await test_db_session.execute(
-                text(f"TRUNCATE TABLE {table} CASCADE")
-            )
+            await test_db_session.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
         await test_db_session.commit()
     except Exception:
         # Best-effort cleanup; don't mask test failures

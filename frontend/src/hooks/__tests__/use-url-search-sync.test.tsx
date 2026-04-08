@@ -9,14 +9,15 @@ describe('useUrlSearchSync', () => {
     act(() => {
       useSearchStore.setState(initialSearchState, true);
     });
-    window.history.replaceState({}, '', '/search');
+    // CLEAN-N6: search workspace now lives at "/" (was "/search").
+    window.history.replaceState({}, '', '/');
   });
 
   it('restores repeated keyword params from the URL into the search store', async () => {
     window.history.replaceState(
       {},
       '',
-      '/search?q=roads&keywords=wetlands&keywords=hydrology&exclude_synthetic=false',
+      '/?q=roads&keywords=wetlands&keywords=hydrology&exclude_synthetic=false',
     );
 
     renderHook(() => useUrlSearchSync());
@@ -28,7 +29,7 @@ describe('useUrlSearchSync', () => {
     });
   });
 
-  it('keeps synchronized params on the /search workspace route', async () => {
+  it('keeps synchronized params on the root workspace route', async () => {
     const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
 
     renderHook(() => useUrlSearchSync());
@@ -42,7 +43,7 @@ describe('useUrlSearchSync', () => {
       expect(replaceStateSpy).toHaveBeenLastCalledWith(
         null,
         '',
-        '/search?q=roads&keywords=wetlands',
+        '/?q=roads&keywords=wetlands',
       );
     });
   });

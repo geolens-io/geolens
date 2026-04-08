@@ -111,10 +111,20 @@ async def get_dataset_rows_endpoint(
 @router.get("/{dataset_id}/validate/", response_model=ValidationResultResponse)
 async def validate_dataset(
     dataset_id: uuid.UUID,
+    refresh: bool = Query(
+        False,
+        description="Recompute the quality score instead of returning the cached value.",
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ValidationResultResponse:
-    """Get validation status for a dataset. Shows hard errors and soft warnings."""
+    """Get validation status for a dataset. Shows hard errors and soft warnings.
+
+    By default returns the quality score persisted at ingest time. Pass
+    ``?refresh=true`` to recompute and persist a fresh score (expensive on
+    large tables — issues a full scan per non-geometry column coalesced into
+    a single query).
+    """
     result = await db.execute(
         select(DatasetModel)
         .options(joinedload(DatasetModel.record))
@@ -129,9 +139,16 @@ async def validate_dataset(
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     validation = await run_validation(db, dataset.record, dataset)
-    quality = await compute_quality_score(
-        db, dataset.table_name, dataset.column_info or [], dataset
-    )
+
+    if refresh or dataset.quality_detail is None:
+        quality = await compute_quality_score(
+            db, dataset.table_name, dataset.column_info or [], dataset
+        )
+        dataset.quality_detail = quality
+        await db.commit()
+    else:
+        quality = dataset.quality_detail
+
     return ValidationResultResponse(
         is_valid=validation.is_valid,
         errors=[
@@ -201,7 +218,9 @@ async def update_publication_status(
     )
     dataset = dataset.unique().scalar_one_or_none()
     if not dataset:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
 
     current = dataset.record.record_status
     target = body.status

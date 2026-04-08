@@ -124,11 +124,13 @@ export async function updateBranding(data: Partial<BrandingConfig>): Promise<voi
 
 // --- OAuth provider types and endpoints (admin-only) ---
 
+export type OAuthProviderType = 'google' | 'microsoft' | 'oidc';
+
 export interface OAuthProviderConfig {
   id: string;
   slug: string;
   display_name: string;
-  provider_type: 'google' | 'microsoft' | 'oidc' | 'saml';
+  provider_type: OAuthProviderType;
   client_id: string;
   discovery_url: string | null;
   authorize_url: string | null;
@@ -141,16 +143,14 @@ export interface OAuthProviderConfig {
   enabled: boolean;
   created_at: string;
   updated_at: string;
-  idp_entity_id?: string | null;
-  sp_entity_id?: string | null;
 }
 
 export interface OAuthProviderCreateData {
   slug: string;
   display_name: string;
-  provider_type: 'google' | 'microsoft' | 'oidc' | 'saml';
-  client_id?: string;
-  client_secret?: string;
+  provider_type: OAuthProviderType;
+  client_id: string;
+  client_secret: string;
   discovery_url?: string | null;
   authorize_url?: string | null;
   token_url?: string | null;
@@ -160,7 +160,6 @@ export interface OAuthProviderCreateData {
   group_claim?: string | null;
   group_role_mapping?: Record<string, string> | null;
   enabled?: boolean;
-  metadata_xml?: string | null;
 }
 
 export type OAuthProviderUpdateData = Partial<OAuthProviderCreateData>;

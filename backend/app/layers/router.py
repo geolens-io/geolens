@@ -33,7 +33,7 @@ async def create_layer_endpoint(
     body: CreateLayerRequest,
     user: User = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
-):
+) -> CreateLayerResponse:
     """Create a new empty spatial layer.
 
     Creates a PostGIS table with a typed geometry column, runs the full
@@ -88,7 +88,7 @@ async def add_column_endpoint(
     body: AddColumnRequest,
     user: User = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
-):
+) -> ColumnListResponse:
     """Add a column to an existing layer."""
     dataset = await get_dataset(db, dataset_id)
     if not dataset:
@@ -139,7 +139,7 @@ async def drop_column_endpoint(
     column_name: str,
     user: User = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
-):
+) -> ColumnListResponse:
     """Remove a column from an existing layer."""
     dataset = await get_dataset(db, dataset_id)
     if not dataset:

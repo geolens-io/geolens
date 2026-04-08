@@ -451,7 +451,9 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
         raw = all_settings.get(cfg.key)
         if raw is not None:
             # AppSetting.value is JSONB — unwrap the stored scalar wrapper
-            settings_dict[cfg.key] = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+            settings_dict[cfg.key] = (
+                raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+            )
         else:
             settings_dict[cfg.key] = cfg.env_default
 

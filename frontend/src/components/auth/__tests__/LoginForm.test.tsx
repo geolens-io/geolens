@@ -97,7 +97,7 @@ describe('LoginForm', () => {
     });
   });
 
-  it('navigates to /search when no state.from is present', async () => {
+  it('navigates to / (search workspace) when no state.from is present', async () => {
     mockLogin.mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<LoginForm />);
@@ -107,7 +107,7 @@ describe('LoginForm', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/search', { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
     });
   });
 
@@ -122,7 +122,7 @@ describe('LoginForm', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/search', { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
     });
   });
 

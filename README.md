@@ -17,7 +17,7 @@ cp .env.example .env && docker compose up -d
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-hero.png" alt="GeoLens catalog with semantic search and map preview" width="900" />
+  <img src="docs/images/geolens-map-builder.png" alt="GeoLens map builder composing multi-layer interactive maps" width="900" />
   <br />
   <em>Upload a shapefile, get a searchable, previewable, exportable dataset in minutes</em>
 </p>
@@ -108,12 +108,6 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/geolens-map-builder.png" alt="GeoLens Map Builder" width="900" />
-  <br />
-  <em>Map builder with multi-layer composition, styling controls, and shareable links</em>
-</p>
-
-<p align="center">
   <img src="docs/images/geolens-catalog.png" alt="GeoLens Catalog View" width="900" />
   <br />
   <em>Catalog view with search, spatial filters, and dataset cards</em>
@@ -127,7 +121,7 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 
 ## Quick Start
 
-**Prerequisites:** Docker Engine 24+ and Docker Compose v2.
+**Prerequisites:** Docker Engine 24+ and Docker Compose v2. Minimum host: 4 GB RAM and 10 GB free disk for the base stack and a small dataset; 8 GB+ RAM recommended for raster work or catalogs above ~100 datasets. See [Resource Sizing](docs/resource-sizing.md) for production sizing.
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git
@@ -193,8 +187,6 @@ All configuration is managed through environment variables in `.env`. See the [C
 | [Configuration Reference](docs/configuration-reference.md) | All environment variables and their defaults |
 | [Admin Guide](docs/admin-guide.md) | User management, datasets, system health |
 | [Cloud Deployment](docs/cloud-deployment.md) | AWS, GCP, and DigitalOcean deployment guides |
-| [AI Map Features](docs/llm-map-features.md) | Chat-driven map building with LLMs |
-| [AI Data Features](docs/llm-data-features.md) | Semantic search and auto-generated metadata |
 | [Widget Development](docs/widget-development.md) | Build custom map builder widgets |
 | [API Reference](docs/install-guide.md#verify-services) | Interactive Swagger UI at `/api/docs` |
 

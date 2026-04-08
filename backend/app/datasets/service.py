@@ -653,7 +653,15 @@ async def update_user_metadata(
 
             await embed_record.defer_async(record_id=str(record.id))
         except Exception:
-            pass  # Non-fatal -- embedding will catch up on next edit or backfill
+            # Non-fatal -- embedding will catch up on next edit or backfill.
+            # Log with traceback so operators can notice if this fails consistently
+            # (e.g., broker down) instead of silently dropping edits from the index.
+            logger.warning(
+                "Failed to defer embed_record task for record %s (dataset %s)",
+                record.id,
+                dataset.id,
+                exc_info=True,
+            )
 
     return dataset
 
@@ -773,7 +781,14 @@ async def get_dataset_rows(
         # Compute next_cursor from last row's gid (None when no more pages)
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except Exception:
-        # Table may not exist (dropped, migration issue, etc.)
+        # Table may not exist (dropped, migration issue, etc.). Log the
+        # failure so consistent errors are visible instead of silently
+        # returning empty results on every request (RES-N9).
+        logger.warning(
+            "Failed to query rows from data table %s",
+            table_name,
+            exc_info=True,
+        )
         return [], 0, column_info or [], None
 
     return rows, approx_total, column_info or [], next_cursor
@@ -971,6 +986,15 @@ async def reset_attribute(
                 values = [row[0] for row in result.all() if row[0] is not None]
                 attr.example_values = values if values else None
             except Exception:
+                # Sampling is best-effort; don't fail the reset because we
+                # couldn't gather example values, but do log so operators can
+                # notice if this breaks consistently (RES-N9).
+                logger.warning(
+                    "Failed to sample example_values for %s.%s",
+                    table_name,
+                    col_name,
+                    exc_info=True,
+                )
                 attr.example_values = None
         else:
             attr.example_values = None
@@ -1102,19 +1126,29 @@ async def create_relationship(
 async def list_relationships(
     session: AsyncSession,
     dataset_id: uuid.UUID,
+    *,
+    skip: int = 0,
+    limit: int | None = None,
 ) -> list:
-    """List all FK relationships where this dataset is the source.
+    """List FK relationships where this dataset is the source.
 
-    Joins with records table to include target_dataset_title.
+    Joins with records table to include target_dataset_title. Supports
+    optional ``skip``/``limit`` pagination (PERF-N16) to bound response
+    size for datasets with hundreds of auto-detected relationships.
     """
     from app.datasets.models import DatasetRelationship
 
-    result = await session.execute(
+    stmt = (
         select(DatasetRelationship, Record.title)
         .outerjoin(Record, DatasetRelationship.target_dataset_id == Record.id)
         .where(DatasetRelationship.source_dataset_id == dataset_id)
         .order_by(DatasetRelationship.created_at)
     )
+    if skip:
+        stmt = stmt.offset(skip)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await session.execute(stmt)
     rows = result.all()
     items = []
     for rel, title in rows:
@@ -1178,33 +1212,51 @@ async def auto_detect_relationships(
     if not candidates:
         return []
 
-    created: list[DatasetRelationship] = []
-
-    for col_name in candidates:
-        # Find other datasets with this column marked as identifier
-        result = await session.execute(
-            select(AttributeMetadata.dataset_id, Dataset.record_id)
-            .join(Dataset, AttributeMetadata.dataset_id == Dataset.id)
-            .where(
-                AttributeMetadata.field_name == col_name,
-                AttributeMetadata.semantic_role == "identifier",
-                Dataset.record_id != record_id,  # skip self-references
-            )
+    # PERF-N4: collapse the previous per-candidate loop (N queries for the
+    # identifier match + N queries for the existence check) into two bulk
+    # queries using IN (...). For a dataset with 30 *_id candidates that's
+    # 60 round trips → 2 round trips.
+    match_result = await session.execute(
+        select(
+            AttributeMetadata.field_name,
+            Dataset.record_id,
         )
-        matches = result.all()
+        .join(Dataset, AttributeMetadata.dataset_id == Dataset.id)
+        .where(
+            AttributeMetadata.field_name.in_(candidates),
+            AttributeMetadata.semantic_role == "identifier",
+            Dataset.record_id != record_id,  # skip self-references
+        )
+    )
+    # Group matches by column name so we can produce one relationship per
+    # (source_column, target_record_id).
+    matches_by_col: dict[str, list[uuid.UUID]] = {}
+    for field_name, target_record_id in match_result.all():
+        matches_by_col.setdefault(field_name, []).append(target_record_id)
 
-        for target_dataset_id_unused, target_record_id in matches:
-            # Use merge-style insert: check existence first to be idempotent
-            existing = await session.execute(
-                select(DatasetRelationship.id).where(
-                    DatasetRelationship.source_dataset_id == record_id,
-                    DatasetRelationship.target_dataset_id == target_record_id,
-                    DatasetRelationship.source_column == col_name,
-                )
-            )
-            if existing.scalar_one_or_none() is not None:
+    if not matches_by_col:
+        return []
+
+    # Pre-fetch existing relationships in one query so the idempotency check
+    # doesn't require another round trip per candidate match.
+    existing_result = await session.execute(
+        select(
+            DatasetRelationship.source_column,
+            DatasetRelationship.target_dataset_id,
+        ).where(
+            DatasetRelationship.source_dataset_id == record_id,
+            DatasetRelationship.source_column.in_(matches_by_col.keys()),
+        )
+    )
+    existing_keys: set[tuple[str, uuid.UUID]] = {
+        (col, tgt) for col, tgt in existing_result.all()
+    }
+
+    created: list[DatasetRelationship] = []
+    for col_name, target_record_ids in matches_by_col.items():
+        for target_record_id in target_record_ids:
+            if (col_name, target_record_id) in existing_keys:
                 continue
-
             obj = DatasetRelationship(
                 source_dataset_id=record_id,
                 target_dataset_id=target_record_id,
@@ -1214,6 +1266,9 @@ async def auto_detect_relationships(
             )
             session.add(obj)
             created.append(obj)
+            existing_keys.add(
+                (col_name, target_record_id)
+            )  # avoid dup if same col/target
 
     if created:
         await session.flush()

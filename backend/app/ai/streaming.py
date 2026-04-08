@@ -173,7 +173,11 @@ async def _stream_anthropic_chat(
                     raw_results: list[dict] = []
                     async for evt in _execute_and_yield_tools(
                         [(block.name, block.input)],
-                        session, user, user_roles, layers, collected_actions,
+                        session,
+                        user,
+                        user_roles,
+                        layers,
+                        collected_actions,
                         results_out=raw_results,
                     ):
                         yield evt
@@ -182,7 +186,9 @@ async def _stream_anthropic_chat(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            "content": json.dumps(raw_results[0] if raw_results else {}),
+                            "content": json.dumps(
+                                raw_results[0] if raw_results else {}
+                            ),
                         }
                     )
 
@@ -340,12 +346,19 @@ async def _stream_openai_chat(
 
             native_results: list[dict] = []
             async for evt in _execute_and_yield_tools(
-                parsed_native, session, user, user_roles, layers,
-                collected_actions, results_out=native_results,
+                parsed_native,
+                session,
+                user,
+                user_roles,
+                layers,
+                collected_actions,
+                results_out=native_results,
             ):
                 yield evt
 
-            for (fn_name, _), call_id, result in zip(parsed_native, parsed_native_ids, native_results):
+            for (fn_name, _), call_id, result in zip(
+                parsed_native, parsed_native_ids, native_results
+            ):
                 messages.append(
                     {
                         "role": "tool",
@@ -369,7 +382,12 @@ async def _stream_openai_chat(
                     "label": tool_label(fn_name),
                 }
             async for evt in _execute_and_yield_tools(
-                parsed_calls, session, user, user_roles, layers, collected_actions,
+                parsed_calls,
+                session,
+                user,
+                user_roles,
+                layers,
+                collected_actions,
             ):
                 yield evt
 

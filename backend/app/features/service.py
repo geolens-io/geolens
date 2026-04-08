@@ -140,7 +140,9 @@ async def get_features(
     if not where_clauses and cached_feature_count is not None:
         total = cached_feature_count
     else:
-        count_bind = {k: v for k, v in bind_values.items() if k not in ("limit", "offset")}
+        count_bind = {
+            k: v for k, v in bind_values.items() if k not in ("limit", "offset")
+        }
         count_sql = f"SELECT COUNT(*) FROM data.{table_name} t {where_sql}"
         count_result = await db.execute(text(count_sql).bindparams(**count_bind))
         total = count_result.scalar_one()

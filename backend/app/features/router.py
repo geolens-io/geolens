@@ -32,6 +32,7 @@ from app.features.service import (
     update_feature,
 )
 from app.cache.provider import get_tile_cache
+from app.ogc.errors import ERROR_RESPONSES_AUTH, ERROR_RESPONSES_WRITE
 from app.ogc.utils import build_url
 from app.public_urls import get_public_api_url
 
@@ -55,7 +56,8 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
                     "schema": GeoJSONFeatureCollection.model_json_schema()
                 }
             }
-        }
+        },
+        **ERROR_RESPONSES_AUTH,
     },
 )
 async def list_features(
@@ -191,7 +193,8 @@ async def list_features(
             "content": {
                 "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
             }
-        }
+        },
+        **ERROR_RESPONSES_AUTH,
     },
 )
 async def get_single_feature(
@@ -249,7 +252,8 @@ async def get_single_feature(
             "content": {
                 "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
             }
-        }
+        },
+        **ERROR_RESPONSES_WRITE,
     },
 )
 async def create_feature(
@@ -330,7 +334,8 @@ async def create_feature(
             "content": {
                 "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
             }
-        }
+        },
+        **ERROR_RESPONSES_WRITE,
     },
 )
 async def replace_single_feature(
@@ -410,7 +415,8 @@ async def replace_single_feature(
             "content": {
                 "application/geo+json": {"schema": GeoJSONFeature.model_json_schema()}
             }
-        }
+        },
+        **ERROR_RESPONSES_WRITE,
     },
 )
 async def patch_single_feature(
@@ -488,6 +494,7 @@ async def patch_single_feature(
 @features_router.delete(
     "/{dataset_id}/features/{gid}",
     status_code=status.HTTP_204_NO_CONTENT,
+    responses=ERROR_RESPONSES_WRITE,
 )
 async def delete_single_feature(
     dataset_id: uuid.UUID,

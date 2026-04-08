@@ -9,8 +9,6 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
-
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +18,8 @@ from app.auth.models import User, UserRole
 from app.auth.visibility import apply_visibility_filter, get_user_roles
 from app.datasets.models import Dataset, DatasetGrant, Record
 from app.maps.models import Map, MapLayer, MapShareToken
+
+logger = logging.getLogger(__name__)
 
 
 async def check_map_ownership(map_obj, user: User, db: AsyncSession) -> None:
@@ -42,7 +42,9 @@ def generate_default_style(geometry_type: str | None) -> dict:
     """
     gt = (geometry_type or "").upper()
     if not gt:
-        logger.warning("generate_default_style called with null geometry_type; defaulting to fill")
+        logger.warning(
+            "generate_default_style called with null geometry_type; defaulting to fill"
+        )
 
     if "POINT" in gt:
         return {

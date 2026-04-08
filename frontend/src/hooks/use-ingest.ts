@@ -1,17 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { uploadFile, registerTable, getJobStatus, previewFile, commitImport, retryJob, probeService, previewServiceLayer, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
-import type { CommitImportRequest, ServicePreviewRequest, BulkRegisterRequest, VrtCreateRequest } from '@/types/api';
+import { uploadFile, getJobStatus, retryJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
+import type { BulkRegisterRequest, VrtCreateRequest } from '@/types/api';
 
 export function useUploadFile() {
   return useMutation({
     mutationFn: uploadFile,
-  });
-}
-
-export function useRegisterTable() {
-  return useMutation({
-    mutationFn: registerTable,
   });
 }
 
@@ -28,35 +22,9 @@ export function useJobStatus(jobId: string | null) {
   });
 }
 
-export function usePreviewFile() {
-  return useMutation({
-    mutationFn: (jobId: string) => previewFile(jobId),
-  });
-}
-
-export function useCommitImport() {
-  return useMutation({
-    mutationFn: ({ jobId, request }: { jobId: string; request: CommitImportRequest }) =>
-      commitImport(jobId, request),
-  });
-}
-
 export function useRetryJob() {
   return useMutation({
     mutationFn: retryJob,
-  });
-}
-
-export function useProbeService() {
-  return useMutation({
-    mutationFn: ({ url, token }: { url: string; token?: string }) =>
-      probeService(url, token),
-  });
-}
-
-export function usePreviewServiceLayer() {
-  return useMutation({
-    mutationFn: (request: ServicePreviewRequest) => previewServiceLayer(request),
   });
 }
 

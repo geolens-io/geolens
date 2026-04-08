@@ -320,7 +320,9 @@ class AdminService:
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics."""
         try:
-            total_result = await self.db.execute(text("SELECT COUNT(*) FROM catalog.records"))
+            total_result = await self.db.execute(
+                text("SELECT COUNT(*) FROM catalog.records")
+            )
             total_records = total_result.scalar_one()
 
             embedded_result = await self.db.execute(

@@ -166,6 +166,7 @@ export const queryKeys = {
   // -------------------------------------------------------------------------
   tileTokens: {
     token: (datasetId: string | undefined) => ['tile-token', datasetId] as const,
+    batch: (sortedIds: string) => ['tile-tokens-batch', sortedIds] as const,
   },
 
   // -------------------------------------------------------------------------

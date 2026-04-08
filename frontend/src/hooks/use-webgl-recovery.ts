@@ -22,10 +22,19 @@ export function useWebGLRecovery(
     const onLost = (e: Event) => {
       e.preventDefault(); // allow context restoration
       setContextLost(true);
+      // RES-N6: surface WebGL context loss as a structured console.warn so
+      // production issues are detectable in browser logs / error trackers.
+      // Common causes: GPU driver crash, GPU eviction under memory pressure,
+      // extension blocking canvas2d interop, tab kill-switch under Chrome.
+      console.warn('[map] WebGL context lost', {
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+        timestamp: new Date().toISOString(),
+      });
     };
 
     const onRestored = () => {
       setContextLost(false);
+      console.warn('[map] WebGL context restored');
       // Force a full re-render of the map style
       try {
         const style = map.getStyle();

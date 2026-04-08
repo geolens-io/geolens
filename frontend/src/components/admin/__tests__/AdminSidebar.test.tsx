@@ -123,6 +123,6 @@ describe('AdminSidebar', () => {
   it('renders Back to App footer link', () => {
     renderSidebar();
     const link = screen.getByText('Back to App').closest('a');
-    expect(link).toHaveAttribute('href', '/search');
+    expect(link).toHaveAttribute('href', '/');
   });
 });

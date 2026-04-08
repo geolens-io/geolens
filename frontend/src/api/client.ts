@@ -51,6 +51,26 @@ async function tryRefresh(): Promise<boolean> {
   return !!useAuthStore.getState().token;
 }
 
+/**
+ * Fetch wrapper that converts `TypeError: Failed to fetch` (offline / DNS
+ * failure / CORS preflight error) into an ApiError with status 0 (RES-N1).
+ * Without this, network failures propagate as opaque unhandled rejections
+ * through every TanStack Query and the UI shows "Failed to fetch" literally.
+ */
+async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    // TypeError is what browsers throw for network-layer failures
+    // (offline, DNS unresolvable, CORS preflight blocked, etc.). Other
+    // errors (e.g. AbortError) should bubble through unchanged.
+    if (err instanceof TypeError) {
+      throw new ApiError('Network unavailable — check your connection', 0);
+    }
+    throw err;
+  }
+}
+
 async function authenticatedFetch(
   path: string,
   options: RequestInit = {},
@@ -72,7 +92,7 @@ async function authenticatedFetch(
     return headers;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await safeFetch(`${API_BASE}${path}`, {
     ...options,
     headers: buildHeaders(),
   });
@@ -80,7 +100,7 @@ async function authenticatedFetch(
   if (response.status === 401) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      const retry = await fetch(`${API_BASE}${path}`, {
+      const retry = await safeFetch(`${API_BASE}${path}`, {
         ...options,
         headers: buildHeaders(),
       });

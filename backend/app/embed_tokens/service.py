@@ -11,10 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.cache.provider import get_cache
-
-logger = structlog.stdlib.get_logger(__name__)
 from app.embed_tokens.models import EmbedToken
 from app.maps.models import MapLayer
+
+logger = structlog.stdlib.get_logger(__name__)
 
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 

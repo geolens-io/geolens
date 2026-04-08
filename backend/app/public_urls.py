@@ -1,4 +1,25 @@
-"""Helpers for resolving public app/API URLs across deployment environments."""
+"""Helpers for resolving public app/API URLs across deployment environments.
+
+# Resolution order
+# ----------------
+# Public URLs (used in OGC self-links, share links, OAuth redirects, etc.)
+# are resolved with this precedence, highest priority first:
+#
+#   1. Admin-set value in `catalog.app_settings` (`public_app_url` /
+#      `public_api_url` keys) — admins can override at runtime via the UI
+#   2. Legacy `public_base_url` setting (deprecated alias for `public_api_url`)
+#   3. Environment variable: `PUBLIC_APP_URL` / `PUBLIC_API_URL`
+#   4. Request-derived URL (Host header from current request, if available)
+#   5. Hardcoded localhost defaults (development only)
+#
+# # Why this matters
+# Anything stored in the database (share tokens, embed snippets, OGC link
+# hrefs) needs an absolute URL that's reachable from outside the container.
+# The container has no idea what its public hostname is, so we have to be
+# told via env var or admin setting. Request-derived URLs are a fallback for
+# the OGC links emitted in the same response (those CAN trust the current
+# Host header), but stored URLs MUST come from settings.
+"""
 
 from __future__ import annotations
 

@@ -417,7 +417,9 @@ def _validate_actions(
             target_layer = layer_map.get(action.layer_id) if action.layer_id else None
             validated_expr = _validate_filter_columns(action.expression, target_layer)
             if validated_expr is None:
-                dropped.append(f"{action.type} (invalid column refs in filter expression)")
+                dropped.append(
+                    f"{action.type} (invalid column refs in filter expression)"
+                )
                 continue  # skip action with invalid column refs
             action.expression = validated_expr
         validated.append(action)

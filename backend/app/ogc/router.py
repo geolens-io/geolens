@@ -12,6 +12,7 @@ from app.auth.visibility import apply_visibility_filter, get_user_roles
 from app.datasets.models import Dataset, DatasetGrant, Record
 from app.dependencies import get_db
 from app.features.service import get_feature_by_id, get_features, parse_bbox
+from app.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.ogc.schemas import (
     ConformanceResponse,
     LandingPage,
@@ -73,7 +74,7 @@ async def _get_visible_dataset(
 # ---------------------------------------------------------------------------
 
 
-@ogc_router.get("/", response_model=LandingPage)
+@ogc_router.get("/", response_model=LandingPage, responses=ERROR_RESPONSES_PUBLIC)
 async def landing_page(
     request: Request,
     f: str | None = Query(None),
@@ -120,7 +121,9 @@ async def landing_page(
     )
 
 
-@ogc_router.get("/conformance", response_model=ConformanceResponse)
+@ogc_router.get(
+    "/conformance", response_model=ConformanceResponse, responses=ERROR_RESPONSES_PUBLIC
+)
 async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
     """OGC conformance declaration -- lists supported specification classes."""
     _validate_f_param(f)
@@ -155,7 +158,9 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
 
 
 @ogc_features_router.get(
-    "/collections/{dataset_id}", response_model=OGCCollectionMetadata
+    "/collections/{dataset_id}",
+    response_model=OGCCollectionMetadata,
+    responses=ERROR_RESPONSES_PUBLIC,
 )
 async def get_dataset_collection(
     request: Request,
@@ -163,7 +168,7 @@ async def get_dataset_collection(
     f: str | None = Query(None),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> OGCCollectionMetadata:
     """Per-dataset OGC collection metadata with extent, CRS, and items link."""
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
@@ -225,9 +230,10 @@ async def get_dataset_collection(
             ),
         ],
     )
-    return JSONResponse(
-        content=metadata.model_dump(mode="json"), media_type="application/json"
-    )
+    # TYPE-N2: return the pydantic model directly so FastAPI's response_model
+    # validation actually runs. Previously this was wrapped in JSONResponse,
+    # which silently disabled response validation.
+    return metadata
 
 
 @ogc_features_router.get(
@@ -240,7 +246,8 @@ async def get_dataset_collection(
                     "schema": OGCFeatureItemsResponse.model_json_schema()
                 }
             }
-        }
+        },
+        **ERROR_RESPONSES_PUBLIC,
     },
 )
 async def get_collection_items(
@@ -255,6 +262,10 @@ async def get_collection_items(
         description="OGC datetime interval: instant, start/end, ../end, start/..",
     ),
     f: str | None = Query(None),
+    include_geometry: bool = Query(
+        True,
+        description="Include geometry in response. Set to false for attribute-only queries.",
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -276,12 +287,23 @@ async def get_collection_items(
         try:
             bbox_parsed = parse_bbox(bbox)
         except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid bbox: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid bbox: {e}"
+            )
 
     has_geometry = dataset.geometry_type is not None
 
     # Extract property filters from query params (any param not in the OGC reserved set)
-    ogc_reserved = {"limit", "offset", "bbox", "f", "datetime", "crs", "api_key"}
+    ogc_reserved = {
+        "limit",
+        "offset",
+        "bbox",
+        "f",
+        "datetime",
+        "crs",
+        "api_key",
+        "include_geometry",
+    }
     property_filters = {
         k: v for k, v in request.query_params.items() if k not in ogc_reserved
     } or None
@@ -291,7 +313,10 @@ async def get_collection_items(
     if dataset.column_info:
         allowed_columns = {col["name"] for col in dataset.column_info if "name" in col}
 
-    # Reuse existing feature service
+    # Reuse existing feature service. Pass the cached feature_count so the
+    # pagination COUNT(*) collapses into a constant-time lookup, and honor
+    # include_geometry so clients that don't need geometry avoid the
+    # ST_AsGeoJSON cost (PERF-N1).
     rows, total = await get_features(
         db,
         dataset.table_name,
@@ -301,6 +326,8 @@ async def get_collection_items(
         has_geometry=has_geometry,
         property_filters=property_filters,
         allowed_columns=allowed_columns,
+        include_geometry=include_geometry,
+        cached_feature_count=dataset.feature_count,
     )
 
     # Convert rows to GeoJSON features
@@ -386,7 +413,8 @@ async def get_collection_items(
                     "schema": OGCSingleFeatureResponse.model_json_schema()
                 }
             }
-        }
+        },
+        **ERROR_RESPONSES_PUBLIC,
     },
 )
 async def get_collection_item_feature(

@@ -398,6 +398,11 @@ app = FastAPI(
         "name": "Apache 2.0",
         "url": "https://www.apache.org/licenses/LICENSE-2.0",
     },
+    contact={
+        "name": "GeoLens",
+        "url": "https://github.com/geolens-io/geolens",
+    },
+    terms_of_service="https://github.com/geolens-io/geolens/blob/main/LICENSE",
     lifespan=lifespan,
 )
 

@@ -7,13 +7,33 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class BasemapEntry(BaseModel):
-    id: str = Field(max_length=30)
-    label: str = Field(max_length=200)
-    url: str = Field(max_length=2000)
-    enabled: bool = True
-    is_preset: bool = False
-    attribution: str | None = None
-    api_key: str | None = Field(default=None, max_length=500)
+    id: str = Field(
+        max_length=30,
+        description="Unique identifier for the basemap (e.g. 'osm', 'satellite').",
+    )
+    label: str = Field(
+        max_length=200, description="Human-readable label shown in the basemap picker."
+    )
+    url: str = Field(
+        max_length=2000,
+        description="Style JSON URL (ending in .json), /styles/ path, or tile URL with {z}/{x}/{y} placeholders.",
+    )
+    enabled: bool = Field(
+        default=True, description="Whether the basemap is selectable in the picker."
+    )
+    is_preset: bool = Field(
+        default=False,
+        description="Whether this is a built-in preset (cannot be deleted, only disabled).",
+    )
+    attribution: str | None = Field(
+        default=None,
+        description="Optional attribution string shown on the map. May include HTML.",
+    )
+    api_key: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional API key for authenticated tile providers. Substituted into the URL via {api_key} placeholder.",
+    )
 
     @field_validator("url")
     @classmethod
@@ -37,22 +57,32 @@ class BasemapEntry(BaseModel):
 class BasemapPublicResponse(BaseModel):
     """Public basemap response — excludes api_key."""
 
-    id: str
-    label: str
-    url: str
-    enabled: bool
-    is_preset: bool
-    attribution: str | None = None
+    id: str = Field(description="Unique basemap identifier.")
+    label: str = Field(description="Display label.")
+    url: str = Field(
+        description="Tile URL or style JSON URL with API key already substituted (or omitted) for client use."
+    )
+    enabled: bool = Field(description="Whether the basemap is currently selectable.")
+    is_preset: bool = Field(description="Whether this is a built-in preset.")
+    attribution: str | None = Field(
+        default=None, description="Attribution string for the basemap source."
+    )
 
 
 class BasemapsUpdate(BaseModel):
-    basemaps: list[BasemapEntry]
+    basemaps: list[BasemapEntry] = Field(
+        description="Complete list of basemaps. Replaces the existing list — entries not included are removed."
+    )
 
 
 class MapDefaultsUpdate(BaseModel):
-    center_lat: float
-    center_lng: float
-    zoom: float
+    center_lat: float = Field(
+        description="Initial map center latitude in WGS84. Clamped to [-90, 90]."
+    )
+    center_lng: float = Field(
+        description="Initial map center longitude in WGS84. Clamped to [-180, 180]."
+    )
+    zoom: float = Field(description="Initial zoom level. Clamped to [0, 22].")
 
     @field_validator("center_lat")
     @classmethod
@@ -71,16 +101,31 @@ class MapDefaultsUpdate(BaseModel):
 
 
 class MapDefaultsResponse(BaseModel):
-    center_lat: float
-    center_lng: float
-    zoom: float
+    center_lat: float = Field(
+        description="Currently configured initial center latitude."
+    )
+    center_lng: float = Field(
+        description="Currently configured initial center longitude."
+    )
+    zoom: float = Field(description="Currently configured initial zoom level.")
 
 
 class TileConfigResponse(BaseModel):
-    cdn_base_url: str | None = None
-    public_app_url: str | None = None
-    public_api_url: str | None = None
-    public_base_url: str | None = None
+    cdn_base_url: str | None = Field(
+        default=None, description="CDN origin URL for tile delivery, if configured."
+    )
+    public_app_url: str | None = Field(
+        default=None,
+        description="Browser-facing app URL used for share links and OAuth redirects.",
+    )
+    public_api_url: str | None = Field(
+        default=None,
+        description="Externally-reachable API base URL used in OGC self-links.",
+    )
+    public_base_url: str | None = Field(
+        default=None,
+        description="Deprecated alias for public_api_url. Will be removed in a future release.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -91,23 +136,31 @@ class TileConfigResponse(BaseModel):
 class SettingItem(BaseModel):
     """A single setting in the unified response."""
 
-    key: str
-    value: Any
-    source: str  # "default" | "overridden" | "env_only"
-    label: str
+    key: str = Field(description="Setting key (e.g. 'login_rate_limit', 'basemaps').")
+    value: Any = Field(description="Current value. Type depends on the setting.")
+    source: str = Field(
+        description="Where the value came from: 'default' (built-in default), 'overridden' (admin set via UI), or 'env_only' (configured via environment variable, read-only)."
+    )
+    label: str = Field(description="Human-readable label for display in the admin UI.")
 
 
 class SettingsAllResponse(BaseModel):
     """Response for GET /settings/all/."""
 
-    env_only: bool
-    tabs: dict[str, list[SettingItem]]
+    env_only: bool = Field(
+        description="Whether the instance is in env-only mode (settings are read-only and managed via environment variables)."
+    )
+    tabs: dict[str, list[SettingItem]] = Field(
+        description="Settings grouped by admin UI tab (general, auth, ai, etc.)."
+    )
 
 
 class SettingsUpdateRequest(BaseModel):
     """Request for PUT /settings/."""
 
-    settings: dict[str, Any]
+    settings: dict[str, Any] = Field(
+        description="Map of setting keys to new values. Maximum 50 settings per request."
+    )
 
     @field_validator("settings")
     @classmethod
@@ -120,39 +173,54 @@ class SettingsUpdateRequest(BaseModel):
 class SettingsResetRequest(BaseModel):
     """Request for POST /settings/reset/."""
 
-    keys: list[str] = Field(max_length=100)
+    keys: list[str] = Field(
+        max_length=100,
+        description="List of setting keys to reset to their default values. Maximum 100 keys per request.",
+    )
 
 
 class EditionInfoResponse(BaseModel):
     """Response for GET /settings/edition/."""
 
-    edition: str
-    features: list[str]
+    edition: str = Field(description="Active edition: 'community' or 'enterprise'.")
+    features: list[str] = Field(
+        description="List of feature flags enabled for this edition."
+    )
 
 
 class BrandingResponse(BaseModel):
     """Response for GET /settings/branding/."""
 
-    show_badge: bool
+    show_badge: bool = Field(
+        description="Whether to show the 'Powered by GeoLens' badge in the footer."
+    )
 
 
 class ConfigModeResponse(BaseModel):
     """Response for GET /settings/config-mode/."""
 
-    env_only: bool
+    env_only: bool = Field(
+        description="True if the instance is configured via environment variables only (admin UI is read-only)."
+    )
 
 
 class ApiKeyStatusResponse(BaseModel):
     """Response for GET /settings/api-key-status/."""
 
-    anthropic_configured: bool
-    openai_configured: bool
+    anthropic_configured: bool = Field(
+        description="Whether ANTHROPIC_API_KEY is set in the environment."
+    )
+    openai_configured: bool = Field(
+        description="Whether OPENAI_API_KEY is set in the environment."
+    )
 
 
 class DetectEmbeddingDimsResponse(BaseModel):
     """Response for POST /settings/detect-embedding-dims/."""
 
-    dimensions: int
+    dimensions: int = Field(
+        description="Number of dimensions in the embedding vector returned by the configured embedding provider."
+    )
 
 
 # ---------------------------------------------------------------------------

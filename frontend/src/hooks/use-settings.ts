@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
+import { ApiError } from '@/api/client';
 import {
   getBasemaps,
   getMapDefaults,
@@ -77,6 +78,21 @@ export function useApiKeyStatus() {
   });
 }
 
+// RES-N8: surface the specific API error message alongside the generic
+// "save failed" copy so the user can distinguish validation errors from
+// network / auth errors. ApiError carries a translated message already;
+// fallback to String(err) for unexpected error shapes.
+function _formatMutationError(fallbackKey: string, err: unknown): string {
+  const base = i18n.t(fallbackKey);
+  if (err instanceof ApiError && err.message) {
+    return `${base}: ${err.message}`;
+  }
+  if (err instanceof Error && err.message) {
+    return `${base}: ${err.message}`;
+  }
+  return base;
+}
+
 export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
@@ -85,8 +101,8 @@ export function useUpdateSettings() {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
       toast.success(i18n.t('settingsToasts.saved'));
     },
-    onError: () => {
-      toast.error(i18n.t('settingsToasts.saveFailed'));
+    onError: (err) => {
+      toast.error(_formatMutationError('settingsToasts.saveFailed', err));
     },
   });
 }
@@ -107,8 +123,8 @@ export function useUpdateBranding() {
       qc.invalidateQueries({ queryKey: queryKeys.settings.branding });
       toast.success(i18n.t('settingsToasts.saved'));
     },
-    onError: () => {
-      toast.error(i18n.t('settingsToasts.saveFailed'));
+    onError: (err) => {
+      toast.error(_formatMutationError('settingsToasts.saveFailed', err));
     },
   });
 }
@@ -121,8 +137,8 @@ export function useResetSettings() {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
       toast.success(i18n.t('settingsToasts.resetSuccess'));
     },
-    onError: () => {
-      toast.error(i18n.t('settingsToasts.resetFailed'));
+    onError: (err) => {
+      toast.error(_formatMutationError('settingsToasts.resetFailed', err));
     },
   });
 }

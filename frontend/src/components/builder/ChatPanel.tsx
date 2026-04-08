@@ -12,6 +12,19 @@ import { getSmartSuggestions } from './chat-suggestions';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
+/**
+ * AI chat panel for the map builder.
+ *
+ * Streams responses from the `/ai/chat/` endpoint and applies returned
+ * `ChatAction` items live to the parent map (set_filter, set_style,
+ * set_data_driven_style, add_layer, remove_layer, etc.) without persisting
+ * changes until the user saves the map. Includes smart suggestion chips
+ * derived from the current layer state, retry on transient errors, and
+ * cancellable in-flight requests via AbortController.
+ *
+ * Mounted from `pages/MapBuilderPage.tsx` only when AI is enabled in admin
+ * settings AND a provider API key is configured.
+ */
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'error';

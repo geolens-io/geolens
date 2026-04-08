@@ -63,7 +63,62 @@ function MapPickerFallback() {
   );
 }
 
+/**
+ * KISS-5: parse an OGC datetime interval string into [start, end] for display
+ * in temporal extent inputs. Handles all four forms: empty, instant,
+ * ``start/..``, ``../end``, and ``start/end``.
+ */
+function parseTemporalInterval(datetime: string): [string, string] {
+  if (!datetime) return ['', ''];
+  const parts = datetime.split('/');
+  if (parts.length === 2) {
+    return [
+      parts[0] === '..' ? '' : parts[0],
+      parts[1] === '..' ? '' : parts[1],
+    ];
+  }
+  return [datetime, ''];
+}
+
+/**
+ * Catalog filter panel — the primary search refinement UI for the catalog page.
+ *
+ * Renders the two-row filter bar at the top of the catalog (search input,
+ * record-type tabs, geometry-type select, sort, spatial filter trigger, temporal
+ * range, source organization, SRID, collection, keyword facet picker, save-search,
+ * and an "Advanced" sheet for less-common filters).
+ *
+ * **State source:** All filter state is read from `useSearchStore` (zustand) and
+ * mutated via the same store's setters. Nothing is local except UI scaffolding
+ * for the advanced sheet and the lazy-loaded BBox map picker.
+ *
+ * **Layout responsibilities:**
+ * - First row: text input + record-type tabs + sort + spatial filter trigger
+ * - Second row: chips for active filters (geometry, bbox, date range, sort, etc.)
+ *               with one-click clear via {@link FilterChip}
+ * - Sheet (mobile/overflow): full filter form for less-common controls
+ *
+ * **Performance:** The BBox map picker (`BboxMapPicker`) and the freeform
+ * spatial filter panel (`SpatialFilterPanel`) are dynamically imported to keep
+ * MapLibre out of the catalog page's initial bundle.
+ *
+ * **Onboarding note:** This component is intentionally large because it owns
+ * the entire filter surface. Section comments below mark the boundaries between
+ * (1) state subscriptions, (2) derived facet counts, (3) chip rendering,
+ * (4) advanced sheet, and (5) the JSX layout. When extending, prefer adding
+ * a new chip + a corresponding entry to the advanced sheet rather than
+ * introducing a new top-row control — the bar is already at its visual density
+ * limit (see `feedback_filter_bar_density.md`).
+ */
 export function FilterPanel({ totalResults }: { totalResults: number | undefined }) {
+  // ====================================================================
+  // Section 1: Store subscriptions
+  // ----
+  // Each filter dimension is read individually so component re-renders
+  // are scoped to actual changes (zustand selector pattern). Don't replace
+  // these with `useSearchStore()` (full state) — that would re-render the
+  // entire panel on every keystroke in the search input.
+  // ====================================================================
   const { t } = useTranslation('search');
   const geometryType = useSearchStore((s) => s.geometry_type);
   const bbox = useSearchStore((s) => s.bbox);
@@ -80,6 +135,15 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
   const q = useSearchStore((s) => s.q);
   const token = useAuthStore((s) => s.token);
 
+  // ====================================================================
+  // Section 2: Derived facet counts and visibility flags
+  // ----
+  // Facet counts come from `/facets/` and drive both the toggle button
+  // labels (e.g. "Vector (12)") and the disabled state when a count is 0.
+  // Visibility booleans (showGeometryFilter, showSridFilter,
+  // showSecondaryFilterRow) determine which controls render based on the
+  // currently-active record type.
+  // ====================================================================
   const { data: facets } = useFacets();
   const counts = facets?.record_type ?? {};
   const allTypeCount =
@@ -90,15 +154,8 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
 
   const { data: summaries } = useCatalogSummary();
 
-  // Parse OGC interval back to start/end for temporal extent inputs
-  const [temporalStart, temporalEnd] = (() => {
-    if (!datetime) return ['', ''];
-    const parts = datetime.split('/');
-    if (parts.length === 2) {
-      return [parts[0] === '..' ? '' : parts[0], parts[1] === '..' ? '' : parts[1]];
-    }
-    return [datetime, ''];
-  })();
+  // Parse OGC interval back to start/end for temporal extent inputs (KISS-5)
+  const [temporalStart, temporalEnd] = parseTemporalInterval(datetime);
   const organizations = summaries?.source_organization ?? [];
   const srids = summaries?.srid ?? [];
 
@@ -137,6 +194,13 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     }
   };
 
+  // ====================================================================
+  // Section 3: Local UI state
+  // ----
+  // Date filter uses a local-then-commit pattern (`localDateFrom`/
+  // `localDateTo`) so the user can type both bounds before triggering a
+  // search refetch. Other open/close booleans are pure UI state.
+  // ====================================================================
   const [bboxOpen, setBboxOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -163,6 +227,15 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     return '';
   })();
 
+  // ====================================================================
+  // Section 4: Render helpers (closures over local state)
+  // ----
+  // These are inline functions rather than separate components because
+  // they all need access to the local date state, the lazy-loaded map
+  // picker module, and the shared `setSpatialPanelOpen` callback. Lifting
+  // them to sibling files would require either props drilling or duplicate
+  // store subscriptions; the current shape keeps the data flow simple.
+  // ====================================================================
   const renderMapPicker = () => (
     <Suspense fallback={<MapPickerFallback />}>
       <LazyBboxMapPicker
@@ -273,8 +346,22 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     );
   };
 
+  // ====================================================================
+  // Section 5: JSX layout
+  // ----
+  // The render is split into three responsive layers:
+  //   - Mobile (`md:hidden`): condensed bar with a "Filters" button that
+  //     opens the AdvancedSheet, plus the active filter chip row
+  //   - Desktop primary row (`hidden md:flex`): record-type tabs, keyword
+  //     facets, collection select, location, date, temporal extent, sort,
+  //     clear-all, result count
+  //   - Desktop secondary row: type-specific controls (geometry filter,
+  //     source organization, SRID) shown only when a record type is active
+  //   - Mobile sheet: full filter form replicating all controls
+  // ====================================================================
   return (
     <>
+      {/* ---- Mobile bar + chip row ---- */}
       <div className="space-y-4 md:hidden">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm text-muted-foreground">
@@ -379,7 +466,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
         )}
       </div>
 
-      {/* Desktop: Primary filter row */}
+      {/* ---- Desktop primary filter row ---- */}
       <div className="hidden flex-wrap items-center gap-2.5 md:flex">
         <div className="flex items-center gap-2">
           <ToggleGroup
@@ -556,7 +643,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
         </div>
       </div>
 
-      {/* Desktop: Secondary filter row (type-specific) */}
+      {/* ---- Desktop secondary filter row (type-specific controls) ---- */}
       {showSecondaryFilterRow && (
         <div
           className="hidden flex-wrap items-center gap-2.5 rounded-[18px] border border-border/40 bg-muted/15 px-3 py-1.5 md:flex"
@@ -664,6 +751,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
         </div>
       )}
 
+      {/* ---- Mobile filter sheet (full-screen overlay) ---- */}
       <Sheet
         open={mobileFiltersOpen}
         onOpenChange={(open) => {

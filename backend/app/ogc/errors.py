@@ -18,6 +18,58 @@ class ProblemDetail(BaseModel):
     detail: str
 
 
+# Reusable OpenAPI `responses` blocks for 4xx/5xx error documentation.
+# Import these in routers and merge into per-endpoint `responses=` dicts.
+PROBLEM_RESPONSE = {
+    "model": ProblemDetail,
+    "content": {"application/problem+json": {}},
+}
+
+ERROR_RESPONSES_AUTH = {
+    400: {
+        **PROBLEM_RESPONSE,
+        "description": "Bad request — invalid query parameters or payload",
+    },
+    401: {
+        **PROBLEM_RESPONSE,
+        "description": "Unauthorized — missing or invalid credentials",
+    },
+    403: {
+        **PROBLEM_RESPONSE,
+        "description": "Forbidden — caller lacks access to this resource",
+    },
+    404: {**PROBLEM_RESPONSE, "description": "Not found"},
+    422: {**PROBLEM_RESPONSE, "description": "Validation error"},
+    500: {**PROBLEM_RESPONSE, "description": "Internal server error"},
+}
+
+ERROR_RESPONSES_PUBLIC = {
+    400: {
+        **PROBLEM_RESPONSE,
+        "description": "Bad request — invalid query parameters or payload",
+    },
+    404: {**PROBLEM_RESPONSE, "description": "Not found"},
+    422: {**PROBLEM_RESPONSE, "description": "Validation error"},
+    500: {**PROBLEM_RESPONSE, "description": "Internal server error"},
+}
+
+ERROR_RESPONSES_WRITE = {
+    400: {**PROBLEM_RESPONSE, "description": "Bad request — invalid payload"},
+    401: {
+        **PROBLEM_RESPONSE,
+        "description": "Unauthorized — missing or invalid credentials",
+    },
+    403: {**PROBLEM_RESPONSE, "description": "Forbidden — caller lacks write access"},
+    404: {**PROBLEM_RESPONSE, "description": "Not found"},
+    409: {
+        **PROBLEM_RESPONSE,
+        "description": "Conflict — resource state prevents the operation",
+    },
+    422: {**PROBLEM_RESPONSE, "description": "Validation error"},
+    500: {**PROBLEM_RESPONSE, "description": "Internal server error"},
+}
+
+
 def _serialize_detail(detail: object) -> str:
     """Serialize HTTPException detail to a string.
 

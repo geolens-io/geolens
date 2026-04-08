@@ -2,20 +2,21 @@
 
 import asyncio
 import uuid
+
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.schemas import (
-    AIStatusResponse,
-    AIStatusUpdate,
     AdminApiKeyCreateRequest,
     AdminApiKeyListItem,
     AdminApiKeyListResponse,
     AdminJobListResponse,
     AdminJobResponse,
     AdminUserCreate,
-    UserNameItem,
+    AIStatusResponse,
+    AIStatusUpdate,
     ApproveRequest,
     BackfillResponse,
     CatalogStatsResponse,
@@ -23,16 +24,19 @@ from app.admin.schemas import (
     InfrastructureConfig,
     InfrastructureResponse,
     UserListResponse,
+    UserNameItem,
     UserUpdate,
 )
 from app.admin.service import AdminService
+from app.audit.service import log_action
 from app.auth.dependencies import require_permission
 from app.auth.models import ApiKey, User
 from app.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.config import settings as app_settings
 from app.dependencies import get_client_ip, get_db
-from app.audit.service import log_action
 from app.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
+
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -131,10 +135,7 @@ async def list_user_names(
     page by incrementing ``skip``.
     """
     result = await db.execute(
-        select(User.id, User.username)
-        .order_by(User.username)
-        .offset(skip)
-        .limit(limit)
+        select(User.id, User.username).order_by(User.username).offset(skip).limit(limit)
     )
     return [UserNameItem(id=row.id, username=row.username) for row in result.all()]
 
@@ -586,11 +587,11 @@ async def get_embedding_stats(
 @router.post(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
-    dependencies=[Depends(require_permission("manage_users"))],
 )
 async def trigger_backfill(
     db: AsyncSession = Depends(get_db),
     force: bool = False,
+    current_user: User = Depends(require_permission("manage_users")),
 ) -> BackfillResponse:
     """Trigger embedding generation for records (admin only).
 
@@ -601,10 +602,18 @@ async def trigger_backfill(
 
     try:
         result = await backfill_embeddings(db, force=force)
-    except Exception as e:
+    except Exception:
+        # RES-2: don't leak raw exception text (can contain asyncpg internals,
+        # file paths, DB server info) to admin clients. Log full traceback,
+        # return a generic 502.
+        logger.exception(
+            "Embedding backfill failed",
+            user_id=str(current_user.id),
+            force=force,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Embedding backfill failed: {e}",
+            detail="Embedding backfill failed. See server logs for details.",
         )
     return BackfillResponse(**result)
 

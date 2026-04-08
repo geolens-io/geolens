@@ -75,6 +75,48 @@ This builds and starts the following services:
 
 On first start, the `migrate` service runs Alembic migrations to set up the database schema. It exits after completion, and the API waits for it to finish before starting.
 
+### Optional services (Docker Compose profiles)
+
+GeoLens ships with several optional services gated behind Docker Compose profiles. They are not started by `docker compose up -d` unless you opt in.
+
+| Profile | Services | When to use |
+|---|---|---|
+| `backup` | `backup` | Automated nightly database backups (cron-driven, optional S3 upload) |
+| `cloud-dev` | `minio`, `minio-setup`, `valkey` | Local S3-compatible object storage and Valkey cache for testing cloud-equivalent setups without provisioning real infrastructure |
+
+#### Enable automated backups
+
+```bash
+docker compose --profile backup up -d
+```
+
+The `backup` service runs `pg_dump` on the schedule defined by `BACKUP_SCHEDULE` (default: daily at 02:00 UTC) and stores dumps in the `backup_data` volume. Set `BACKUP_S3_ENABLED=true` and configure the standard `S3_*` variables to also push backups to off-site storage. See [Configuration Reference — Backup](./configuration-reference.md#backup) for the full variable list.
+
+#### Run a local cloud-equivalent stack
+
+```bash
+docker compose --profile cloud-dev up -d
+```
+
+This starts MinIO (S3-compatible storage on `http://localhost:9001`) and Valkey (Redis-compatible cache). To switch GeoLens to use them, uncomment the MinIO block in `.env.example` (see "Local S3 Testing") and set `REDIS_URL=redis://valkey:6379/0`. MinIO admin console credentials default to `minioadmin` / `minioadmin`. Use this profile to develop or debug code paths that depend on S3 or shared cache without provisioning real cloud resources.
+
+#### Profiles can stack
+
+```bash
+docker compose --profile backup --profile cloud-dev up -d
+```
+
+### Optional overlays (compose files)
+
+In addition to profiles, two compose overlay files extend the base stack:
+
+| Overlay | Purpose | Command |
+|---|---|---|
+| `docker-compose.demo.yml` | Pre-populated demo with sample Natural Earth data, public visibility, and 24-hour reset | `cp .env.demo .env && docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d` |
+| `docker-compose.enterprise.yml` | Enterprise extension overlay (mounts the `geolens-enterprise` package via `GEOLENS_ENTERPRISE_PATH`) | `docker compose -f docker-compose.yml -f docker-compose.enterprise.yml up -d` |
+
+The demo overlay is the easiest way to evaluate GeoLens with realistic data. The enterprise overlay is only needed if you have access to the closed-source enterprise extensions package.
+
 ### 4. Verify installation
 
 Wait for all services to become healthy (about 30-60 seconds):
@@ -192,10 +234,13 @@ The `migrate` service will run migrations before the API starts.
 
 Data is stored in two Docker volumes:
 
-| Volume | Purpose | Path inside container |
-|---|---|---|
-| `pgdata` | PostgreSQL data directory | `/var/lib/postgresql/data` |
-| `upload_staging` | Uploaded files awaiting ingestion | `/app/staging` |
+| Volume | Purpose | Path inside container | Profile |
+|---|---|---|---|
+| `pgdata` | PostgreSQL data directory | `/var/lib/postgresql/data` | default |
+| `upload_staging` | Uploaded files awaiting ingestion | `/app/staging` | default |
+| `backup_data` | Automated database dumps from the `backup` service | `/backups` | `backup` |
+| `minio_data` | Local S3 object store for `cloud-dev` profile | `/data` | `cloud-dev` |
+| `valkey_data` | Local Valkey cache state for `cloud-dev` profile | `/data` | `cloud-dev` |
 
 These volumes persist across `docker compose down` (without `-v`). See [Admin Guide](./admin-guide.md) for backup procedures.
 

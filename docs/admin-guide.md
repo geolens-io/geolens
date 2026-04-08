@@ -2,7 +2,7 @@
 
 Operations guide for managing users, datasets, search, exports, and system health.
 
-All API examples use the Nginx proxy URL (`http://localhost:8080`). Adjust the host and port for your deployment. Obtain a JWT token first:
+All API examples use the frontend URL (`http://localhost:8080`), which proxies `/api/*` requests to the backend in development. In production, point at whatever URL your reverse proxy or load balancer terminates on. Obtain a JWT token first:
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
@@ -511,6 +511,30 @@ docker compose exec db psql -U geolens -d geolens -c "
 
 ---
 
+### 8.1 Admin UI Pages
+
+The admin web UI (`/admin`) is the day-to-day operator interface. The most useful pages besides Users and Settings are:
+
+#### Audit Log (`/admin/audit`)
+
+Browse and filter the full audit log with action, user, resource, and date filters. Supports CSV and JSON export of the current filter view via the toolbar download button. Use this page to investigate "who changed what" without writing API queries.
+
+#### Jobs (`/admin/jobs`)
+
+Lists all ingestion jobs across all users with status, source filename, and timing. Failed jobs link to the error message and the user who started them. Useful for triaging stuck or repeatedly failing imports.
+
+#### Shared Maps (`/admin/shared-maps`)
+
+System-wide view of every share token and embed token created on the instance. Shows map title, owner, expiry, allowed origins, and view count. Tokens can be revoked from this page without finding the parent map first. Use this to audit external sharing, especially before public events or when rotating leaked tokens.
+
+#### Config Ops (`/admin/config-ops`)
+
+Export the entire instance configuration (settings + OAuth providers, secrets redacted) as a JSON file, or import a previously exported configuration in either `merge` or `overwrite` mode. The dry-run button shows exactly what would change before applying anything. Use this to copy configuration between dev/staging/prod instances or to back up settings before major upgrades.
+
+The companion **Validate Connectivity** button probes storage, cache, and every enabled OIDC provider and reports per-provider latency and error details — useful for diagnosing post-deployment issues without SSH access.
+
+---
+
 ## 9. Backup and Restore
 
 ### Database backup
@@ -578,7 +602,7 @@ docker compose up -d
 
 ## 10. OAuth / OIDC Single Sign-On
 
-GeoLens supports external identity providers via OAuth 2.0 / OpenID Connect. Supported provider types are **Google**, **Microsoft (Entra ID)**, and **generic OIDC**. SAML is available in the Enterprise edition.
+GeoLens supports external identity providers via OAuth 2.0 / OpenID Connect. Supported provider types are **Google**, **Microsoft (Entra ID)**, and **generic OIDC**.
 
 All OAuth flows use **PKCE** (Proof Key for Code Exchange, S256) automatically. Client secrets are encrypted at rest using Fernet encryption derived from the application's `JWT_SECRET_KEY`.
 
@@ -659,9 +683,9 @@ Deleting a provider also removes all linked OAuth accounts for that provider.
 |---|---|---|
 | `slug` | Yes | URL-safe identifier used in callback URLs (e.g. `google`, `azure-ad`) |
 | `display_name` | Yes | Label shown on the login page button |
-| `provider_type` | Yes | One of: `google`, `microsoft`, `oidc`, `saml` |
-| `client_id` | Yes* | OAuth client ID from the IdP (*not required for SAML) |
-| `client_secret` | Yes* | OAuth client secret (*not required for SAML) |
+| `provider_type` | Yes | One of: `google`, `microsoft`, `oidc` |
+| `client_id` | Yes | OAuth client ID from the IdP |
+| `client_secret` | Yes | OAuth client secret |
 | `discovery_url` | No | OIDC discovery URL (`.well-known/openid-configuration`). Auto-populates for Google and Microsoft |
 | `authorize_url` | No | Authorization endpoint (only needed if `discovery_url` is not set) |
 | `token_url` | No | Token endpoint (only needed if `discovery_url` is not set) |

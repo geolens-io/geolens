@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -34,6 +34,14 @@ export function useBuilderLayers(
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
+
+  // Mirror current layers in a ref so stable callbacks can read fresh state
+  // without invalidating on every layer mutation. Without this, each layer
+  // edit would tear down React.memo() on LayerItem (KISS-2 / PERF-N2).
+  const layersRef = useRef(localLayers);
+  useLayoutEffect(() => {
+    layersRef.current = localLayers;
+  }, [localLayers]);
 
   // Delegate ephemeral layer management
   const {
@@ -100,8 +108,14 @@ export function useBuilderLayers(
   }, [mapData?.id]);
 
   // --- Layer handlers ---
+  //
+  // All handlers are wrapped in useCallback with stable deps so that
+  // React.memo() on LayerItem actually prevents re-renders on unrelated state
+  // changes. Handlers that need to read the current layers list use
+  // `layersRef.current` instead of `localLayers` to keep their dep lists
+  // stable (KISS-2 / PERF-N2).
 
-  function handleMoveUp(layerId: string) {
+  const handleMoveUp = useCallback((layerId: string) => {
     setLocalLayers((prev) => {
       const idx = prev.findIndex((l) => l.id === layerId);
       if (idx <= 0) return prev;
@@ -110,9 +124,9 @@ export function useBuilderLayers(
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
-  }
+  }, []);
 
-  function handleMoveDown(layerId: string) {
+  const handleMoveDown = useCallback((layerId: string) => {
     setLocalLayers((prev) => {
       const idx = prev.findIndex((l) => l.id === layerId);
       if (idx < 0 || idx >= prev.length - 1) return prev;
@@ -121,34 +135,37 @@ export function useBuilderLayers(
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
-  }
+  }, []);
 
-  function handleReorder(reorderedLayers: MapLayerResponse[]) {
+  const handleReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
     setLocalLayers(reorderedLayers.map((l, i) => ({ ...l, sort_order: i })));
     setHasUnsavedChanges(true);
-  }
+  }, []);
 
-  function handleDisplayNameChange(layerId: string, newName: string | null) {
+  const handleDisplayNameChange = useCallback((layerId: string, newName: string | null) => {
     const normalized = newName?.trim() || null;
     setLocalLayers((prev) =>
       prev.map((l) => (l.id === layerId ? { ...l, display_name: normalized } : l)),
     );
     setHasUnsavedChanges(true);
-  }
+  }, []);
 
-  function handleToggleExpand(layerId: string) {
-    setExpandedLayerId((prev) => (prev === layerId ? null : layerId));
-    if (expandedLayerId !== layerId) setActiveEditorTab('style');
-  }
+  const handleToggleExpand = useCallback((layerId: string) => {
+    setExpandedLayerId((prev) => {
+      const next = prev === layerId ? null : layerId;
+      if (next !== null) setActiveEditorTab('style');
+      return next;
+    });
+  }, []);
 
-  function handleTabChange(_layerId: string, tab: 'style' | 'filter' | 'labels') {
+  const handleTabChange = useCallback((_layerId: string, tab: 'style' | 'filter' | 'labels') => {
     setActiveEditorTab((prev) => (prev === tab ? null : tab));
-  }
+  }, []);
 
-  function handleZoomToLayer(layerId: string) {
+  const handleZoomToLayer = useCallback((layerId: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    const layer = localLayers.find((l) => l.id === layerId);
+    const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer?.dataset_extent_bbox) return;
     const bbox = layer.dataset_extent_bbox;
     // Validate bbox: must be 4 finite numbers with non-inverted ranges
@@ -167,9 +184,9 @@ export function useBuilderLayers(
     } catch {
       // Silently ignore invalid bounds (e.g. out-of-range coordinates)
     }
-  }
+  }, [mapInstanceRef]);
 
-  function handleRemove(layerId: string) {
+  const handleRemove = useCallback((layerId: string) => {
     if (!mapId) return;
     removeLayerMutation.mutate(
       { mapId, layerId },
@@ -182,11 +199,11 @@ export function useBuilderLayers(
         },
       },
     );
-  }
+  }, [mapId, removeLayerMutation, t]);
 
-  function handleAddDataset(datasetId: string) {
+  const handleAddDataset = useCallback((datasetId: string) => {
     if (!mapId) return;
-    const nextSortOrder = localLayers.length;
+    const nextSortOrder = layersRef.current.length;
     addLayerMutation.mutate(
       { mapId, data: { dataset_id: datasetId, sort_order: nextSortOrder } },
       {
@@ -198,29 +215,29 @@ export function useBuilderLayers(
         },
       },
     );
-  }
+  }, [mapId, addLayerMutation, t]);
 
   // AI-specific remove: removes locally (persisted on Save)
-  function handleAiRemoveLayer(layerId: string) {
+  const handleAiRemoveLayer = useCallback((layerId: string) => {
     setLocalLayers((prev) => prev.filter((l) => l.id !== layerId));
     setHasUnsavedChanges(true);
-  }
+  }, []);
 
-  function handleToggleLegend(layerId: string) {
+  const handleToggleLegend = useCallback((layerId: string) => {
     setLocalLayers((prev) =>
       prev.map((l) =>
         l.id === layerId ? { ...l, show_in_legend: !l.show_in_legend } : l,
       ),
     );
     setHasUnsavedChanges(true);
-  }
+  }, []);
 
   /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle <-> heatmap). */
-  function swapLayerOnMap(
+  const swapLayerOnMap = useCallback((
     layer: MapLayerResponse,
     adapterType: string,
     updatedPaint: Record<string, unknown>,
-  ) {
+  ) => {
     const map = mapInstanceRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
@@ -275,10 +292,10 @@ export function useBuilderLayers(
         map.setLayoutProperty(labelId, 'visibility', vis);
       }
     }
-  }
+  }, [mapInstanceRef]);
 
-  function handleRenderModeChange(layerId: string, mode: 'points' | 'heatmap') {
-    const layer = localLayers.find((l) => l.id === layerId);
+  const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap') => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
 
     const currentStyleConfig = (layer.style_config ?? {}) as Record<string, unknown>;
@@ -337,7 +354,7 @@ export function useBuilderLayers(
     }
 
     setHasUnsavedChanges(true);
-  }
+  }, [swapLayerOnMap]);
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 

@@ -302,7 +302,9 @@ async def import_config(
         try:
             validate_permission_matrix(import_settings["role_permissions"])
         except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
+            )
 
     # --- Settings ---
     if mode == "overwrite":
@@ -333,9 +335,7 @@ async def import_config(
         settings_applied += 1
 
     # --- OAuth providers ---
-    created, updated, deleted = await _apply_oauth_providers(
-        db, import_providers, mode
-    )
+    created, updated, deleted = await _apply_oauth_providers(db, import_providers, mode)
     oauth_created = created
     oauth_updated = updated
     oauth_deleted = deleted

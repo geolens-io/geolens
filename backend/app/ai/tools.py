@@ -1,4 +1,23 @@
-"""Tool definitions for chat-based map editing LLM interactions."""
+"""Tool definitions for chat-based map editing LLM interactions.
+
+This module declares the **JSON schemas** that the LLM sees as tool definitions
+when generating maps or editing them via chat. Each tool corresponds to one
+action the LLM can take (search the catalog, add/remove a layer, set a filter,
+change a paint property, generate a data-driven style, etc.). The actual
+execution of each tool happens in `app.ai.service` and `app.ai.chat_service` —
+this file is the **contract** the LLM is shown.
+
+# Editing guidelines
+# ------------------
+# - Anthropic and OpenAI tool schemas are produced by the helper functions at
+#   the bottom of this file (`get_anthropic_tools`, `get_openai_tools`). Add
+#   new tools by extending the underlying schema constants and re-exporting
+#   from those helpers — do NOT inline tool definitions in service.py.
+# - Schemas must stay valid JSON Schema. The LLM will reject malformed tool
+#   definitions silently (the request will succeed but no tool calls happen).
+# - Tool descriptions are visible to the model — keep them prescriptive and
+#   short. Long descriptions waste tokens on every request.
+"""
 
 # --- Shared search_datasets schema (reused from service.py) ---
 

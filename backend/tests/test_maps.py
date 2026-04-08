@@ -1547,14 +1547,14 @@ class TestSearchSortFilterAuthor:
         assert orphan is not None
         assert orphan["created_by_username"] is None
 
-    async def test_list_maps_invalid_sort_by_falls_back(
+    async def test_list_maps_invalid_sort_by_rejected(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """Invalid sort_by value falls back to updated_at (no error)."""
+        """Invalid sort_by value is rejected with 422 (Literal validation)."""
         resp = await client.get(
             "/maps/", params={"sort_by": "bogus_field"}, headers=admin_auth_header
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 422
 
     async def test_search_resets_total_count(
         self, client: AsyncClient, admin_auth_header: dict
