@@ -482,6 +482,103 @@ class TestCollectionExtent:
         assert data["temporal_start"] is None
         assert data["temporal_end"] is None
 
+    async def test_collection_extent_mixed_null_and_present_spatial_extent(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Aggregation over records with NULL spatial_extent must not crash.
+
+        Protects compute_collection_extent in collections/service.py:243-244
+        which uses ST_Envelope(ST_Collect(Record.spatial_extent)). ST_Collect
+        should safely skip NULL values and return a valid envelope based on
+        the non-NULL member.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        # One dataset with a real spatial extent
+        ds_with_extent = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="With Extent",
+            extent_wkt="POLYGON((-74 40, -74 41, -73 41, -73 40, -74 40))",
+        )
+        # One dataset with NULL spatial extent (no extent_wkt passed)
+        ds_null = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Null Extent",
+        )
+
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"Mixed Extent {uuid.uuid4().hex[:6]}"},
+            headers=admin_auth_header,
+        )
+        coll_id = resp.json()["id"]
+
+        add_resp = await client.post(
+            f"/catalog/collections/{coll_id}/datasets/",
+            json={"dataset_ids": [str(ds_with_extent.id), str(ds_null.id)]},
+            headers=admin_auth_header,
+        )
+        assert add_resp.status_code in (200, 201)
+
+        resp = await client.get(
+            f"/catalog/collections/{coll_id}",
+            headers=admin_auth_header,
+        )
+        # Must succeed and produce an envelope from the non-NULL member only
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["extent_bbox"] is not None, (
+            "ST_Envelope(ST_Collect(...)) should yield a bbox when at least "
+            "one member has a non-NULL spatial_extent"
+        )
+        assert len(data["extent_bbox"]) == 4
+        assert data["dataset_count"] == 2
+
+    async def test_collection_extent_all_null_spatial_extent(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Collection where every member has NULL spatial_extent returns None."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds1 = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Null Ext 1",
+        )
+        ds2 = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Null Ext 2",
+        )
+
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"All Null Extent {uuid.uuid4().hex[:6]}"},
+            headers=admin_auth_header,
+        )
+        coll_id = resp.json()["id"]
+
+        await client.post(
+            f"/catalog/collections/{coll_id}/datasets/",
+            json={"dataset_ids": [str(ds1.id), str(ds2.id)]},
+            headers=admin_auth_header,
+        )
+
+        resp = await client.get(
+            f"/catalog/collections/{coll_id}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["extent_bbox"] is None
+        assert data["dataset_count"] == 2
+
 
 # ---------------------------------------------------------------------------
 # SC5: RBAC on member datasets (visibility filtering)

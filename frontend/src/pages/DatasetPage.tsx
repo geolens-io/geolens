@@ -81,10 +81,7 @@ export function DatasetPage() {
   const { data: dataset, isLoading, error } = useDataset(id ?? '', {
     refetchInterval: pollInterval,
   });
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [reuploadOpen, setReuploadOpen] = useState(false);
-  const [vrtOpen, setVrtOpen] = useState(false);
-  const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
+  const [activeDialog, setActiveDialog] = useState<'delete' | 'reupload' | 'vrt' | 'unpublish' | null>(null);
   const updatePublicationStatus = useUpdatePublicationStatus();
   const token = useAuthStore((s) => s.token);
   const { data: validationData } = useValidation(token ? id : undefined);
@@ -292,7 +289,7 @@ export function DatasetPage() {
   const handlePublishToggle = async () => {
     if (!id) return;
     if (isPublished) {
-      setUnpublishConfirmOpen(true);
+      setActiveDialog('unpublish');
       return;
     }
     if (requireMetadata && hasValidationErrors) {
@@ -327,7 +324,7 @@ export function DatasetPage() {
     } catch {
       toast.error(t('publish.failed'));
     } finally {
-      setUnpublishConfirmOpen(false);
+      setActiveDialog(null);
     }
   };
 
@@ -433,7 +430,7 @@ export function DatasetPage() {
       id: 'reupload',
       label: t('actions.reupload'),
       icon: Upload,
-      onSelect: () => setReuploadOpen(true),
+      onSelect: () => setActiveDialog('reupload'),
       priority: 10,
       visible: isEditor && !isVrt,
       variant: 'outline',
@@ -442,7 +439,7 @@ export function DatasetPage() {
       id: 'create-vrt',
       label: t('actions.createVrt', { defaultValue: 'Create VRT' }),
       icon: Layers,
-      onSelect: () => setVrtOpen(true),
+      onSelect: () => setActiveDialog('vrt'),
       priority: 11,
       visible: isRaster && isEditor,
     },
@@ -450,7 +447,7 @@ export function DatasetPage() {
       id: 'delete',
       label: t('actions.delete'),
       icon: Trash2,
-      onSelect: () => setDeleteOpen(true),
+      onSelect: () => setActiveDialog('delete'),
       priority: 20,
       visible: isAdmin,
       variant: 'destructive',
@@ -607,28 +604,28 @@ export function DatasetPage() {
       {isAdmin && (
         <DatasetDeleteDialog
           dataset={dataset}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
+          open={activeDialog === 'delete'}
+          onOpenChange={(open) => setActiveDialog(open ? 'delete' : null)}
         />
       )}
 
       {isEditor && !isVrt && (
         <ReuploadDialog
           dataset={dataset}
-          open={reuploadOpen}
-          onOpenChange={setReuploadOpen}
+          open={activeDialog === 'reupload'}
+          onOpenChange={(open) => setActiveDialog(open ? 'reupload' : null)}
         />
       )}
 
       {isRaster && isEditor && (
         <VrtCreateDialog
-          open={vrtOpen}
-          onOpenChange={setVrtOpen}
+          open={activeDialog === 'vrt'}
+          onOpenChange={(open) => setActiveDialog(open ? 'vrt' : null)}
           initialSourceId={dataset.id}
         />
       )}
 
-      <AlertDialog open={unpublishConfirmOpen} onOpenChange={setUnpublishConfirmOpen}>
+      <AlertDialog open={activeDialog === 'unpublish'} onOpenChange={(open) => setActiveDialog(open ? 'unpublish' : null)}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>{t('publish.unpublishTitle', { defaultValue: 'Unpublish Dataset?' })}</AlertDialogTitle>

@@ -2,8 +2,9 @@
 
 import json
 from datetime import date, datetime
+from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.datasets.models import Dataset, Record
@@ -59,7 +60,7 @@ FIELD_MAPPING = {
 }
 
 
-def parse_cql2_filter(filter_expr: str, filter_lang: str):
+def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
     """Parse a CQL2 filter expression into an AST.
 
     Args:
@@ -90,7 +91,7 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str):
             ValueError,
             KeyError,
         ) as e:
-            raise HTTPException(status_code=400, detail=f"Invalid CQL2 expression: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
     elif filter_lang == "cql2-json":
         from pygeofilter.parsers.cql2_json import parse
 
@@ -99,19 +100,19 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str):
                 json.loads(filter_expr) if isinstance(filter_expr, str) else filter_expr
             )
         except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid CQL2 expression: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
         try:
             return parse(filter_dict)
         except (ValueError, KeyError, TypeError) as e:
-            raise HTTPException(status_code=400, detail=f"Invalid CQL2 expression: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
     else:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported filter-lang: {filter_lang}. Use cql2-text or cql2-json.",
         )
 
 
-def apply_cql2_filter(stmt, filter_expr: str, filter_lang: str = "cql2-text"):
+def apply_cql2_filter(stmt: Any, filter_expr: str, filter_lang: str = "cql2-text") -> Any:
     """Parse a CQL2 expression and apply it as a WHERE clause to a SQLAlchemy statement.
 
     Args:
@@ -131,7 +132,7 @@ def apply_cql2_filter(stmt, filter_expr: str, filter_lang: str = "cql2-text"):
     try:
         sa_filter = to_filter(ast, FIELD_MAPPING)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid CQL2 expression: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid CQL2 expression: {e}")
     return stmt.where(sa_filter)
 
 

@@ -1,7 +1,6 @@
 """Admin API endpoints: user management and catalog stats (admin-only)."""
 
 import asyncio
-import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
@@ -34,8 +33,6 @@ from app.config import settings as app_settings
 from app.dependencies import get_client_ip, get_db
 from app.audit.service import log_action
 from app.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -123,10 +120,21 @@ async def list_users(
 )
 async def list_user_names(
     db: AsyncSession = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=1000),
 ) -> list[UserNameItem]:
-    """Return lightweight id+username list for all users (for filter dropdowns)."""
+    """Return lightweight id+username list for filter dropdowns.
+
+    Paginated to bound response size on deployments with many users. Default
+    page size of 500 is enough for typical admin dropdowns; the limit cap of
+    1000 matches the previous hard cap. Clients needing the full list should
+    page by incrementing ``skip``.
+    """
     result = await db.execute(
-        select(User.id, User.username).order_by(User.username).limit(1000)
+        select(User.id, User.username)
+        .order_by(User.username)
+        .offset(skip)
+        .limit(limit)
     )
     return [UserNameItem(id=row.id, username=row.username) for row in result.all()]
 

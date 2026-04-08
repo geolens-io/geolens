@@ -176,6 +176,7 @@ export interface ContactResponse {
   organization: string | null;
   phone: string | null;
   sort_order: number;
+  extra_json?: Record<string, unknown> | null;
 }
 
 export interface ContactListResponse {
@@ -776,6 +777,7 @@ export interface MapLayerInput {
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   layer_type?: string | null;
+  show_in_legend?: boolean;
 }
 
 // Shared / Public Maps

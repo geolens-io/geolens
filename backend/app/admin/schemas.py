@@ -12,7 +12,7 @@ VALID_ROLES = {"admin", "editor", "viewer"}
 
 class AdminUserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=150)
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=256)
     email: EmailStr | None = None
     role: str = "viewer"
 

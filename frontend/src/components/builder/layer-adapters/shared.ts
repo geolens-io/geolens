@@ -42,7 +42,7 @@ export function simplifyPaint(paint: Record<string, unknown>): Record<string, un
   return result;
 }
 
-export const OPACITY_DEFAULTS: Record<string, number> = {
+const OPACITY_DEFAULTS: Record<string, number> = {
   fill: 0.3,
   line: 1,
   circle: 1,
@@ -64,7 +64,7 @@ export function stripCustomProps(paint: Record<string, unknown>): Record<string,
 }
 
 /** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
-export function replayExpressions(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
+function replayExpressions(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
   for (const [prop, val] of Object.entries(rawPaint)) {
     if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
       try { map.setPaintProperty(layerId, prop, val); }

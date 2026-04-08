@@ -715,3 +715,171 @@ class TestMetadataRefresh:
         )
         count = result.scalar_one()
         assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# BBOX filtering tests (including antimeridian crossing)
+# ---------------------------------------------------------------------------
+
+
+class TestBboxFiltering:
+    """Exercises the bbox query parameter in GET /datasets/{id}/features/.
+
+    Covers the antimeridian-crossing split in
+    backend/app/features/service.py:102-110, which splits a bbox where
+    minx > maxx into two ST_MakeEnvelope calls (one clipped to 180, one
+    clipped at -180).
+    """
+
+    async def test_bbox_filter_normal(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """Normal bbox (minx < maxx) returns only features inside the envelope."""
+        dataset_id = test_layer.id
+
+        # Feature inside NYC bbox
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-73.9857, 40.7484]},
+                "properties": {"name": "Empire State"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        # Feature outside NYC bbox
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-118.2437, 34.0522]},
+                "properties": {"name": "LA"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        # Query with bbox covering only NYC
+        resp = await client.get(
+            f"/datasets/{dataset_id}/features/?bbox=-74.1,40.6,-73.9,40.8",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["numberReturned"] == 1
+        names = {f["properties"]["name"] for f in data["features"]}
+        assert names == {"Empire State"}
+
+    async def test_bbox_antimeridian_crossing(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """Bbox crossing the antimeridian (minx > maxx) matches features on both sides.
+
+        This exercises the split-envelope logic in features/service.py:102-110.
+        A bbox like [170, -10, -170, 10] should match points at longitude 175
+        AND longitude -175, but NOT a point at longitude 0.
+        """
+        dataset_id = test_layer.id
+
+        # Feature on the east side of the dateline (longitude 175)
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [175.0, 0.0]},
+                "properties": {"name": "East Fiji"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        # Feature on the west side of the dateline (longitude -175)
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-175.0, 0.0]},
+                "properties": {"name": "West Samoa"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        # Feature NOT in the antimeridian region (Greenwich)
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+                "properties": {"name": "Greenwich"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        # Query with antimeridian-crossing bbox: minx=170, maxx=-170 (crosses dateline)
+        resp = await client.get(
+            f"/datasets/{dataset_id}/features/?bbox=170,-10,-170,10",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        names = {f["properties"]["name"] for f in data["features"]}
+        assert "East Fiji" in names, "Feature at lon=175 should match antimeridian bbox"
+        assert "West Samoa" in names, (
+            "Feature at lon=-175 should match antimeridian bbox"
+        )
+        assert "Greenwich" not in names, (
+            "Feature at lon=0 should NOT match antimeridian bbox"
+        )
+        assert data["numberReturned"] == 2
+
+    async def test_bbox_antimeridian_excludes_mid_longitude(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """Antimeridian bbox must not accidentally match features mid-globe.
+
+        Regression check: if the bbox split logic were wrong and treated
+        [170, -10, -170, 10] as [-170, -10, 170, 10], it would match
+        EVERYTHING between -170 and 170 longitude, which is the opposite
+        of what we want.
+        """
+        dataset_id = test_layer.id
+
+        # Feature mid-Pacific at longitude 0 (should NOT match antimeridian bbox)
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+                "properties": {"name": "Mid"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        # Feature at longitude 100 (should NOT match)
+        resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [100.0, 0.0]},
+                "properties": {"name": "West-of-AM"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+        resp = await client.get(
+            f"/datasets/{dataset_id}/features/?bbox=170,-10,-170,10",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["numberReturned"] == 0, (
+            "Mid-globe features must not match antimeridian bbox"
+        )

@@ -116,127 +116,141 @@ export function DataDrivenStyleEditor({
     columnForGraduated,
   );
 
+  // Effect 1: Categorical styling with value-fetching
   useEffect(() => {
-    if (!column) return;
+    if (!column || mode !== 'categorical' || !valuesData) return;
 
-    if (mode === 'categorical' && valuesData) {
-      const values = valuesData.values;
-      const colorProp = getColorProperty(layer.dataset_geometry_type);
+    const values = valuesData.values;
+    const colorProp = getColorProperty(layer.dataset_geometry_type);
 
-      // Preserve existing per-category colors when column and ramp haven't changed
-      const ec = layer.style_config;
-      if (
-        ec?.mode === 'categorical' &&
-        ec.column === column &&
-        ec.ramp === ramp &&
-        ec.categories &&
-        ec.categories.length === values.length &&
-        ec.categories.every((c, i) => c.value === values[i])
-      ) {
-        return;
-      }
-
-      // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
-      const effectiveRamp = ramp === 'custom' ? 'Set2' : ramp;
-      if (ramp === 'custom') setRamp(effectiveRamp);
-
-      const colors = getRampColors(effectiveRamp, Math.max(values.length, 1));
-      const valueColorMap: [string, string][] = values.map((v, i) => [v, colors[i]]);
-      const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
-
-      const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
-      const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
-      const paint = { ...layer.paint, [colorProp]: expression };
-      onStyleConfigChange(layer.id, config, paint);
+    // Preserve existing per-category colors when column and ramp haven't changed
+    const ec = layer.style_config;
+    if (
+      ec?.mode === 'categorical' &&
+      ec.column === column &&
+      ec.ramp === ramp &&
+      ec.categories &&
+      ec.categories.length === values.length &&
+      ec.categories.every((c, i) => c.value === values[i])
+    ) {
+      return;
     }
 
-    if (mode === 'graduated' && statsData && statsData.min !== null && statsData.max !== null) {
-      let breaks: number[];
-      if (method === 'quantile' && statsData.quantiles.length > 0) {
-        breaks = quantileBreaks(statsData.quantiles);
-      } else {
-        breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
-      }
+    // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
+    const effectiveRamp = ramp === 'custom' ? 'Set2' : ramp;
+    if (ramp === 'custom') setRamp(effectiveRamp);
 
-      const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+    const colors = getRampColors(effectiveRamp, Math.max(values.length, 1));
+    const valueColorMap: [string, string][] = values.map((v, i) => [v, colors[i]]);
+    const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
 
-      if (target === 'color' || !target) {
-        // Preserve existing graduated colors when config hasn't changed
-        const ec = layer.style_config;
-        if (
-          ec?.mode === 'graduated' &&
-          ec.column === column &&
-          ec.ramp === ramp &&
-          ec.method === method &&
-          ec.classCount === classCount &&
-          ec.colors &&
-          ec.breaks &&
-          (!ec.target || ec.target === 'color')
-        ) {
-          return;
-        }
+    const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
+    const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
+    const paint = { ...layer.paint, [colorProp]: expression };
+    onStyleConfigChange(layer.id, config, paint);
+  }, [column, mode, ramp, valuesData, layer.style_config, layer.dataset_geometry_type, layer.paint, layer.id, onStyleConfigChange]);
 
-        // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
-        const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
-        if (ramp === 'custom') setRamp(effectiveRamp);
+  // Effect 2: Graduated color styling
+  useEffect(() => {
+    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null) return;
+    if (target !== 'color' && target) return;
 
-        const colors = getRampColors(effectiveRamp, effectiveClassCount);
-        const colorProp = getColorProperty(layer.dataset_geometry_type);
-        const expression = buildGraduatedExpression(column, breaks, colors);
-
-        const config: StyleConfig = {
-          mode: 'graduated',
-          column,
-          ramp: effectiveRamp,
-          classCount: effectiveClassCount,
-          method,
-          breaks,
-          colors,
-          target: 'color',
-        };
-        const paint = { ...layer.paint, [colorProp]: expression };
-        onStyleConfigChange(layer.id, config, paint);
-      } else {
-        // Size target (radius or width)
-        const ec = layer.style_config;
-        // Guard: skip if existing config already matches
-        if (
-          ec?.target === target &&
-          ec.column === column &&
-          ec.method === method &&
-          ec.classCount === effectiveClassCount &&
-          ec.sizes &&
-          ec.sizeRange &&
-          ec.sizeRange[0] === sizeRange[0] &&
-          ec.sizeRange[1] === sizeRange[1]
-        ) {
-          return;
-        }
-
-        const sizeProp = getSizeProperty(layer.dataset_geometry_type, target);
-        if (!sizeProp) return;
-
-        const sizes = computeSizes(sizeRange, effectiveClassCount);
-        const sizeExpression = buildGraduatedSizeExpression(column, breaks, sizes);
-
-        const config: StyleConfig = {
-          mode: 'graduated',
-          column,
-          ramp,
-          classCount: effectiveClassCount,
-          method,
-          breaks,
-          target,
-          sizes,
-          sizeRange,
-        };
-        // Keep existing color expression + add size expression
-        const paint = { ...layer.paint, [sizeProp]: sizeExpression };
-        onStyleConfigChange(layer.id, config, paint);
-      }
+    let breaks: number[];
+    if (method === 'quantile' && statsData.quantiles.length > 0) {
+      breaks = quantileBreaks(statsData.quantiles);
+    } else {
+      breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [column, mode, ramp, classCount, method, target, sizeRange, valuesData, statsData]);
+
+    const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+
+    // Preserve existing graduated colors when config hasn't changed
+    const ec = layer.style_config;
+    if (
+      ec?.mode === 'graduated' &&
+      ec.column === column &&
+      ec.ramp === ramp &&
+      ec.method === method &&
+      ec.classCount === classCount &&
+      ec.colors &&
+      ec.breaks &&
+      (!ec.target || ec.target === 'color')
+    ) {
+      return;
+    }
+
+    // Resolve 'custom' to a real ramp when regenerating (e.g., column change)
+    const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
+    if (ramp === 'custom') setRamp(effectiveRamp);
+
+    const colors = getRampColors(effectiveRamp, effectiveClassCount);
+    const colorProp = getColorProperty(layer.dataset_geometry_type);
+    const expression = buildGraduatedExpression(column, breaks, colors);
+
+    const config: StyleConfig = {
+      mode: 'graduated',
+      column,
+      ramp: effectiveRamp,
+      classCount: effectiveClassCount,
+      method,
+      breaks,
+      colors,
+      target: 'color',
+    };
+    const paint = { ...layer.paint, [colorProp]: expression };
+    onStyleConfigChange(layer.id, config, paint);
+  }, [column, mode, ramp, classCount, method, target, statsData, layer.style_config, layer.dataset_geometry_type, layer.paint, layer.id, onStyleConfigChange]);
+
+  // Effect 3: Graduated size styling (radius or width)
+  useEffect(() => {
+    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null) return;
+    if (target === 'color' || !target) return;
+
+    let breaks: number[];
+    if (method === 'quantile' && statsData.quantiles.length > 0) {
+      breaks = quantileBreaks(statsData.quantiles);
+    } else {
+      breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
+    }
+
+    const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+
+    // Guard: skip if existing config already matches
+    const ec = layer.style_config;
+    if (
+      ec?.target === target &&
+      ec.column === column &&
+      ec.method === method &&
+      ec.classCount === effectiveClassCount &&
+      ec.sizes &&
+      ec.sizeRange &&
+      ec.sizeRange[0] === sizeRange[0] &&
+      ec.sizeRange[1] === sizeRange[1]
+    ) {
+      return;
+    }
+
+    const sizeProp = getSizeProperty(layer.dataset_geometry_type, target);
+    if (!sizeProp) return;
+
+    const sizes = computeSizes(sizeRange, effectiveClassCount);
+    const sizeExpression = buildGraduatedSizeExpression(column, breaks, sizes);
+
+    const config: StyleConfig = {
+      mode: 'graduated',
+      column,
+      ramp,
+      classCount: effectiveClassCount,
+      method,
+      breaks,
+      target,
+      sizes,
+      sizeRange,
+    };
+    // Keep existing color expression + add size expression
+    const paint = { ...layer.paint, [sizeProp]: sizeExpression };
+    onStyleConfigChange(layer.id, config, paint);
+  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, layer.style_config, layer.dataset_geometry_type, layer.paint, layer.id, onStyleConfigChange]);
 
   function handleClear() {
     setColumn('');

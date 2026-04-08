@@ -598,8 +598,10 @@ class TestVersionsEndpoint:
         assert "total" in data
         assert data["total"] >= 1
 
-        v = data["versions"][0]
-        assert v["version_number"] == 1
+        # Find version 1 explicitly rather than relying on response ordering
+        matching = [v for v in data["versions"] if v["version_number"] == 1]
+        assert len(matching) == 1, "Expected exactly one version with version_number=1"
+        v = matching[0]
         assert v["source_filename"] == "original.geojson"
         assert v["feature_count"] == 100
         assert v["uploaded_by"] == str(admin_id)

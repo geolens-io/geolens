@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 import structlog
 from authlib.integrations.starlette_client import OAuth
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +26,7 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"])
 
 
-async def build_oauth_client(provider_slug: str, db: AsyncSession):
+async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     """Build an authlib OAuth client for the given provider slug.
 
     Raises 404 if provider not found or not enabled.
@@ -71,7 +71,7 @@ async def oauth_login(
     provider_slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> RedirectResponse:
     """Redirect user to the IdP authorization URL with PKCE parameters."""
     client, _provider = await build_oauth_client(provider_slug, db)
 
@@ -86,7 +86,7 @@ async def oauth_callback(
     provider_slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> Response:
     """Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend."""
     from app.auth.oauth.service import find_or_create_oauth_user
 

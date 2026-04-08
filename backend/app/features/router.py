@@ -64,6 +64,7 @@ async def list_features(
     limit: int = Query(10, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
+    include_geometry: bool = Query(True, description="Include geometry in response"),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -91,7 +92,7 @@ async def list_features(
             )
 
     # Extract property filters from query params
-    reserved_params = {"limit", "offset", "bbox", "api_key"}
+    reserved_params = {"limit", "offset", "bbox", "include_geometry", "api_key"}
     column_names = {col["name"] for col in (dataset.column_info or [])}
     property_filters: dict = {}
     for key, value in request.query_params.items():
@@ -110,6 +111,8 @@ async def list_features(
         property_filters=property_filters if property_filters else None,
         has_geometry=has_geometry,
         allowed_columns=column_names,
+        include_geometry=include_geometry,
+        cached_feature_count=dataset.feature_count,
     )
 
     # Build GeoJSON features

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
-import { ChatPanel } from '../ChatPanel';
+import { ChatPanel, type LayerActions } from '../ChatPanel';
 import type { MapLayerResponse } from '@/types/api';
 
 // scrollIntoView is not available in jsdom
@@ -39,23 +39,38 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 }
 
 function renderPanel(
-  propOverrides: Partial<React.ComponentProps<typeof ChatPanel>> = {},
+  propOverrides: Partial<React.ComponentProps<typeof ChatPanel>> & Partial<LayerActions> = {},
 ) {
+  const {
+    onFilterChange = vi.fn(),
+    onPaintChange = vi.fn(),
+    onStyleConfigChange = vi.fn(),
+    onLabelChange = vi.fn(),
+    onToggleVisibility = vi.fn(),
+    onAddDataset = vi.fn(),
+    onRemove = vi.fn(),
+    onOpacityChange,
+    ...rest
+  } = propOverrides;
+  const layerActions = {
+    onFilterChange,
+    onPaintChange,
+    onStyleConfigChange,
+    onLabelChange,
+    onToggleVisibility,
+    onAddDataset,
+    onRemove,
+    ...(onOpacityChange ? { onOpacityChange } : {}),
+  };
   const props = {
     mapId: 'map-1',
     layers: [makeLayer()],
-    onFilterChange: vi.fn(),
-    onPaintChange: vi.fn(),
-    onStyleConfigChange: vi.fn(),
-    onLabelChange: vi.fn(),
-    onToggleVisibility: vi.fn(),
-    onAddDataset: vi.fn(),
-    onRemove: vi.fn(),
+    layerActions,
     onQueryResult: vi.fn(),
-    ...propOverrides,
+    ...rest,
   };
   render(<ChatPanel {...props} />);
-  return props;
+  return { ...layerActions, ...props };
 }
 
 async function typeAndSend(

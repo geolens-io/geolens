@@ -13,7 +13,7 @@ import enum
 import uuid
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -117,7 +117,7 @@ async def check_dataset_access_or_anonymous(
     if user is None:
         record = dataset.record
         if record.visibility != "public" or record.record_status != "published":
-            raise HTTPException(status_code=404, detail="Dataset not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
         return
     await check_dataset_access(db, dataset, dataset_id, user)
 
@@ -145,10 +145,10 @@ async def check_dataset_access(
 
     # Block access to non-published datasets for non-owners
     if record.record_status != "published" and record.created_by != user.id:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     if record.visibility == "private" and record.created_by != user.id:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     if record.visibility == "restricted":
         grant_result = await db.execute(
@@ -160,4 +160,4 @@ async def check_dataset_access(
             )
         )
         if grant_result.scalar_one_or_none() is None:
-            raise HTTPException(status_code=404, detail="Dataset not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")

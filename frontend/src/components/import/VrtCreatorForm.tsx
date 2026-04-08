@@ -204,7 +204,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
   }, [searchQuery]);
 
   // COG search query
-  const { data: searchResults, isFetching: isSearchFetching } = useQuery({
+  const { data: searchResults, isFetching: isSearchFetching, error: searchError } = useQuery({
     queryKey: queryKeys.cogSearch.results(debouncedQuery),
     queryFn: () =>
       searchDatasets({
@@ -369,7 +369,10 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
             {isDropdownOpen && debouncedQuery.length >= 2 && (
               <Card className="absolute z-50 w-full mt-1 shadow-lg">
                 <CardContent className="p-0">
-                  {filteredResults.length === 0 ? (
+                  {searchError && (
+                    <p className="text-sm text-destructive px-3 py-2">{t('vrt.searchError', { defaultValue: 'Failed to load results' })}</p>
+                  )}
+                  {!searchError && filteredResults.length === 0 ? (
                     <p className="px-3 py-2 text-sm text-muted-foreground">
                       {t('vrt.noResults')}
                     </p>

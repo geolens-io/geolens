@@ -348,7 +348,19 @@ async def generate_distributions(
         table_name: Dataset table name (used in vector tile URL).
         geometry_type: Geometry type string, or None for non-spatial datasets.
     """
-    created = []
+    # Fetch all existing distributions for this record in a single query
+    existing_result = await session.execute(
+        select(
+            RecordDistribution.distribution_type,
+            RecordDistribution.format,
+        ).where(RecordDistribution.record_id == record_id)
+    )
+    existing_set = {(row[0], row[1]) for row in existing_result.all()}
+
+    # Build all new distributions in one list so they can be flushed in a
+    # single batch rather than as individual INSERT statements. SQLAlchemy 2.0
+    # batches `add_all()` + `flush()` via insertmanyvalues when supported.
+    to_add: list[RecordDistribution] = []
 
     for (
         dist_type,
@@ -366,64 +378,49 @@ async def generate_distributions(
                 or dist_type == "ogc_features"
             ):
                 continue
-        url = url_tpl.format(dataset_id=dataset_id)
 
-        # Check if already exists
-        existing = await session.execute(
-            select(RecordDistribution).where(
-                RecordDistribution.record_id == record_id,
-                RecordDistribution.distribution_type == dist_type,
-                RecordDistribution.format == fmt,
-            )
-        )
-        if existing.scalar_one_or_none() is not None:
+        # Skip if already exists
+        if (dist_type, fmt) in existing_set:
             continue
+
+        url = url_tpl.format(dataset_id=dataset_id)
 
         # For non-spatial datasets, CSV download becomes primary (gpkg is filtered out)
         effective_primary = is_primary
         if geometry_type is None and dist_type == "download" and fmt == "csv":
             effective_primary = True
 
-        dist = RecordDistribution(
-            record_id=record_id,
-            distribution_type=dist_type,
-            format=fmt,
-            url=url,
-            title=title,
-            protocol=protocol,
-            media_type=media_type,
-            is_primary=effective_primary,
-            auto_generated=True,
+        to_add.append(
+            RecordDistribution(
+                record_id=record_id,
+                distribution_type=dist_type,
+                format=fmt,
+                url=url,
+                title=title,
+                protocol=protocol,
+                media_type=media_type,
+                is_primary=effective_primary,
+                auto_generated=True,
+            )
         )
-        session.add(dist)
-        created.append(dist)
 
     # Vector tiles (uses table_name, not dataset_id) — skip for non-spatial datasets
-    if geometry_type is None:
+    if geometry_type is not None and ("vector_tiles", "pbf") not in existing_set:
+        to_add.append(
+            RecordDistribution(
+                record_id=record_id,
+                distribution_type="vector_tiles",
+                format="pbf",
+                url=f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
+                title="Vector Tiles",
+                protocol="OGC:WMTS",
+                media_type="application/vnd.mapbox-vector-tile",
+                is_primary=False,
+                auto_generated=True,
+            )
+        )
+
+    if to_add:
+        session.add_all(to_add)
         await session.flush()
-        return created
-
-    existing = await session.execute(
-        select(RecordDistribution).where(
-            RecordDistribution.record_id == record_id,
-            RecordDistribution.distribution_type == "vector_tiles",
-            RecordDistribution.format == "pbf",
-        )
-    )
-    if existing.scalar_one_or_none() is None:
-        tile_dist = RecordDistribution(
-            record_id=record_id,
-            distribution_type="vector_tiles",
-            format="pbf",
-            url=f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
-            title="Vector Tiles",
-            protocol="OGC:WMTS",
-            media_type="application/vnd.mapbox-vector-tile",
-            is_primary=False,
-            auto_generated=True,
-        )
-        session.add(tile_dist)
-        created.append(tile_dist)
-
-    await session.flush()
-    return created
+    return to_add

@@ -318,3 +318,56 @@ async def test_validate_oidc_empty(
     assert resp.status_code == 200
     data = resp.json()
     assert data["oidc_providers"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Auth enforcement tests for import and dry-run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_import_requires_auth(client: AsyncClient):
+    """Unauthenticated request to import returns 401."""
+    resp = await client.post(
+        "/config-ops/import/?mode=merge",
+        json={"settings": {"log_level": "INFO"}},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_import_requires_manage_settings(
+    client: AsyncClient,
+    viewer_auth_header: dict,
+):
+    """Viewer (no manage_settings) importing config gets 403."""
+    resp = await client.post(
+        "/config-ops/import/?mode=merge",
+        json={"settings": {"log_level": "INFO"}},
+        headers=viewer_auth_header,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_dry_run_requires_auth(client: AsyncClient):
+    """Unauthenticated request to dry-run returns 401."""
+    resp = await client.post(
+        "/config-ops/dry-run/?mode=merge",
+        json={"settings": {"log_level": "INFO"}},
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_dry_run_requires_manage_settings(
+    client: AsyncClient,
+    viewer_auth_header: dict,
+):
+    """Viewer (no manage_settings) dry-run gets 403."""
+    resp = await client.post(
+        "/config-ops/dry-run/?mode=merge",
+        json={"settings": {"log_level": "INFO"}},
+        headers=viewer_auth_header,
+    )
+    assert resp.status_code == 403

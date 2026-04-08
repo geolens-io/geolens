@@ -2,7 +2,8 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 from app.middleware.cors import DynamicCORSMiddleware
 from sqlalchemy import func, select, text
 
@@ -400,14 +401,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-from app.ogc.errors import register_error_handlers  # noqa: E402
-from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from app.ogc.errors import ProblemDetail, register_error_handlers  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
 register_error_handlers(app)
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    # Use the shared ProblemDetail model for consistency with the rest of
+    # the API's RFC 7807 error responses.
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=ProblemDetail(
+            title="Too Many Requests",
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc.detail),
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret_key)
 app.add_middleware(RequestLoggingMiddleware)

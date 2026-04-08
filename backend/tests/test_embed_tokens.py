@@ -192,17 +192,21 @@ class TestCreateEmbedToken:
             test_db_session, client, admin_auth_header, dataset, created_by=user_id
         )
 
+        # Capture the time window around the request to bound the expected
+        # expiration deterministically (no wall-clock comparison after the fact).
+        before = datetime.now(timezone.utc)
         resp = await client.post(
             f"/maps/{map_obj.id}/embed-tokens/",
             json={},
             headers=admin_auth_header,
         )
+        after = datetime.now(timezone.utc)
         assert resp.status_code == 201
         data = resp.json()
         expires_at = datetime.fromisoformat(data["expires_at"])
-        expected = datetime.now(timezone.utc) + timedelta(days=30)
-        # Allow 5-minute tolerance
-        assert abs((expires_at - expected).total_seconds()) < 300
+        # The server generated expires_at at some point t in [before, after].
+        # So expires_at must be in [before + 30d, after + 30d].
+        assert before + timedelta(days=30) <= expires_at <= after + timedelta(days=30)
 
     async def test_create_embed_token_max_expiration(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -225,16 +229,18 @@ class TestCreateEmbedToken:
         assert resp.status_code == 422
 
         # Verify max value (365) works
+        before = datetime.now(timezone.utc)
         resp = await client.post(
             f"/maps/{map_obj.id}/embed-tokens/",
             json={"expires_in_days": 365},
             headers=admin_auth_header,
         )
+        after = datetime.now(timezone.utc)
         assert resp.status_code == 201
         data = resp.json()
         expires_at = datetime.fromisoformat(data["expires_at"])
-        expected = datetime.now(timezone.utc) + timedelta(days=365)
-        assert abs((expires_at - expected).total_seconds()) < 300
+        # Bound the expected expiration to [before + 365d, after + 365d].
+        assert before + timedelta(days=365) <= expires_at <= after + timedelta(days=365)
 
 
 class TestListEmbedTokens:

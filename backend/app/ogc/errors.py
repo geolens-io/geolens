@@ -80,10 +80,35 @@ def register_error_handlers(app: FastAPI) -> None:
     async def unhandled_exception_handler(
         request: Request, exc: Exception
     ) -> JSONResponse:
+        # Collect diagnostic context for the log only (do NOT leak any of this
+        # into the response body — production responses stay generic).
+        user_id: str | None = None
+        try:
+            user = getattr(request.state, "user", None)
+            if user is not None:
+                user_id = str(getattr(user, "id", None))
+        except Exception:
+            pass
+
+        request_id = request.headers.get("x-request-id") or request.headers.get(
+            "x-correlation-id"
+        )
+        client_ip = None
+        try:
+            if request.client is not None:
+                client_ip = request.client.host
+        except Exception:
+            pass
+
         logger.exception(
             "Unhandled error",
             path=request.url.path,
             method=request.method,
+            query=str(request.url.query) if request.url.query else None,
+            user_id=user_id,
+            request_id=request_id,
+            client_ip=client_ip,
+            exc_type=type(exc).__name__,
         )
         return JSONResponse(
             status_code=500,

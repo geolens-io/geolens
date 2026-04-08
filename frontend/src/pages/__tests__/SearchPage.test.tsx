@@ -158,4 +158,61 @@ describe('SearchPage', () => {
     expect(screen.getByTestId('saved-searches')).toBeInTheDocument();
     expect(screen.getByTestId('filter-panel')).toHaveTextContent('12');
   });
+
+  it('renders skeletons while loading with no cached data', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+      isFetching: true,
+    } as ReturnType<typeof useSearchResults>);
+
+    render(<SearchPage />, { route: '/search' });
+
+    // The skeleton container is announced via role=status / aria-live
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getAllByTestId('dataset-card-skeleton').length).toBeGreaterThan(0);
+    // No results or error visible yet
+    expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
+  });
+
+  it('renders error state when the query fails', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error('Catalog unreachable'),
+      isFetching: false,
+    } as ReturnType<typeof useSearchResults>);
+
+    render(<SearchPage />, { route: '/search' });
+
+    // ErrorState includes the error message
+    expect(screen.getByText(/Catalog unreachable/)).toBeInTheDocument();
+    expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-card-skeleton')).not.toBeInTheDocument();
+  });
+
+  it('renders empty state when no results match', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: {
+        type: 'FeatureCollection',
+        numberMatched: 0,
+        numberReturned: 0,
+        features: [] as OGCRecordResponse[],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useSearchResults>);
+
+    render(<SearchPage />, { route: '/search' });
+
+    // EmptyState from layout renders an accessible heading with the title
+    // and no result cards are visible.
+    expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dataset-card-skeleton')).not.toBeInTheDocument();
+  });
 });

@@ -2,6 +2,7 @@
 
 import time
 
+from starlette import status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -34,7 +35,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
         # Preflight (OPTIONS)
         if request.method == "OPTIONS":
-            response = Response(status_code=200)
+            response = Response(status_code=status.HTTP_200_OK)
             self._set_cors_headers(response, origin)
             return response
 

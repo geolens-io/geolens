@@ -28,7 +28,7 @@ export function SearchTypeahead({
   const debouncedQuery = useDebouncedValue(query, 300);
   const [activeIndex, setActiveIndex] = useState(-1);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.typeahead.results(debouncedQuery),
     queryFn: () => searchDatasets({ q: debouncedQuery, limit: '5' }),
     enabled: debouncedQuery.length >= 2,
@@ -91,7 +91,7 @@ export function SearchTypeahead({
   // Don't render when query is too short or when there are no results
   // (the page-level EmptyState handles the zero-results case)
   if (debouncedQuery.length < 2) return null;
-  if (!isLoading && results.length === 0) return null;
+  if (!isLoading && !error && results.length === 0) return null;
 
   return (
     <div
@@ -104,6 +104,10 @@ export function SearchTypeahead({
           <Loader2 className="size-4 animate-spin" />
           {t('typeahead.searching')}
         </div>
+      )}
+
+      {error && (
+        <p className="text-sm text-destructive px-4 py-3">{t('typeahead.error', { defaultValue: 'Failed to load results' })}</p>
       )}
 
       {/* No-results message suppressed — the page-level EmptyState handles this */}

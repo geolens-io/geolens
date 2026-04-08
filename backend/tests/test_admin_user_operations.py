@@ -172,3 +172,33 @@ async def test_backfill_embeddings_without_force(
     assert "created" in data
     assert "skipped" in data
     assert "errors" in data
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users/ — 409 conflict for duplicate username
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_create_user_duplicate_username_returns_409(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Creating a user with an existing username returns 409."""
+    # First creation should succeed
+    username = f"dup_{uuid.uuid4().hex[:8]}"
+    resp = await client.post(
+        "/admin/users/",
+        json={"username": username, "password": "testpass123", "role": "viewer"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201
+
+    # Duplicate should return 409
+    resp = await client.post(
+        "/admin/users/",
+        json={"username": username, "password": "otherpass456", "role": "viewer"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 409
+    assert "already" in resp.json()["detail"].lower() or "exists" in resp.json()["detail"].lower()

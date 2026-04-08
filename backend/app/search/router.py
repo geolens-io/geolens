@@ -47,6 +47,45 @@ from app.search.service import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Shared spatial param parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_spatial_params(
+    geometry: str | None, bbox: str | None
+) -> tuple[str | None, list[float] | None]:
+    """Parse and validate geometry GeoJSON and bbox query params.
+
+    Geometry takes precedence over bbox when both are provided.
+    """
+    geometry_geojson: str | None = None
+    if geometry:
+        try:
+            parsed = json.loads(geometry)
+            if "type" not in parsed or "coordinates" not in parsed:
+                raise ValueError("missing type or coordinates")
+            geometry_geojson = geometry
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid geometry GeoJSON: {e}",
+            )
+
+    bbox_parsed: list[float] | None = None
+    if bbox and not geometry_geojson:
+        try:
+            bbox_parsed = parse_bbox(bbox)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid bbox: {e}",
+            )
+
+    return geometry_geojson, bbox_parsed
+
+
 # ---------------------------------------------------------------------------
 # Pagination helpers
 # ---------------------------------------------------------------------------
@@ -73,6 +112,71 @@ def _build_pagination_url(
             doseq=True,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Raster metadata helper (shared by _handle_search and get_collection_item)
+# ---------------------------------------------------------------------------
+
+
+async def _build_raster_assets(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+) -> dict | None:
+    """Fetch raster metadata for a single dataset.
+
+    Returns a dict of raster properties or None if no raster asset exists.
+    """
+    from app.raster.models import RasterAsset
+
+    ra_row = await db.execute(
+        select(
+            RasterAsset.band_count,
+            RasterAsset.epsg,
+            RasterAsset.res_x,
+            RasterAsset.res_y,
+            RasterAsset.width,
+            RasterAsset.height,
+            RasterAsset.dtype,
+            RasterAsset.nodata,
+            RasterAsset.band_info,
+            RasterAsset.vrt_type,
+            RasterAsset.resolution_strategy,
+            RasterAsset.current_generation_id,
+        ).where(RasterAsset.dataset_id == dataset_id)
+    )
+    ra = ra_row.one_or_none()
+    if ra is None:
+        return None
+
+    meta = {
+        "band_count": ra.band_count,
+        "epsg": ra.epsg,
+        "res_x": float(ra.res_x) if ra.res_x is not None else None,
+        "res_y": float(ra.res_y) if ra.res_y is not None else None,
+        "width": ra.width,
+        "height": ra.height,
+        "dtype": ra.dtype,
+        "nodata": ra.nodata,
+        "band_info": ra.band_info,
+        "vrt_type": ra.vrt_type,
+        "resolution_strategy": ra.resolution_strategy,
+    }
+
+    # Fetch source_count for VRT datasets
+    if ra.vrt_type is not None and ra.current_generation_id is not None:
+        from app.raster.models import VrtGeneration
+
+        vg_row = await db.execute(
+            select(VrtGeneration.source_count).where(
+                VrtGeneration.id == ra.current_generation_id
+            )
+        )
+        vg = vg_row.scalar_one_or_none()
+        if vg is not None:
+            meta["source_count"] = vg
+
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -111,30 +215,7 @@ async def _handle_search(
     """Parse parameters, run search, and return OGC FeatureCollection."""
     public_api_url = await get_public_api_url(db, request=request)
 
-    # Parse geometry GeoJSON (takes precedence over bbox)
-    geometry_geojson: str | None = None
-    if geometry:
-        try:
-            parsed = json.loads(geometry)
-            if "type" not in parsed or "coordinates" not in parsed:
-                raise ValueError("missing type or coordinates")
-            geometry_geojson = geometry
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid geometry GeoJSON: {e}",
-            )
-
-    # Parse bbox
-    bbox_parsed: list[float] | None = None
-    if bbox and not geometry_geojson:
-        try:
-            bbox_parsed = parse_bbox(bbox)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid bbox: {e}",
-            )
+    geometry_geojson, bbox_parsed = _parse_spatial_params(geometry, bbox)
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -439,30 +520,7 @@ async def search_facets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> FacetCountResponse:
     """Return record_type facet counts for the given filters."""
-    # Parse geometry GeoJSON (takes precedence over bbox)
-    geometry_geojson: str | None = None
-    if geometry:
-        try:
-            parsed = json.loads(geometry)
-            if "type" not in parsed or "coordinates" not in parsed:
-                raise ValueError("missing type or coordinates")
-            geometry_geojson = geometry
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid geometry GeoJSON: {e}",
-            )
-
-    # Parse bbox
-    bbox_parsed: list[float] | None = None
-    if bbox and not geometry_geojson:
-        try:
-            bbox_parsed = parse_bbox(bbox)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid bbox: {e}",
-            )
+    geometry_geojson, bbox_parsed = _parse_spatial_params(geometry, bbox)
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -953,6 +1011,73 @@ async def get_record_schema(
 _OGC_SORT_MAP = {"title": "name", "created": "date_added", "updated": "last_updated"}
 
 
+def _parse_ogc_sortby(sortby: str) -> tuple[str, bool | None] | JSONResponse:
+    """Parse OGC sortby parameter into (sort_by, sort_desc).
+
+    Returns a (sort_by, sort_desc) tuple on success or a JSONResponse error
+    on invalid input.
+    """
+    # URL query strings decode '+' as space; treat leading space as ascending
+    _field = sortby.lstrip("+- ")
+    sort_desc: bool | None = None
+    if sortby.startswith("-"):
+        sort_desc = True
+    elif sortby.startswith("+") or sortby.startswith(" "):
+        sort_desc = False
+    mapped = _OGC_SORT_MAP.get(_field)
+    if mapped is None:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "code": "InvalidParameterValue",
+                "description": f"Unknown sortby field: {_field}. Valid: {', '.join(_OGC_SORT_MAP.keys())}",
+            },
+        )
+    return mapped, sort_desc
+
+
+async def _lookup_by_external_id(
+    db: AsyncSession,
+    external_id: str,
+    request: Request,
+) -> JSONResponse:
+    """Lookup a single OGC record by externalId (dataset UUID).
+
+    Returns a JSONResponse with the record or an error response.
+    """
+    try:
+        record_uuid = uuid.UUID(external_id)
+    except ValueError:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "code": "InvalidParameterValue",
+                "description": f"Invalid externalId: {external_id}",
+            },
+        )
+    from sqlalchemy.orm import joinedload as _jl_ext
+
+    ext_result = await db.execute(
+        select(Dataset)
+        .options(
+            _jl_ext(Dataset.record).joinedload(Record.keywords),
+            _jl_ext(Dataset.record).joinedload(Record.contacts),
+            _jl_ext(Dataset.record).joinedload(Record.distributions),
+        )
+        .where(Dataset.id == record_uuid)
+    )
+    dataset = ext_result.unique().scalar_one_or_none()
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
+    public_api_url = await get_public_api_url(db, request=request)
+    return JSONResponse(
+        content=dataset_to_ogc_record(dataset, public_api_url),
+        media_type="application/geo+json",
+    )
+
+
 @collections_router.get("/datasets/sortables")
 async def get_sortables(
     request: Request,
@@ -1045,37 +1170,7 @@ async def collection_items(
     """OGC API Records items endpoint -- mirrors /search/datasets."""
     # OGC externalId -> fetch single record by UUID
     if external_id:
-        try:
-            record_uuid = uuid.UUID(external_id)
-        except ValueError:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "code": "InvalidParameterValue",
-                    "description": f"Invalid externalId: {external_id}",
-                },
-            )
-        from sqlalchemy.orm import joinedload as _jl_ext
-
-        ext_result = await db.execute(
-            select(Dataset)
-            .options(
-                _jl_ext(Dataset.record).joinedload(Record.keywords),
-                _jl_ext(Dataset.record).joinedload(Record.contacts),
-                _jl_ext(Dataset.record).joinedload(Record.distributions),
-            )
-            .where(Dataset.id == record_uuid)
-        )
-        dataset = ext_result.unique().scalar_one_or_none()
-        if dataset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-            )
-        public_api_url = await get_public_api_url(db, request=request)
-        return JSONResponse(
-            content=dataset_to_ogc_record(dataset, public_api_url),
-            media_type="application/geo+json",
-        )
+        return await _lookup_by_external_id(db, external_id, request)
 
     # OGC type param -> record_type
     if type_param and not record_type:
@@ -1084,22 +1179,10 @@ async def collection_items(
     # OGC sortby -> internal sort_by mapping (sortby takes precedence)
     sort_desc: bool | None = None
     if sortby is not None:
-        # URL query strings decode '+' as space; treat leading space as ascending
-        _field = sortby.lstrip("+- ")
-        if sortby.startswith("-"):
-            sort_desc = True
-        elif sortby.startswith("+") or sortby.startswith(" "):
-            sort_desc = False
-        mapped = _OGC_SORT_MAP.get(_field)
-        if mapped is None:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "code": "InvalidParameterValue",
-                    "description": f"Unknown sortby field: {_field}. Valid: {', '.join(_OGC_SORT_MAP.keys())}",
-                },
-            )
-        sort_by = mapped
+        parsed = _parse_ogc_sortby(sortby)
+        if isinstance(parsed, JSONResponse):
+            return parsed
+        sort_by, sort_desc = parsed
 
     result = await _handle_search(
         db,
@@ -1203,51 +1286,7 @@ async def get_collection_item(
     item_raster_meta = None
     rec_type = getattr(dataset.record, "record_type", None)
     if rec_type in ("raster_dataset", "vrt_dataset"):
-        from app.raster.models import RasterAsset
-
-        ra_row = await db.execute(
-            select(
-                RasterAsset.band_count,
-                RasterAsset.epsg,
-                RasterAsset.res_x,
-                RasterAsset.res_y,
-                RasterAsset.width,
-                RasterAsset.height,
-                RasterAsset.dtype,
-                RasterAsset.nodata,
-                RasterAsset.band_info,
-                RasterAsset.vrt_type,
-                RasterAsset.resolution_strategy,
-                RasterAsset.current_generation_id,
-            ).where(RasterAsset.dataset_id == record_id)
-        )
-        ra = ra_row.one_or_none()
-        if ra:
-            item_raster_meta = {
-                "band_count": ra.band_count,
-                "epsg": ra.epsg,
-                "res_x": float(ra.res_x) if ra.res_x is not None else None,
-                "res_y": float(ra.res_y) if ra.res_y is not None else None,
-                "width": ra.width,
-                "height": ra.height,
-                "dtype": ra.dtype,
-                "nodata": ra.nodata,
-                "band_info": ra.band_info,
-                "vrt_type": ra.vrt_type,
-                "resolution_strategy": ra.resolution_strategy,
-            }
-            # Fetch source_count for VRT datasets
-            if ra.vrt_type is not None and ra.current_generation_id is not None:
-                from app.raster.models import VrtGeneration
-
-                vg_row = await db.execute(
-                    select(VrtGeneration.source_count).where(
-                        VrtGeneration.id == ra.current_generation_id
-                    )
-                )
-                vg = vg_row.scalar_one_or_none()
-                if vg is not None:
-                    item_raster_meta["source_count"] = vg
+        item_raster_meta = await _build_raster_assets(db, record_id)
 
     public_api_url = await get_public_api_url(db, request=request)
     return JSONResponse(

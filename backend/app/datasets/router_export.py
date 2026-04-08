@@ -9,6 +9,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Request,
+    Response,
     status,
 )
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -159,7 +160,7 @@ async def download_cog(
     request: Request,
     user: User = Depends(_resolve_download_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Response:
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
     Local storage: streams the COG file with Content-Type image/tiff.

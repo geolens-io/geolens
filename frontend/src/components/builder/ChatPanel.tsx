@@ -20,9 +20,7 @@ interface ChatMessage {
   retryMessage?: string;
 }
 
-interface ChatPanelProps {
-  mapId: string;
-  layers: MapLayerResponse[];
+export interface LayerActions {
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
@@ -30,23 +28,32 @@ interface ChatPanelProps {
   onToggleVisibility: (layerId: string, visible?: boolean) => void;
   onAddDataset: (datasetId: string) => void;
   onRemove: (layerId: string) => void;
-  onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
   onOpacityChange?: (layerId: string, opacity: number) => void;
+}
+
+interface ChatPanelProps {
+  mapId: string;
+  layers: MapLayerResponse[];
+  layerActions: LayerActions;
+  onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
 }
 
 export function ChatPanel({
   mapId,
   layers,
-  onFilterChange,
-  onPaintChange,
-  onStyleConfigChange,
-  onLabelChange,
-  onToggleVisibility,
-  onAddDataset,
-  onRemove,
+  layerActions,
   onQueryResult,
-  onOpacityChange,
 }: ChatPanelProps) {
+  const {
+    onFilterChange,
+    onPaintChange,
+    onStyleConfigChange,
+    onLabelChange,
+    onToggleVisibility,
+    onAddDataset,
+    onRemove,
+    onOpacityChange,
+  } = layerActions;
   const { t, i18n } = useTranslation('builder');
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {

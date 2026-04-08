@@ -1092,6 +1092,42 @@ class TestSharedMap:
         resp = await client.get(f"/maps/shared/{token}")
         assert resp.status_code == 410
 
+    async def test_get_shared_map_expired_token(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """GET /maps/shared/{token} with a past expires_at returns 410."""
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import text
+
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        share_resp = await client.post(
+            f"/maps/{map_id}/share/", headers=admin_auth_header
+        )
+        token = share_resp.json()["token"]
+
+        # Backdate expires_at to the past via direct SQL
+        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.map_share_tokens SET expires_at = :past "
+                "WHERE token = :tok"
+            ),
+            {"past": past, "tok": token},
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(f"/maps/shared/{token}")
+        assert resp.status_code == 410
+        assert "expired" in resp.json()["detail"].lower()
+
 
 # ---------------------------------------------------------------------------
 # Add/remove layers

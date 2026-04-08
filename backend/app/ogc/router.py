@@ -276,7 +276,7 @@ async def get_collection_items(
         try:
             bbox_parsed = parse_bbox(bbox)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid bbox: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid bbox: {e}")
 
     has_geometry = dataset.geometry_type is not None
 

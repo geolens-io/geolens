@@ -70,6 +70,8 @@ async def get_features(
     property_filters: dict | None = None,
     has_geometry: bool = True,
     allowed_columns: set[str] | None = None,
+    include_geometry: bool = True,
+    cached_feature_count: int | None = None,
 ) -> tuple[list[dict], int]:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
@@ -78,9 +80,14 @@ async def get_features(
     _validate_table_name(table_name)
 
     # Build SELECT columns
-    if has_geometry:
+    if has_geometry and include_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
+            "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
+        )
+    elif has_geometry:
+        select_cols = (
+            "gid, NULL::json AS geometry, "
             "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
         )
     else:
@@ -129,10 +136,14 @@ async def get_features(
     rows = [dict(row._mapping) for row in result.all()]
 
     # Count query (same WHERE, no LIMIT/OFFSET)
-    count_bind = {k: v for k, v in bind_values.items() if k not in ("limit", "offset")}
-    count_sql = f"SELECT COUNT(*) FROM data.{table_name} t {where_sql}"
-    count_result = await db.execute(text(count_sql).bindparams(**count_bind))
-    total = count_result.scalar_one()
+    # Use cached feature_count when no filters are active
+    if not where_clauses and cached_feature_count is not None:
+        total = cached_feature_count
+    else:
+        count_bind = {k: v for k, v in bind_values.items() if k not in ("limit", "offset")}
+        count_sql = f"SELECT COUNT(*) FROM data.{table_name} t {where_sql}"
+        count_result = await db.execute(text(count_sql).bindparams(**count_bind))
+        total = count_result.scalar_one()
 
     return rows, total
 

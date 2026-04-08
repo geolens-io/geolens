@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.demo
+!.env.test.example
 
 # Python
 __pycache__/

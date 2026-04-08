@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog API"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # Install uv from official image
-COPY --from=ghcr.io/astral-sh/uv:0.10.2 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
 
 WORKDIR /app
 
