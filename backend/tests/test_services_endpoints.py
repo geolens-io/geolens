@@ -618,3 +618,163 @@ class TestSSRFValidation:
 
         with pytest.raises(SSRFError):
             validate_url_for_ssrf("http:///path")
+
+
+# ---------------------------------------------------------------------------
+# Duplicate source detection tests (260408-iny)
+# ---------------------------------------------------------------------------
+
+
+_ARCGIS_BASE = "https://services6.arcgis.com/EbVsqZ18sv1kVJ3k/arcgis/rest/services/TestService/FeatureServer"
+_ARCGIS_LAYER_0_URL = f"{_ARCGIS_BASE}/0"
+_ARCGIS_LAYER_1_URL = f"{_ARCGIS_BASE}/1"
+
+
+async def _create_arcgis_dataset(session, *, created_by, source_url, name="Test ArcGIS Dataset"):
+    """Insert a Dataset simulating a previously registered ArcGIS FeatureServer layer."""
+    import uuid as _uuid
+    from app.datasets.models import Dataset, Record
+
+    table_name = f"ds_{_uuid.uuid4().hex[:12]}"
+    record = Record(
+        title=name,
+        summary="ArcGIS table test",
+        visibility="public",
+        record_status="published",
+        created_by=created_by,
+        record_type="table",
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=None,
+        geometry_type=None,
+        feature_count=29,
+        source_format="arcgis_featureserver",
+        source_filename="TestService",
+        source_url=source_url,
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+@pytest.mark.anyio
+class TestDuplicateSourceDetection:
+    """Tests for 409 Conflict on duplicate ArcGIS service registration."""
+
+    async def test_preview_rejects_duplicate_arcgis(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+    ):
+        """POST /services/preview/ with same source_url+format+user returns 409."""
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        # Create an existing dataset with the same source URL (layer 0)
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=_ARCGIS_LAYER_0_URL,
+            name="Existing Bulletin Table",
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": _ARCGIS_BASE,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        body = resp.json()
+        assert body["detail"]["code"] == "duplicate_source"
+        assert "existing_dataset_id" in body["detail"]
+        assert "existing_title" in body["detail"]
+        assert body["detail"]["existing_title"] == "Existing Bulletin Table"
+
+    async def test_preview_allows_different_layer_same_service(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+    ):
+        """POST /services/preview/ for FeatureServer/1 when /0 exists should NOT return 409."""
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        # Create existing dataset for layer 0
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=_ARCGIS_LAYER_0_URL,
+            name="Layer 0 Dataset",
+        )
+
+        # Preview layer 1 — different layer, should not 409
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": _ARCGIS_BASE,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "1",
+                "layer_id": 1,
+            },
+            headers=admin_auth_header,
+        )
+        # Must not be 409; may be 200 (mocked preview) or another error
+        assert resp.status_code != 409
+
+    async def test_preview_allows_same_url_different_user(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+    ):
+        """POST /services/preview/ as different user for same URL should NOT return 409.
+
+        Dedup key includes created_by — different user can register same source.
+        """
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        # Existing dataset owned by admin for layer 0
+        await _create_arcgis_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_url=_ARCGIS_LAYER_0_URL,
+            name="Admin Layer 0",
+        )
+
+        # Editor registers the same URL — should NOT 409
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": _ARCGIS_BASE,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=editor_auth_header,
+        )
+        assert resp.status_code != 409

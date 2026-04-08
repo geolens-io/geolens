@@ -3,16 +3,19 @@
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
 from app.auth.dependencies import require_permission
 from app.auth.models import User
+from app.datasets.models import Dataset, Record
 from app.dependencies import get_db
 from app.ingest.ogr import IngestionError
+from app.ingest.tasks import _enrich_source_url, _resolve_service_type
 from app.jobs.models import IngestJob
+from app.services.arcgis import ArcGISTokenError, normalize_arcgis_url
 from app.services.preview import build_gdal_source, run_service_preview
-from app.services.arcgis import ArcGISTokenError
 from app.services.probe import ServiceNotRecognized, detect_service_type
 from app.services.schemas import (
     ProbeRequest,
@@ -240,6 +243,54 @@ async def preview_service_layer(
         )
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    # Step 1b: Duplicate source detection (ArcGIS and WFS only)
+    # Detect if (source_url, source_format, created_by) already exists.
+    # The stored URL includes the layer suffix (via _enrich_source_url), so
+    # we reconstruct the enriched form before querying.
+    try:
+        _, source_format = _resolve_service_type(request.service_type)
+        # Normalize then re-enrich to match the stored URL form.
+        # normalize_arcgis_url extracts the layer_id from the URL if already embedded.
+        try:
+            base_url, url_layer_id = normalize_arcgis_url(request.url)
+        except Exception:
+            base_url, url_layer_id = request.url, None
+        effective_layer_id = (
+            request.layer_id if request.layer_id is not None else url_layer_id
+        )
+        enriched_url = _enrich_source_url(base_url, effective_layer_id)
+        existing_stmt = (
+            select(Dataset.id, Record.title)
+            .join(Record, Dataset.record_id == Record.id)
+            .where(
+                Dataset.source_url == enriched_url,
+                Dataset.source_format == source_format,
+                Record.created_by == user.id,
+            )
+            .limit(1)
+        )
+        existing = (await db.execute(existing_stmt)).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "duplicate_source",
+                    "message": (
+                        f"A dataset from this source URL is already registered "
+                        f"(existing: '{existing.title}'). If you intended to re-import, "
+                        f"delete the existing dataset first or register a different layer."
+                    ),
+                    "existing_dataset_id": str(existing.id),
+                    "existing_title": existing.title,
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        # If service_type is not ArcGIS/WFS, _resolve_service_type raises —
+        # skip the duplicate check and let Step 2 handle validation.
+        pass
 
     # Step 2: Build GDAL source string
     try:

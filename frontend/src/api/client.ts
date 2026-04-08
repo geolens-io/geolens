@@ -5,11 +5,13 @@ import { refreshAccessToken } from './auth';
 
 export class ApiError extends Error {
   status: number;
+  body?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, body?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -124,16 +126,19 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    let detail = response.statusText;
+    let detail: string = response.statusText;
+    let detailRaw: unknown = undefined;
     try {
       const body = await response.json();
-      if (body.detail) {
-        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      if (body.detail !== undefined) {
+        detailRaw = body.detail;
+        detail =
+          typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
       }
     } catch {
       // body not JSON, use statusText
     }
-    throw new ApiError(translateError(detail), response.status);
+    throw new ApiError(translateError(detail), response.status, detailRaw);
   }
 
   if (response.status === 204) {

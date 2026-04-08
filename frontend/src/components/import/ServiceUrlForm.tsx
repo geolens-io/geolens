@@ -91,6 +91,28 @@ export function ServiceUrlForm() {
       setPreviewData(result);
       setStep('review');
     } catch (err) {
+      // 409 duplicate_source has structured body — surface the existing dataset link
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as
+          | { code?: string; existing_dataset_id?: string; existing_title?: string }
+          | undefined;
+        if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
+          const title = body.existing_title ?? 'Unknown dataset';
+          const msg = `Already registered: "${title}"`;
+          setError(msg);
+          setStep('layer-select');
+          toast.error(msg, {
+            action: {
+              label: 'View existing',
+              onClick: () => {
+                window.location.href = `/datasets/${body.existing_dataset_id}`;
+              },
+            },
+          });
+          return;
+        }
+      }
+      // Fallback: existing behavior
       const msg = err instanceof ApiError ? err.message : t('serviceUrl.previewFailed');
       setError(msg);
       setStep('layer-select');
