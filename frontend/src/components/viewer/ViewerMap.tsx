@@ -358,10 +358,14 @@ export function ViewerMap({
   }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync]);
 
   // Update tile URLs in-place when tokens refresh
+  // Narrow the dep to the single primitive the effect actually reads so the
+  // hook only re-runs when the CDN base URL changes (not on any tileConfig
+  // object identity churn).
+  const cdnBaseUrl = tileConfig?.cdn_base_url;
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || (!embedToken && tokenMap.size === 0)) return;
-    const tileBaseUrl = resolveTileBaseUrl(tileConfig);
+    const tileBaseUrl = resolveTileBaseUrl({ cdn_base_url: cdnBaseUrl });
 
     for (const layer of layers) {
       const sourceId = getViewerSourceId(layer.sort_order);
@@ -372,7 +376,7 @@ export function ViewerMap({
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }
-  }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url, embedToken]);
+  }, [tokenMap, layers, mapReady, cdnBaseUrl, embedToken]);
 
   // Toggle visibility when visibleLayers set changes
   useEffect(() => {
