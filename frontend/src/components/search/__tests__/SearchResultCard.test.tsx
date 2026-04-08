@@ -350,6 +350,90 @@ describe('SearchResultCard', () => {
       expect(specs).toHaveTextContent('195 features');
       expect(specs).not.toHaveTextContent('195 rows');
     });
+
+    it('renders Table2 icon in thumbnail tile instead of ImageOff', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 29,
+            crs: null,
+          })}
+        />,
+      );
+
+      // Table2 icon present via data-testid
+      expect(screen.getByTestId('table-thumbnail-icon')).toBeInTheDocument();
+    });
+
+    it('renders row count in thumbnail tile', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 29,
+            crs: null,
+          })}
+        />,
+      );
+
+      // Multiple elements may contain "29 rows" (specs + tile); verify the tile span specifically
+      const allRowCountEls = screen.getAllByText(/29 rows/i);
+      expect(allRowCountEls.length).toBeGreaterThanOrEqual(1);
+      // The thumbnail tile span has class "tabular-nums"
+      const tileLabel = allRowCountEls.find((el) => el.className.includes('tabular-nums'));
+      expect(tileLabel).toBeInTheDocument();
+    });
+
+    it('renders column count separator when column_count > 0', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 29,
+            column_count: 5,
+            crs: null,
+          })}
+        />,
+      );
+
+      expect(screen.getByText(/5 cols/i)).toBeInTheDocument();
+    });
+
+    it('hides column count when column_count is null', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 29,
+            column_count: null,
+            crs: null,
+          })}
+        />,
+      );
+
+      expect(screen.queryByText(/cols/i)).not.toBeInTheDocument();
+    });
+
+    it('does NOT render ImageOff for table records', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'table',
+            geometry_type: null,
+            feature_count: 29,
+            crs: null,
+          })}
+        />,
+      );
+
+      // Table2 tile is rendered — ImageOff should not appear
+      expect(screen.queryByRole('img', { name: /image.*off/i })).not.toBeInTheDocument();
+    });
   });
 
   // Description tests

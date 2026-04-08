@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Combine, FolderOpen, Globe, Hash, ImageOff, Layers, Loader2, Ruler, Shapes, type LucideIcon } from 'lucide-react';
+import { Combine, FolderOpen, Globe, Hash, Layers, Loader2, Ruler, Shapes, Table2, type LucideIcon } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
@@ -310,8 +310,24 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                 <div className="hidden md:flex md:items-start">
                   <div className="size-[160px] shrink-0 overflow-hidden rounded-lg border border-border/40">
                     {isTable ? (
-                      <div className="flex size-[160px] items-center justify-center bg-muted/20 text-muted-foreground">
-                        <ImageOff className="h-5 w-5 opacity-45" aria-hidden="true" />
+                      <div
+                        className="flex size-[160px] flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 to-orange-200 text-orange-900 dark:from-orange-950/40 dark:to-orange-900/30 dark:text-orange-200"
+                        role="img"
+                        aria-label={
+                          properties.column_count
+                            ? `Table with ${properties.feature_count ?? 0} rows and ${properties.column_count} columns`
+                            : `Table with ${properties.feature_count ?? 0} rows`
+                        }
+                      >
+                        <Table2
+                          className="h-10 w-10 opacity-80"
+                          aria-hidden="true"
+                          data-testid="table-thumbnail-icon"
+                        />
+                        <span className="text-xs font-medium tabular-nums">
+                          {properties.feature_count ?? 0} rows
+                          {properties.column_count ? ` · ${properties.column_count} cols` : ''}
+                        </span>
                       </div>
                     ) : quicklookSrc ? (
                       <img
