@@ -1,0 +1,102 @@
+{
+  "_meta": {
+    "name": "One Territory, Multiple Official Maps",
+    "description": "Zoom into Kashmir. Toggle the layers in the panel. Watch the border change. Three countries, three official maps, one territory. Each shapefile is rendered exactly as published by Natural Earth without editorial framing from GeoLens.",
+    "theme": "Lines on the Map (2024 Snapshot)",
+    "snapshot_date": "2024-01-01",
+    "exported_at": "2026-04-08T23:44:23.023310+00:00"
+  },
+  "name": "One Territory, Multiple Official Maps",
+  "description": "Zoom into Kashmir. Toggle the layers in the panel. Watch the border change. Three countries, three official maps, one territory. Each shapefile is rendered exactly as published by Natural Earth without editorial framing from GeoLens.",
+  "center_lng": 76.0,
+  "center_lat": 34.0,
+  "zoom": 6.0,
+  "bearing": 0.0,
+  "pitch": 0.0,
+  "basemap_style": "positron",
+  "show_basemap_labels": true,
+  "visibility": "public",
+  "widgets": null,
+  "layers": [
+    {
+      "_stem": "ne_10m_admin_0_countries",
+      "_ext": ".zip",
+      "display_name": null,
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 1.0,
+      "paint": {
+        "fill-color": "#f5f5f0",
+        "line-color": "#999999",
+        "line-width": 0.4,
+        "fill-opacity": 0.6
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": false
+    },
+    {
+      "_stem": "ne_10m_admin_0_countries_pak",
+      "_ext": ".zip",
+      "display_name": "Pakistan view",
+      "sort_order": 1,
+      "visible": false,
+      "opacity": 1.0,
+      "paint": {
+        "fill-color": "#2e7d32",
+        "line-color": "#2e7d32",
+        "line-width": 1.5,
+        "fill-opacity": 0.3
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_admin_0_countries_ind",
+      "_ext": ".zip",
+      "display_name": "India view",
+      "sort_order": 2,
+      "visible": false,
+      "opacity": 1.0,
+      "paint": {
+        "fill-color": "#ff6f00",
+        "line-color": "#ff6f00",
+        "line-width": 1.5,
+        "fill-opacity": 0.3
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_admin_0_countries_chn",
+      "_ext": ".zip",
+      "display_name": "China view",
+      "sort_order": 3,
+      "visible": true,
+      "opacity": 1.0,
+      "paint": {
+        "fill-color": "#00838f",
+        "line-color": "#00838f",
+        "line-width": 1.5,
+        "fill-opacity": 0.3
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    }
+  ]
+}
