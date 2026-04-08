@@ -334,9 +334,7 @@ async def compute_quality_score(
     #   metadata (30) + attribute (25) = 55 total → metadata (30/55) + attribute (25/55)
     is_table = getattr(record, "record_type", None) == "table"
     if is_table:
-        overall = round(
-            metadata_score * (30 / 55) + attribute_score * (25 / 55)
-        )
+        overall = round(metadata_score * (30 / 55) + attribute_score * (25 / 55))
         return {
             "overall": overall,
             "metadata_completeness": metadata_score,

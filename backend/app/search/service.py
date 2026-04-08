@@ -1200,9 +1200,7 @@ def dataset_to_ogc_record(
             "row_count": dataset.feature_count
             if getattr(record, "record_type", None) == "table"
             else None,
-            "column_count": len(dataset.column_info)
-            if dataset.column_info
-            else None,
+            "column_count": len(dataset.column_info) if dataset.column_info else None,
             "license": record.license,
             "source_organization": record.source_organization,
             "quality_detail": dataset.quality_detail,
