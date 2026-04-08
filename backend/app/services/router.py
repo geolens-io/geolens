@@ -2,7 +2,7 @@
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
@@ -38,7 +38,7 @@ async def _fail_preview(db: AsyncSession, user_id, url: str, layer: str) -> None
     )
     await db.commit()
     raise HTTPException(
-        status_code=502,
+        status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
     )
 
@@ -67,7 +67,7 @@ async def probe_service_url(
             details={"url": request.url, "result": "ssrf_blocked", "reason": str(exc)},
         )
         await db.commit()
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Step 2: Probe with httpx client
     # NOTE: No default Authorization header on the client. Each probe function
@@ -181,7 +181,7 @@ async def probe_service_url(
             details={"url": request.url, "result": "unrecognized"},
         )
         await db.commit()
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
     # Step 3: Audit log on success
     logger.info(
@@ -237,7 +237,7 @@ async def preview_service_layer(
             },
         )
         await db.commit()
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Step 2: Build GDAL source string
     try:
@@ -270,7 +270,7 @@ async def preview_service_layer(
             },
         )
         await db.commit()
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Step 3: Run ogrinfo preview
     try:

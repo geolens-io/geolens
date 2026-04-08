@@ -44,10 +44,10 @@ function RootLayout() {
 
 export const appRoutes = (
   <Route element={<RootLayout />}>
-    <Route path="/login" element={<LoginPage />} />
-    <Route path="/register" element={<RegisterPage />} />
-    <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
-    <Route path="/m/:token" element={<PublicViewerPage />} />
+    <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
+    <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
+    <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />
+    <Route path="/m/:token" element={<PublicViewerPage />} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       <Route index element={<SearchPage />} />
@@ -60,7 +60,7 @@ export const appRoutes = (
 
       {/* Protected routes — auth required */}
       <Route element={<ProtectedRoute />}>
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<SettingsPage />} errorElement={<RouteErrorBoundary />} />
         <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} />
         </Route>

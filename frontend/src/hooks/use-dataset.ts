@@ -51,6 +51,7 @@ export function useDatasetRows(id: string, limit: number, cursor: number, filter
     queryFn: () => getDatasetRows(id, { limit, after: cursor, filters }),
     enabled: !!id,
     placeholderData: keepPreviousData,
+    staleTime: 60_000,
   });
 }
 
@@ -100,6 +101,7 @@ export function useDatasetHistory(datasetId: string, skip = 0, limit = 50) {
     queryFn: () => getDatasetHistory(datasetId, { skip, limit }),
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
+    staleTime: 120_000,
   });
 }
 

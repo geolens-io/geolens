@@ -10,7 +10,7 @@ from typing import NamedTuple
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,27 +109,22 @@ def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
     return "&".join(parts)
 
 
-@router.get("/raster-auth-check/")
-@limiter.exempt
-async def raster_auth_check(
-    request: Request,
+async def _resolve_raster_access(
+    db: AsyncSession,
     dataset_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Auth-check endpoint called by nginx auth_request for raster tile serving.
+    request: Request,
+    user: User | None,
+) -> tuple[dict, str]:
+    """Validate RBAC access to a raster dataset and return row metadata + storage backend.
 
-    Validates RBAC access to a raster dataset and returns the COG open-path
-    in response headers (which nginx passes to Titiler, never the browser).
+    Performs the dataset lookup, raster type validation, embed-token / user /
+    RBAC checks (3 auth priority branches), and returns the raw SQL row
+    mapping together with the resolved storage_backend string.
 
-    Returns:
-        200 with X-GeoLens-Asset-OpenPath and X-GeoLens-Cache-Status headers
-        401 if authentication is required but missing
-        403 if embed token is invalid
-        404 if dataset not found, not a raster, or has no raster asset
+    Raises HTTPException on any auth or lookup failure.
     """
     # Single query: join datasets + records + raster_assets
-    row = await db.execute(
+    result = await db.execute(
         text(
             """
             SELECT
@@ -149,21 +144,20 @@ async def raster_auth_check(
         ),
         {"dataset_id": dataset_id},
     )
-    row = row.mappings().one_or_none()
+    row = result.mappings().one_or_none()
 
     if row is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     if row["record_type"] not in ("raster_dataset", "vrt_dataset"):
-        raise HTTPException(status_code=404, detail="Not a raster dataset")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not a raster dataset")
 
     if row["asset_uri"] is None:
-        raise HTTPException(status_code=404, detail="No raster asset")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset")
 
     visibility = row["visibility"]
     record_status = row["record_status"]
     created_by = row["created_by"]
-    asset_uri = row["asset_uri"]
     storage_backend = row["storage_backend"] or "local"
 
     # Auth priority 1: embed token
@@ -174,14 +168,14 @@ async def raster_auth_check(
         )
         if not is_valid:
             raise HTTPException(
-                status_code=403,
+                status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired embed token",
             )
     elif visibility != "public":
         # Auth priority 2: require authenticated user for non-public datasets
         if user is None:
             raise HTTPException(
-                status_code=401,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
@@ -191,10 +185,10 @@ async def raster_auth_check(
         if "admin" not in user_roles:
             # Block non-published datasets for non-owners
             if record_status != "published" and created_by != user.id:
-                raise HTTPException(status_code=404, detail="Dataset not found")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
             if visibility == "private" and created_by != user.id:
-                raise HTTPException(status_code=404, detail="Dataset not found")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
             if visibility == "restricted":
                 from app.auth.models import UserRole
@@ -208,29 +202,54 @@ async def raster_auth_check(
                     )
                 )
                 if grant_result.scalar_one_or_none() is None:
-                    raise HTTPException(status_code=404, detail="Dataset not found")
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
     else:
         # Public dataset: still block non-published for unauthenticated users
         if record_status != "published":
             # Unauthenticated users cannot see unpublished public datasets
             if user is None:
-                raise HTTPException(status_code=404, detail="Dataset not found")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
             # Authenticated non-owners cannot see unpublished
             user_roles = await get_user_roles(db, user)
             if "admin" not in user_roles and created_by != user.id:
-                raise HTTPException(status_code=404, detail="Dataset not found")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+
+    return row, storage_backend
+
+
+@router.get("/raster-auth-check/")
+@limiter.exempt
+async def raster_auth_check(
+    request: Request,
+    dataset_id: uuid.UUID,
+    user: User | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Auth-check endpoint called by nginx auth_request for raster tile serving.
+
+    Validates RBAC access to a raster dataset and returns the COG open-path
+    in response headers (which nginx passes to Titiler, never the browser).
+
+    Returns:
+        200 with X-GeoLens-Asset-OpenPath and X-GeoLens-Cache-Status headers
+        401 if authentication is required but missing
+        403 if embed token is invalid
+        404 if dataset not found, not a raster, or has no raster asset
+    """
+    row, storage_backend = await _resolve_raster_access(db, dataset_id, request, user)
 
     # Resolve COG open-path for Titiler
+    asset_uri = row["asset_uri"]
     if storage_backend == "s3" and settings.s3_bucket:
         open_path = f"/vsis3/{settings.s3_bucket}/{asset_uri}"
     else:
         open_path = f"{settings.upload_staging_dir}/{asset_uri}"
 
-    cache_status = "public" if visibility == "public" else "private"
+    cache_status = "public" if row["visibility"] == "public" else "private"
     render_params = _titiler_render_params(row["band_count"], row["dtype"])
 
     return Response(
-        status_code=200,
+        status_code=status.HTTP_200_OK,
         headers={
             "X-GeoLens-Asset-OpenPath": open_path,
             "X-GeoLens-Cache-Status": cache_status,
@@ -250,7 +269,7 @@ async def raster_tile_proxy(
     fmt: str,
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Response:
     """API-side raster tile proxy: auth check + fetch from Titiler.
 
     Used by Vite dev proxy and as a fallback for deployments without nginx.
@@ -261,7 +280,7 @@ async def raster_tile_proxy(
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
     open_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
     if not open_path:
-        raise HTTPException(status_code=404, detail="No raster asset")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset")
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
 
@@ -271,15 +290,20 @@ async def raster_tile_proxy(
     else:
         titiler_url = f"{titiler_url}?url={open_path}"
 
-    # Retry with exponential backoff for transient failures
+    # Retry with exponential backoff for transient failures. httpx.TimeoutException
+    # is a subclass of TransportError, but we catch it explicitly to make the
+    # intent clear and ensure we never fall through with `resp is None`.
     max_retries = 2
-    resp = None
+    resp: httpx.Response | None = None
     for attempt in range(max_retries + 1):
         try:
             resp = await _titiler_client.get(titiler_url)
-        except httpx.TransportError:
+        except (httpx.TimeoutException, httpx.TransportError):
             if attempt == max_retries:
-                raise HTTPException(status_code=503, detail="Tile service unavailable")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Tile service unavailable",
+                )
             await asyncio.sleep(0.5 * (2 ** attempt))
             continue
         else:
@@ -288,9 +312,18 @@ async def raster_tile_proxy(
                 continue
             break
 
+    # Safety guard: if the retry loop somehow exited without assigning resp
+    # (should be impossible given the logic above, but protects against future
+    # edits), return 503 rather than raising AttributeError.
+    if resp is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tile service unavailable",
+        )
+
     if resp.status_code == 404:
         # Tile outside raster extent — empty response
-        return Response(status_code=204)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
 
@@ -326,13 +359,13 @@ async def get_tile_token(
     dataset = result.scalar_one_or_none()
 
     if dataset is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     # Non-public datasets require authentication and RBAC
     if dataset.record.visibility != "public":
         if user is None:
             raise HTTPException(
-                status_code=401,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
@@ -388,7 +421,7 @@ async def tile_endpoint(
     exp: int | None = None,
     scope: str | None = None,
     db: AsyncSession = Depends(get_db),
-):
+) -> Response:
     """Serve a vector tile as gzipped MVT binary.
 
     URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
@@ -399,26 +432,26 @@ async def tile_endpoint(
     # Parse table_path: must start with "data."
     if not table_path.startswith("data."):
         raise HTTPException(
-            status_code=404, detail="Table path must start with 'data.'"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Table path must start with 'data.'"
         )
 
     table_name = table_path[5:]  # Strip "data." prefix
 
     if not table_name:
-        raise HTTPException(status_code=404, detail="Table name is required")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table name is required")
 
     # Validate table name against SQL injection
     if not _TABLE_NAME_RE.match(table_name):
-        raise HTTPException(status_code=400, detail="Invalid table name")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid table name")
 
     # Validate zoom level
     if z < 0 or z > 22:
-        raise HTTPException(status_code=400, detail="Zoom level must be 0-22")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Zoom level must be 0-22")
 
     # Validate x/y bounds for the zoom level
     max_tile = (1 << z) - 1  # 2^z - 1
     if x < 0 or x > max_tile or y < 0 or y > max_tile:
-        raise HTTPException(status_code=400, detail="Tile coordinates out of range")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tile coordinates out of range")
 
     # Look up dataset metadata — use in-memory cache to avoid DB hit per tile
     now = time.monotonic()
@@ -439,7 +472,7 @@ async def tile_endpoint(
         dataset = result.scalar_one_or_none()
 
         if dataset is None:
-            raise HTTPException(status_code=404, detail="Dataset not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
         meta = _DatasetMeta(
             dataset_id=dataset.id,
@@ -460,7 +493,7 @@ async def tile_endpoint(
         )
         if not is_valid:
             raise HTTPException(
-                status_code=403,
+                status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired embed token, or dataset not in scope",
             )
         # Valid embed token -- skip HMAC check, proceed to tile serving
@@ -468,12 +501,12 @@ async def tile_endpoint(
         # Existing HMAC signature check (unchanged)
         if not sig or not exp or not scope:
             raise HTTPException(
-                status_code=403, detail="Signature required for non-public tiles"
+                status_code=status.HTTP_403_FORBIDDEN, detail="Signature required for non-public tiles"
             )
         if scope != table_name:
-            raise HTTPException(status_code=403, detail="Scope mismatch")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch")
         if not verify_tile_signature(scope, exp, sig):
-            raise HTTPException(status_code=403, detail="Invalid or expired signature")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired signature")
 
     # Get column info for attribute selection
     columns = meta.column_info
@@ -489,7 +522,7 @@ async def tile_endpoint(
         if cached is not None:
             if len(cached) == 0:
                 # Empty sentinel — tile was previously confirmed empty
-                return Response(status_code=204)
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
             return Response(
                 content=cached,
                 media_type="application/vnd.mapbox-vector-tile",
@@ -504,14 +537,14 @@ async def tile_endpoint(
     try:
         pool = get_tile_pool()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Tile service unavailable")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Tile service unavailable")
     tile_data = await get_tile(pool, table_name, z, x, y, columns)
 
     if tile_data is None:
         # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets
         if tile_cache is not None:
             await tile_cache.set(table_name, z, x, y, b"", ttl=cache_ttl)
-        return Response(status_code=204)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # Log successful tile access
     logger.debug(

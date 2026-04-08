@@ -231,6 +231,86 @@ class TestTileEndpoint:
         assert resp.status_code == 404
 
 
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+class TestVectorTileAuth:
+    """Vector tile access control for private datasets.
+
+    The /tiles/{table_path}/{z}/{x}/{y}.pbf endpoint is exempt from the
+    normal auth dependency so that public datasets can be served with
+    zero-cost requests. For non-public datasets it must enforce a valid
+    HMAC signature (sig/exp/scope query params).
+    """
+
+    async def test_private_tile_unsigned_returns_403(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Private dataset tile request without signature returns 403."""
+        table_name = f"tile_priv_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        # Create a private dataset
+        record = Record(
+            title="Private tile dataset",
+            visibility="private",
+            record_status="published",
+            created_by=user_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=table_name,
+            srid=4326,
+            geometry_type="Point",
+            feature_count=0,
+            source_format="geojson",
+            column_info=[{"name": "gid", "type": "integer"}],
+        )
+        test_db_session.add(dataset)
+        await test_db_session.commit()
+        await _create_data_table(test_db_session, table_name)
+        try:
+            resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
+            assert resp.status_code == 403
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+    async def test_private_tile_invalid_signature_returns_403(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Private dataset tile request with tampered signature returns 403."""
+        table_name = f"tile_priv_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        record = Record(
+            title="Private tile dataset 2",
+            visibility="private",
+            record_status="published",
+            created_by=user_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=table_name,
+            srid=4326,
+            geometry_type="Point",
+            feature_count=0,
+            source_format="geojson",
+            column_info=[{"name": "gid", "type": "integer"}],
+        )
+        test_db_session.add(dataset)
+        await test_db_session.commit()
+        await _create_data_table(test_db_session, table_name)
+        try:
+            # Tampered signature with valid-looking exp in the future
+            resp = await client.get(
+                f"/tiles/data.{table_name}/0/0/0.pbf"
+                f"?sig=deadbeef&exp=9999999999&scope={table_name}"
+            )
+            assert resp.status_code == 403
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+
 class TestTileQueryStructure:
     """Test tile query SQL structure and column selection."""
 

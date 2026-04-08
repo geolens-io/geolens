@@ -21,8 +21,8 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { getLayerType, resolveAdapterType, reorderBasemapLabels } from '@/components/builder/map-sync';
-import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
+import { resolveAdapterType, syncLayersToMap } from '@/components/builder/map-sync';
+import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface ViewerMapProps {
@@ -44,22 +44,45 @@ interface ViewerMapProps {
   basemapOverride?: boolean;
 }
 
-function getSourceId(sortOrder: number) {
+/** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
+const VIEWER_PREFIX = 'viewer-';
+
+function getViewerSourceId(sortOrder: number) {
   return `viewer-source-${sortOrder}`;
 }
 
-function getLayerId(sortOrder: number) {
+function getViewerLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}`;
 }
 
-function getLabelLayerId(sortOrder: number) {
+function getViewerLabelLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}-label`;
 }
 
+/** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
+function toViewerSyncInput(
+  layer: SharedLayerResponse,
+  visibleLayers: Set<number>,
+): SyncLayerInput {
+  return {
+    id: String(layer.sort_order),
+    dataset_id: layer.dataset_id,
+    dataset_table_name: layer.table_name,
+    dataset_geometry_type: layer.geometry_type,
+    opacity: layer.opacity ?? 1,
+    visible: visibleLayers.has(layer.sort_order),
+    paint: (layer.paint as Record<string, unknown>) ?? {},
+    layout: (layer.layout as Record<string, unknown>) ?? {},
+    filter: layer.filter ?? null,
+    label_config: layer.label_config,
+    style_config: layer.style_config,
+  };
+}
+
+/** Build an AdapterLayerInput for viewer visibility syncing (no tile URL needed). */
 function toAdapterInput(
   layer: SharedLayerResponse,
   visibleLayers: Set<number>,
-  tileUrl: string,
 ): AdapterLayerInput {
   return {
     id: String(layer.sort_order),
@@ -71,10 +94,10 @@ function toAdapterInput(
     layout: (layer.layout as Record<string, unknown>) ?? {},
     filter: layer.filter ?? null,
     label_config: layer.label_config,
-    sourceId: getSourceId(layer.sort_order),
-    layerId: getLayerId(layer.sort_order),
+    sourceId: getViewerSourceId(layer.sort_order),
+    layerId: getViewerLayerId(layer.sort_order),
     sourceLayer: `data.${layer.table_name}`,
-    tileUrl,
+    tileUrl: '',
   };
 }
 
@@ -203,7 +226,7 @@ export function ViewerMap({
       layers
         .filter((l) => visibleLayers.has(l.sort_order))
         .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
-        .map((l) => getLayerId(l.sort_order)),
+        .map((l) => getViewerLayerId(l.sort_order)),
     [layers, visibleLayers],
   );
   // Ref so event handlers always see current value without re-registration
@@ -290,107 +313,21 @@ export function ViewerMap({
   const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels });
   syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels };
 
-  /** Imperative: add/sync all data layers to the map */
-  const syncAllLayers = useCallback((map: MaplibreMap) => {
+  /** Wrapper: convert viewer state to normalized inputs and call unified syncLayersToMap */
+  const runSync = useCallback((map: MaplibreMap) => {
     const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
-    const currentSources = new Set(managedSourcesRef.current);
-    const desiredSources = new Set<string>();
     const tileBaseUrl = resolveTileBaseUrl(tc);
-
-    for (const layer of ls) {
-      const sourceId = getSourceId(layer.sort_order);
-      const token = tm.get(layer.dataset_id) ?? null;
-      const tileUrl = buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
-      const adapterInput = toAdapterInput(layer, vl, tileUrl);
-
-      desiredSources.add(sourceId);
-
-      if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, {
-          type: 'vector',
-          tiles: [tileUrl],
-          minzoom: 1,
-          maxzoom: 22,
-        });
-        const type = resolveAdapterType(layer.geometry_type, layer.style_config);
-        const adapter = getAdapter(type);
-        adapter.addLayers(map, adapterInput);
-      } else {
-        const type = resolveAdapterType(layer.geometry_type, layer.style_config);
-        const adapter = getAdapter(type);
-        adapter.syncPaint(map, adapterInput);
-      }
-
-      const layerLayout = (layer.layout ?? {}) as Record<string, unknown>;
-      const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
-      const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
-      const mainLayerId = getLayerId(layer.sort_order);
-      if (map.getLayer(mainLayerId)) {
-        map.setLayerZoomRange(mainLayerId, layerMinzoom, layerMaxzoom);
-      }
-      const outlineLayerId = `${mainLayerId}-outline`;
-      if (map.getLayer(outlineLayerId)) {
-        map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
-      }
-
-      const labelId = getLabelLayerId(layer.sort_order);
-      if (map.getSource(sourceId)) {
-        if (layer.label_config?.column) {
-          const lc = layer.label_config;
-          const geomType = getLayerType(layer.geometry_type);
-          const sl = `data.${layer.table_name}`;
-          const vis = vl.has(layer.sort_order) ? 'visible' : 'none';
-
-          if (!map.getLayer(labelId)) {
-            map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer: sl, lc, geomType, visibility: vis }));
-            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-              map.setFilter(labelId, layer.filter);
-            }
-          } else {
-            syncLabelLayer(map, labelId, lc, geomType);
-            if (layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0) {
-              map.setFilter(labelId, layer.filter);
-            }
-          }
-        } else if (map.getLayer(labelId)) {
-          map.removeLayer(labelId);
-        }
-      }
-    }
-
-    for (const sourceId of currentSources) {
-      if (!desiredSources.has(sourceId)) {
-        const order = parseInt(sourceId.replace('viewer-source-', ''), 10);
-        const layerId = getLayerId(order);
-        const outlineId = `${layerId}-outline`;
-        const labelId = getLabelLayerId(order);
-        if (map.getLayer(labelId)) map.removeLayer(labelId);
-        if (map.getLayer(outlineId)) map.removeLayer(outlineId);
-        if (map.getLayer(layerId)) map.removeLayer(layerId);
-        if (map.getSource(sourceId)) map.removeSource(sourceId);
-      }
-    }
-
-    managedSourcesRef.current = desiredSources;
-
-    for (const layer of ls) {
-      const labelId = getLabelLayerId(layer.sort_order);
-      if (map.getLayer(labelId)) map.moveLayer(labelId);
-    }
-
-    const orderKey = ls.map((l) => l.sort_order).join(',') + '|' + String(sbl);
-    if (orderKey !== prevOrderKeyRef.current) {
-      prevOrderKeyRef.current = orderKey;
-      reorderBasemapLabels(map, sbl, 'viewer-source-');
-    }
+    const syncInputs: SyncLayerInput[] = ls.map((l) => toViewerSyncInput(l, vl));
+    const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
+    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, syncOpts);
   }, []);
 
   // Sync layers to map (on data/visibility changes)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    syncAllLayers(map);
-  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, syncAllLayers]);
+    runSync(map);
+  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync]);
 
   // Update tile URLs in-place when tokens refresh
   useEffect(() => {
@@ -399,7 +336,7 @@ export function ViewerMap({
     const tileBaseUrl = resolveTileBaseUrl(tileConfig);
 
     for (const layer of layers) {
-      const sourceId = getSourceId(layer.sort_order);
+      const sourceId = getViewerSourceId(layer.sort_order);
       const source = map.getSource(sourceId);
       if (source && 'setTiles' in source) {
         const token = tokenMap.get(layer.dataset_id) ?? null;
@@ -417,11 +354,11 @@ export function ViewerMap({
     for (const layer of layers) {
       const type = resolveAdapterType(layer.geometry_type, layer.style_config);
       const adapter = getAdapter(type);
-      const adapterInput = toAdapterInput(layer, visibleLayers, '');
+      const adapterInput = toAdapterInput(layer, visibleLayers);
       adapter.syncVisibility(map, adapterInput);
 
       // Also sync label visibility (not handled by adapters)
-      const labelId = getLabelLayerId(layer.sort_order);
+      const labelId = getViewerLabelLayerId(layer.sort_order);
       if (map.getLayer(labelId)) {
         const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
         map.setLayoutProperty(labelId, 'visibility', vis);
@@ -443,7 +380,7 @@ export function ViewerMap({
       // Guard: if layers haven't loaded yet, skip — the sync effect will
       // run when layers arrive via its own dependency on the layers prop.
       if (syncInputsRef.current.layers.length > 0) {
-        syncAllLayers(map);
+        runSync(map);
       }
     };
 
@@ -451,7 +388,7 @@ export function ViewerMap({
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [mapReady, syncAllLayers]);
+  }, [mapReady, runSync]);
 
   // Cleanup on unmount
   useEffect(() => {

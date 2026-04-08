@@ -14,7 +14,10 @@ class MapVisibility(str, Enum):
 class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
     sort_order: int = Field(
-        default=0, ge=0, description="Draw order (lower draws first)"
+        default=0,
+        ge=0,
+        le=32767,
+        description="Draw order (lower draws first)",
     )
     visible: bool = True
     opacity: float = Field(

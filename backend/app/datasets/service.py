@@ -5,6 +5,7 @@ Handles CRUD operations for dataset records in the catalog.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import uuid
 from typing import TYPE_CHECKING
@@ -500,8 +501,8 @@ async def delete_dataset(
         storage = get_storage()
         for prefix in prefixes:
             keys = await storage.list(prefix)
-            for key in keys:
-                await storage.delete(key)
+            if keys:
+                await asyncio.gather(*(storage.delete(key) for key in keys))
     else:
         # Vector datasets: drop the PostGIS data table
         await session.execute(

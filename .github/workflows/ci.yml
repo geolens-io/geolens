@@ -152,7 +152,7 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: Run tests with coverage
-        run: uv run pytest -v --tb=short -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml
+        run: uv run pytest -v --tb=short -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58
 
       - name: Upload backend coverage report
         if: always()

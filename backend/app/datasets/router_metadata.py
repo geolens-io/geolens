@@ -31,6 +31,7 @@ from app.datasets.schemas import (
     ColumnValuesResponse,
     DatasetRelationshipCreate,
     DatasetRelationshipResponse,
+    DatasetRowsResponse,
     DatasetVersionListResponse,
     DatasetVersionResponse,
 )
@@ -358,7 +359,7 @@ async def create_dataset_relationship(
     # Resolve dataset_id to record_id (FK references catalog.records.id)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
 
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
@@ -378,11 +379,14 @@ async def delete_dataset_relationship(
         await delete_relationship(db, relationship_id)
         await db.commit()
     except ValueError:
-        raise HTTPException(status_code=404, detail="Relationship not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{dataset_id}/features/{gid}/related/{relationship_id}/")
+@router.get(
+    "/{dataset_id}/features/{gid}/related/{relationship_id}/",
+    response_model=DatasetRowsResponse,
+)
 async def get_feature_related_records(
     dataset_id: uuid.UUID,
     gid: int,
@@ -391,7 +395,7 @@ async def get_feature_related_records(
     after: int = Query(0, ge=0),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> DatasetRowsResponse:
     """Get related records for a feature via FK relationship."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -403,8 +407,9 @@ async def get_feature_related_records(
     from app.datasets.service import get_related_records
 
     try:
-        return await get_related_records(
+        result = await get_related_records(
             db, dataset_id, gid, relationship_id, limit=limit, after=after
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return DatasetRowsResponse(**result)

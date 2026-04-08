@@ -1,5 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerResponse } from '@/types/api';
+import type { FilterSpecification } from 'maplibre-gl';
+import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getAdapter } from './layer-adapters/registry';
@@ -10,6 +11,55 @@ import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
 // Re-export for backward compatibility with existing consumers
 export { CUSTOM_PAINT_PROPS, getLayerType, resolveAdapterType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
+
+// ---------------------------------------------------------------------------
+// Normalized layer input — allows both Builder and Viewer to call syncLayersToMap
+// ---------------------------------------------------------------------------
+
+/** Normalized layer descriptor accepted by syncLayersToMap. */
+export interface SyncLayerInput {
+  /** Unique key used to derive source/layer/label IDs */
+  id: string;
+  dataset_id: string;
+  dataset_table_name: string;
+  dataset_geometry_type: string | null;
+  opacity: number;
+  visible: boolean;
+  paint: Record<string, unknown>;
+  layout: Record<string, unknown>;
+  filter: FilterSpecification | null;
+  label_config?: LabelConfig | null;
+  style_config?: StyleConfig | null;
+}
+
+/** Options that vary between Builder and Viewer contexts. */
+export interface SyncOptions {
+  /** Prefix for generated source/layer IDs (default: no prefix, uses "source-"/"layer-" scheme) */
+  idPrefix?: string;
+  /** When provided, run basemap label reorder using this source prefix after layer order changes */
+  showBasemapLabels?: boolean;
+}
+
+/** Convert a MapLayerResponse (builder context) to a SyncLayerInput. */
+export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
+  return {
+    id: layer.id,
+    dataset_id: layer.dataset_id,
+    dataset_table_name: layer.dataset_table_name,
+    dataset_geometry_type: layer.dataset_geometry_type,
+    opacity: layer.opacity ?? 1,
+    visible: layer.visible,
+    paint: (layer.paint as Record<string, unknown>) ?? {},
+    layout: (layer.layout as Record<string, unknown>) ?? {},
+    filter: layer.filter,
+    label_config: layer.label_config,
+    style_config: layer.style_config,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ID helpers (parameterized by prefix)
+// ---------------------------------------------------------------------------
 
 /** Move basemap symbol/label layers above data layers, or hide them. */
 export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePrefix = 'source-') {
@@ -30,6 +80,23 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   }
 }
 
+function prefixedSourceId(id: string, prefix?: string) {
+  return prefix ? `${prefix}source-${id}` : `source-${id}`;
+}
+
+function prefixedLayerId(id: string, prefix?: string) {
+  return prefix ? `${prefix}layer-${id}` : `layer-${id}`;
+}
+
+function prefixedOutlineLayerId(id: string, prefix?: string) {
+  return `${prefixedLayerId(id, prefix)}-outline`;
+}
+
+function prefixedLabelLayerId(id: string, prefix?: string) {
+  return `${prefixedLayerId(id, prefix)}-label`;
+}
+
+// Keep the original non-prefixed exports for backward compatibility
 export function getSourceId(layerId: string) {
   return `source-${layerId}`;
 }
@@ -38,30 +105,31 @@ export function getLayerId(layerId: string) {
   return `layer-${layerId}`;
 }
 
-export function getOutlineLayerId(layerId: string) {
-  return `layer-${layerId}-outline`;
-}
-
 export function getLabelLayerId(layerId: string) {
   return `layer-${layerId}-label`;
 }
 
-/** Imperatively add all data layers to the map. Safe to call repeatedly. */
+/** Imperatively add/sync all data layers to the map. Safe to call repeatedly.
+ *  Works with both Builder (MapLayerResponse) and Viewer (SharedLayerResponse)
+ *  contexts via the normalized SyncLayerInput interface. */
 export function syncLayersToMap(
   map: MaplibreMap,
-  layers: MapLayerResponse[],
+  layers: SyncLayerInput[],
   tokenMap: Map<string, TileToken>,
   tileBaseUrl: string | undefined,
   managedSourcesRef: { current: Set<string> },
   lastOrderKeyRef: { current: string },
+  options?: SyncOptions,
 ) {
+  const prefix = options?.idPrefix;
+  const sourcePrefix = prefix ? `${prefix}source-` : 'source-';
 
   const currentSources = new Set(managedSourcesRef.current);
   const desiredSources = new Set<string>();
 
   for (const layer of layers) {
-    const sourceId = getSourceId(layer.id);
-    const layerId = getLayerId(layer.id);
+    const sourceId = prefixedSourceId(layer.id, prefix);
+    const layerId = prefixedLayerId(layer.id, prefix);
     const sourceLayer = `data.${layer.dataset_table_name}`;
     const token = tokenMap.get(layer.dataset_id) ?? null;
 
@@ -72,8 +140,8 @@ export function syncLayersToMap(
       dataset_geometry_type: layer.dataset_geometry_type,
       opacity: layer.opacity ?? 1,
       visible: layer.visible,
-      paint: (layer.paint as Record<string, unknown>) ?? {},
-      layout: (layer.layout as Record<string, unknown>) ?? {},
+      paint: layer.paint ?? {},
+      layout: layer.layout ?? {},
       filter: layer.filter,
       label_config: layer.label_config,
       sourceId,
@@ -117,30 +185,30 @@ export function syncLayersToMap(
     }
 
     // Apply per-layer zoom range from custom layout props (main + outline companion)
-    const layerLayout = (layer.layout ?? {}) as Record<string, unknown>;
+    const layerLayout = layer.layout ?? {};
     const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
     const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
-    const mapLayerId = `layer-${layer.id}`;
-    if (map.getLayer(mapLayerId)) {
-      map.setLayerZoomRange(mapLayerId, layerMinzoom, layerMaxzoom);
+    if (map.getLayer(layerId)) {
+      map.setLayerZoomRange(layerId, layerMinzoom, layerMaxzoom);
     }
-    const outlineLayerId = `${mapLayerId}-outline`;
+    const outlineLayerId = prefixedOutlineLayerId(layer.id, prefix);
     if (map.getLayer(outlineLayerId)) {
       map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
     }
 
     // Sync label layer for existing sources (add/update/remove)
     // Heatmap layers don't support labels — hide any existing label layer
-    const labelId = getLabelLayerId(layer.id);
+    const labelId = prefixedLabelLayerId(layer.id, prefix);
     const isHeatmap = type === 'heatmap';
     if (map.getSource(sourceId)) {
       if (layer.label_config?.column && !isHeatmap) {
         const lc = layer.label_config;
         // Use getLayerType (not resolveAdapterType) — labels are geometry-based, not render-mode-based
         const geomType = getLayerType(layer.dataset_geometry_type);
+        const vis = layer.visible ? 'visible' : 'none';
 
         if (!map.getLayer(labelId)) {
-          map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType }));
+          map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType, visibility: vis }));
           if (layer.filter) {
             map.setFilter(labelId, layer.filter);
           }
@@ -175,10 +243,10 @@ export function syncLayersToMap(
   for (const sourceId of currentSources) {
     if (!desiredSources.has(sourceId)) {
       // Derive layer IDs from source ID
-      const id = sourceId.replace('source-', '');
-      const layerId = getLayerId(id);
-      const outlineId = getOutlineLayerId(id);
-      const labelId = getLabelLayerId(id);
+      const id = sourceId.replace(sourcePrefix, '');
+      const layerId = prefixedLayerId(id, prefix);
+      const outlineId = prefixedOutlineLayerId(id, prefix);
+      const labelId = prefixedLabelLayerId(id, prefix);
       if (map.getLayer(labelId)) map.removeLayer(labelId);
       if (map.getLayer(outlineId)) map.removeLayer(outlineId);
       if (map.getLayer(layerId)) map.removeLayer(layerId);
@@ -189,10 +257,14 @@ export function syncLayersToMap(
   managedSourcesRef.current = desiredSources;
 
   // Only reorder when layer order actually changed (not on every paint/visibility sync)
-  const orderKey = layers.map((l) => l.id).join(',');
+  const orderKey = layers.map((l) => l.id).join(',')
+    + (options?.showBasemapLabels !== undefined ? `|${String(options.showBasemapLabels)}` : '');
   if (orderKey !== lastOrderKeyRef.current) {
     lastOrderKeyRef.current = orderKey;
-    reorderDataLayers(map, layers);
+    reorderDataLayers(map, layers, prefix);
+    if (options?.showBasemapLabels !== undefined) {
+      reorderBasemapLabels(map, options.showBasemapLabels, sourcePrefix);
+    }
   }
 }
 
@@ -202,16 +274,17 @@ export function syncLayersToMap(
  *  Labels are moved above all data layers so they are never obscured. */
 export function reorderDataLayers(
   map: MaplibreMap,
-  layers: Pick<MapLayerResponse, 'id'>[],
+  layers: Pick<SyncLayerInput, 'id'>[],
+  idPrefix?: string,
 ) {
   for (let i = layers.length - 1; i >= 0; i--) {
-    const lid = getLayerId(layers[i].id);
-    const oid = getOutlineLayerId(layers[i].id);
+    const lid = prefixedLayerId(layers[i].id, idPrefix);
+    const oid = prefixedOutlineLayerId(layers[i].id, idPrefix);
     if (map.getLayer(lid)) map.moveLayer(lid);
     if (map.getLayer(oid)) map.moveLayer(oid);
   }
   for (let i = layers.length - 1; i >= 0; i--) {
-    const labelId = getLabelLayerId(layers[i].id);
+    const labelId = prefixedLabelLayerId(layers[i].id, idPrefix);
     if (map.getLayer(labelId)) map.moveLayer(labelId);
   }
 }

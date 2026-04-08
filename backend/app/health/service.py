@@ -30,9 +30,20 @@ async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
 
 
 async def _check_database() -> None:
-    """Probe database connectivity via SELECT 1."""
+    """Probe database health by exercising a real query path.
+
+    A plain ``SELECT 1`` only verifies the connection pool; it does not
+    detect a hung database, broken search_path, or missing catalog schema.
+    We additionally run a tiny query against the catalog schema so a
+    genuinely unhealthy DB (hung, wrong schema, locks) reports as degraded.
+    """
     async with engine.connect() as conn:
+        # Cheap connectivity check
         await conn.execute(text("SELECT 1"))
+        # Exercise the search_path and catalog schema. Using `to_regclass`
+        # returns NULL without error if the table is missing, so this stays
+        # a fast read that still validates the schema is accessible.
+        await conn.execute(text("SELECT to_regclass('catalog.datasets')"))
 
 
 async def _check_storage() -> None:

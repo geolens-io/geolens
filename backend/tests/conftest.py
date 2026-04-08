@@ -322,3 +322,61 @@ async def test_db_session(client: AsyncClient):
 
     async with db_module.async_session() as session:
         yield session
+
+
+# ---------------------------------------------------------------------------
+# Isolation note (tech debt)
+# ---------------------------------------------------------------------------
+#
+# The current fixture model creates a single test database per pytest session
+# and shares it across all tests. Isolation is enforced by:
+#   1. Unique names (uuid4 suffixes) in test data factories
+#   2. Per-test cleanup via explicit DELETE / DROP TABLE in test teardown
+#   3. Session-scoped roles and admin seeded once via _ensure_roles_and_admin
+#
+# A transaction-rollback-per-test model would be safer but is incompatible
+# with the way request handlers call ``await session.commit()`` under the
+# HTTP test client. Moving to per-test rollback requires either:
+#   (a) Wrapping every request in a SAVEPOINT and intercepting handler commits
+#       via a custom AsyncSession subclass, or
+#   (b) TRUNCATE CASCADE on all user-level tables between tests.
+#
+# Both are large changes deferred to a dedicated PR. The opt-in ``clean_tables``
+# fixture below is provided for tests that need extra determinism today.
+
+
+@pytest.fixture
+async def clean_tables(test_db_session):
+    """Opt-in fixture: truncate user-level tables after the test.
+
+    Use this fixture in tests that need the test database reset to a known
+    state afterwards (e.g., tests that assert on list sizes or cross-cutting
+    counts). It runs TRUNCATE CASCADE on mutable tables in the ``catalog``
+    and ``data`` schemas, leaving roles/admin seeded by the session fixture
+    intact.
+
+    Example::
+
+        async def test_list_all_datasets(client, admin_auth_header, clean_tables):
+            ...  # after this test, tables are truncated
+    """
+    yield
+
+    # Truncate mutable catalog tables in dependency order (CASCADE handles FKs)
+    tables_to_truncate = [
+        "catalog.datasets",
+        "catalog.records",
+        "catalog.collections",
+        "catalog.maps",
+        "catalog.map_share_tokens",
+        "catalog.api_keys",
+    ]
+    try:
+        for table in tables_to_truncate:
+            await test_db_session.execute(
+                text(f"TRUNCATE TABLE {table} CASCADE")
+            )
+        await test_db_session.commit()
+    except Exception:
+        # Best-effort cleanup; don't mask test failures
+        await test_db_session.rollback()

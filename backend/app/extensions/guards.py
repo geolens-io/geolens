@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 
 from app.edition import is_enterprise
 
@@ -14,4 +14,4 @@ def require_enterprise() -> None:
     callers cannot distinguish between "not found" and "not licensed".
     """
     if not is_enterprise():
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)

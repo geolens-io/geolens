@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 import structlog
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
@@ -302,7 +302,7 @@ async def import_config(
         try:
             validate_permission_matrix(import_settings["role_permissions"])
         except ValueError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
 
     # --- Settings ---
     if mode == "overwrite":

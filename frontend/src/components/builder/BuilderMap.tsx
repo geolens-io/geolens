@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
-import { syncLayersToMap, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
+import { syncLayersToMap, toSyncInput, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
@@ -139,7 +139,7 @@ export function BuilderMap({
       const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      syncLayersToMap(map, l, t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
+      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
       reorderBasemapLabels(map, sbl);
     };
 
@@ -241,7 +241,7 @@ export function BuilderMap({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-    syncLayersToMap(map, layers, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
+    syncLayersToMap(map, layers.map(toSyncInput), tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
     reorderBasemapLabels(map, showBasemapLabels);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap]);

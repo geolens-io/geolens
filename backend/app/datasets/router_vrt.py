@@ -101,7 +101,7 @@ async def get_vrt_status(
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
     await check_dataset_access(db, dataset, dataset_id, user)
 
     # Load VRT RasterAsset
@@ -110,7 +110,7 @@ async def get_vrt_status(
     )
     vrt_asset = asset_result.scalar_one_or_none()
     if vrt_asset is None:
-        raise HTTPException(status_code=404, detail="VRT asset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VRT asset not found")
 
     vrt_status = vrt_asset.status or "ready"
 
@@ -230,7 +230,7 @@ async def list_vrt_generations(
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
     await check_dataset_access(db, dataset, dataset_id, user)
 
     # Total count
@@ -284,7 +284,7 @@ async def regenerate_vrt_endpoint(
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
     await check_dataset_access(db, dataset, dataset_id, user)
 
     # Load VRT RasterAsset
@@ -293,7 +293,7 @@ async def regenerate_vrt_endpoint(
     )
     vrt_asset = asset_result.scalar_one_or_none()
     if vrt_asset is None:
-        raise HTTPException(status_code=404, detail="VRT asset not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VRT asset not found")
 
     # Status check
     if vrt_asset.status == "regenerating":

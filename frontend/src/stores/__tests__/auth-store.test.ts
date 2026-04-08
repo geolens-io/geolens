@@ -21,11 +21,17 @@ describe('useAuthStore', () => {
 
   it('setAuth stores token, refreshToken, expiresAt, and user', () => {
     const user = mockUser();
+    const before = Date.now();
     useAuthStore.getState().setAuth('token-123', 'refresh-456', 900, user);
+    const after = Date.now();
 
     expect(useAuthStore.getState().token).toBe('token-123');
     expect(useAuthStore.getState().refreshToken).toBe('refresh-456');
-    expect(useAuthStore.getState().expiresAt).toBeGreaterThanOrEqual(Date.now());
+    // expiresAt should be roughly (now + 900s). Allow for execution time
+    // between capturing `before`/`after` and the store call.
+    const expiresAt = useAuthStore.getState().expiresAt!;
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 900_000 - 1000);
+    expect(expiresAt).toBeLessThanOrEqual(after + 900_000 + 1000);
     expect(useAuthStore.getState().user).toEqual(user);
   });
 

@@ -93,7 +93,7 @@ def _require_enterprise_for_key(key: str) -> None:
     cfg = _get_registry_map().get(key)
     if cfg is not None and cfg.tab in _ENTERPRISE_ONLY_TABS:
         raise HTTPException(
-            status_code=403,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Setting '{key}' requires enterprise edition",
         )
 
@@ -217,7 +217,7 @@ async def update_settings(
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
-            raise HTTPException(status_code=400, detail=f"Unknown setting key: {key}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown setting key: {key}")
 
         _require_enterprise_for_key(key)
 
@@ -225,7 +225,7 @@ async def update_settings(
             value = _validate_setting(key, value)
         except (ValueError, TypeError) as e:
             raise HTTPException(
-                status_code=422, detail=f"Validation error for '{key}': {e}"
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Validation error for '{key}': {e}"
             )
 
         ip = get_client_ip(request)
@@ -266,7 +266,7 @@ async def reset_settings(
         cfg = registry_map.get(key)
         if cfg is None:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unknown setting key: {key}",
             )
         _require_enterprise_for_key(key)
@@ -301,9 +301,9 @@ async def detect_embedding_dims(
     try:
         dims = await probe_embedding_dimensions(db)
     except EmbeddingUnavailableError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Embedding probe failed: {e}")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Embedding probe failed: {e}")
 
     return DetectEmbeddingDimsResponse(dimensions=dims)
 
@@ -370,7 +370,7 @@ async def update_oauth_provider(
     """Update an existing OAuth provider (admin only)."""
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="OAuth provider not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
     provider = await oauth_service.update_provider(db, provider, body)
     ip = get_client_ip(request)
     await log_action(
@@ -399,7 +399,7 @@ async def delete_oauth_provider(
     """Delete an OAuth provider (admin only)."""
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="OAuth provider not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
     slug = provider.slug
     await oauth_service.delete_provider(db, provider)
     ip = get_client_ip(request)

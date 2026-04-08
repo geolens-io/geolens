@@ -12,11 +12,17 @@ import {
 } from '@/api/collections';
 import type { CollectionUpdateRequest } from '@/types/api';
 
+// Collections change rarely (append-only from the user's perspective).
+// 60s stale time prevents refetch on every mount while still picking up
+// changes from other tabs within a reasonable window.
+const COLLECTIONS_STALE_TIME = 60_000;
+
 export function useCollections(skip = 0, limit = 50) {
   return useQuery({
     queryKey: queryKeys.collections.list(skip, limit),
     queryFn: () => listCollections({ skip, limit }),
     placeholderData: keepPreviousData,
+    staleTime: COLLECTIONS_STALE_TIME,
   });
 }
 
@@ -25,6 +31,7 @@ export function useCollection(id: string) {
     queryKey: queryKeys.collections.detail(id),
     queryFn: () => getCollection(id),
     enabled: !!id,
+    staleTime: COLLECTIONS_STALE_TIME,
   });
 }
 
@@ -34,6 +41,7 @@ export function useCollectionDatasets(collectionId: string, skip = 0, limit = 20
     queryFn: () => getCollectionDatasets(collectionId, { skip, limit }),
     enabled: !!collectionId,
     placeholderData: keepPreviousData,
+    staleTime: COLLECTIONS_STALE_TIME,
   });
 }
 

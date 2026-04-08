@@ -905,3 +905,58 @@ async def test_search_unauthenticated_returns_200(
     """GET /search/datasets without token returns 200 (anonymous access allowed)."""
     resp = await client.get("/search/datasets/")
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Unicode / special character tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_search_unicode_query_does_not_crash(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Queries containing CJK, Cyrillic, and emoji characters must not crash.
+
+    Protects the FTS + trigram path in search/service.py against query strings
+    that may contain characters outside ASCII. The search should succeed with
+    a 200 and return a valid GeoJSON FeatureCollection (possibly empty).
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    # Create a dataset whose title contains Unicode characters so we can also
+    # verify that round-tripping Unicode through the search pipeline works.
+    cjk_title = "東京の地図 Tokyo Map"
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=cjk_title,
+        keywords=["tokyo", "日本"],
+        geometry_type="MultiPolygon",
+        srid=4326,
+        description="Map of 東京 (Tokyo) — contains CJK characters",
+    )
+
+    for query in ["東京", "日本", "Москва", "map", "🌍", "café"]:
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": query},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, (
+            f"Search with query={query!r} crashed: {resp.text}"
+        )
+        data = resp.json()
+        assert data["type"] == "FeatureCollection"
+        assert "features" in data
+
+    # The CJK-titled dataset should be findable by its ASCII fallback term
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": "Tokyo"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    titles = [f["properties"]["title"] for f in resp.json()["features"]]
+    assert cjk_title in titles

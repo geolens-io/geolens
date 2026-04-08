@@ -88,15 +88,17 @@ function ChatPanelContent({
           <ChatPanel
             mapId={mapId}
             layers={layers.localLayers}
-            onFilterChange={layers.handleFilterChange}
-            onPaintChange={layers.handlePaintChange}
-            onStyleConfigChange={layers.handleStyleConfigChange}
-            onLabelChange={layers.handleLabelChange}
-            onToggleVisibility={layers.handleToggleVisibility}
-            onAddDataset={layers.handleAddDataset}
-            onRemove={layers.handleAiRemoveLayer}
+            layerActions={{
+              onFilterChange: layers.handleFilterChange,
+              onPaintChange: layers.handlePaintChange,
+              onStyleConfigChange: layers.handleStyleConfigChange,
+              onLabelChange: layers.handleLabelChange,
+              onToggleVisibility: layers.handleToggleVisibility,
+              onAddDataset: layers.handleAddDataset,
+              onRemove: layers.handleAiRemoveLayer,
+              onOpacityChange: layers.handleOpacityChange,
+            }}
             onQueryResult={layers.handleQueryResult}
-            onOpacityChange={layers.handleOpacityChange}
           />
         </Suspense>
       </div>

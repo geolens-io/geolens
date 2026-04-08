@@ -445,3 +445,12 @@ async def stream_chat_edit(
             error_msg = str(e)
         logger.exception("Chat streaming error")
         yield {"type": "error", "message": error_msg}
+    finally:
+        # Guarantee cleanup even if the consumer cancels mid-stream. The
+        # caller owns the db session (we don't close it), but we flush any
+        # structlog contextvars we may have bound so context doesn't leak
+        # across requests when the same task is reused.
+        try:
+            structlog.contextvars.unbind_contextvars("chat_stream_id")
+        except Exception:
+            pass

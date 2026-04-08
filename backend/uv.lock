@@ -958,7 +958,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13.0" },
-    { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "anthropic", specifier = ">=0.87.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "authlib", specifier = ">=1.6.9" },
     { name = "boto3", specifier = ">=1.35.0" },
@@ -966,10 +966,10 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.0" },
     { name = "geoalchemy2", specifier = ">=0.15.0" },
-    { name = "numpy", specifier = ">=1.24.0" },
-    { name = "openai", specifier = ">=1.0.0" },
+    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "openai", specifier = ">=2.0.0" },
     { name = "pgvector", specifier = ">=0.3.6" },
-    { name = "pillow", specifier = ">=10.0.0" },
+    { name = "pillow", specifier = ">=12.1.1" },
     { name = "procrastinate", specifier = ">=3.0.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.1.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.0" },

@@ -104,14 +104,14 @@ async def _validate_chat_layers(
     try:
         map_uuid = uuid_mod.UUID(map_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid map_id")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid map_id")
 
     map_obj = await db.execute(select(Map).where(Map.id == map_uuid))
     map_row = map_obj.scalar_one_or_none()
     if not map_row:
-        raise HTTPException(status_code=404, detail="Map not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Map not found")
     if map_row.created_by != user.id:
-        raise HTTPException(status_code=403, detail="You do not own this map")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this map")
 
     if not layers:
         return layers
@@ -124,7 +124,7 @@ async def _validate_chat_layers(
     try:
         dataset_uuids = [uuid_mod.UUID(did) for did in dataset_ids]
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid dataset_id in layers")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid dataset_id in layers")
 
     result = await db.execute(
         select(Dataset.id, Dataset.table_name, Dataset.geometry_type).where(
@@ -216,10 +216,28 @@ async def generate_map_stream_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a map from a natural language prompt with streaming progress events."""
-    await _check_ai_available(db)
-    user_roles = await get_user_roles(db, user)
 
     async def event_generator():
+        # Validation runs inside the generator so failures yield a graceful
+        # streaming error event rather than a raw HTTP 500 the SSE client
+        # cannot decode.
+        try:
+            await _check_ai_available(db)
+            user_roles = await get_user_roles(db, user)
+        except HTTPException as exc:
+            yield ServerSentEvent(
+                data=json.dumps({"type": "error", "message": exc.detail}),
+                event="error",
+            )
+            return
+        except Exception as exc:
+            logger.exception("Map generation pre-flight error")
+            yield ServerSentEvent(
+                data=json.dumps({"type": "error", "message": str(exc)}),
+                event="error",
+            )
+            return
+
         try:
             async for event in stream_generate_map(
                 db, user, user_roles, body.prompt, language=body.language
@@ -297,11 +315,31 @@ async def chat_stream_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """Chat-based map editing with server-sent event streaming."""
-    await _check_ai_available(db)
-    validated_layers = await _validate_chat_layers(db, user, body.map_id, body.layers)
-    user_roles = await get_user_roles(db, user)
 
     async def event_generator():
+        # Validation runs inside the generator so failures yield a graceful
+        # streaming error event rather than a raw HTTP 500 the SSE client
+        # cannot decode.
+        try:
+            await _check_ai_available(db)
+            validated_layers = await _validate_chat_layers(
+                db, user, body.map_id, body.layers
+            )
+            user_roles = await get_user_roles(db, user)
+        except HTTPException as exc:
+            yield ServerSentEvent(
+                data=json.dumps({"type": "error", "message": exc.detail}),
+                event="error",
+            )
+            return
+        except Exception as exc:
+            logger.exception("Chat pre-flight error")
+            yield ServerSentEvent(
+                data=json.dumps({"type": "error", "message": str(exc)}),
+                event="error",
+            )
+            return
+
         try:
             async for event in stream_chat_edit(
                 db,

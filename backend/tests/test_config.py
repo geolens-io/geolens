@@ -23,7 +23,9 @@ BASE_ENV = {
 
 # Ensure the module-level _create_settings() succeeds on first import by
 # temporarily injecting required env vars before importing the module.
-_orig_env = os.environ.copy()
+# We track exactly which keys we added so we can cleanly restore the env
+# afterwards without touching any vars set by other test modules.
+_ADDED_IMPORT_ENV_KEYS = [k for k in _IMPORT_ENV if k not in os.environ]
 for k, v in _IMPORT_ENV.items():
     os.environ.setdefault(k, v)
 
@@ -33,11 +35,11 @@ if "app.config" in sys.modules:
 
 from app.config import Settings  # noqa: E402
 
-# Restore original env (tests create Settings explicitly, not from env)
-for k in list(os.environ.keys()):
-    if k not in _orig_env:
-        del os.environ[k]
-os.environ.update(_orig_env)
+# Restore original env: only pop keys we added ourselves. Tests below create
+# Settings explicitly via kwargs, so this module does not need _IMPORT_ENV
+# values to remain in the process environment.
+for _k in _ADDED_IMPORT_ENV_KEYS:
+    os.environ.pop(_k, None)
 
 
 def _make_settings(**overrides):

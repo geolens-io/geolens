@@ -59,6 +59,194 @@ const VISIBILITY_OPTIONS: Array<{
   },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  ShareLinkSettings – collapsible expiration / domain / revoke      */
+/* ------------------------------------------------------------------ */
+
+interface ShareLinkSettingsProps {
+  mapId: string;
+  shareExpires: string | null;
+  configDomains: string | null;
+  resolvedEmbedTokenId: string | null;
+  onRevoked: () => void;
+}
+
+function ShareLinkSettings({
+  mapId,
+  shareExpires,
+  configDomains,
+  resolvedEmbedTokenId,
+  onRevoked,
+}: ShareLinkSettingsProps) {
+  const { t } = useTranslation('builder');
+  const revokeShareToken = useRevokeShareToken();
+  const updateShareToken = useUpdateShareToken();
+  const updateEmbedToken = useUpdateEmbedToken();
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [expiresValue, setExpiresValue] = useState('');
+  const [domainsValue, setDomainsValue] = useState('');
+  const [showDomainRestrict, setShowDomainRestrict] = useState(false);
+
+  async function handleSaveExpiration() {
+    try {
+      const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
+      await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
+      toast.success(t('share.expirationUpdated'));
+    } catch {
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  async function handleSaveDomains() {
+    if (!resolvedEmbedTokenId) return;
+    try {
+      const origins = parseOrigins(domainsValue);
+      await updateEmbedToken.mutateAsync({
+        mapId,
+        tokenId: resolvedEmbedTokenId,
+        allowedOrigins: origins.length > 0 ? origins : null,
+      });
+      toast.success(t('share.domainsUpdated'));
+    } catch {
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  async function handleRevokeShareLink() {
+    try {
+      await revokeShareToken.mutateAsync(mapId);
+      setExpiresValue('');
+      setDomainsValue('');
+      setShowDomainRestrict(false);
+      setShowSettings(false);
+      onRevoked();
+      toast.success(t('toasts.shareLinkRevoked'));
+    } catch {
+      toast.error(t('toasts.revokeFailed'));
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => {
+          const next = !showSettings;
+          setShowSettings(next);
+          if (next) {
+            setExpiresValue(shareExpires ? shareExpires.split('T')[0] : '');
+            setDomainsValue(configDomains || '');
+            setShowDomainRestrict(!!configDomains);
+          }
+        }}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', showSettings && 'rotate-90')} />
+        {t('share.linkSettings')}
+      </button>
+
+      {showSettings && (
+        <div className="space-y-4 ps-4 border-s-2 border-border">
+          {/* Expiration */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={expiresValue}
+                onChange={(e) => setExpiresValue(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="h-8 text-sm flex-1"
+                placeholder={t('share.expirationPlaceholder')}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSaveExpiration}
+                disabled={updateShareToken.isPending}
+              >
+                {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
+          </div>
+
+          {/* Domain restriction */}
+          {resolvedEmbedTokenId && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Shield className="h-3 w-3 text-muted-foreground" />
+                  <label className="text-xs font-medium">{t('share.restrictToDomains')}</label>
+                </div>
+                <Switch
+                  checked={showDomainRestrict}
+                  onCheckedChange={(checked) => {
+                    setShowDomainRestrict(checked);
+                    if (checked && !domainsValue) {
+                      setDomainsValue(window.location.origin);
+                    }
+                    if (!checked && configDomains) {
+                      // Clear restrictions
+                      setDomainsValue('');
+                      handleSaveDomains();
+                    }
+                  }}
+                  aria-label={t('share.restrictToDomains')}
+                />
+              </div>
+              {showDomainRestrict && (
+                <div className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <Input
+                      value={domainsValue}
+                      onChange={(e) => setDomainsValue(e.target.value)}
+                      placeholder="example.com, app.example.com"
+                      className="h-8 text-sm font-mono flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSaveDomains}
+                      disabled={updateEmbedToken.isPending}
+                    >
+                      {updateEmbedToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('share.domainHint')}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Revoke */}
+          <div className="pt-2 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-destructive hover:text-destructive hover:bg-destructive/5"
+              onClick={handleRevokeShareLink}
+              disabled={revokeShareToken.isPending}
+            >
+              {revokeShareToken.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 me-1.5" />
+              )}
+              {t('share.revokeShareLink')}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  ShareDialog                                                        */
+/* ------------------------------------------------------------------ */
+
 interface ShareDialogProps {
   mapId: string;
   visibility: string;
@@ -70,20 +258,11 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
   const { t } = useTranslation('builder');
   const publishMap = usePublishMap();
   const createShareToken = useCreateShareToken();
-  const revokeShareToken = useRevokeShareToken();
   const createEmbedToken = useCreateEmbedToken();
-  const updateShareToken = useUpdateShareToken();
-  const updateEmbedToken = useUpdateEmbedToken();
 
   const [hasNonPublic, setHasNonPublic] = useState(false);
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
   const [domainInput, setDomainInput] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
-
-  // Editable field state
-  const [expiresValue, setExpiresValue] = useState('');
-  const [domainsValue, setDomainsValue] = useState('');
-  const [showDomainRestrict, setShowDomainRestrict] = useState(false);
 
   // Queries as source of truth
   const shareTokenQuery = useMapShareToken(mapId);
@@ -171,45 +350,10 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
     }
   }
 
-  async function handleRevokeShareLink() {
-    try {
-      await revokeShareToken.mutateAsync(mapId);
-      setEmbedTokenRaw(null);
-      setExpiresValue('');
-      setDomainsValue('');
-      setDomainInput('');
-      setShowDomainRestrict(false);
-      setShowSettings(false);
-      setHasNonPublic(false);
-      toast.success(t('toasts.shareLinkRevoked'));
-    } catch {
-      toast.error(t('toasts.revokeFailed'));
-    }
-  }
-
-  async function handleSaveExpiration() {
-    try {
-      const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
-      await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
-      toast.success(t('share.expirationUpdated'));
-    } catch {
-      toast.error(t('share.updateFailed'));
-    }
-  }
-
-  async function handleSaveDomains() {
-    if (!resolvedEmbedTokenId) return;
-    try {
-      const origins = parseOrigins(domainsValue);
-      await updateEmbedToken.mutateAsync({
-        mapId,
-        tokenId: resolvedEmbedTokenId,
-        allowedOrigins: origins.length > 0 ? origins : null,
-      });
-      toast.success(t('share.domainsUpdated'));
-    } catch {
-      toast.error(t('share.updateFailed'));
-    }
+  function handleRevoked() {
+    setEmbedTokenRaw(null);
+    setDomainInput('');
+    setHasNonPublic(false);
   }
 
   function getShareUrl() {
@@ -355,118 +499,13 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     </div>
 
                     {/* Link Settings -- collapsible */}
-                    <div className="space-y-3">
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => {
-                          const next = !showSettings;
-                          setShowSettings(next);
-                          if (next) {
-                            setExpiresValue(shareExpires ? shareExpires.split('T')[0] : '');
-                            setDomainsValue(configDomains || '');
-                            setShowDomainRestrict(!!configDomains);
-                          }
-                        }}
-                      >
-                        <ChevronRight className={cn('h-3 w-3 transition-transform', showSettings && 'rotate-90')} />
-                        {t('share.linkSettings')}
-                      </button>
-
-                      {showSettings && (
-                        <div className="space-y-4 ps-4 border-s-2 border-border">
-                          {/* Expiration */}
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
-                            <div className="flex gap-2">
-                              <Input
-                                type="date"
-                                value={expiresValue}
-                                onChange={(e) => setExpiresValue(e.target.value)}
-                                min={new Date().toISOString().split('T')[0]}
-                                className="h-8 text-sm flex-1"
-                                placeholder={t('share.expirationPlaceholder')}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleSaveExpiration}
-                                disabled={updateShareToken.isPending}
-                              >
-                                {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
-                              </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
-                          </div>
-
-                          {/* Domain restriction */}
-                          {resolvedEmbedTokenId && (
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <Shield className="h-3 w-3 text-muted-foreground" />
-                                  <label className="text-xs font-medium">{t('share.restrictToDomains')}</label>
-                                </div>
-                                <Switch
-                                  checked={showDomainRestrict}
-                                  onCheckedChange={(checked) => {
-                                    setShowDomainRestrict(checked);
-                                    if (checked && !domainsValue) {
-                                      setDomainsValue(window.location.origin);
-                                    }
-                                    if (!checked && configDomains) {
-                                      // Clear restrictions
-                                      setDomainsValue('');
-                                      handleSaveDomains();
-                                    }
-                                  }}
-                                  aria-label={t('share.restrictToDomains')}
-                                />
-                              </div>
-                              {showDomainRestrict && (
-                                <div className="space-y-1.5">
-                                  <div className="flex gap-2">
-                                    <Input
-                                      value={domainsValue}
-                                      onChange={(e) => setDomainsValue(e.target.value)}
-                                      placeholder="example.com, app.example.com"
-                                      className="h-8 text-sm font-mono flex-1"
-                                    />
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={handleSaveDomains}
-                                      disabled={updateEmbedToken.isPending}
-                                    >
-                                      {updateEmbedToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
-                                    </Button>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">{t('share.domainHint')}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Revoke */}
-                          <div className="pt-2 border-t">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full text-destructive hover:text-destructive hover:bg-destructive/5"
-                              onClick={handleRevokeShareLink}
-                              disabled={revokeShareToken.isPending}
-                            >
-                              {revokeShareToken.isPending ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5 me-1.5" />
-                              )}
-                              {t('share.revokeShareLink')}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    <ShareLinkSettings
+                      mapId={mapId}
+                      shareExpires={shareExpires}
+                      configDomains={configDomains}
+                      resolvedEmbedTokenId={resolvedEmbedTokenId}
+                      onRevoked={handleRevoked}
+                    />
                   </div>
                 ) : (
                   <Button

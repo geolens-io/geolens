@@ -306,8 +306,30 @@ class TestSystemPromptQueryData:
         assert "CHANGE" in prompt
 
 
-class TestToolLabelQueryData:
-    """Tests for query_data tool label."""
+class TestToolLabel:
+    """Tests for tool_label() which maps tool names to UI labels."""
 
-    def test_tool_label_returns_querying_data(self):
-        assert tool_label("query_data") == "Querying data..."
+    @pytest.mark.parametrize(
+        "tool_name,expected",
+        [
+            ("query_data", "Querying data..."),
+            ("search_datasets", "Searching datasets..."),
+            ("set_filter", "Applying filter..."),
+            ("set_style", "Changing style..."),
+            ("set_data_driven_style", "Building data-driven style..."),
+            ("set_label", "Configuring labels..."),
+            ("toggle_visibility", "Toggling visibility..."),
+            ("remove_layer", "Removing layer..."),
+            ("add_layer", "Adding layer..."),
+            ("set_opacity", "Adjusting opacity..."),
+            ("get_dataset_details", "Fetching dataset details..."),
+        ],
+    )
+    def test_known_tool_label(self, tool_name: str, expected: str):
+        """Every registered tool has its canonical label."""
+        assert tool_label(tool_name) == expected
+
+    def test_unknown_tool_falls_back_to_running_template(self):
+        """Unknown tools return a generic 'Running X...' label."""
+        assert tool_label("something_new") == "Running something_new..."
+        assert tool_label("") == "Running ..."
