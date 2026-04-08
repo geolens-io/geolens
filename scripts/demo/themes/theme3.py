@@ -80,15 +80,10 @@ DATASETS: list[dict[str, Any]] = [
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
-    {
-        "stem": "ne_10m_admin_0_breakaway_disputed_areas",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 breakaway disputed areas (de-facto control regions), version 5.1.2. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
+    # NOTE: ne_10m_admin_0_breakaway_disputed_areas is NOT available on the NACIS CDN
+    # (403 Forbidden) and is NOT in the seed-natural-earth.py manifest. Removed from
+    # DATASETS to avoid runtime failure. Map 3.1 omits the breakaway layer. Documented
+    # in 218-04-SUMMARY.md as a planning error in the plan's interfaces section.
     {
         "stem": "ne_10m_admin_0_boundary_lines_disputed_areas",
         "type": "vector",
