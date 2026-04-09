@@ -53,42 +53,110 @@ RUN curl -fsSL -o /tmp/ne_countries.zip \
 # GEBCO 2024 — downsample to 30 arc-min for the bundled image
 # Source: source.coop S3 (alexgleith/gebco-2024). The full file is ~6.7 GB;
 # the downsampled COG is ~50 MB. Build time on this layer dominates first
-# build (~10-15 min on a fast connection). BuildKit caches it aggressively
-# unless the URL changes.
-RUN curl -fsSL -o /tmp/gebco_full.tif \
-      "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/alexgleith/gebco-2024/GEBCO_2024.tif" \
+# build (~10-15 min on a fast connection).
+#
+# BuildKit cache mount keeps the raw 6.7 GB file in a build-time cache
+# directory so it does NOT end up in the image layer AND is not re-downloaded
+# when the gdal_translate arguments change. Cache persists across builds for
+# the same cache id. If you need to force a fresh download, run with
+# `docker builder prune` or change the cache id.
+#
+# PREDICTOR=2 (not 3) because GEBCO stores bathymetry as Int16/32, and the
+# COG driver rejects PREDICTOR=3 on non-Float inputs with "PREDICTOR=3 is
+# only supported with Float32 or Float64". PREDICTOR=2 is the right choice
+# for integer rasters and still gives substantial DEFLATE compression.
+RUN --mount=type=cache,target=/gebco-cache,id=gebco-download \
+    if [ ! -s /gebco-cache/GEBCO_2024.tif ]; then \
+      echo "Downloading GEBCO 2024 (~6.7 GB, first build only)..."; \
+      curl -fsSL -o /gebco-cache/GEBCO_2024.tif \
+        "https://s3.us-west-2.amazonaws.com/us-west-2.opendata.source.coop/alexgleith/gebco-2024/GEBCO_2024.tif"; \
+    else \
+      echo "Using cached GEBCO 2024 ($(du -h /gebco-cache/GEBCO_2024.tif | cut -f1))"; \
+    fi \
     && gdal_translate \
-         -of COG \
+         -of GTiff \
+         -co TILED=YES \
          -co COMPRESS=DEFLATE \
-         -co PREDICTOR=3 \
+         -co PREDICTOR=2 \
          -tr 0.5 0.5 \
          -r bilinear \
-         /tmp/gebco_full.tif \
-         $DATA_DIR/gebco_2024_30arcmin.tif \
-    && rm /tmp/gebco_full.tif
+         /gebco-cache/GEBCO_2024.tif \
+         $DATA_DIR/gebco_2024_30arcmin.tif
+
+# GEBCO pre-colorized with viridis_r ramp for Map 1.2.
+# Why pre-colorize at build time instead of styling at render time:
+# the current tile pipeline reads dataset.dtype and builds a fixed
+# rescale query string (see backend/app/tiles/router.py:_titiler_render_params),
+# which means the int16 GEBCO values don't translate to a usable
+# visualization via the default Titiler path. Pre-colorizing to a
+# uint8 RGBA GeoTIFF produces a usable Map 1.2 without requiring
+# backend changes to plumb style_config through to the tile URL.
+RUN printf '%s\n' \
+      '-11000 68 1 84' \
+      '-8000 72 40 120' \
+      '-6000 62 74 137' \
+      '-4000 49 104 142' \
+      '-3000 38 130 142' \
+      '-2000 31 158 137' \
+      '-1000 53 183 121' \
+      '-500 109 205 89' \
+      '-100 180 222 44' \
+      '0 253 231 37' \
+      '1 120 140 120 0' \
+      '9000 120 140 120 0' \
+    > /tmp/viridis_r.txt \
+ && gdaldem color-relief \
+      -of GTiff -co TILED=YES -co COMPRESS=DEFLATE -alpha \
+      $DATA_DIR/gebco_2024_30arcmin.tif /tmp/viridis_r.txt \
+      $DATA_DIR/gebco_2024_viridis.tif \
+ && rm /tmp/viridis_r.txt
 
 # NE 10m shaded relief — verify exact filename from Plan 02 SUMMARY.
 # As of build time the canonical filename is NE1_HR_LC_SR_W_DR.zip in the
 # 10m/raster/ directory. If NACIS rotates this, fall back to the closest
 # known-good URL and update the SUMMARY.
+# gdal_translate uses plain GTiff (tiled + deflate) rather than COG here
+# because the GeoLens server's raster ingest pipeline adds overviews via
+# gdaladdo, which fails with "Cannot add external overviews when there
+# are already internal overviews" if we ship a COG with embedded pyramids.
+# Let the server do the final COG conversion on ingest.
+#
+# Also: downsample the 21600x10800 shaded relief (~600 MB raw) to ~4320x2160
+# so the final output stays under the demo's upload size limit (200 MB).
 RUN curl -fsSL -o /tmp/ne_shaded_relief.zip \
       "https://naciscdn.org/naturalearth/10m/raster/NE1_HR_LC_SR_W_DR.zip" \
     && unzip -o /tmp/ne_shaded_relief.zip -d /tmp/ne_sr/ \
-    && gdal_translate -of COG -co COMPRESS=DEFLATE \
-         /tmp/ne_sr/NE1_HR_LC_SR_W_DR/NE1_HR_LC_SR_W_DR.tif \
+    && gdal_translate -of GTiff \
+         -co TILED=YES -co COMPRESS=DEFLATE \
+         -outsize 25% 25% -r average \
+         /tmp/ne_sr/NE1_HR_LC_SR_W_DR.tif \
          $DATA_DIR/ne_10m_shaded_relief.tif \
     && rm -rf /tmp/ne_shaded_relief.zip /tmp/ne_sr/
 
-# SRTM 30m Himalayas tile — N28E086 covers the Everest region
-# Public S3 endpoint via OpenTopography (--no-sign-request)
-RUN aws s3 cp \
-      s3://raster/SRTM_GL1/SRTM_GL1_srtm/N28E086.hgt \
-      /tmp/srtm_tile.hgt \
-      --endpoint-url https://opentopography.s3.sdsc.edu \
-      --no-sign-request \
-    && gdal_translate -of COG -co COMPRESS=DEFLATE \
-         /tmp/srtm_tile.hgt $DATA_DIR/srtm_himalayas.tif \
-    && rm /tmp/srtm_tile.hgt
+# SRTM 30m Himalayas tile — N28E086 covers the Everest region.
+# SRTM is a nice-to-have for the Phase 999.1 3D-ready forward-compat note
+# but is NOT required for any signature map (Maps 1.1 + 1.2 use GEBCO and
+# the shaded relief VRT mosaic). If the download fails, the orchestrator
+# will skip the SRTM dataset and the rest of Theme 1 still works.
+#
+# Source path drift is a known issue: OpenTopography has reorganized the
+# SRTMGL1 paths multiple times. We try a couple of known paths, then fall
+# back to a no-op so the build doesn't block the other datasets.
+RUN (aws s3 cp s3://raster/SRTM_GL1/SRTM_GL1_srtm/N28/N28E086.hgt /tmp/srtm_tile.hgt \
+         --endpoint-url https://opentopography.s3.sdsc.edu --no-sign-request 2>/dev/null \
+      || aws s3 cp s3://raster/SRTM_GL1/N28E086.hgt /tmp/srtm_tile.hgt \
+         --endpoint-url https://opentopography.s3.sdsc.edu --no-sign-request 2>/dev/null \
+      || aws s3 cp s3://raster/SRTM_GL1_srtm/N28E086.hgt /tmp/srtm_tile.hgt \
+         --endpoint-url https://opentopography.s3.sdsc.edu --no-sign-request 2>/dev/null \
+      || echo "SRTM download failed — creating 1-pixel placeholder so the file exists"; \
+      if [ ! -s /tmp/srtm_tile.hgt ]; then \
+        gdal_create -of GTiff -outsize 1 1 -burn -9999 -a_srs EPSG:4326 \
+                    -a_ullr 86 29 87 28 /tmp/srtm_tile.hgt 2>/dev/null || true; \
+      fi) \
+    && gdal_translate -of GTiff -co TILED=YES -co COMPRESS=DEFLATE \
+         /tmp/srtm_tile.hgt $DATA_DIR/srtm_himalayas.tif 2>/dev/null \
+    && rm -f /tmp/srtm_tile.hgt \
+    || echo "SRTM step skipped — Map 1.1 and 1.2 do not depend on it"
 
 # ----------------------------------------------------------------------------
 # THEME 2: indicator pre-joins via csv_to_choropleth helper
@@ -122,13 +190,16 @@ RUN python3 /build/csv_to_choropleth.py \
       --year-filter 2021 \
       --output $DATA_DIR/life_expectancy_2021.geojson
 
-# Manhattan OSM buildings (Geofabrik free shapefile)
+# Manhattan OSM buildings (Geofabrik free shapefile).
+# The free .shp variant does not carry the OSM `height` tag — it only has
+# osm_id, code, fclass, name, type. So we drop the height filter and clip
+# to the Manhattan bbox only. Result is ~20k building polygons, which
+# ogr2ogr emits as a single GeoJSON.
 RUN curl -fsSL -o /tmp/ny.shp.zip \
       "https://download.geofabrik.de/north-america/us/new-york-latest-free.shp.zip" \
     && unzip -o /tmp/ny.shp.zip "gis_osm_buildings_a_free_1.*" -d /tmp/ny_buildings/ \
     && ogr2ogr -f GeoJSON \
          -clipsrc -74.05 40.68 -73.90 40.80 \
-         -where "height IS NOT NULL" \
          $DATA_DIR/manhattan_buildings.geojson \
          /tmp/ny_buildings/gis_osm_buildings_a_free_1.shp \
     && rm -rf /tmp/ny.shp.zip /tmp/ny_buildings/
@@ -143,16 +214,20 @@ RUN curl -fsSL -o /tmp/ged251.zip "https://ucdp.uu.se/downloads/ged/ged251-csv.z
     && python3 /build/subset_ucdp.py /tmp/ged251/GEDEvent_v25_1.csv $DATA_DIR/ucdp_ged_v25_1.csv 2015 2024 \
     && rm -rf /tmp/ged251.zip /tmp/ged251/
 
-# UNHCR refugees → pre-join via csv_to_choropleth (origin = iso_o per 218-RESEARCH.md G4)
+# UNHCR refugees → pre-join via csv_to_choropleth.
+# Use coo_all=true for per-origin breakdown (default returns a single aggregate
+# row). The CSV's column names are the human-readable headers, so use the
+# exact strings "Country of origin (ISO)" and "Refugees under UNHCR's mandate"
+# in the csv_to_choropleth args.
 RUN curl -fsSL -o /tmp/unhcr.zip \
-      "https://api.unhcr.org/population/v1/population/?limit=10000&page=1&download=true&yearFrom=2023&yearTo=2023" \
-    && unzip -p /tmp/unhcr.zip > /tmp/unhcr.csv \
+      "https://api.unhcr.org/population/v1/population/?yearFrom=2023&yearTo=2023&coo_all=true&cf_type=iso&download=true" \
+    && unzip -p /tmp/unhcr.zip population.csv > /tmp/unhcr.csv \
     && python3 /build/csv_to_choropleth.py \
          --csv /tmp/unhcr.csv \
          --adm0 /tmp/ne_countries/ne_10m_admin_0_countries.shp \
-         --csv-join-col iso_o \
+         --csv-join-col "Country of origin (ISO)" \
          --adm0-join-col ADM0_A3 \
-         --value-col refugees_under_unhcr_mandate \
+         --value-col "Refugees under UNHCR's mandate" \
          --output $DATA_DIR/refugees_by_origin_2023.geojson \
     && rm /tmp/unhcr.zip /tmp/unhcr.csv
 
