@@ -1,0 +1,102 @@
+{
+  "_meta": {
+    "name": "Population at a Glance",
+    "description": "Where the people are. Big dots where there are lots of them.",
+    "theme": "How the World Lives (2024)",
+    "snapshot_date": "2025-01-01",
+    "exported_at": "2026-04-09T00:09:33.386238+00:00"
+  },
+  "name": "Population at a Glance",
+  "description": "Where the people are. Big dots where there are lots of them.",
+  "center_lng": 0.0,
+  "center_lat": 20.0,
+  "zoom": 1.5,
+  "bearing": 0.0,
+  "pitch": 0.0,
+  "basemap_style": "positron",
+  "show_basemap_labels": true,
+  "visibility": "public",
+  "widgets": null,
+  "layers": [
+    {
+      "_stem": "gdp_per_capita_ppp_2023",
+      "_ext": ".geojson",
+      "display_name": null,
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 1.0,
+      "paint": {
+        "fill-color": "#f0f0f0",
+        "fill-opacity": 0.3,
+        "fill-outline-color": "#cccccc"
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_populated_places_simple",
+      "_ext": ".zip",
+      "display_name": null,
+      "sort_order": 1,
+      "visible": true,
+      "opacity": 1.0,
+      "paint": {
+        "circle-color": [
+          "match",
+          [
+            "get",
+            "CONTINENT"
+          ],
+          "Africa",
+          "#e6194b",
+          "Asia",
+          "#3cb44b",
+          "Europe",
+          "#4363d8",
+          "North America",
+          "#f58231",
+          "South America",
+          "#911eb4",
+          "Oceania",
+          "#42d4f4",
+          "#808080"
+        ],
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "get",
+            "POP_MAX"
+          ],
+          1000,
+          4,
+          10000,
+          6,
+          100000,
+          9,
+          1000000,
+          14,
+          10000000,
+          25,
+          30000000,
+          40
+        ],
+        "circle-opacity": 0.7,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 0.5
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    }
+  ]
+}
