@@ -3,8 +3,7 @@
     "name": "One Territory, Multiple Official Maps",
     "description": "Zoom into Kashmir. Toggle the layers in the panel. Watch the border change. Three countries, three official maps, one territory. Each shapefile is rendered exactly as published by Natural Earth without editorial framing from GeoLens.",
     "theme": "Lines on the Map (2024 Snapshot)",
-    "snapshot_date": "2024-01-01",
-    "exported_at": "2026-04-08T23:44:23.023310+00:00"
+    "snapshot_date": "2024-01-01"
   },
   "name": "One Territory, Multiple Official Maps",
   "description": "Zoom into Kashmir. Toggle the layers in the panel. Watch the border change. Three countries, three official maps, one territory. Each shapefile is rendered exactly as published by Natural Earth without editorial framing from GeoLens.",

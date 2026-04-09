@@ -1,6 +1,6 @@
 """Theme 2 — Global Development & People dataset registry. Owned by Plan 218-03."""
 
-from typing import Any
+from themes import ThemeDataset
 
 THEME_NAME = "How the World Lives (2024)"
 THEME_DESCRIPTION = "Seven billion people, 200 countries. Population, income, life expectancy."
@@ -12,59 +12,17 @@ THEME_IDX = 1
 # tells the population story via ne_10m_populated_places_simple proportional
 # symbols on Map 2.1 instead. The raster-COG story is already exercised by
 # Theme 1 (GEBCO + NE shaded relief).
-DATASETS: list[dict[str, Any]] = [
+DATASETS: list[ThemeDataset] = [
     # ---- NE cultural vectors (NACIS CDN download) ----
+    # Only layers actually referenced by a shipped fixture are registered here.
+    # Removed 2026-04-09: ne_10m_urban_areas, ne_10m_airports, ne_10m_ports,
+    # ne_10m_roads, ne_10m_railroads — ingested but never used by any fixture.
     {
         "stem": "ne_10m_populated_places_simple",
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Natural Earth 1:10m populated places (simple) with POP_MAX attribute. Source: Natural Earth (NACIS CDN), public domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_urban_areas",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Natural Earth 1:10m urban area polygons. Source: Natural Earth (NACIS CDN), public domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_airports",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Natural Earth 1:10m airport points. Source: Natural Earth (NACIS CDN), public domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_ports",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Natural Earth 1:10m port points. Source: Natural Earth (NACIS CDN), public domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_roads",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Natural Earth 1:10m road lines. Source: Natural Earth (NACIS CDN), public domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_railroads",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Natural Earth 1:10m railroad lines. Source: Natural Earth (NACIS CDN), public domain. snapshot_date=2025-01-01.",
+        "summary": "Natural Earth 1:10m populated places (simple) with POP_MAX attribute. Source: Natural Earth (NACIS CDN).",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -78,8 +36,8 @@ DATASETS: list[dict[str, Any]] = [
         "local_path": "/data/demo/gdp_per_capita_ppp_2023.geojson",
         "summary": (
             "GDP per capita PPP (current international $) 2023, joined to Natural Earth ADM0 polygons "
-            "via the csv_to_choropleth helper. Source: World Bank Open Data (api.worldbank.org), CC-BY 4.0. "
-            "snapshot_date=2024-12-15. Indicator: NY.GDP.PCAP.PP.CD. Stable value column: properties._value."
+            "via the csv_to_choropleth helper. Source: World Bank Open Data (api.worldbank.org). "
+            "Indicator: NY.GDP.PCAP.PP.CD. Stable value column: properties._value."
         ),
         "snapshot_date": "2024-12-15",
         "license": "CC-BY 4.0 (World Bank Open Data)",
@@ -91,8 +49,8 @@ DATASETS: list[dict[str, Any]] = [
         "local_path": "/data/demo/life_expectancy_2021.geojson",
         "summary": (
             "Life expectancy at birth (years), 2021, joined to Natural Earth ADM0 polygons via csv_to_choropleth. "
-            "Source: Our World in Data (ourworldindata.org/grapher/life-expectancy), CC-BY 4.0. "
-            "snapshot_date=2024-12-15. Stable value column: properties._value."
+            "Source: Our World in Data (ourworldindata.org/grapher/life-expectancy). "
+            "Stable value column: properties._value."
         ),
         "snapshot_date": "2024-12-15",
         "license": "CC-BY 4.0 (Our World in Data)",
@@ -107,7 +65,7 @@ DATASETS: list[dict[str, Any]] = [
         "summary": (
             "OpenStreetMap building footprints for Manhattan, clipped from the Geofabrik New York extract. "
             "Includes the `height` attribute where present in OSM (~40-60% coverage). "
-            "Source: © OpenStreetMap contributors, ODbL 1.0. snapshot_date=2026-04-01. "
+            "Source: © OpenStreetMap contributors. "
             "Forward-compat note: 3D-ready — Phase 999.1 Terrain+Extrusions will add a fill-extrusion map "
             "keyed on the `height` attribute without re-ingest."
         ),
