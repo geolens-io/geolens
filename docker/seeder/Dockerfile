@@ -153,9 +153,17 @@ RUN test -s $DATA_DIR/srtm_himalayas.tif \
 # THEME 2: indicator pre-joins via csv_to_choropleth helper
 # ----------------------------------------------------------------------------
 
-# World Bank GDP per capita PPP — ZIP with versioned inner filename
-RUN curl -fsSL -o /tmp/wb_gdp.zip \
-      "https://api.worldbank.org/v2/en/indicator/NY.GDP.PCAP.PP.CD?downloadformat=csv" \
+# World Bank GDP per capita PPP — ZIP with versioned inner filename.
+#
+# api.worldbank.org sits behind Cloudflare, which fingerprints curl's TLS
+# ClientHello (JA3) and returns HTTP 502 for every curl request — even
+# with a browser User-Agent. Python's urllib uses a different TLS stack
+# (stdlib ssl → OpenSSL via a different path) that Cloudflare accepts, so
+# we download via python3 instead of curl here. All the OTHER upstream
+# fetches in this Dockerfile (NACIS, source.coop, OpenTopography,
+# Geofabrik, UCDP, UNHCR) are fine with plain curl — only the WB endpoint
+# is affected by this bot-detection rule as of 2026-04-09.
+RUN python3 -c "import urllib.request as u; r=u.Request('https://api.worldbank.org/v2/en/indicator/NY.GDP.PCAP.PP.CD?downloadformat=csv', headers={'User-Agent':'Mozilla/5.0'}); open('/tmp/wb_gdp.zip','wb').write(u.urlopen(r, timeout=120).read())" \
     && unzip -o /tmp/wb_gdp.zip "API_NY.GDP.PCAP.PP.CD_DS2_en_csv_v2*.csv" -d /tmp/wb_gdp/ \
     && mv /tmp/wb_gdp/API_NY.GDP.PCAP.PP.CD*.csv /tmp/wb_gdp.csv \
     && rm -rf /tmp/wb_gdp.zip /tmp/wb_gdp/
