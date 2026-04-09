@@ -106,6 +106,28 @@ DATASETS: list[dict[str, Any]] = [
         "license": "Public Domain (GEBCO/NERC/BODC)",
     },
     {
+        # Pre-colorized variant produced by the Plan 05 Dockerfile's gdaldem
+        # color-relief step. Exists as a separate dataset because the current
+        # raster tile pipeline doesn't plumb style_config.colormap through to
+        # the Titiler render params — see 218-05-SUMMARY.md follow-ups.
+        # Map 1.2 references this stem; the raw gebco_2024_30arcmin stays
+        # for 3D forward-compat use (Phase 999.1 terrainrgb).
+        "stem": "gebco_2024_viridis",
+        "type": "raster",
+        "source": "local",
+        "ne_theme": None,
+        "local_path": "/data/demo/gebco_2024_viridis.tif",
+        "summary": (
+            "GEBCO 2024 Grid bathymetry, pre-colorized with viridis_r ramp at "
+            "seeder build time via gdaldem color-relief. Used by Map 1.2 "
+            "'Global Bathymetry' to render the ocean floor story without "
+            "requiring style_config plumbing on the tile URL. "
+            "Source: GEBCO/NERC/BODC, public domain. snapshot_date=2024-12-01."
+        ),
+        "snapshot_date": "2024-12-01",
+        "license": "Public Domain (GEBCO/NERC/BODC)",
+    },
+    {
         "stem": "ne_10m_shaded_relief",
         "type": "raster",
         "source": "local",

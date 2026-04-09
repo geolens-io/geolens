@@ -1,0 +1,133 @@
+{
+  "_meta": {
+    "name": "Earth as Seen from Space",
+    "description": "A single-screen planet view: GEBCO bathymetry (deep ocean in dark blue) underneath Natural Earth shaded relief (land topography), with rivers and glaciers as linework. The VRT mosaic is intentionally skipped \u2014 GEBCO is int16 and the shaded relief is uint8, so they are stacked as separate rasters instead of mosaicked.",
+    "theme": "Planet Earth (2025 Snapshot)",
+    "snapshot_date": "2025-01-01",
+    "exported_at": "2026-04-09T13:07:10.898206+00:00"
+  },
+  "name": "Earth as Seen from Space",
+  "description": "A single-screen planet view: GEBCO bathymetry (deep ocean in dark blue) underneath Natural Earth shaded relief (land topography), with rivers and glaciers as linework. The VRT mosaic is intentionally skipped \u2014 GEBCO is int16 and the shaded relief is uint8, so they are stacked as separate rasters instead of mosaicked.",
+  "center_lng": 0.0,
+  "center_lat": 20.0,
+  "zoom": 1.5,
+  "bearing": 0.0,
+  "pitch": 0.0,
+  "basemap_style": "dark-matter",
+  "show_basemap_labels": false,
+  "visibility": "public",
+  "widgets": null,
+  "layers": [
+    {
+      "_stem": "ne_10m_ocean",
+      "_ext": ".zip",
+      "display_name": null,
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 0.9,
+      "paint": {
+        "fill-color": "#0a1e3c",
+        "fill-opacity": 0.9,
+        "_outline-color": "#0a1e3c",
+        "_outline-width": 0
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": false
+    },
+    {
+      "_stem": "gebco_2024_30arcmin",
+      "_ext": ".tif",
+      "display_name": null,
+      "sort_order": 1,
+      "visible": true,
+      "opacity": 0.85,
+      "paint": {},
+      "layout": {},
+      "layer_type": "raster_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": {
+        "rescale": "-10000,0",
+        "colormap": "cmocean_deep_r"
+      },
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_shaded_relief",
+      "_ext": ".tif",
+      "display_name": null,
+      "sort_order": 2,
+      "visible": true,
+      "opacity": 1.0,
+      "paint": {},
+      "layout": {},
+      "layer_type": "raster_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_glaciated_areas",
+      "_ext": ".zip",
+      "display_name": null,
+      "sort_order": 3,
+      "visible": true,
+      "opacity": 0.85,
+      "paint": {
+        "fill-color": "#ffffff",
+        "fill-opacity": 0.7,
+        "_outline-color": "#ffffff",
+        "_outline-width": 0.3
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_lakes",
+      "_ext": ".zip",
+      "display_name": null,
+      "sort_order": 4,
+      "visible": true,
+      "opacity": 0.8,
+      "paint": {
+        "fill-color": "#2a6fb8",
+        "fill-opacity": 0.7,
+        "_outline-color": "#ffffff",
+        "_outline-width": 0.2
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    },
+    {
+      "_stem": "ne_10m_rivers_lake_centerlines",
+      "_ext": ".zip",
+      "display_name": null,
+      "sort_order": 5,
+      "visible": true,
+      "opacity": 0.8,
+      "paint": {
+        "line-color": "#6ab0e6",
+        "line-width": 0.4
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": null,
+      "show_in_legend": true
+    }
+  ]
+}
