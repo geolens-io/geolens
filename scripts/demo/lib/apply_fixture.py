@@ -6,14 +6,17 @@ Usage (from the orchestrator):
     map_id = await apply_fixture(client, base_url, headers, fixture_path, existing)
 
 The function:
-1. Reads the fixture JSON from disk.
-2. Calls resolve_fixture to swap _stem+_ext → live dataset UUIDs.
-3. POSTs /api/maps/ to create a new empty map.
-4. PUTs /api/maps/{map_id} with the fully resolved body.
-5. Returns the created map_id (str UUID).
+1. Accepts a pre-parsed fixture dict (no disk I/O inside this function) — the
+   orchestrator reads + parses each JSON once when building its theme index.
+2. Checks ``GET /api/maps/?limit=100`` for an existing map with the same name
+   and reuses it via PUT (idempotent re-runs avoid orphan duplicates).
+3. If no existing map matches, POSTs ``/api/maps/`` to create a new empty map.
+4. PUTs ``/api/maps/{map_id}`` with the fully resolved body.
+5. Returns the map_id (str UUID).
 
 On HTTP error, raises RuntimeError with the status code and first 500 chars
-of the response body for debugging.
+of the response body for debugging. PUT failures on freshly-created maps
+trigger a best-effort DELETE cleanup so the catalog doesn't accumulate orphans.
 
 Auth: Uses the ``X-Api-Key`` header (case-sensitive) from the ``headers`` arg.
 """
@@ -21,22 +24,48 @@ Auth: Uses the ``X-Api-Key`` header (case-sensitive) from the ``headers`` arg.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
-
+import logging
 import sys
-from pathlib import Path as _Path
+from pathlib import Path
+from typing import cast
 
 import httpx
 
 # Support both: imported as scripts.demo.lib.apply_fixture (from project root)
 # and imported as lib.apply_fixture (from scripts/demo/ via orchestrator sys.path insert).
 try:
-    from scripts.demo.lib.fixture_schema import resolve_fixture
+    from scripts.demo.lib.fixture_schema import FixtureDict, resolve_fixture
 except ModuleNotFoundError:
     # When called from the orchestrator context (sys.path includes scripts/demo/)
-    sys.path.insert(0, str(_Path(__file__).parent))
-    from fixture_schema import resolve_fixture
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fixture_schema import FixtureDict, resolve_fixture  # type: ignore[no-redef]
+
+logger = logging.getLogger("apply_fixture")
+
+
+async def _find_existing_map_id(
+    client: httpx.AsyncClient,
+    base_url: str,
+    headers: dict[str, str],
+    name: str,
+) -> str | None:
+    """Return the map ID matching ``name`` from /api/maps/, or None."""
+    try:
+        resp = await client.get(
+            f"{base_url}/api/maps/?limit=100",
+            headers=headers,
+        )
+    except Exception as exc:
+        logger.warning("GET /api/maps/ (idempotency check) failed: %s", exc)
+        return None
+    if resp.status_code >= 400:
+        return None
+    body = resp.json()
+    items = body.get("maps") or body.get("items") or body.get("results") or []
+    for item in items:
+        if item.get("name") == name:
+            return cast(str, item["id"])
+    return None
 
 
 async def apply_fixture(
@@ -45,33 +74,60 @@ async def apply_fixture(
     headers: dict[str, str],
     fixture_path: Path,
     existing: dict[str, str],
+    *,
+    fixture: FixtureDict | None = None,
 ) -> str:
-    """Create a map from a JSON fixture file and return the new map ID.
+    """Create or update a map from a JSON fixture and return the map ID.
 
     Args:
         client: Shared httpx.AsyncClient (caller owns lifecycle).
         base_url: GeoLens API base URL (e.g. ``"http://api:8000"``).
         headers: Request headers including ``X-Api-Key``.
-        fixture_path: Path to the fixture JSON file on disk.
+        fixture_path: Path to the fixture JSON file on disk (used for error
+            messages and as a fallback read if ``fixture`` is not provided).
         existing: ``{source_filename: dataset_id}`` from fetch_existing_datasets.
+        fixture: Optional pre-parsed fixture dict. If provided, the file at
+            ``fixture_path`` is NOT re-read — the orchestrator indexes fixtures
+            in a single pass and passes the parsed dict to avoid duplicate I/O.
 
     Returns:
-        The UUID of the newly created map (str).
+        The UUID of the created-or-updated map (str).
 
     Raises:
         RuntimeError: On HTTP errors from the API.
         KeyError: If any fixture layer references a stem not in ``existing``.
     """
-    fixture: dict[str, Any] = json.loads(Path(fixture_path).read_text())
+    if fixture is None:
+        fixture = cast(FixtureDict, json.loads(Path(fixture_path).read_text()))
 
     # Resolve _stem+_ext → live dataset UUIDs
     resolved = resolve_fixture(fixture, existing)
 
+    name = fixture.get("name") or fixture.get("_meta", {}).get("name", "Untitled")
+    description = (
+        fixture.get("description")
+        or fixture.get("_meta", {}).get("description")
+        or None
+    )
+
+    # Idempotency check — if a map with this name already exists, PUT to it
+    # instead of POSTing a duplicate. Prevents orphan accumulation on re-runs.
+    existing_map_id = await _find_existing_map_id(client, base_url, headers, name)
+    if existing_map_id:
+        put_resp = await client.put(
+            f"{base_url}/api/maps/{existing_map_id}",
+            headers={**headers, "Content-Type": "application/json"},
+            json=resolved,
+        )
+        if put_resp.status_code >= 400:
+            raise RuntimeError(
+                f"PUT /api/maps/{existing_map_id} (idempotent update) failed with "
+                f"{put_resp.status_code}: {put_resp.text[:500]}"
+            )
+        return existing_map_id
+
     # Step 3: POST /api/maps/ to create a new empty map
-    create_body = {
-        "name": fixture.get("name") or fixture.get("_meta", {}).get("name", "Untitled"),
-        "description": fixture.get("description") or fixture.get("_meta", {}).get("description") or None,
-    }
+    create_body = {"name": name, "description": description}
     create_resp = await client.post(
         f"{base_url}/api/maps/",
         headers={**headers, "Content-Type": "application/json"},
@@ -85,16 +141,43 @@ async def apply_fixture(
 
     map_id: str = create_resp.json()["id"]
 
-    # Step 4: PUT /api/maps/{map_id} with the full resolved body
-    put_resp = await client.put(
-        f"{base_url}/api/maps/{map_id}",
-        headers={**headers, "Content-Type": "application/json"},
-        json=resolved,
-    )
-    if put_resp.status_code >= 400:
-        raise RuntimeError(
-            f"PUT /api/maps/{map_id} failed with {put_resp.status_code}: "
-            f"{put_resp.text[:500]}"
+    # Step 4: PUT /api/maps/{map_id} with the full resolved body.
+    # If the PUT fails we must DELETE the orphan empty map so repeated runs
+    # with transient failures don't accumulate junk in the catalog.
+    try:
+        put_resp = await client.put(
+            f"{base_url}/api/maps/{map_id}",
+            headers={**headers, "Content-Type": "application/json"},
+            json=resolved,
         )
+        if put_resp.status_code >= 400:
+            raise RuntimeError(
+                f"PUT /api/maps/{map_id} failed with {put_resp.status_code}: "
+                f"{put_resp.text[:500]}"
+            )
+    except Exception:
+        # Best-effort cleanup of the orphaned empty map. The DELETE endpoint
+        # requires a confirm_title body matching the map's name. We surface
+        # cleanup failures via logger.warning so the operator knows the catalog
+        # may have a stale entry, without masking the original PUT error.
+        try:
+            delete_resp = await client.request(
+                "DELETE",
+                f"{base_url}/api/maps/{map_id}",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"confirm_title": name},
+            )
+            if delete_resp.status_code >= 400:
+                logger.warning(
+                    "Orphan DELETE /api/maps/%s returned %d: %s",
+                    map_id,
+                    delete_resp.status_code,
+                    delete_resp.text[:200],
+                )
+        except Exception as cleanup_exc:
+            logger.warning(
+                "Orphan cleanup failed for map %s: %s", map_id, cleanup_exc
+            )
+        raise
 
     return map_id

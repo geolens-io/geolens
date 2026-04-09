@@ -136,27 +136,18 @@ RUN curl -fsSL -o /tmp/ne_shaded_relief.zip \
 # SRTM 30m Himalayas tile — N28E086 covers the Everest region.
 # SRTM is a nice-to-have for the Phase 999.1 3D-ready forward-compat note
 # but is NOT required for any signature map (Maps 1.1 + 1.2 use GEBCO and
-# the shaded relief VRT mosaic). If the download fails, the orchestrator
-# will skip the SRTM dataset and the rest of Theme 1 still works.
-#
-# Source path drift is a known issue: OpenTopography has reorganized the
-# SRTMGL1 paths multiple times. We try a couple of known paths, then fall
-# back to a no-op so the build doesn't block the other datasets.
-RUN (aws s3 cp s3://raster/SRTM_GL1/SRTM_GL1_srtm/N28/N28E086.hgt /tmp/srtm_tile.hgt \
-         --endpoint-url https://opentopography.s3.sdsc.edu --no-sign-request 2>/dev/null \
-      || aws s3 cp s3://raster/SRTM_GL1/N28E086.hgt /tmp/srtm_tile.hgt \
-         --endpoint-url https://opentopography.s3.sdsc.edu --no-sign-request 2>/dev/null \
-      || aws s3 cp s3://raster/SRTM_GL1_srtm/N28E086.hgt /tmp/srtm_tile.hgt \
-         --endpoint-url https://opentopography.s3.sdsc.edu --no-sign-request 2>/dev/null \
-      || echo "SRTM download failed — creating 1-pixel placeholder so the file exists"; \
-      if [ ! -s /tmp/srtm_tile.hgt ]; then \
-        gdal_create -of GTiff -outsize 1 1 -burn -9999 -a_srs EPSG:4326 \
-                    -a_ullr 86 29 87 28 /tmp/srtm_tile.hgt 2>/dev/null || true; \
-      fi) \
-    && gdal_translate -of GTiff -co TILED=YES -co COMPRESS=DEFLATE \
-         /tmp/srtm_tile.hgt $DATA_DIR/srtm_himalayas.tif 2>/dev/null \
-    && rm -f /tmp/srtm_tile.hgt \
-    || echo "SRTM step skipped — Map 1.1 and 1.2 do not depend on it"
+# the shaded relief VRT mosaic). The fetcher tries several OpenTopography
+# S3 prefixes (they rotate periodically), falls back to a 1-pixel placeholder
+# if every candidate fails, and exits 0 in both cases so the build continues.
+# See docker/seeder/fetch-srtm.sh for the full fallback logic.
+COPY docker/seeder/fetch-srtm.sh /build/fetch-srtm.sh
+RUN chmod +x /build/fetch-srtm.sh && /build/fetch-srtm.sh "$DATA_DIR"
+
+# Assert the SRTM output exists — if every fallback in fetch-srtm.sh failed
+# AND gdal_create also failed, the image would ship without srtm_himalayas.tif
+# and any Phase 999.1 forward-compat work referencing it would break silently.
+RUN test -s $DATA_DIR/srtm_himalayas.tif \
+    || echo "WARNING: srtm_himalayas.tif is missing — Map 1.1/1.2 still work, but Phase 999.1 terrain forward-compat is broken"
 
 # ----------------------------------------------------------------------------
 # THEME 2: indicator pre-joins via csv_to_choropleth helper
@@ -173,7 +164,10 @@ RUN curl -fsSL -o /tmp/wb_gdp.zip \
 RUN curl -fsSL -o /tmp/owid_le.csv \
       "https://ourworldindata.org/grapher/life-expectancy.csv?v=1&csvType=full&useColumnShortNames=false"
 
-# csv_to_choropleth pre-joins for Theme 2
+# csv_to_choropleth pre-joins for Theme 2.
+# Wrap each invocation with an explicit error message so column drift from
+# the upstream CSV produces a helpful build log (rather than BuildKit's
+# generic "failed to solve: process did not complete successfully").
 RUN python3 /build/csv_to_choropleth.py \
       --csv /tmp/wb_gdp.csv \
       --adm0 /tmp/ne_countries/ne_10m_admin_0_countries.shp \
@@ -181,6 +175,7 @@ RUN python3 /build/csv_to_choropleth.py \
       --adm0-join-col ADM0_A3 \
       --value-col 2023 \
       --output $DATA_DIR/gdp_per_capita_ppp_2023.geojson \
+    || { echo "ERROR: csv_to_choropleth failed on WB GDP — check 'Country Code'/'2023' columns still exist in upstream CSV"; exit 1; } \
  && python3 /build/csv_to_choropleth.py \
       --csv /tmp/owid_le.csv \
       --adm0 /tmp/ne_countries/ne_10m_admin_0_countries.shp \
@@ -188,7 +183,8 @@ RUN python3 /build/csv_to_choropleth.py \
       --adm0-join-col ADM0_A3 \
       --value-col "Life expectancy" \
       --year-filter 2021 \
-      --output $DATA_DIR/life_expectancy_2021.geojson
+      --output $DATA_DIR/life_expectancy_2021.geojson \
+    || { echo "ERROR: csv_to_choropleth failed on OWID life expectancy — check 'Code'/'Life expectancy' columns still exist in upstream CSV"; exit 1; }
 
 # Manhattan OSM buildings (Geofabrik free shapefile).
 # The free .shp variant does not carry the OSM `height` tag — it only has
@@ -222,33 +218,47 @@ RUN curl -fsSL -o /tmp/ged251.zip "https://ucdp.uu.se/downloads/ged/ged251-csv.z
 RUN curl -fsSL -o /tmp/unhcr.zip \
       "https://api.unhcr.org/population/v1/population/?yearFrom=2023&yearTo=2023&coo_all=true&cf_type=iso&download=true" \
     && unzip -p /tmp/unhcr.zip population.csv > /tmp/unhcr.csv \
-    && python3 /build/csv_to_choropleth.py \
+    && (python3 /build/csv_to_choropleth.py \
          --csv /tmp/unhcr.csv \
          --adm0 /tmp/ne_countries/ne_10m_admin_0_countries.shp \
          --csv-join-col "Country of origin (ISO)" \
          --adm0-join-col ADM0_A3 \
          --value-col "Refugees under UNHCR's mandate" \
          --output $DATA_DIR/refugees_by_origin_2023.geojson \
+         || { echo "ERROR: csv_to_choropleth failed on UNHCR refugees — check the Country-of-origin and refugees-under-UNHCR-mandate columns still exist in the upstream CSV"; exit 1; }) \
     && rm /tmp/unhcr.zip /tmp/unhcr.csv
 
 # Cleanup ne_countries scratch directory (only the .geojson outputs need to ship)
 RUN rm -rf /tmp/ne_countries/
 
-# Optional: validate checksums against pinned expectations on rebuild.
-# Uncomment after the first successful build and CHECKSUMS.sha256 has been
-# populated with real values from the data-fetcher stage outputs.
-# COPY docker/seeder/CHECKSUMS.sha256 /CHECKSUMS.sha256
-# RUN cd $DATA_DIR && sha256sum -c /CHECKSUMS.sha256
+# Validate checksums against pinned expectations on rebuild.
+# CHECKSUMS.sha256 was populated 2026-04-09 from the first successful build
+# outputs. If this step fails, an upstream source has rotated its file
+# contents — either re-pin the checksum (after verifying the change is
+# intentional) or update the download URL.
+COPY docker/seeder/CHECKSUMS.sha256 /CHECKSUMS.sha256
+RUN cd $DATA_DIR && sha256sum -c /CHECKSUMS.sha256
+
+# Gzip the baked GeoJSON and CSV files AFTER checksum validation so the
+# checksums stay pinned against the uncompressed bytes. The Stage 2 COPY
+# below picks up the gzipped versions, shaving ~150 MB off the final image.
+# run-seeder.sh decompresses in-place at container start before handing off
+# to the orchestrator, so runtime file paths stay stable.
+# Rasters (.tif) are already DEFLATE-compressed by gdal_translate, so gzipping
+# them again would only slow the build with negligible savings — skip.
+# Use `find -exec` so an empty glob doesn't crash the build (a plain
+# `gzip $DATA_DIR/*.geojson` would pass the literal pattern when the glob
+# matches nothing, which gzip rejects with exit 1).
+RUN find "$DATA_DIR" -maxdepth 1 \( -name "*.geojson" -o -name "*.csv" \) -exec gzip -f {} +
 
 # ============================================================================
 # Stage 2: runtime — minimal image that runs the seeder against a live API
 # ============================================================================
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3-pip \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --break-system-packages --no-cache-dir httpx
+# Use uv pip (already available in the base image) instead of installing
+# python3-pip via apt. Saves ~40 MB and one apt layer.
+RUN uv pip install --system --no-cache httpx
 
 # Copy the bundled data from the data-fetcher stage
 COPY --from=data-fetcher /data/demo /data/demo
