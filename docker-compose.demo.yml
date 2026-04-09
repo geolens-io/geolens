@@ -21,7 +21,11 @@ services:
     command: >
       sh -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
-      UPLOAD_MAX_SIZE_MB: "50"
+      # 300 MB so the seeder can upload the downsampled NE shaded relief
+      # (~100 MB) and the UCDP GED CSV subset (~130 MB). Interactive uploads
+      # from the public demo UI are still gated by their own per-request
+      # limit; this setting only affects the seeder container pathway.
+      UPLOAD_MAX_SIZE_MB: "300"
 
   worker:
     # Clear dev bind mounts for worker too

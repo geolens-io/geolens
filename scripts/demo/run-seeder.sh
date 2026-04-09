@@ -61,7 +61,7 @@ print(json.loads(resp.read())["access_token"])
 echo "Creating seed API key..."
 API_KEY=$(SEED_TOKEN="${TOKEN}" SEED_URL="${BASE_URL}" \
     python3 -c '
-import urllib.request, json, os
+import urllib.request, urllib.error, json, os
 
 url = os.environ["SEED_URL"]
 headers = {
@@ -69,23 +69,29 @@ headers = {
     "Content-Type": "application/json",
 }
 
-# List existing keys and delete demo-seed if present
-req = urllib.request.Request(url + "/api/api-keys/", headers=headers)
+# List existing keys and delete demo-seed if present.
+# GET /auth/api-keys/ returns {"items": [...]}; POST returns the bare key object.
+req = urllib.request.Request(url + "/api/auth/api-keys/", headers=headers)
 resp = urllib.request.urlopen(req)
-keys = json.loads(resp.read())
+body = json.loads(resp.read())
+keys = body.get("items", body) if isinstance(body, dict) else body
 for k in keys:
     if k.get("name") == "demo-seed":
         dreq = urllib.request.Request(
-            url + "/api/api-keys/" + str(k["id"]) + "/",
+            url + "/api/auth/api-keys/" + str(k["id"]),
             headers=headers,
             method="DELETE",
         )
-        urllib.request.urlopen(dreq)
+        try:
+            urllib.request.urlopen(dreq)
+        except urllib.error.HTTPError as e:
+            if e.code not in (204, 404):
+                raise
         break
 
 # Create fresh key
 data = json.dumps({"name": "demo-seed"}).encode()
-req = urllib.request.Request(url + "/api/api-keys/", data=data, headers=headers, method="POST")
+req = urllib.request.Request(url + "/api/auth/api-keys/", data=data, headers=headers, method="POST")
 resp = urllib.request.urlopen(req)
 print(json.loads(resp.read())["key"])
 ') || { echo "ERROR: Failed to obtain API key" >&2; exit 1; }
