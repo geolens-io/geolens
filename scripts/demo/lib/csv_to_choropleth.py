@@ -81,6 +81,10 @@ def shapefile_to_geojson(adm0_path: Path | str) -> dict:
         else:
             src = str(p)
 
+        # Delete the empty placeholder so ogr2ogr can create the file fresh
+        # (GeoJSON driver cannot overwrite an existing file, even an empty one)
+        tmp_path.unlink(missing_ok=True)
+
         result = subprocess.run(
             ["ogr2ogr", "-f", "GeoJSON", str(tmp_path), src],
             capture_output=True,
