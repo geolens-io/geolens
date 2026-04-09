@@ -111,10 +111,15 @@ def cmd_rotate_key(base_url: str) -> int:
         "Content-Type": "application/json",
     }
 
-    # Delete any existing demo-seed key so we start fresh. Plaintext keys are
-    # only returned on create, so we always rotate rather than trying to reuse.
+    # Delete any existing ACTIVE demo-seed key so we start fresh. Plaintext
+    # keys are only returned on create, so we always rotate rather than
+    # trying to reuse. The `is_active` filter matters on DBs where prior
+    # runs left soft-deleted rows behind (the API's DELETE endpoint sets
+    # is_active=False rather than hard-deleting) — without it, find-first
+    # could hit an already-inactive row and no-op, leaving a real active
+    # key in place.
     for key in _list_keys(base_url, token):
-        if key.get("name") == DEMO_KEY_NAME:
+        if key.get("name") == DEMO_KEY_NAME and key.get("is_active"):
             _delete_key_id(base_url, token, str(key["id"]))
             break
 
@@ -137,14 +142,21 @@ def cmd_rotate_key(base_url: str) -> int:
 
 
 def cmd_delete_key(base_url: str, name: str) -> int:
-    """Best-effort cleanup used by run-seeder.sh SIGTERM/EXIT trap."""
+    """Best-effort cleanup used by run-seeder.sh SIGTERM/EXIT trap.
+
+    Filters by ``is_active`` so the trap targets the row the current run
+    created (and is actively using), not a stale soft-deleted row from
+    an earlier run. Without the filter, the find-first loop would hit an
+    inactive row on DBs with historical leakage and no-op, leaving the
+    current run's key active on disk.
+    """
     token = os.environ.get("SEED_TOKEN")
     if not token:
         # No token → nothing to clean up. Exit silently.
         return 0
     try:
         for key in _list_keys(base_url, token):
-            if key.get("name") == name:
+            if key.get("name") == name and key.get("is_active"):
                 _delete_key_id(base_url, token, str(key["id"]))
                 break
     except Exception as exc:
