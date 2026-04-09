@@ -26,9 +26,11 @@
       "visible": true,
       "opacity": 1.0,
       "paint": {
-        "line-color": "#ffffff",
-        "line-width": 0.4,
-        "line-opacity": 0.3
+        "fill-color": "rgba(0,0,0,0)",
+        "fill-opacity": 0,
+        "_outline-color": "#ffffff",
+        "_outline-width": 0.4,
+        "_stroke-disabled": false
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -47,7 +49,7 @@
       "paint": {
         "circle-color": "#ff3333",
         "circle-radius": 3,
-        "circle-opacity": 0.4,
+        "circle-opacity": 0.5,
         "circle-stroke-color": "#ffaaaa",
         "circle-stroke-width": 0.3
       },
@@ -59,7 +61,7 @@
           "get",
           "year"
         ],
-        2024
+        "2024"
       ],
       "label_config": null,
       "style_config": null,
