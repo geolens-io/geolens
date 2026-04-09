@@ -27,9 +27,9 @@
       "opacity": 1.0,
       "paint": {
         "fill-color": "#f5f5f0",
-        "line-color": "#999999",
-        "line-width": 0.4,
-        "fill-opacity": 0.6
+        "fill-opacity": 0.6,
+        "_outline-color": "#999999",
+        "_outline-width": 0.4
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -47,9 +47,9 @@
       "opacity": 1.0,
       "paint": {
         "fill-color": "#2e7d32",
-        "line-color": "#2e7d32",
-        "line-width": 1.5,
-        "fill-opacity": 0.3
+        "fill-opacity": 0.3,
+        "_outline-color": "#2e7d32",
+        "_outline-width": 1.5
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -67,9 +67,9 @@
       "opacity": 1.0,
       "paint": {
         "fill-color": "#ff6f00",
-        "line-color": "#ff6f00",
-        "line-width": 1.5,
-        "fill-opacity": 0.3
+        "fill-opacity": 0.3,
+        "_outline-color": "#ff6f00",
+        "_outline-width": 1.5
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -87,9 +87,9 @@
       "opacity": 1.0,
       "paint": {
         "fill-color": "#00838f",
-        "line-color": "#00838f",
-        "line-width": 1.5,
-        "fill-opacity": 0.3
+        "fill-opacity": 0.3,
+        "_outline-color": "#00838f",
+        "_outline-width": 1.5
       },
       "layout": {},
       "layer_type": "vector_geolens",
