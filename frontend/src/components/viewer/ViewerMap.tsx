@@ -130,6 +130,10 @@ export function ViewerMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
+  // container. The Playwright demo-smoke spec polls for this attribute to
+  // avoid an arbitrary `waitForTimeout` delay after networkidle.
+  const [tilesIdle, setTilesIdle] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
@@ -233,6 +237,14 @@ export function ViewerMap({
           id: 'viewer-map-error',
         });
       });
+
+      // `idle` fires when no tiles are loading, no transitions are in
+      // progress, and no animations are running. We flip the container's
+      // data-tiles-loaded attribute on first idle (and keep it true) so
+      // Playwright can replace its 2 s arbitrary wait with a deterministic
+      // signal. The flag never toggles back — once the initial view has
+      // settled, it stays "ready" for the duration of the viewer session.
+      map.once('idle', () => setTilesIdle(true));
 
       setMapReady(true);
       onMapReady?.(map);
@@ -440,7 +452,10 @@ export function ViewerMap({
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
 
   return (
-    <div className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}>
+    <div
+      className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      data-tiles-loaded={tilesIdle ? 'true' : 'false'}
+    >
       <MapGL
         initialViewState={defaultView}
         mapStyle={styleValue as string}
