@@ -28,6 +28,8 @@ Exit codes:
     1 — zero matches (treat as join-column mismatch or wrong CSV)
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import json
@@ -36,6 +38,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("csv_to_choropleth")
 
@@ -45,7 +48,7 @@ logger = logging.getLogger("csv_to_choropleth")
 # ---------------------------------------------------------------------------
 
 
-def shapefile_to_geojson(adm0_path: Path | str) -> dict:
+def shapefile_to_geojson(adm0_path: Path | str) -> dict[str, Any]:
     """Load an ADM0 boundary file as a GeoJSON dict.
 
     If the path ends with `.geojson` or `.json`, read it directly.
@@ -206,8 +209,41 @@ def load_indicator_csv(
 # ---------------------------------------------------------------------------
 
 
+def _match_features(
+    adm0_geojson: dict[str, Any],
+    values: dict[str, float],
+    adm0_join_col: str,
+    value_col: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Iterate ADM0 features and split into (matched, unmatched_keys).
+
+    Matched features carry the STABLE CONTRACT fields ``_value`` and
+    ``_value_col`` in their properties. Unmatched feature keys are returned
+    as a flat list so the caller can log a sample.
+    """
+    matched: list[dict[str, Any]] = []
+    unmatched: list[str] = []
+    for feature in adm0_geojson.get("features", []):
+        props = feature.get("properties") or {}
+        key = props.get(adm0_join_col, "")
+        if key in values:
+            new_props = dict(props)
+            new_props["_value"] = values[key]
+            new_props["_value_col"] = value_col
+            matched.append(
+                {
+                    "type": "Feature",
+                    "geometry": feature.get("geometry"),
+                    "properties": new_props,
+                }
+            )
+        else:
+            unmatched.append(key)
+    return matched, unmatched
+
+
 def join_and_write(
-    adm0_geojson: dict,
+    adm0_geojson: dict[str, Any],
     values: dict[str, float],
     adm0_join_col: str,
     value_col: str,
@@ -229,25 +265,9 @@ def join_and_write(
     Returns:
         0 on success (at least one feature matched), 1 if zero features matched.
     """
-    matched_features: list[dict] = []
-    unmatched_keys: list[str] = []
-
-    for feature in adm0_geojson.get("features", []):
-        props = feature.get("properties") or {}
-        key = props.get(adm0_join_col, "")
-        if key in values:
-            new_props = dict(props)
-            new_props["_value"] = values[key]
-            new_props["_value_col"] = value_col
-            matched_features.append(
-                {
-                    "type": "Feature",
-                    "geometry": feature.get("geometry"),
-                    "properties": new_props,
-                }
-            )
-        else:
-            unmatched_keys.append(key)
+    matched_features, unmatched_keys = _match_features(
+        adm0_geojson, values, adm0_join_col, value_col
+    )
 
     if unmatched_keys:
         sample = unmatched_keys[:20]
@@ -259,9 +279,8 @@ def join_and_write(
 
     if not matched_features:
         logger.error(
-            "Zero matches produced. Check that --csv-join-col (%s) and "
-            "--adm0-join-col (%s) refer to the same code space.",
-            "?",
+            "Zero matches produced. Check that --adm0-join-col (%s) refers "
+            "to the same code space as the CSV join column.",
             adm0_join_col,
         )
         return 1
