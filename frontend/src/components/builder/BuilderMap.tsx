@@ -56,6 +56,12 @@ export function BuilderMap({
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
+  // container. Mirrors the ViewerMap hook from 6a5f0181 so the Playwright
+  // demo-smoke spec can poll a deterministic signal regardless of whether
+  // /maps/:id resolved to BuilderMap (authenticated editor) or ViewerMap
+  // (anonymous viewer) via MapViewerGate.
+  const [tilesIdle, setTilesIdle] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
@@ -108,6 +114,13 @@ export function BuilderMap({
       const map = e.target;
       mapRef.current = map;
       setMapReady(true);
+
+      // `idle` fires when no tiles are loading, no transitions are in
+      // progress, and no animations are running. Flip the outer container's
+      // data-tiles-loaded attribute on first idle so the demo-smoke spec can
+      // replace its 2 s arbitrary wait with a deterministic signal. Matches
+      // the ViewerMap hook from 6a5f0181.
+      map.once('idle', () => setTilesIdle(true));
 
       // Absolutify URLs and attach auth header for raster tile requests
       map.setTransformRequest((url: string) => {
@@ -356,7 +369,10 @@ export function BuilderMap({
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
 
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      data-tiles-loaded={tilesIdle ? 'true' : 'false'}
+    >
       <MapGL
         initialViewState={defaultView}
         mapStyle={styleValue as string}
