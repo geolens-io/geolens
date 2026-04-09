@@ -1,0 +1,32 @@
+# GeoLens themed-demo seeder data checksums.
+#
+# Format: <sha256>  <basename>  (relative to /data/demo inside the image)
+#
+# These checksums pin the exact bytes of every bundled dataset so a rebuild
+# detects upstream drift (Natural Earth filename rotation, GEBCO re-uploads,
+# UCDP version bumps, etc.). They are populated from the first successful
+# build via:
+#
+#   docker run --rm $(docker image ls --filter=reference=*seeder* -q | head -1) \
+#     sh -c "cd /data/demo && sha256sum *.tif *.csv *.geojson"
+#
+# Once populated, uncomment the COPY+sha256sum lines at the bottom of
+# docker/seeder/Dockerfile to enforce them on rebuild.
+#
+# Until then these are placeholders — `sha256sum -c` against them will fail,
+# which is intentional: the verification block is commented out by default
+# so first-time builds don't get blocked.
+
+# ----- Theme 1 rasters -----
+0000000000000000000000000000000000000000000000000000000000000000  gebco_2024_30arcmin.tif
+0000000000000000000000000000000000000000000000000000000000000000  ne_10m_shaded_relief.tif
+0000000000000000000000000000000000000000000000000000000000000000  srtm_himalayas.tif
+
+# ----- Theme 2 indicator pre-joins + Manhattan buildings -----
+0000000000000000000000000000000000000000000000000000000000000000  gdp_per_capita_ppp_2023.geojson
+0000000000000000000000000000000000000000000000000000000000000000  life_expectancy_2021.geojson
+0000000000000000000000000000000000000000000000000000000000000000  manhattan_buildings.geojson
+
+# ----- Theme 3 conflict + refugees -----
+0000000000000000000000000000000000000000000000000000000000000000  ucdp_ged_v25_1.csv
+0000000000000000000000000000000000000000000000000000000000000000  refugees_by_origin_2023.geojson

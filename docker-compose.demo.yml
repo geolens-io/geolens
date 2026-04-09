@@ -39,15 +39,17 @@ services:
         condition: service_healthy
 
   seeder:
+    # Multi-stage seeder image (Plan 218-05) — bakes every Theme 1/2/3
+    # dataset into the image at build time so runtime makes zero outbound
+    # network calls. ENTRYPOINT is set in the Dockerfile (run-seeder.sh).
     build:
-      context: ./backend
-    entrypoint: ["/scripts/seed-demo.sh"]
+      context: .
+      dockerfile: docker/seeder/Dockerfile
     environment:
       GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
       GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
       GEOLENS_BASE_URL: "http://api:8000"
-    volumes:
-      - ./scripts:/scripts:ro
+    # No volume mount — scripts and data are baked into the seeder image.
     depends_on:
       api:
         condition: service_healthy
