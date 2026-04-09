@@ -27,9 +27,9 @@
       "opacity": 1.0,
       "paint": {
         "fill-color": "#f5f5f0",
-        "line-color": "#999999",
-        "line-width": 0.3,
-        "fill-opacity": 0.5
+        "fill-opacity": 0.5,
+        "_outline-color": "#999999",
+        "_outline-width": 0.3
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -83,13 +83,14 @@
       "opacity": 1.0,
       "paint": {
         "line-color": "#ff5722",
-        "line-width": 1.5,
+        "line-width": 1.5
+      },
+      "layout": {
         "line-dasharray": [
           3,
           2
         ]
       },
-      "layout": {},
       "layer_type": "vector_geolens",
       "filter": null,
       "label_config": null,
