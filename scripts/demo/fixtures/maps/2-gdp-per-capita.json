@@ -3,8 +3,7 @@
     "name": "GDP per Capita PPP 2023",
     "description": "Where wealth is concentrated, by country. Pre-joined from World Bank indicator NY.GDP.PCAP.PP.CD.",
     "theme": "How the World Lives (2024)",
-    "snapshot_date": "2024-12-15",
-    "exported_at": "2026-04-09T00:09:33.396110+00:00"
+    "snapshot_date": "2024-12-15"
   },
   "name": "GDP per Capita PPP 2023",
   "description": "Where wealth is concentrated, by country. Pre-joined from World Bank indicator NY.GDP.PCAP.PP.CD.",
@@ -49,7 +48,13 @@
       "layer_type": "vector_geolens",
       "filter": null,
       "label_config": null,
-      "style_config": {"type": "classified", "column_name": "_value", "colormap": "viridis", "num_classes": 6, "classification_method": "quantile"},
+      "style_config": {
+        "type": "classified",
+        "column_name": "_value",
+        "colormap": "viridis",
+        "num_classes": 6,
+        "classification_method": "quantile"
+      },
       "show_in_legend": true
     }
   ]

@@ -3,8 +3,7 @@
     "name": "Global Bathymetry",
     "description": "GEBCO 2024 bathymetry downsampled to 30 arc-minute resolution, colored with viridis_r to reveal ridges, trenches, continental shelves, and abyssal plains.",
     "theme": "Planet Earth (2025 Snapshot)",
-    "snapshot_date": "2025-01-01",
-    "exported_at": "2026-04-09T13:07:10.905823+00:00"
+    "snapshot_date": "2025-01-01"
   },
   "name": "Global Bathymetry",
   "description": "GEBCO 2024 bathymetry downsampled to 30 arc-minute resolution, colored with viridis_r to reveal ridges, trenches, continental shelves, and abyssal plains.",

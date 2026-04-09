@@ -1,6 +1,6 @@
 """Theme 3 — Borders, Boundaries & Contested Space dataset registry. Owned by Plan 218-04."""
 
-from typing import Any
+from themes import ThemeDataset
 
 THEME_NAME = "Lines on the Map (2024 Snapshot)"
 THEME_DESCRIPTION = "Every line on a world map was drawn by someone. Some are settled, some are not."
@@ -13,23 +13,17 @@ THEME_IDX = 2
 # with no AI restriction. The substitution is locked — see 260408-lnq-PROPOSAL.md
 # "Geopolitics Safety Notes" for the rationale.
 
-DATASETS: list[dict[str, Any]] = [
+DATASETS: list[ThemeDataset] = [
     # ---- NE administrative layers ----
+    # Only layers actually referenced by a shipped fixture are registered here.
+    # Removed 2026-04-09: ne_10m_admin_1_states_provinces, ne_10m_time_zones,
+    # ne_10m_geographic_lines, ne_10m_playas — ingested but never used.
     {
         "stem": "ne_10m_admin_0_countries",
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m, version 5.1.2. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_1_states_provinces",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 1 states and provinces, version 5.1.2. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 countries, version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -38,34 +32,7 @@ DATASETS: list[dict[str, Any]] = [
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 boundary lines (land), version 5.1.2. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_time_zones",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m time zones, version 5.1.2. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_geographic_lines",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "physical",
-        "summary": "Source: Natural Earth 1:10m geographic lines (equator, tropics, polar circles), version 5.1.2. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_playas",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "physical",
-        "summary": "Source: Natural Earth 1:10m playas (dry lakebeds and salt flats), version 5.1.2. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 boundary lines (land), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -76,7 +43,7 @@ DATASETS: list[dict[str, Any]] = [
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 disputed areas, version 5.1.2. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 disputed areas, version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -89,7 +56,7 @@ DATASETS: list[dict[str, Any]] = [
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 disputed boundary lines, version 5.1.2. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 disputed boundary lines, version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -98,37 +65,22 @@ DATASETS: list[dict[str, Any]] = [
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m antarctic territorial claims (7 sectors), version 5.1.2. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_0_antarctic_claim_limit_lines",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m antarctic claim limit lines, version 5.1.2. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m antarctic territorial claims (7 sectors), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. Disputed boundaries policy: https://www.naturalearthdata.com/about/disputed-boundaries-policy.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
 
-    # ---- The 9 NE country-specific shapefiles — Kashmir conversation starter dataset ----
-    # Each shapefile is rendered as published by Natural Earth without editorial framing from GeoLens.
-    {
-        "stem": "ne_10m_admin_0_countries_arg",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Argentine view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
+    # ---- Country-specific admin_0 shapefiles (Kashmir toggle Map 3.2) ----
+    # Each shapefile is rendered as published by Natural Earth without editorial
+    # framing from GeoLens. Only the chn/ind/pak variants referenced by Map 3.2
+    # are registered here; Natural Earth publishes ~9 regional variants total —
+    # add back on demand if a future fixture needs arg/isr/rus/tur/ukr/usa views.
     {
         "stem": "ne_10m_admin_0_countries_chn",
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Chinese view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 countries (Chinese view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -137,16 +89,7 @@ DATASETS: list[dict[str, Any]] = [
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Indian view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_0_countries_isr",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Israeli view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 countries (Indian view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -155,43 +98,7 @@ DATASETS: list[dict[str, Any]] = [
         "type": "vector",
         "source": "ne_cdn",
         "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Pakistani view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_0_countries_rus",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Russian view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_0_countries_tur",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Turkish view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_0_countries_ukr",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (Ukrainian view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
-        "snapshot_date": "2025-01-01",
-        "license": "Public Domain (Natural Earth)",
-    },
-    {
-        "stem": "ne_10m_admin_0_countries_usa",
-        "type": "vector",
-        "source": "ne_cdn",
-        "ne_theme": "cultural",
-        "summary": "Source: Natural Earth 1:10m admin 0 countries (US view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens. License: Public Domain. snapshot_date=2025-01-01.",
+        "summary": "Source: Natural Earth 1:10m admin 0 countries (Pakistani view), version 5.1.2. Contents shown per Natural Earth's editorial stance, not GeoLens.",
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (Natural Earth)",
     },
@@ -207,7 +114,6 @@ DATASETS: list[dict[str, Any]] = [
             "Source: Uppsala Conflict Data Program (UCDP) Georeferenced Event Dataset v25.1, released 2025. "
             "Codebook and editorial policy: https://ucdp.uu.se/downloads. "
             "Contents shown per UCDP's editorial stance, not GeoLens. "
-            "License: CC-BY 4.0. snapshot_date=2025-01-01. "
             "Subset: 2015-2024 events with confirmed lat/lon coordinates."
         ),
         "snapshot_date": "2025-01-01",
@@ -224,10 +130,8 @@ DATASETS: list[dict[str, Any]] = [
             "Source: UNHCR Refugee Population Statistics, end-year 2023, released 2024. "
             "UNHCR data terms: https://www.unhcr.org/refugee-statistics. "
             "Contents shown per UNHCR's reporting framework, not GeoLens. "
-            "License: CC-BY 4.0. "
             "Joined to Natural Earth ADM0 polygons by country of origin (iso_o) via csv_to_choropleth helper. "
-            "Stable value column: properties._value (refugees under UNHCR mandate). "
-            "snapshot_date=2024-06-15."
+            "Stable value column: properties._value (refugees under UNHCR mandate)."
         ),
         "snapshot_date": "2024-06-15",
         "license": "CC-BY 4.0 (UNHCR)",

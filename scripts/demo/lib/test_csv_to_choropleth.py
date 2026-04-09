@@ -4,11 +4,14 @@ Tests use inline fixtures — no external test data files required.
 Run with: pytest scripts/demo/lib/test_csv_to_choropleth.py -v
 """
 
+from __future__ import annotations
+
 import csv
 import json
+import logging
 import sys
-import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -26,7 +29,9 @@ from scripts.demo.lib.csv_to_choropleth import (
 # Inline fixture helpers
 # ---------------------------------------------------------------------------
 
-def _make_csv(rows: list[dict], tmp_path: Path, filename: str = "test.csv") -> Path:
+def _make_csv(
+    rows: list[dict[str, str]], tmp_path: Path, filename: str = "test.csv"
+) -> Path:
     """Write a list of dicts to a CSV file and return the path."""
     p = tmp_path / filename
     if rows:
@@ -37,7 +42,9 @@ def _make_csv(rows: list[dict], tmp_path: Path, filename: str = "test.csv") -> P
     return p
 
 
-def _make_geojson(features: list[dict], tmp_path: Path, filename: str = "adm0.geojson") -> Path:
+def _make_geojson(
+    features: list[dict[str, Any]], tmp_path: Path, filename: str = "adm0.geojson"
+) -> Path:
     """Write a minimal GeoJSON FeatureCollection to a file and return the path."""
     p = tmp_path / filename
     p.write_text(
@@ -51,7 +58,7 @@ def _make_geojson(features: list[dict], tmp_path: Path, filename: str = "adm0.ge
     return p
 
 
-def _point_feature(iso3: str) -> dict:
+def _point_feature(iso3: str) -> dict[str, Any]:
     """Return a minimal GeoJSON point feature with the given ISO3 code."""
     return {
         "type": "Feature",
@@ -112,7 +119,6 @@ def test_duplicate_iso3_last_value_wins(tmp_path, caplog):
     ]
     csv_path = _make_csv(csv_rows, tmp_path)
 
-    import logging
     with caplog.at_level(logging.WARNING):
         values = load_indicator_csv(csv_path, join_col="iso3", value_col="value")
 
