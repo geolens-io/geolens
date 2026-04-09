@@ -68,7 +68,10 @@ test.describe('themed-demo smoke', () => {
     // Discover all demo maps by name. We use the unauthenticated public
     // listing first since the demo maps are public.
     const resp = await request.get('/api/maps/?limit=100');
-    expect(resp.ok()).toBeTruthy();
+    expect(
+      resp.ok(),
+      `/api/maps/ returned HTTP ${resp.status()} — API is not reachable or the list endpoint is broken`,
+    ).toBeTruthy();
     const body = await resp.json();
     const items: Array<{ id: string; name: string }> =
       body.maps || body.items || body.results || [];
@@ -76,6 +79,12 @@ test.describe('themed-demo smoke', () => {
     for (const item of items) {
       mapIdByName[item.name] = item.id;
     }
+
+    expect(
+      Object.keys(mapIdByName).length,
+      `No demo maps parsed from /api/maps/ (HTTP ${resp.status()}, ${items.length} items in body). ` +
+        'Either the seeder has not run OR the response shape has changed (expected items[] with {id,name}).',
+    ).toBeGreaterThan(0);
   });
 
   for (const name of DEMO_MAP_NAMES) {
@@ -85,6 +94,9 @@ test.describe('themed-demo smoke', () => {
         id,
         `Map "${name}" not found in /api/maps/ — seeder may have failed`,
       ).toBeTruthy();
+      // Narrow id for TS: after the expect above, TS still infers string|undefined.
+      // Assert explicitly so subsequent uses of `id` are typed string.
+      if (!id) throw new Error(`unreachable: id for ${name} is undefined`);
 
       const consoleErrors: string[] = [];
       const failedRequests: Array<{ url: string; status: number }> = [];
@@ -112,16 +124,27 @@ test.describe('themed-demo smoke', () => {
         timeout: 30_000,
       });
 
-      // Wait for the page to settle. We can't reliably reach into the
-      // maplibre Map instance for .loaded() without a frontend hook, so
-      // we use networkidle + a short settle delay (per 218-RESEARCH.md
-      // option B fallback).
+      // ViewerMap.tsx flips `data-tiles-loaded="true"` on the outer div when
+      // the first `idle` event fires (no tiles loading, no transitions, no
+      // animations). This replaces the previous arbitrary 2 s wait-after-
+      // networkidle fallback — deterministic signal, saves ~16 s per run.
       await page
-        .waitForLoadState('networkidle', { timeout: 30_000 })
-        .catch(() => {
-          // Some basemaps keep streaming tiles indefinitely; that's ok.
-        });
-      await page.waitForTimeout(2_000);
+        .locator('[data-tiles-loaded]')
+        .first()
+        .waitFor({ state: 'attached', timeout: 30_000 });
+      await expect
+        .poll(
+          async () =>
+            page
+              .locator('[data-tiles-loaded]')
+              .first()
+              .getAttribute('data-tiles-loaded'),
+          {
+            message: `Map ${name} never reached idle state within 30 s`,
+            timeout: 30_000,
+          },
+        )
+        .toBe('true');
 
       expect(
         consoleErrors,
