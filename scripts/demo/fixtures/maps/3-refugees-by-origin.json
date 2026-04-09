@@ -45,7 +45,29 @@
       "opacity": 1.0,
       "paint": {
         "fill-opacity": 0.85,
-        "fill-outline-color": "#ffffff"
+        "fill-outline-color": "#ffffff",
+        "fill-color": [
+          "step",
+          [
+            "coalesce",
+            [
+              "get",
+              "_value"
+            ],
+            0
+          ],
+          "#fee5d9",
+          10000,
+          "#fcbba1",
+          100000,
+          "#fc9272",
+          500000,
+          "#fb6a4a",
+          1000000,
+          "#de2d26",
+          3000000,
+          "#a50f15"
+        ]
       },
       "layout": {},
       "layer_type": "vector_geolens",
