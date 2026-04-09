@@ -242,6 +242,20 @@ Plans:
   3. Lighthouse accessibility score is 95 or above on desktop and mobile for every page
 **Plans**: TBD
 
+### Phase 218: Demo Themed Collections
+**Goal**: Replace the current foundation-only Natural Earth demo with three themed collections (Planet Earth — Physical Systems; Global Development & People; Borders, Boundaries & Contested Space) and nine signature maps, seeded deterministically at `docker compose up`, so a prospect landing on the self-hosted demo sees a decisive value story in under 60 seconds instead of a flat reference catalog
+**Depends on**: none (independent of 215/216/217 marketing site phases — can run in parallel)
+**Requirements**: TBD (draft from 260408-lnq-PROPOSAL.md)
+**Plans**: TBD
+
+**Key decisions locked from proposal (260408-lnq) and A7 spike (260408-mgg):**
+- Three themes, one collection each — no single monolithic story, no smorgasbord
+- Geopolitics embraced carefully: Natural Earth disputed layers + UCDP GED (ACLED rejected — 3 EULA conflicts), UNHCR, Marine Regions. Neutral sourced framing.
+- Static snapshots only — no API keys, no outbound internet at runtime
+- Automation posture: automate data ingest + collection assignment; hand-curate the 9 signature maps in the UI and export as JSON fixtures
+- A7 resolved (UNSUPPORTED): `csv_to_choropleth.py` helper pre-joins indicator CSVs to ADM0 polygons at seeder build time before ingest (Option C)
+- Signature map: "One Territory, Multiple Official Maps" (Kashmir toggle across 3 NE country-specific shapefiles) is the conversation-starter
+
 ## Progress
 
 **Execution Order:** 212 → 213 → 214 → 215 �� 216 → 217
@@ -260,6 +274,7 @@ Plans:
 | 215. Homepage | v14.0 | 0/? | Not started | - |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
+| 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
 
 ## Backlog
 
@@ -318,3 +333,4 @@ Plans:
 - Feature count cap at 5,000 (preview path, not production tile path)
 - Frontend auto-decides MVT vs GeoJSON-Z based on dataset size and `is_3d` flag
 - Not recommended to ship unless Phases 999.1 and 999.2 reveal concrete user demand
+

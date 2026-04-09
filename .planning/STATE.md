@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
-status: planning
-stopped_at: Quick task 260408-iny shipped; Phase 215 Homepage still pending
-last_updated: "2026-04-08T15:07:53-04:00"
-last_activity: 2026-04-08
+status: executing
+stopped_at: Quick task 260408-iny shipped (table record_type enhancement pass, 7 commits); Phase 215 Homepage still pending discuss/plan
+last_updated: "2026-04-09T13:26:00.960Z"
+last_activity: 2026-04-09
 progress:
-  total_phases: 6
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
-  percent: 50
+  total_phases: 10
+  completed_phases: 4
+  total_plans: 11
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 215 — Homepage (v14.0 marketing site)
+**Current focus:** Phase 218 — demo-themed-collections
 
 ## Current Position
 
-Phase: 215
-Plan: Not started (no CONTEXT.md yet — discuss-phase recommended)
-Status: Phase 214 shipped; Phase 215 ready to discuss/plan
-Last activity: 2026-04-08 - Completed quick task 260408-iny: table record_type enhancement pass
+Phase: 999.1
+Plan: Not started
+Status: Executing Phase 218
+Last activity: 2026-04-09
 
-Progress: [█████░░░░░] 50% (3/6 phases complete in v14.0)
+Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6
+- Total plans completed: 11
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -47,6 +47,7 @@ Progress: [█████░░░░░] 50% (3/6 phases complete in v14.0)
 | 212 | 2 | - | - |
 | 213 | 2 | - | - |
 | 214 | 2 | - | - |
+| 218 | 5 | - | - |
 
 **Recent Trend:**
 
@@ -68,6 +69,11 @@ Progress: [█████░░░░░] 50% (3/6 phases complete in v14.0)
 - [Phase 212-01]: Tailwind 4 uses @tailwindcss/vite Vite plugin (not @astrojs/tailwind) — Astro tailwind integration is for v3 only
 - [Phase 212-01]: A11Y-01: primary-700 oklch(0.46 0.16 250) is minimum shade for text on white (4.5:1 AA); primary-500 is decorative only
 - [Phase 212-01]: Token sync strategy: geolens/frontend/src/index.css is source of truth; getgeolens.com/src/styles/global.css is manual copy-on-update
+- [v14.0 Roadmap]: Phase 218 (Demo Themed Collections) added 2026-04-08 — independent of 215/216/217 marketing site phases; source proposal 260408-lnq; A7 resolved in 260408-mgg (Option C fallback selected)
+
+### Roadmap Evolution
+
+- 2026-04-08: Phase 218 added — Demo Themed Collections (3 themes, 9 maps, seeder-driven)
 
 ### Pending Todos
 
@@ -86,6 +92,8 @@ None yet.
 | 260405-dn1 | Review landing page for enterprise/community value — consider extracting to getgeolens.com | 2026-04-05 | 4f3d6e15 | Verified | [260405-dn1-review-landing-page-for-enterprise-commu](./quick/260405-dn1-review-landing-page-for-enterprise-commu/) |
 | 260408-aa5 | 3d data and maps support | 2026-04-08 | 9333cf5d | Verified | [260408-aa5-3d-data-and-maps-support](./quick/260408-aa5-3d-data-and-maps-support/) |
 | 260408-iny | review the table data type — full enhancement pass | 2026-04-08 | 482dc7eb | Needs Review | [260408-iny-review-the-table-data-type-why-are-there](./quick/260408-iny-review-the-table-data-type-why-are-there/) |
+| 260408-lnq | demo environment data & maps proposal (themes, sources, automation) | 2026-04-08 | doc-only | Verified | [260408-lnq-come-up-with-an-interesting-series-of-da](./quick/260408-lnq-come-up-with-an-interesting-series-of-da/) |
+| 260408-mgg | A7 spike: verify table→polygon join in map builder (verdict: unsupported, Option C fallback) | 2026-04-08 | doc-only | Verified | [260408-mgg-a7-spike-verify-map-builder-can-join-rec](./quick/260408-mgg-a7-spike-verify-map-builder-can-join-rec/) |
 
 ## Session Continuity
 
