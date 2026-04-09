@@ -14,8 +14,8 @@ import {
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
-import { getTileTokenWithApiKey } from '@/api/tiles';
-import type { TileToken } from '@/api/tiles';
+import { getTileTokenWithApiKey, getTileTokensBatch } from '@/api/tiles';
+import type { TileToken, VectorTileToken } from '@/api/tiles';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -163,34 +163,57 @@ export function ViewerMap({
     [layers],
   );
   useEffect(() => {
-    if (embedToken || !apiKey || layerDatasetIds.length === 0) return;
+    if (embedToken || layerDatasetIds.length === 0) return;
 
     let cancelled = false;
 
     async function fetchTokens() {
       try {
-        const results = await Promise.all(
-          layerDatasetIds.map((id) => getTileTokenWithApiKey(id, apiKey!)),
-        );
+        let newMap: Map<string, TileToken>;
+
+        if (apiKey) {
+          // API-key path (per-dataset) — used by embedded/API-key viewers.
+          const results = await Promise.all(
+            layerDatasetIds.map((id) => getTileTokenWithApiKey(id, apiKey!)),
+          );
+          newMap = new Map<string, TileToken>();
+          for (let i = 0; i < layerDatasetIds.length; i++) {
+            newMap.set(layerDatasetIds[i], results[i]);
+          }
+        } else {
+          // Anonymous / JWT path — single batch request. Required for the
+          // public PublicMapViewerPage → ViewerMap path, which has no
+          // apiKey and no embedToken. Without this branch, tokenMap stays
+          // empty and syncLayersToMap falls back to layer.tile_url
+          // (hardcoded `.pbf`), producing 503s on every raster tile fetch.
+          const response = await getTileTokensBatch(layerDatasetIds);
+          newMap = new Map<string, TileToken>();
+          for (const [datasetId, entry] of Object.entries(response.tokens)) {
+            if ('kind' in entry) {
+              newMap.set(datasetId, entry);
+            }
+          }
+        }
 
         if (cancelled) return;
-
-        const newMap = new Map<string, TileToken>();
-        for (let i = 0; i < layerDatasetIds.length; i++) {
-          newMap.set(layerDatasetIds[i], results[i]);
-        }
         setTokenMap(newMap);
 
-        // Set up refresh at 80% of minimum TTL
-        const minTtl = Math.min(...results.map((r) => r.expires_in));
-        const refreshMs = Math.max(minTtl * 800, 30_000);
-
-        if (refreshTimerRef.current) {
-          clearTimeout(refreshTimerRef.current);
+        // Refresh at 80% of the minimum vector-token TTL. Raster tokens
+        // have no expires_in (the tile_url is stable), so if there are no
+        // vector tokens in the map, skip the refresh cycle entirely.
+        const vectorTtls = [...newMap.values()]
+          .filter((t): t is VectorTileToken => t.kind === 'vector')
+          .map((t) => t.expires_in);
+        if (vectorTtls.length > 0) {
+          const minTtl = Math.min(...vectorTtls);
+          const refreshMs = Math.max(minTtl * 800, 30_000);
+          if (refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+          }
+          refreshTimerRef.current = setTimeout(() => {
+            if (!cancelled) fetchTokens();
+          }, refreshMs);
         }
-        refreshTimerRef.current = setTimeout(() => {
-          if (!cancelled) fetchTokens();
-        }, refreshMs);
       } catch (err) {
         if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
       }
@@ -366,13 +389,34 @@ export function ViewerMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
+    // Gate the first sync on tile tokens arriving: syncLayersToMap branches
+    // on `token?.kind === 'raster'` to pick the raster adapter vs. the
+    // vector path. If we sync before tokens land, every layer — including
+    // rasters — is added as a vector source with `buildSignedTileUrl(...,
+    // null, ...)` producing URLs like `data.raster_xxx/z/x/y.pbf?
+    // sig=undefined&exp=undefined&scope=undefined`, which the server
+    // rejects with 422 and maplibre never recovers from. The embed-token
+    // path has its own transformRequest flow and doesn't depend on
+    // tokenMap, so it's allowed to sync immediately.
+    if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
     runSync(map);
-  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync]);
+  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken]);
 
-  // Update tile URLs in-place when tokens refresh
+  // Update tile URLs in-place when vector tokens refresh (token rotation).
   // Narrow the dep to the single primitive the effect actually reads so the
   // hook only re-runs when the CDN base URL changes (not on any tileConfig
   // object identity churn).
+  //
+  // IMPORTANT: raster sources also expose `setTiles`, so the old
+  // `'setTiles' in source` check matched both vector and raster sources
+  // indiscriminately — and `buildSignedTileUrl` always produces a vector
+  // URL. That meant on every token refresh we were overwriting raster
+  // sources' correct `/raster-tiles/.../tiles/{z}/{x}/{y}.png` URLs with
+  // broken vector URLs like `data.raster_xxx/z/x/y.pbf?sig=undefined`,
+  // which the server rejects with 422 and the raster never renders again.
+  // Gate on `source.type === 'vector'` and on the token also being the
+  // vector kind so rasters (which have stable URLs and no expiration) are
+  // left untouched.
   const cdnBaseUrl = tileConfig?.cdn_base_url;
   useEffect(() => {
     const map = mapRef.current;
@@ -380,10 +424,13 @@ export function ViewerMap({
     const tileBaseUrl = resolveTileBaseUrl({ cdn_base_url: cdnBaseUrl });
 
     for (const layer of layers) {
+      const token = tokenMap.get(layer.dataset_id) ?? null;
+      // Skip rasters — their tile_url is stable, no refresh needed.
+      if (token && token.kind !== 'vector') continue;
       const sourceId = getViewerSourceId(layer.sort_order);
       const source = map.getSource(sourceId);
-      if (source && 'setTiles' in source) {
-        const token = tokenMap.get(layer.dataset_id) ?? null;
+      // Only vector sources need query-param URL refreshes.
+      if (source && source.type === 'vector') {
         const newUrl = buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
         (source as VectorTileSource).setTiles([newUrl]);
       }

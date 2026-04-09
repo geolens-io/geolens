@@ -1098,11 +1098,19 @@ async def create_raster_dataset(
     from app.datasets.models import Dataset, Record
     from app.raster.models import RasterAsset
 
+    # Mirror the vector ingest path (datasets/service.py
+    # `create_dataset_record`) which commits directly to `published`.
+    # Without this the raster stayed in `draft` and the anonymous public
+    # tile-access check at tiles/router.py `_resolve_raster_access`
+    # returned 404 for every raster tile fetch, so every public demo map
+    # containing a raster layer (Earth as Seen from Space, Global
+    # Bathymetry, …) was broken for anonymous users.
     record = Record(
         title=title,
         summary=summary,
         record_type="raster_dataset",
         visibility=visibility,
+        record_status="published",
         updated_by=created_by,
     )
     if meta.get("bbox_wkt"):
