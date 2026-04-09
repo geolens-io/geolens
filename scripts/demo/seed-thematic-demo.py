@@ -272,37 +272,6 @@ async def ingest_raster_local(
     )
 
 
-async def create_vrt_mosaic(
-    client: httpx.AsyncClient,
-    base_url: str,
-    api_key: str,
-    source_dataset_ids: list[str],
-    name: str,
-    summary: str,
-) -> dict[str, Any]:
-    """Create a VRT mosaic from existing raster dataset IDs.
-
-    Returns the poll_job result dict. On timeout, returns a failed-status dict
-    so the caller's `except Exception` at the call site keeps working but the
-    operator gets a structured error rather than a bare TimeoutError.
-    """
-    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
-    resp = await client.post(
-        f"{base_url}/api/ingest/vrt/create",
-        headers=headers,
-        json={"source_dataset_ids": source_dataset_ids, "vrt_type": "mosaic"},
-    )
-    resp.raise_for_status()
-    job_id = resp.json()["job_id"]
-    try:
-        return await poll_job(client, base_url, api_key, job_id, timeout=600)
-    except TimeoutError:
-        return {
-            "status": "failed",
-            "error_message": "VRT poll_job timed out after 600s",
-        }
-
-
 async def ingest_theme(
     client: httpx.AsyncClient,
     base_url: str,
@@ -428,56 +397,6 @@ def _index_fixtures_by_theme(
     return index
 
 
-async def _create_theme1_vrt_if_ready(
-    client: httpx.AsyncClient,
-    base_url: str,
-    api_key: str,
-    theme_module: ModuleType,
-    results: list[IngestResult],
-) -> None:
-    """Best-effort VRT mosaic creation for Theme 1. Mutates ``results`` in place.
-
-    VRT mosaic creation is best-effort. Two known gaps (tracked as follow-ups
-    in 218-05-SUMMARY.md):
-
-      1. /api/ingest/vrt/create requires resolution_strategy + title fields
-         that the orchestrator doesn't currently pass (422).
-      2. GEBCO is int16 and NE shaded relief is uint8, so even with a
-         well-formed request the VRT backend rejects the dtype mismatch.
-
-    Map 1.1 ships without the VRT by stacking the two rasters as independent
-    layers instead — no fixture references "planet-earth-vrt". This helper
-    keeps Theme 1 shipping despite the known VRT gap.
-    """
-    # Walrus narrows r["dataset_id"] away from Optional[str] for mypy.
-    raster_ids: list[str] = [
-        ds_id
-        for r in results
-        if (ds_id := r.get("dataset_id"))
-        and any(d["stem"] == r["stem"] and d["type"] == "raster" for d in theme_module.DATASETS)
-    ]
-    if len(raster_ids) < 2:
-        return
-    try:
-        vrt_result = await create_vrt_mosaic(
-            client,
-            base_url,
-            api_key,
-            raster_ids[:2],
-            name="Planet Earth Composite VRT",
-            summary="Mosaic of Theme 1 raster sources for Map 1.1.",
-        )
-        vrt_dataset_id = vrt_result.get("dataset_id")
-        print(f"  VRT mosaic created: {vrt_dataset_id}")
-        if vrt_dataset_id:
-            # VRT dataset_id is already captured; no catalog refetch needed.
-            results.append(
-                {"stem": "planet-earth-vrt", "status": "succeeded", "dataset_id": vrt_dataset_id}
-            )
-    except Exception as exc:
-        print(f"  VRT creation failed: {exc}")
-
-
 async def main_async(args: argparse.Namespace) -> int:
     """Main async entry point. Returns an exit code — 0 on success, 1 if any
     fixture failed to apply. Handles ingest, collection assignment, and
@@ -517,10 +436,14 @@ async def main_async(args: argparse.Namespace) -> int:
             # entries don't change the existing catalog state).
             if any(r.get("status") == "succeeded" for r in results):
                 existing = await fetch_existing_datasets(client, args.base_url, args.api_key)
-            if tm.THEME_IDX == 0:
-                await _create_theme1_vrt_if_ready(
-                    client, args.base_url, args.api_key, tm, results
-                )
+            # (Previously: Theme 1 attempted to create a VRT mosaic of the
+            #  two signature rasters here. Removed 2026-04-09 because GEBCO
+            #  is int16 and NE shaded relief is uint8, so the VRT backend
+            #  rejected the dtype mismatch on every run. Map 1.1 ships as
+            #  independent stacked raster layers — no fixture references a
+            #  'planet-earth-vrt' stem, so nothing depends on this helper.
+            #  If/when Phase 999.1 3D terrain work needs a mosaic, reinstate
+            #  after picking rasters with compatible dtypes.)
             await assign_collection(client, args.base_url, args.api_key, tm, results)
             _applied, theme_failures = await apply_theme_fixtures(
                 client, args.base_url, args.api_key, tm, existing, fixtures_by_theme
