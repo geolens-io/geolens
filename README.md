@@ -22,6 +22,35 @@ cp .env.example .env && docker compose up -d
   <em>Upload a shapefile, get a searchable, previewable, exportable dataset in minutes</em>
 </p>
 
+## Try the Themed Demo
+
+GeoLens ships with three themed demo collections — **Planet Earth** (raster + VRT mosaics), **Global Development & People** (indicator choropleths), and **Borders, Boundaries & Contested Space** (geopolitics done carefully) — and nine signature maps that load deterministically with one command:
+
+```bash
+cp .env.demo .env
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+```
+
+After the seeder image build completes (most of the time is the GEBCO 2024 download — ~10–15 minutes on a fast connection, cached on rebuild), open http://localhost:8080 and navigate to **Maps**. The signature stories include:
+
+- **Earth as Seen from Space** — bathymetry + topography + ice on a dark world view
+- **Global Bathymetry** — GEBCO 2024 ocean floor with viridis colormap
+- **Population at a Glance** — proportional-symbol populated places, sized by population
+- **GDP per Capita PPP 2023** — country choropleth from World Bank Open Data
+- **The World's Disputed Places** — every disputed area Natural Earth tracks
+- **One Territory, Multiple Official Maps** — Kashmir as China, India, and Pakistan see it (toggle the layers!)
+- **Conflict Events 2024** — UCDP Georeferenced Event Dataset, fatal events of organized violence
+- **Refugees by Country of Origin 2023** — UNHCR statistics joined to country polygons
+
+All data is bundled at image build time — **no outbound network calls at runtime**. The demo can be reset every 24 hours by the included `reset` service. To force a full reset:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml exec reset /scripts/reset-demo.sh
+docker compose -f docker-compose.yml -f docker-compose.demo.yml restart seeder
+```
+
+Source attribution and licenses for every demo dataset are documented on each dataset's detail page. All bundled data is CC-BY 4.0, ODbL 1.0, or Public Domain.
+
 ## Why GeoLens?
 
 Spatial data ends up scattered -- shapefiles on shared drives, tables in database schemas, rasters in cloud buckets, metadata in spreadsheets. Finding the right dataset means asking Slack or grepping file servers. Sharing it means exporting, emailing, and hoping the CRS matches.

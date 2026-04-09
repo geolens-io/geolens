@@ -25,6 +25,17 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'playwright/.auth/user.json',
+        // Enable WebGL via SwiftShader so MapLibre can render in headless mode.
+        // Without these flags MapLibre throws webglcontextcreationerror and the
+        // demo smoke spec sees no canvas (218-05).
+        launchOptions: {
+          args: [
+            '--enable-unsafe-swiftshader',
+            '--use-gl=swiftshader',
+            '--enable-webgl',
+            '--ignore-gpu-blocklist',
+          ],
+        },
       },
       dependencies: ['setup'],
     },
