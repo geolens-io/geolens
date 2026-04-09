@@ -19,6 +19,9 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const DEMO_MAP_NAMES = [
+  // Theme 1 — Planet Earth
+  'Earth as Seen from Space',
+  'Global Bathymetry',
   // Theme 2 — Global Development & People
   'Population at a Glance',
   'GDP per Capita PPP 2023',
@@ -29,14 +32,10 @@ const DEMO_MAP_NAMES = [
   'Refugees by Country of Origin 2023',
 ];
 
-// Theme 1 maps (Maps 1.1 + 1.2) require the seeder Dockerfile to download
-// GEBCO + NE shaded relief + SRTM rasters at build time. They are not present
-// in dev environments where the seeder hasn't run, so they self-skip. Once
-// the demo container has run end-to-end at least once, both fixtures are
-// applied and these tests will execute against the live state.
+// Optional maps from Phase 218's "stretch slot" — not shipped yet, the
+// spec hosts them as test.skip() so future additions don't require spec
+// changes.
 const OPTIONAL_DEMO_MAPS = [
-  'Earth as Seen from Space',
-  'Global Bathymetry',
   'Where the Ice Is',
   'Life Expectancy & Income',
 ];
