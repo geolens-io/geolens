@@ -538,7 +538,7 @@ async def ingest_service(
     7. Update job status to complete
     """
     from app.database import async_session
-    from app.ingest.ogr import IngestionError, build_pg_conn_str, run_ogr2ogr_service
+    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
     from app.services.preview import build_gdal_source
@@ -591,39 +591,42 @@ async def ingest_service(
                 }
             db_conn_str = build_pg_conn_str()
 
-            # WFS namespace retry: if layer name has a colon prefix, retry with unqualified name
-            try:
-                await run_ogr2ogr_service(
-                    gdal_source,
-                    layer_arg,
-                    table_name,
-                    db_conn_str,
-                    service_type,
-                    token=token,
-                    is_non_spatial=is_non_spatial,
-                )
-            except IngestionError:
-                if ":" in source_layer:
-                    unqualified = source_layer.split(":", 1)[1]
-                    gdal_source_retry, layer_arg_retry = build_gdal_source(
-                        service_type_raw,
-                        source_url,
-                        unqualified,
-                        layer_id,
-                        token=token,
-                        order_field=object_id_field,
-                    )
+            # WFS namespace retry via shared helper (KISS-8).
+            async def _do_import(layer_name: str) -> None:
+                if layer_name == source_layer:
+                    # First attempt — use the already-built gdal_source/layer_arg.
                     await run_ogr2ogr_service(
-                        gdal_source_retry,
-                        layer_arg_retry,
+                        gdal_source,
+                        layer_arg,
                         table_name,
                         db_conn_str,
                         service_type,
                         token=token,
                         is_non_spatial=is_non_spatial,
                     )
-                else:
-                    raise
+                    return
+                # Retry with unqualified layer name — rebuild the source.
+                gdal_source_retry, layer_arg_retry = build_gdal_source(
+                    service_type_raw,
+                    source_url,
+                    layer_name,
+                    layer_id,
+                    token=token,
+                    order_field=object_id_field,
+                )
+                await run_ogr2ogr_service(
+                    gdal_source_retry,
+                    layer_arg_retry,
+                    table_name,
+                    db_conn_str,
+                    service_type,
+                    token=token,
+                    is_non_spatial=is_non_spatial,
+                )
+
+            await _run_service_import_with_wfs_fallback(
+                _do_import, source_layer, token=token
+            )
 
             # 4a. Rename any source column that collides with a GeoLens-internal
             #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
@@ -675,6 +678,53 @@ def _looks_like_auth_error(error_message: str) -> bool:
         "token required",
     )
     return any(marker in lowered for marker in markers)
+
+
+async def _run_service_import_with_wfs_fallback(
+    import_fn,
+    source_layer: str,
+    *,
+    token: str | None = None,
+    auth_error_message: str | None = None,
+) -> None:
+    """Run a service import with WFS namespace retry + optional auth detection.
+
+    Extracts the retry pattern that appears in both ingest_service and
+    reupload_service (KISS-8). If the initial import raises
+    ``IngestionError`` and the layer name has a ``ns:name`` prefix,
+    retries with the unqualified name. If ``auth_error_message`` is
+    provided and the token is None and the error looks like an auth
+    failure, re-raises with the custom message so users get a clear
+    "you probably need a token" hint instead of the raw GDAL stderr.
+
+    ``import_fn`` must be an async callable that accepts a single
+    ``layer_name: str`` argument and does the actual ogr2ogr work.
+    """
+    from app.ingest.ogr import IngestionError
+
+    try:
+        await import_fn(source_layer)
+    except IngestionError as exc:
+        if ":" in source_layer:
+            unqualified = source_layer.split(":", 1)[1]
+            try:
+                await import_fn(unqualified)
+            except IngestionError as retry_exc:
+                if (
+                    auth_error_message is not None
+                    and token is None
+                    and _looks_like_auth_error(str(retry_exc))
+                ):
+                    raise IngestionError(auth_error_message) from retry_exc
+                raise
+        elif (
+            auth_error_message is not None
+            and token is None
+            and _looks_like_auth_error(str(exc))
+        ):
+            raise IngestionError(auth_error_message) from exc
+        else:
+            raise
 
 
 async def _apply_reupload_swap(
@@ -1130,20 +1180,12 @@ async def reupload_service(
                 )
 
             try:
-                await _run_service_import(source_layer_value)
-            except IngestionError as exc:
-                if ":" in source_layer_value:
-                    unqualified = source_layer_value.split(":", 1)[1]
-                    try:
-                        await _run_service_import(unqualified)
-                    except IngestionError as retry_exc:
-                        if token is None and _looks_like_auth_error(str(retry_exc)):
-                            raise IngestionError(auth_error_message) from retry_exc
-                        raise
-                elif token is None and _looks_like_auth_error(str(exc)):
-                    raise IngestionError(auth_error_message) from exc
-                else:
-                    raise
+                await _run_service_import_with_wfs_fallback(
+                    _run_service_import,
+                    source_layer_value,
+                    token=token,
+                    auth_error_message=auth_error_message,
+                )
             except ValueError as exc:
                 raise IngestionError(str(exc)) from exc
 

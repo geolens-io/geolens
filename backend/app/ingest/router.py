@@ -22,6 +22,7 @@ from app.config import settings
 from app.dependencies import get_db
 from app.ingest.ogr import IngestionError, detect_geometry_columns, run_ogrinfo_preview
 from app.ingest.schemas import (
+    BulkRegisterItem,
     BulkRegisterRequest,
     BulkRegisterResponse,
     BulkRegisterResult,
@@ -667,37 +668,43 @@ async def bulk_register_tables(
     """Bulk-register multiple existing PostGIS tables as datasets.
 
     Each table is registered independently -- one failure does not block
-    others. Returns per-table success/error results.
+    others. Tables are processed in parallel via ``asyncio.gather`` with
+    a fresh session per task, which keeps transaction isolation while
+    removing the sequential per-table latency (PERF-3).
     """
-    results = []
-    for table_req in request.tables:
-        try:
-            reg_request = RegisterRequest(
-                table_name=table_req.table_name,
-                title=table_req.title,
-                summary=table_req.summary,
-                visibility=table_req.visibility,
-            )
-            dataset = await register_existing_table(db, reg_request, user)
-            await db.commit()
-            results.append(
-                BulkRegisterResult(
+    from app.database import async_session
+
+    async def _register_one(
+        table_req: BulkRegisterItem,
+    ) -> BulkRegisterResult:
+        async with async_session() as task_db:
+            try:
+                reg_request = RegisterRequest(
+                    table_name=table_req.table_name,
+                    title=table_req.title,
+                    summary=table_req.summary,
+                    visibility=table_req.visibility,
+                )
+                dataset = await register_existing_table(task_db, reg_request, user)
+                await task_db.commit()
+                return BulkRegisterResult(
                     table_name=table_req.table_name,
                     dataset_id=dataset.id,
                     title=dataset.record.title,
                     status="success",
                 )
-            )
-        except Exception as exc:
-            await db.rollback()
-            results.append(
-                BulkRegisterResult(
+            except Exception as exc:
+                await task_db.rollback()
+                return BulkRegisterResult(
                     table_name=table_req.table_name,
                     status="error",
                     error=str(exc),
                 )
-            )
-    return BulkRegisterResponse(results=results)
+
+    results = await asyncio.gather(
+        *(_register_one(table_req) for table_req in request.tables)
+    )
+    return BulkRegisterResponse(results=list(results))
 
 
 @router.post(
