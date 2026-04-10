@@ -27,9 +27,14 @@ from tests.conftest import get_auth_header
 
 @pytest.fixture(autouse=True)
 def mock_ingest_task():
-    """Prevent procrastinate task deferral in all ingest tests."""
-    with patch("app.ingest.router.ingest_file") as mock_task:
-        mock_task.defer_async = AsyncMock(return_value=None)
+    """Prevent procrastinate task deferral in all ingest tests.
+
+    The router now delegates all task routing (ingest_file / ingest_raster
+    / ingest_service) to ``queue_ingest_job`` in the service layer (post-
+    impl audit KISS-9). Mock that single entry point so every commit_import
+    path becomes a no-op.
+    """
+    with patch("app.ingest.router.queue_ingest_job", new_callable=AsyncMock) as mock_task:
         yield mock_task
 
 
