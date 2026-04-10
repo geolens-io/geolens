@@ -378,9 +378,7 @@ async def regenerate_vrt_endpoint(
         # db.commit above).
         generation.status = "failed"
         generation.completed_at = datetime.now(timezone.utc)
-        generation.error_message = (
-            f"Failed to queue VRT regeneration: {defer_exc}"
-        )
+        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
         # Revert VRT asset state to pre-mutation values.
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id

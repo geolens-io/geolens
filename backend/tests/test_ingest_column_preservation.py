@@ -89,9 +89,7 @@ async def _load_fixture(
 
 
 async def _drop_table(test_db_session, table: str) -> None:
-    await test_db_session.execute(
-        text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
-    )
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table} CASCADE"))
     await test_db_session.commit()
 
 
@@ -113,7 +111,13 @@ class TestBasicAttrsRoundTrip:
         try:
             result = await _load_fixture(test_db_session, "basic_attrs.geojson", table)
             names = {c["name"] for c in result["filtered_column_info"]}
-            assert {"name", "population", "area_km2", "is_capital", "founded"} <= names, (
+            assert {
+                "name",
+                "population",
+                "area_km2",
+                "is_capital",
+                "founded",
+            } <= names, (
                 f"Expected source columns missing from column_info. Got: {names}"
             )
         finally:
@@ -215,7 +219,9 @@ class TestReservedNameAutoRename:
 
         table = _table_id("tst_add4326")
         try:
-            result = await _load_fixture(test_db_session, "reserved_names.geojson", table)
+            result = await _load_fixture(
+                test_db_session, "reserved_names.geojson", table
+            )
             await rename_reserved_columns(test_db_session, table)
             # Mirror _finalize_ingest: ensure_geom_column must run before
             # add_4326_column so the pipeline placeholder becomes `geom`.
@@ -326,7 +332,7 @@ class TestReservedNameAutoRename:
 
             # Confirm the source values survived the rename.
             value_result = await test_db_session.execute(
-                text(f'SELECT src_geom FROM data.{table} ORDER BY gid')
+                text(f"SELECT src_geom FROM data.{table} ORDER BY gid")
             )
             values = [r[0] for r in value_result.all()]
             assert values == ["not-actually-a-geometry", "also-text"], (
@@ -361,8 +367,7 @@ class TestUnicodeSampleValues:
             samples = await get_sample_values(test_db_session, table, cols)
 
             non_geom_cols = [
-                c for c in cols
-                if "geometry" not in c.get("type", "").lower()
+                c for c in cols if "geometry" not in c.get("type", "").lower()
             ]
             assert len(non_geom_cols) >= 1, "Expected at least one non-geometry column"
 

@@ -1583,7 +1583,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 nodata=user_nodata,
                 assign_crs=assign_crs if assign_crs and crs_missing else None,
             )
-            assert local_cog_path is not None  # check_and_prepare_cog always returns a path
+            assert (
+                local_cog_path is not None
+            )  # check_and_prepare_cog always returns a path
 
             # 7. Hash COG
             asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)

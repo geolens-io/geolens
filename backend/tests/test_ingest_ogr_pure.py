@@ -332,9 +332,7 @@ class TestExtractCommonLayerMetadata:
                 {
                     "name": "roads",
                     "featureCount": 100,
-                    "coordinateSystem": {
-                        "wkt": 'PROJCS["X",AUTHORITY["EPSG","3857"]]'
-                    },
+                    "coordinateSystem": {"wkt": 'PROJCS["X",AUTHORITY["EPSG","3857"]]'},
                     "geometryFields": [{"type": "LineString"}],
                 }
             ]
@@ -486,9 +484,7 @@ class TestRunServiceImportWithWfsFallback:
         async def import_fn(layer_name: str) -> None:
             calls.append(layer_name)
 
-        asyncio.run(
-            _run_service_import_with_wfs_fallback(import_fn, "workspace:roads")
-        )
+        asyncio.run(_run_service_import_with_wfs_fallback(import_fn, "workspace:roads"))
         assert calls == ["workspace:roads"]
 
     def test_retries_with_unqualified_layer_on_ingestion_error(self):
@@ -501,9 +497,7 @@ class TestRunServiceImportWithWfsFallback:
             if ":" in layer_name:
                 raise IngestionError("WFS layer not found")
 
-        asyncio.run(
-            _run_service_import_with_wfs_fallback(import_fn, "workspace:roads")
-        )
+        asyncio.run(_run_service_import_with_wfs_fallback(import_fn, "workspace:roads"))
         assert calls == ["workspace:roads", "roads"]
 
     def test_reraises_when_layer_has_no_namespace(self):
