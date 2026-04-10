@@ -198,36 +198,59 @@ async def get_sample_values(
     Returns a dict mapping column name to a list of up to 10 distinct
     string values. Skips geometry-type columns and columns with no
     non-null values.
+
+    Implementation: a single CTE pulls ``sample_size`` rows from the base
+    table, then a UNION ALL of branches extracts up to 10 distinct
+    non-null ``::text`` values per column. This is one query and one
+    table scan regardless of column count — replaces the previous N+1
+    per-column query pattern (PERF-1).
     """
     _validate_table_name(table_name)
-    result: dict[str, list[str]] = {}
 
+    # Collect non-geometry columns with their identifier quoted once.
+    candidates: list[tuple[str, str]] = []
     for col in column_info:
         col_name = col.get("name", "")
         col_type = col.get("type", "")
-
-        # Skip geometry columns
+        if not col_name:
+            continue
         if "geometry" in col_type.lower():
             continue
-
-        # SQL-quote the identifier so non-ASCII, mixed-case, and hyphenated
-        # column names are handled correctly. The table-name validation above
-        # already guards against injection via the table path; quoting the
-        # column name is the safe alternative to the old regex filter.
         quoted = '"' + col_name.replace('"', '""') + '"'
+        candidates.append((col_name, quoted))
 
-        rows = await session.execute(
-            text(
-                f"SELECT DISTINCT {quoted}::text AS val "
-                f"FROM ("
-                f"  SELECT {quoted} FROM {_qtable(table_name)} "
-                f"  WHERE {quoted} IS NOT NULL LIMIT :sample_size"
-                f") sub LIMIT 10"
-            ).bindparams(sample_size=sample_size)
+    if not candidates:
+        return {}
+
+    # Build one UNION ALL query that tags each row with its column index.
+    # Column names go into a VALUES lookup table (keyed by index) on the
+    # Python side so the SQL doesn't need to embed arbitrary identifiers
+    # as literals in SELECT aliases.
+    select_cols = ", ".join(q for _, q in candidates)
+    union_branches: list[str] = []
+    for idx, (_, quoted) in enumerate(candidates):
+        union_branches.append(
+            f"(SELECT {idx} AS col_idx, val FROM "
+            f"(SELECT DISTINCT {quoted}::text AS val FROM sampled "
+            f"WHERE {quoted} IS NOT NULL LIMIT 10) s)"
         )
-        values = [row[0] for row in rows.all() if row[0] is not None]
-        if values:
-            result[col_name] = values
+    union_sql = " UNION ALL ".join(union_branches)
+    query = (
+        f"WITH sampled AS ("
+        f"  SELECT {select_cols} FROM {_qtable(table_name)} LIMIT :sample_size"
+        f") "
+        f"{union_sql}"
+    )
+
+    rows = await session.execute(text(query).bindparams(sample_size=sample_size))
+
+    result: dict[str, list[str]] = {}
+    for row in rows.all():
+        idx, val = row[0], row[1]
+        if val is None:
+            continue
+        col_name = candidates[idx][0]
+        result.setdefault(col_name, []).append(val)
 
     return result
 
@@ -474,6 +497,23 @@ async def rename_reserved_columns(
 
     _validate_table_name(table_name)
 
+    # PERF-4: fast-path — most ingests have zero reserved-name collisions,
+    # so check first with a tiny WHERE-filtered query before fetching the
+    # full column list. Skips the full-table scan in the common case.
+    reserved_check = await session.execute(
+        text(
+            "SELECT column_name "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'data' AND table_name = :t "
+            "AND column_name = ANY(:names)"
+        ).bindparams(t=table_name, names=list(RESERVED_COLUMN_NAMES))
+    )
+    if not reserved_check.first():
+        return []
+
+    # At least one collision candidate exists — now fetch everything we
+    # need to decide whether each candidate is source-origin and what
+    # rename target is safe.
     result = await session.execute(
         text(
             "SELECT column_name, data_type, udt_name, column_default, is_identity "

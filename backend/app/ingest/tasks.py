@@ -49,6 +49,21 @@ def _arcgis_type_to_column_type(esri_type: str) -> str:
     return _ARCGIS_TYPE_MAP.get(esri_type, "text")
 
 
+def _append_job_warning(job, warning: dict) -> None:
+    """Append a structured warning to ``job.user_metadata['warnings']``.
+
+    Consolidates the 6× duplicated pattern from the ingest entry points
+    (KISS-1). Mutates ``job.user_metadata`` in place, creating the list if
+    absent. Caller is responsible for committing the session.
+    """
+    warnings_list = list((job.user_metadata or {}).get("warnings", []))
+    warnings_list.append(warning)
+    job.user_metadata = {
+        **(job.user_metadata or {}),
+        "warnings": warnings_list,
+    }
+
+
 async def _finalize_ingest(
     *,
     session,
@@ -356,16 +371,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
             reserved_renames = await rename_reserved_columns(session, table_name)
             if reserved_renames:
-                warnings_list = list(
-                    (job.user_metadata or {}).get("warnings", [])
+                _append_job_warning(
+                    job, {"kind": "reserved_rename", "details": reserved_renames}
                 )
-                warnings_list.append(
-                    {"kind": "reserved_rename", "details": reserved_renames}
-                )
-                job.user_metadata = {
-                    **(job.user_metadata or {}),
-                    "warnings": warnings_list,
-                }
 
             # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
             #     the source column list from ogrinfo (stored in info["columns"]).
@@ -382,16 +390,13 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     preview_cols = preview_info.get("columns") or []
                 dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
                 if dbf_collisions:
-                    warnings_list = list(
-                        (job.user_metadata or {}).get("warnings", [])
+                    _append_job_warning(
+                        job,
+                        {
+                            "kind": "dbf_truncation_collision",
+                            "details": dbf_collisions,
+                        },
                     )
-                    warnings_list.append(
-                        {"kind": "dbf_truncation_collision", "details": dbf_collisions}
-                    )
-                    job.user_metadata = {
-                        **(job.user_metadata or {}),
-                        "warnings": warnings_list,
-                    }
                     structlog.get_logger().warning(
                         "Shapefile DBF 10-char truncation collision detected",
                         table=table_name,
@@ -626,16 +631,9 @@ async def ingest_service(
 
             reserved_renames = await rename_reserved_columns(session, table_name)
             if reserved_renames:
-                warnings_list = list(
-                    (job.user_metadata or {}).get("warnings", [])
+                _append_job_warning(
+                    job, {"kind": "reserved_rename", "details": reserved_renames}
                 )
-                warnings_list.append(
-                    {"kind": "reserved_rename", "details": reserved_renames}
-                )
-                job.user_metadata = {
-                    **(job.user_metadata or {}),
-                    "warnings": warnings_list,
-                }
 
             # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = _enrich_source_url(source_url, layer_id)
@@ -904,16 +902,9 @@ async def reupload_file(
 
             reserved_renames = await rename_reserved_columns(session, staging_tn)
             if reserved_renames:
-                warnings_list = list(
-                    (job.user_metadata or {}).get("warnings", [])
+                _append_job_warning(
+                    job, {"kind": "reserved_rename", "details": reserved_renames}
                 )
-                warnings_list.append(
-                    {"kind": "reserved_rename", "details": reserved_renames}
-                )
-                job.user_metadata = {
-                    **(job.user_metadata or {}),
-                    "warnings": warnings_list,
-                }
 
             # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
             if file_path.lower().endswith(".zip"):
@@ -927,16 +918,13 @@ async def reupload_file(
                     preview_cols = preview_info.get("columns") or []
                 dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
                 if dbf_collisions:
-                    warnings_list = list(
-                        (job.user_metadata or {}).get("warnings", [])
+                    _append_job_warning(
+                        job,
+                        {
+                            "kind": "dbf_truncation_collision",
+                            "details": dbf_collisions,
+                        },
                     )
-                    warnings_list.append(
-                        {"kind": "dbf_truncation_collision", "details": dbf_collisions}
-                    )
-                    job.user_metadata = {
-                        **(job.user_metadata or {}),
-                        "warnings": warnings_list,
-                    }
                     structlog.get_logger().warning(
                         "Shapefile DBF 10-char truncation collision detected",
                         table=staging_tn,
@@ -1165,16 +1153,9 @@ async def reupload_service(
 
             reserved_renames = await rename_reserved_columns(session, staging_tn)
             if reserved_renames:
-                warnings_list = list(
-                    (job.user_metadata or {}).get("warnings", [])
+                _append_job_warning(
+                    job, {"kind": "reserved_rename", "details": reserved_renames}
                 )
-                warnings_list.append(
-                    {"kind": "reserved_rename", "details": reserved_renames}
-                )
-                job.user_metadata = {
-                    **(job.user_metadata or {}),
-                    "warnings": warnings_list,
-                }
 
             has_geom = await ensure_geom_column(session, staging_tn)
             if has_geom:
@@ -1414,14 +1395,19 @@ async def create_vrt_dataset(
     session.add(raster_asset)
     await session.flush()
 
-    # Insert vrt_source_links with position ordering
-    for idx, src_id in enumerate(source_dataset_ids):
+    # Insert vrt_source_links with position ordering. Single executemany
+    # batch (one round trip) instead of N per-row INSERTs (PERF-2).
+    if source_dataset_ids:
         await session.execute(
-            text("""
-                INSERT INTO catalog.vrt_source_links (vrt_dataset_id, source_dataset_id, position)
-                VALUES (:vrt_id, :src_id, :pos)
-            """),
-            {"vrt_id": str(dataset.id), "src_id": str(src_id), "pos": idx},
+            text(
+                "INSERT INTO catalog.vrt_source_links "
+                "(vrt_dataset_id, source_dataset_id, position) "
+                "VALUES (:vrt_id, :src_id, :pos)"
+            ),
+            [
+                {"vrt_id": str(dataset.id), "src_id": str(src_id), "pos": idx}
+                for idx, src_id in enumerate(source_dataset_ids)
+            ],
         )
 
     return record, dataset, raster_asset
