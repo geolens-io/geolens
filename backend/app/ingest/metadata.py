@@ -485,53 +485,74 @@ async def rename_reserved_columns(
     rows = result.all()
     all_column_names = {r[0] for r in rows}
 
+    # Wrap the entire rename loop in a SAVEPOINT so a mid-loop ALTER
+    # failure rolls back ALL previously-applied renames atomically (R-4).
+    # Without this, an ALTER failing on the Nth rename would commit N-1
+    # renames and leave the ingest table in an inconsistent state that
+    # the caller cannot recover from.
     renames: list[dict] = []
-    for row in rows:
-        col_name, data_type, udt_name, col_default, is_identity = row
-        if col_name not in RESERVED_COLUMN_NAMES:
-            continue
+    try:
+        async with session.begin_nested():
+            for row in rows:
+                col_name, data_type, udt_name, col_default, is_identity = row
+                if col_name not in RESERVED_COLUMN_NAMES:
+                    continue
 
-        # Determine if this column was created by the pipeline or came from the source.
-        if col_name == "gid":
-            # Pipeline-created gid is a serial/identity with a nextval default.
-            # Source-origin gid has no default and is not an identity column.
-            is_pipeline_gid = (col_default is not None and "nextval" in str(col_default)) or (
-                is_identity == "YES"
-            )
-            if is_pipeline_gid:
-                continue  # This is the pipeline's own gid — leave it alone.
+                # Determine if this column was created by the pipeline or came from the source.
+                if col_name == "gid":
+                    # Pipeline-created gid is a serial/identity with a nextval default.
+                    # Source-origin gid has no default and is not an identity column.
+                    is_pipeline_gid = (
+                        col_default is not None and "nextval" in str(col_default)
+                    ) or (is_identity == "YES")
+                    if is_pipeline_gid:
+                        continue  # This is the pipeline's own gid — leave it alone.
 
-        elif col_name in ("geom", "geometry"):
-            # Pipeline-created geometry column has data_type = 'USER-DEFINED'
-            # and udt_name = 'geometry'. Source-origin columns have other types.
-            if data_type == "USER-DEFINED" and udt_name == "geometry":
-                continue  # Pipeline-created spatial column — leave it alone.
+                elif col_name in ("geom", "geometry"):
+                    # Pipeline-created geometry column has data_type = 'USER-DEFINED'
+                    # and udt_name = 'geometry'. Source-origin columns have other types.
+                    if data_type == "USER-DEFINED" and udt_name == "geometry":
+                        continue  # Pipeline-created spatial column — leave it alone.
 
-        # All remaining reserved-name columns are source-origin. Rename to src_<name>.
-        # If src_<name> already exists, append a numeric suffix.
-        target = f"src_{col_name}"
-        suffix = 2
-        while target in all_column_names:
-            target = f"src_{col_name}_{suffix}"
-            suffix += 1
+                # All remaining reserved-name columns are source-origin. Rename to src_<name>.
+                # If src_<name> already exists, append a numeric suffix.
+                target = f"src_{col_name}"
+                suffix = 2
+                while target in all_column_names:
+                    target = f"src_{col_name}_{suffix}"
+                    suffix += 1
 
-        # Execute the rename using double-quoted identifiers (not bindable).
-        q_orig = '"' + col_name.replace('"', '""') + '"'
-        q_target = '"' + target.replace('"', '""') + '"'
-        await session.execute(
-            text(f'ALTER TABLE "data"."{table_name}" RENAME COLUMN {q_orig} TO {q_target}')
-        )
+                # Execute the rename using double-quoted identifiers (not bindable).
+                q_orig = '"' + col_name.replace('"', '""') + '"'
+                q_target = '"' + target.replace('"', '""') + '"'
+                await session.execute(
+                    text(
+                        f'ALTER TABLE "data"."{table_name}" '
+                        f"RENAME COLUMN {q_orig} TO {q_target}"
+                    )
+                )
 
-        logger.warning(
-            "Renamed reserved source column",
+                logger.warning(
+                    "Renamed reserved source column",
+                    table=table_name,
+                    original=col_name,
+                    renamed=target,
+                )
+                renames.append({"original": col_name, "renamed": target})
+                # Update the in-memory set so subsequent iterations see the new name.
+                all_column_names.discard(col_name)
+                all_column_names.add(target)
+    except Exception as exc:
+        # Savepoint rollback already unwound any partial renames; re-raise so
+        # the caller's exception handler marks the ingest job as failed with
+        # a clear error message.
+        logger.error(
+            "Reserved-column rename failed; table left in pre-rename state",
             table=table_name,
-            original=col_name,
-            renamed=target,
+            error=str(exc),
+            renames_attempted=len(renames),
         )
-        renames.append({"original": col_name, "renamed": target})
-        # Update the in-memory set so subsequent iterations see the new name.
-        all_column_names.discard(col_name)
-        all_column_names.add(target)
+        raise
 
     if renames:
         await session.commit()

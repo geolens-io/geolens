@@ -4,6 +4,8 @@ Handles file saving, validation, table name generation, job creation,
 and table registration for existing PostGIS tables.
 """
 
+from __future__ import annotations
+
 import re
 import uuid
 from pathlib import Path
@@ -23,15 +25,18 @@ from app.ingest.metadata import (
     get_table_srid,
     grant_reader_access,
 )
-from app.ingest.schemas import RegisterRequest
+from app.ingest.schemas import DiscoveredTable, RegisterRequest
 from app.jobs.models import IngestJob
 
 
-async def discover_unregistered_tables(session: AsyncSession) -> list[dict]:
+async def discover_unregistered_tables(
+    session: AsyncSession, limit: int = 1000
+) -> list[DiscoveredTable]:
     """Find tables in the data schema not yet registered in catalog.datasets.
 
     Excludes staging tables, old tables, and spatial_ref_sys. Returns
-    table name, geometry type, SRID, and estimated row count for each.
+    typed ``DiscoveredTable`` instances (TYPE-7). Bounded by ``limit`` to
+    protect instances with thousands of unregistered tables (PERF-11).
     """
     result = await session.execute(
         text(
@@ -59,10 +64,11 @@ async def discover_unregistered_tables(session: AsyncSession) -> list[dict]:
                 AND t.table_name NOT LIKE '%\\_old' ESCAPE '\\'
                 AND t.table_name != 'spatial_ref_sys'
             ORDER BY t.table_name
+            LIMIT :limit
             """
-        )
+        ).bindparams(limit=limit)
     )
-    return [dict(row) for row in result.mappings().all()]
+    return [DiscoveredTable(**dict(row)) for row in result.mappings().all()]
 
 
 async def get_job_or_404(db: AsyncSession, job_id: uuid.UUID, user: User) -> IngestJob:
@@ -296,7 +302,16 @@ async def register_existing_table(
     if has_geom:
         if not has_4326:
             srid = await get_table_srid(session, table_name)
-            await add_4326_column(session, table_name, srid or 4326)
+            # Wrap in savepoint so a partial failure (column added but
+            # index creation fails) rolls back cleanly instead of leaving
+            # the table in a half-indexed state (R-8).
+            try:
+                async with session.begin_nested():
+                    await add_4326_column(session, table_name, srid or 4326)
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to add geom_4326 column to '{table_name}': {exc}"
+                ) from exc
 
         await grant_reader_access(session, table_name)
         metadata = await extract_metadata(session, table_name)
