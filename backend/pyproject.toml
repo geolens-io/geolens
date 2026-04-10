@@ -69,6 +69,7 @@ testpaths = ["tests"]
 addopts = "-m 'not perf'"
 markers = [
     "perf: performance regression tests (deselected by default)",
+    "requires_ogr2ogr: tests that invoke ogr2ogr and need build_pg_conn_str redirected to the test database (K2-PRE; fixture lives in tests/conftest.py)",
 ]
 
 [tool.coverage.run]

@@ -25,7 +25,11 @@ from app.ingest.metadata import (
     get_table_srid,
     grant_reader_access,
 )
-from app.ingest.schemas import DiscoveredTable, RegisterRequest
+from app.ingest.schemas import DiscoveredTable, RegisterRequest, VrtCreateRequest
+from app.jobs.defer_guard import (
+    defer_with_orphan_guard,
+    make_ingest_job_failed_rollback,
+)
 from app.jobs.models import IngestJob
 
 
@@ -343,10 +347,109 @@ async def register_existing_table(
     return dataset
 
 
+async def create_vrt_job(
+    db: AsyncSession,
+    request: VrtCreateRequest,
+    user: User,
+) -> IngestJob:
+    """Validate source raster datasets, then create + defer a VRT creation job.
+
+    K5/KISS-10 extraction: this was inline in ``router.create_vrt``. Moving it
+    here keeps the router handler to "receive request, call service, return
+    response" and gives the logic a place to be unit-tested without spinning
+    up FastAPI.
+
+    Raises:
+        HTTPException 422: Fewer than 2 sources, a source was not found or
+            is not a raster dataset, or source compatibility validation
+            failed (mismatched CRS, band counts, etc.).
+    """
+    import json
+
+    from app.datasets.models import Dataset, Record
+    from app.ingest.tasks import ingest_vrt
+    from app.raster.models import RasterAsset
+    from app.raster.validation import validate_sources
+
+    # 1. Validate minimum source count
+    if len(request.source_dataset_ids) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="At least 2 source datasets are required to create a VRT",
+        )
+
+    # 2. Load RasterAsset rows for each source dataset
+    result = await db.execute(
+        select(RasterAsset)
+        .join(Dataset, RasterAsset.dataset_id == Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(
+            Dataset.id.in_(request.source_dataset_ids),
+            Record.record_type == "raster_dataset",
+        )
+    )
+    found_assets = result.scalars().all()
+
+    # 3. Check all requested IDs were found and are raster_datasets
+    found_dataset_ids = {asset.dataset_id for asset in found_assets}
+    for sid in request.source_dataset_ids:
+        if sid not in found_dataset_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Source dataset {sid} not found or not a raster dataset",
+            )
+
+    # 4. Validate source compatibility
+    errors = validate_sources(request.vrt_type, list(found_assets))
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[e.model_dump() for e in errors],
+        )
+
+    # 5. Create IngestJob
+    job = await create_ingest_job(db, f"vrt_{request.vrt_type}", "", user.id)
+    job.user_metadata = {
+        "vrt_type": request.vrt_type,
+        "title": request.title,
+        "summary": request.summary,
+        "visibility": request.visibility,
+    }
+    await db.commit()
+
+    # 6. Defer async VRT assembly task.
+    # If Procrastinate is unreachable, the job row was already committed
+    # as ``pending`` above — the orphan guard flips it to ``failed``
+    # before propagating so stale-cleanup and /jobs listings reflect the
+    # real state instead of waiting 60 minutes for PENDING_TIMEOUT
+    # (RESILIENCE-2).
+    async def _defer_vrt() -> None:
+        await ingest_vrt.defer_async(
+            job_id=str(job.id),
+            user_id=str(user.id),
+            source_dataset_ids=json.dumps(
+                [str(sid) for sid in request.source_dataset_ids]
+            ),
+            vrt_type=request.vrt_type,
+            resolution_strategy=request.resolution_strategy,
+        )
+
+    await defer_with_orphan_guard(
+        _defer_vrt,
+        rollback=make_ingest_job_failed_rollback(
+            job, message_prefix="Failed to queue VRT task"
+        ),
+        db=db,
+    )
+
+    return job
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,
     *,
+    db: AsyncSession,
     token: str | None = None,
 ) -> None:
     """Route a committed ingest job to the right Procrastinate task.
@@ -356,8 +459,15 @@ async def queue_ingest_job(
     `ingest_raster` (file_type=raster), and `ingest_file` (default
     vector path), and sends small vector files to the priority queue.
 
+    Each ``defer_async`` call is wrapped in ``defer_with_orphan_guard``
+    (from ``app.jobs.defer_guard``) so a queue outage flips the committed
+    pending job to ``failed`` and surfaces HTTP 503, matching the
+    RESILIENCE-2 fix in ``create_vrt_job`` (Theme H in
+    ``post-impl-20260410-HANDOFF-REMAINING.md``).
+
     Raises ``HTTPException 400`` when the job has no file_path and no
     source_url so the route handler surfaces a clear error.
+    Raises ``HTTPException 503`` when Procrastinate is unreachable.
     """
     import os
 
@@ -365,13 +475,24 @@ async def queue_ingest_job(
     from app.ingest.tasks import ingest_file, ingest_raster, ingest_service
 
     if job.source_url and not job.file_path:
-        # Service job — route to ingest_service
-        await ingest_service.defer_async(
-            job_id=str(job.id),
-            source_url=job.source_url,
-            source_layer=job.source_layer or "",
-            user_id=user_id,
-            token=token,
+        # Service job — route to ingest_service. Capture source_url into
+        # a local so mypy preserves the ``str`` narrowing inside the
+        # nested closure (the attribute access reverts to ``str | None``).
+        source_url = job.source_url
+
+        async def _defer_service() -> None:
+            await ingest_service.defer_async(
+                job_id=str(job.id),
+                source_url=source_url,
+                source_layer=job.source_layer or "",
+                user_id=user_id,
+                token=token,
+            )
+
+        await defer_with_orphan_guard(
+            _defer_service,
+            rollback=make_ingest_job_failed_rollback(job),
+            db=db,
         )
         return
 
@@ -384,10 +505,17 @@ async def queue_ingest_job(
 
     if (job.user_metadata or {}).get("file_type") == "raster":
         # Raster file job — route to dedicated raster queue
-        await ingest_raster.defer_async(
-            job_id=str(job.id),
-            file_path=file_path,
-            user_id=user_id,
+        async def _defer_raster() -> None:
+            await ingest_raster.defer_async(
+                job_id=str(job.id),
+                file_path=file_path,
+                user_id=user_id,
+            )
+
+        await defer_with_orphan_guard(
+            _defer_raster,
+            rollback=make_ingest_job_failed_rollback(job),
+            db=db,
         )
         return
 
@@ -401,14 +529,30 @@ async def queue_ingest_job(
             pass  # If we can't stat, use default queue
 
     if 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
-        await ingest_file.configure(queue="priority").defer_async(
-            job_id=str(job.id),
-            file_path=file_path,
-            user_id=user_id,
+
+        async def _defer_priority() -> None:
+            await ingest_file.configure(queue="priority").defer_async(
+                job_id=str(job.id),
+                file_path=file_path,
+                user_id=user_id,
+            )
+
+        await defer_with_orphan_guard(
+            _defer_priority,
+            rollback=make_ingest_job_failed_rollback(job),
+            db=db,
         )
     else:
-        await ingest_file.defer_async(
-            job_id=str(job.id),
-            file_path=file_path,
-            user_id=user_id,
+
+        async def _defer_default() -> None:
+            await ingest_file.defer_async(
+                job_id=str(job.id),
+                file_path=file_path,
+                user_id=user_id,
+            )
+
+        await defer_with_orphan_guard(
+            _defer_default,
+            rollback=make_ingest_job_failed_rollback(job),
+            db=db,
         )

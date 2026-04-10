@@ -345,6 +345,41 @@ async def test_db_session(client: AsyncClient):
 # fixture below is provided for tests that need extra determinism today.
 
 
+@pytest.fixture(autouse=True)
+def _point_ogr2ogr_at_test_db(request, monkeypatch):
+    """Redirect ``ogr2ogr``'s PG connection string to the test database.
+
+    ``app.ingest.ogr.build_pg_conn_str()`` defaults to the dev/prod
+    settings. Any test that invokes ``run_ogr2ogr`` /
+    ``run_ogr2ogr_service`` without this redirect would write to the
+    wrong database and collide with non-test data. The original fixture
+    lived locally in ``test_ingest_column_preservation.py`` (K2-PRE) —
+    lifting it to ``conftest.py`` behind the ``requires_ogr2ogr`` marker
+    means any future test that opts in automatically inherits the
+    safety redirect.
+
+    Opt-in: only tests marked with ``@pytest.mark.requires_ogr2ogr``
+    (or a class-level ``pytestmark``) trigger the monkeypatch. All
+    other tests are unaffected.
+    """
+    if "requires_ogr2ogr" not in request.keywords:
+        return
+
+    from app.config import settings as _settings
+    from app.ingest import ogr as _ogr
+
+    def _test_pg_conn_str() -> str:
+        return (
+            f"PG:host={_settings.postgres_host} "
+            f"port={_settings.postgres_port} "
+            f"dbname={_settings.postgres_db_test} "
+            f"user={_settings.postgres_user} "
+            f"password={_settings.postgres_password}"
+        )
+
+    monkeypatch.setattr(_ogr, "build_pg_conn_str", _test_pg_conn_str)
+
+
 @pytest.fixture
 async def clean_tables(test_db_session):
     """Opt-in fixture: truncate user-level tables after the test.

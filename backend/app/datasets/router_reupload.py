@@ -47,8 +47,12 @@ from app.ingest.service import (
 )
 from app.ingest.tasks import reupload_file, reupload_service
 from app.ingest.validation import validate_file_content
-from app.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
+from app.jobs.defer_guard import (
+    defer_with_orphan_guard,
+    make_ingest_job_failed_rollback,
+)
 from app.jobs.models import IngestJob
+from app.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.services.preview import build_gdal_source, run_service_preview
 from app.services.security import SSRFError, validate_url_for_ssrf
 from app.storage import get_storage
@@ -330,41 +334,73 @@ async def reupload_commit(
     job.user_metadata = existing_meta
     await db.commit()
 
+    # Each defer_async path is wrapped in the shared orphan guard
+    # (Theme H) so a Procrastinate outage flips the committed pending
+    # job to ``failed`` and returns HTTP 503 instead of leaving a ghost
+    # pending row for 60 minutes until stale-cleanup catches it.
+    rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue reupload task"
+    )
+
     if job.source_url and not job.file_path:
-        await reupload_service.defer_async(
-            job_id=str(job.id),
-            dataset_id=str(dataset_id),
-            source_url=job.source_url,
-            source_layer=job.source_layer or "",
-            user_id=str(user.id),
-            token=request.token,
-        )
+        source_url = job.source_url
+
+        async def _defer_service() -> None:
+            await reupload_service.defer_async(
+                job_id=str(job.id),
+                dataset_id=str(dataset_id),
+                source_url=source_url,
+                source_layer=job.source_layer or "",
+                user_id=str(user.id),
+                token=request.token,
+            )
+
+        await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
     else:
         # Route small files to priority queue
         import os
 
+        if job.file_path is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Job has no file_path and no source_url — cannot queue reupload",
+            )
+        file_path = job.file_path
+
         file_size = 0
         # Only check local files; S3 paths (no leading /) use default queue
-        if job.file_path and job.file_path.startswith("/"):
+        if file_path.startswith("/"):
             try:
-                if Path(job.file_path).exists():
-                    file_size = os.path.getsize(job.file_path)
+                if Path(file_path).exists():
+                    file_size = os.path.getsize(file_path)
             except OSError:
                 pass  # If we can't stat, use default queue
 
         if file_size > 0 and file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
-            await reupload_file.configure(queue="priority").defer_async(
-                job_id=str(job.id),
-                dataset_id=str(dataset_id),
-                file_path=job.file_path,
-                user_id=str(user.id),
+
+            async def _defer_priority() -> None:
+                await reupload_file.configure(queue="priority").defer_async(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=file_path,
+                    user_id=str(user.id),
+                )
+
+            await defer_with_orphan_guard(
+                _defer_priority, rollback=rollback, db=db
             )
         else:
-            await reupload_file.defer_async(
-                job_id=str(job.id),
-                dataset_id=str(dataset_id),
-                file_path=job.file_path,
-                user_id=str(user.id),
+
+            async def _defer_default() -> None:
+                await reupload_file.defer_async(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=file_path,
+                    user_id=str(user.id),
+                )
+
+            await defer_with_orphan_guard(
+                _defer_default, rollback=rollback, db=db
             )
 
     return ReuploadCommitResponse(
