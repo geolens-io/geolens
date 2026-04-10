@@ -263,6 +263,40 @@ export interface ValidationResultResponse {
   quality_score: Record<string, unknown> | null;
 }
 
+/**
+ * Structured warnings attached to IngestJob.user_metadata.warnings[] by
+ * the backend during ingest. Emitted when the pipeline silently rewrites
+ * or drops something so the UI can surface it without surprising users.
+ *
+ * Source: backend/app/ingest/tasks.py `_append_job_warning`
+ */
+export interface IngestReservedRenameWarning {
+  kind: 'reserved_rename';
+  details: Array<{ original: string; renamed: string }>;
+}
+
+export interface IngestDbfTruncationWarning {
+  kind: 'dbf_truncation_collision';
+  details: Array<{ truncated: string; originals: string[] }>;
+}
+
+export type IngestJobWarning =
+  | IngestReservedRenameWarning
+  | IngestDbfTruncationWarning;
+
+/**
+ * Shape of IngestJob.user_metadata. Optional because most ingests have no
+ * warnings and the backend only sets the keys it needs.
+ */
+export interface IngestJobUserMetadata {
+  warnings?: IngestJobWarning[];
+  archive_failed?: boolean;
+  archive_error?: string;
+  collision_warning?: string;
+  // Free-form keys set by the commit flow (title, summary, etc.)
+  [key: string]: unknown;
+}
+
 export interface OGCRecordProperties {
   type: string;
   title: string;
@@ -801,7 +835,6 @@ export interface SharedLayerResponse {
   show_in_legend?: boolean;
   layer_type?: string;
   dataset_record_type?: string;
-  tile_url: string;
 }
 
 export interface SharedMapResponse {
@@ -973,6 +1006,9 @@ export interface FileEntry {
   jobId: string | null;
   previewData: FilePreviewResponse | RasterPreviewResponse | null;
   error: string | null;
+  submittedTitle?: string | null;
+  submittedVisibility?: string | null;
+  submittedKind?: 'raster' | 'vector' | 'table' | null;
 }
 
 // Table discovery types
