@@ -9,7 +9,7 @@ const mockBasemaps = [
   { id: 'disabled-one', label: 'Disabled', url: 'https://example.com/x', enabled: false, is_preset: true },
 ];
 
-const mockUseBasemaps = vi.fn(() => ({ data: mockBasemaps }));
+const mockUseBasemaps = vi.fn((..._args: unknown[]) => ({ data: mockBasemaps }));
 
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: (...args: unknown[]) => mockUseBasemaps(...args),

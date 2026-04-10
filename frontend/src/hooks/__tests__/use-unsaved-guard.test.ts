@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react';
 import { useUnsavedGuard } from '../use-unsaved-guard';
 
 const mockBlocker = { state: 'unblocked' as const, reset: vi.fn(), proceed: vi.fn() };
-const mockUseBlocker = vi.fn(() => mockBlocker);
+const mockUseBlocker = vi.fn((..._args: unknown[]) => mockBlocker);
 
 vi.mock('react-router', async () => {
   const actual = await vi.importActual('react-router');
@@ -45,7 +45,7 @@ describe('useUnsavedGuard', () => {
   it('does not add beforeunload listener when hasUnsavedChanges is false', () => {
     renderHook(() => useUnsavedGuard(false));
     const beforeunloadCalls = addSpy.mock.calls.filter(
-      ([event]) => event === 'beforeunload',
+      ([event]: [string, ...unknown[]]) => event === 'beforeunload',
     );
     expect(beforeunloadCalls).toHaveLength(0);
   });

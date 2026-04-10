@@ -4,11 +4,12 @@ import { LayerStyleEditor } from '../LayerStyleEditor';
 import type { MapLayerResponse } from '@/types/api';
 
 // Radix Select uses ResizeObserver internally
-global.ResizeObserver = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-} as unknown as typeof ResizeObserver;
+(globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
 
 const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse => ({
   id: 'layer-1',

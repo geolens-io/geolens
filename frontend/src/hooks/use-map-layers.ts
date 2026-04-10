@@ -17,7 +17,10 @@ interface UseMapLayersOptions {
   geometryType: string | null;
   rasterTileUrl?: string | null;
   tileVersion?: string | null;
-  tileToken: string | null;
+  // Matches ``buildSignedTileUrl``'s parameter type — the hook previously
+  // typed this as ``string | null`` which was incompatible with the
+  // signed-token object shape it's actually passing through.
+  tileToken: { sig: string; exp: number; scope: string } | null;
   tileConfigCdnBaseUrl?: string;
   mapRef: React.RefObject<MaplibreMap | null>;
 }

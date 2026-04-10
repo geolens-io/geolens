@@ -106,6 +106,7 @@ function setAuthenticatedUser() {
         email: 'demo@example.com',
         is_active: true,
         status: 'active',
+        last_login_at: null,
         created_at: '2026-04-01T00:00:00Z',
         roles: ['editor'],
       },

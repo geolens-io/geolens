@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { buildLabelLayerSpec, syncLabelLayer } from '../label-layer-utils';
 import type { LabelConfig } from '@/types/api';
 
+// The helper returns a MapLibre `AddLayerObject`, which is a discriminated
+// union. The tests only care about the symbol-layer shape produced by
+// `buildLabelLayerSpec`, so normalize to a widened record for indexing.
+type SpecRecord = Record<string, unknown>;
+
 const baseLc: LabelConfig = {
   column: 'name',
   fontSize: 14,
@@ -20,7 +25,7 @@ describe('buildLabelLayerSpec', () => {
       sourceLayer: 'data.my_table',
       lc: baseLc,
       geomType: 'fill',
-    });
+    }) as unknown as SpecRecord;
 
     expect(spec.id).toBe('label-1');
     expect(spec.type).toBe('symbol');
@@ -50,7 +55,7 @@ describe('buildLabelLayerSpec', () => {
       sourceLayer: 'data.lines',
       lc: { column: 'road_name' },
       geomType: 'line',
-    });
+    }) as unknown as SpecRecord;
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['symbol-placement']).toBe('line');
@@ -65,7 +70,7 @@ describe('buildLabelLayerSpec', () => {
       sourceLayer: 'data.pts',
       lc: { column: 'label', placement: 'line-center' },
       geomType: 'circle',
-    });
+    }) as unknown as SpecRecord;
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['symbol-placement']).toBe('line-center');
@@ -79,7 +84,7 @@ describe('buildLabelLayerSpec', () => {
       sourceLayer: 'data.pts',
       lc: { column: 'name' },
       geomType: 'circle',
-    });
+    }) as unknown as SpecRecord;
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['text-offset']).toEqual([0, -1.5]);
@@ -93,7 +98,7 @@ describe('buildLabelLayerSpec', () => {
       lc: { column: 'x' },
       geomType: 'fill',
       visibility: 'none',
-    });
+    }) as unknown as SpecRecord;
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['visibility']).toBe('none');
@@ -106,7 +111,7 @@ describe('buildLabelLayerSpec', () => {
       sourceLayer: 'data.t',
       lc: { column: 'x' },
       geomType: 'fill',
-    });
+    }) as unknown as SpecRecord;
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout).not.toHaveProperty('visibility');
@@ -119,7 +124,7 @@ describe('buildLabelLayerSpec', () => {
       sourceLayer: 'data.t',
       lc: { column: 'x', placement: 'point', textAnchor: 'top', textOffset: [1, -2], allowOverlap: true },
       geomType: 'fill',
-    });
+    }) as unknown as SpecRecord;
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['text-anchor']).toBe('top');

@@ -88,7 +88,17 @@ export function DatasetMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
-  const { data: tileToken } = useTileToken(datasetId);
+  const { data: rawTileToken } = useTileToken(datasetId);
+  // Narrow to the vector-tile shape expected by downstream hooks.
+  // Raster tokens are a separate payload with a preformatted tile_url and
+  // are consumed via the rasterTileUrl prop path instead.
+  const tileToken = useMemo(
+    () =>
+      rawTileToken && rawTileToken.kind === 'vector'
+        ? { sig: rawTileToken.sig, exp: rawTileToken.exp, scope: rawTileToken.scope }
+        : null,
+    [rawTileToken],
+  );
   const [userBasemapId, setUserBasemapId] = useState<string | null>(null);
   const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
   const activeBasemap = useMemo(
@@ -122,7 +132,7 @@ export function DatasetMap({
     rasterTileUrl,
     tileVersion,
     tileToken: tileToken ?? null,
-    tileConfigCdnBaseUrl: tileConfig?.cdn_base_url,
+    tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
     mapRef,
   });
 
@@ -194,7 +204,7 @@ export function DatasetMap({
     mapRef,
     datasetId,
     tableName,
-    tileConfig,
+    tileConfig: tileConfig ?? null,
     tileToken,
     removeFeatures,
     getSnapshotFeature,

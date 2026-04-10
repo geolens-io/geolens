@@ -1,3 +1,4 @@
+import type React from 'react';
 import { render, screen } from '@testing-library/react';
 import { LayoutGrid } from 'lucide-react';
 import { useWidgetStore } from '@/stores/map-widget-store';
@@ -31,7 +32,7 @@ function WidgetB({ ctx }: { ctx: WidgetContext }) {
   return <div data-testid="widget-b">B: {ctx.mapId}</div>;
 }
 
-function CrashingWidget(): JSX.Element {
+function CrashingWidget(): React.ReactElement {
   throw new Error('Widget crashed!');
 }
 

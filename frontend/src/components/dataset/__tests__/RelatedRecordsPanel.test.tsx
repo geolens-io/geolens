@@ -16,6 +16,7 @@ const mockRelationship: DatasetRelationship = {
   target_column: 'id',
   target_dataset_title: 'Counties',
   label: 'County Records',
+  relationship_type: 'one-to-many',
 };
 
 describe('RelatedRecordsPanel', () => {

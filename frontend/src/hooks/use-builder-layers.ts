@@ -335,7 +335,7 @@ export function useBuilderLayers(
         'circle-stroke-width': 1,
       };
 
-      const updatedStyleConfig = {
+      const updatedStyleConfig: Record<string, unknown> = {
         ...currentStyleConfig,
         render_mode: 'points',
         heatmapPaint: savedHeatmapPaint,
@@ -345,7 +345,7 @@ export function useBuilderLayers(
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as unknown as typeof l.style_config }
             : l,
         ),
       );

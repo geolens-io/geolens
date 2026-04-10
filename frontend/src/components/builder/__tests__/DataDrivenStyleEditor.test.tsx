@@ -9,11 +9,12 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 // --- Polyfills ---
 
 // Radix Select uses ResizeObserver internally
-global.ResizeObserver = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-} as unknown as typeof ResizeObserver;
+(globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
 
 // --- Mocks ---
 
@@ -92,11 +93,11 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 
 /** Minimal query-result shape — the component only destructures `data`. */
 function hookData<T>(data: T) {
-  return { data } as ReturnType<typeof useColumnValues>;
+  return { data } as unknown as ReturnType<typeof useColumnValues>;
 }
 
 function noData() {
-  return { data: undefined } as ReturnType<typeof useColumnValues>;
+  return { data: undefined } as unknown as ReturnType<typeof useColumnValues>;
 }
 
 // --- Tests ---

@@ -1,15 +1,16 @@
+import type { Geometry } from 'geojson';
 import { apiFetch } from './client';
 
 export interface GeoJSONFeature {
   type: 'Feature';
   id: number;
-  geometry: Record<string, unknown>;
+  geometry: Geometry;
   properties: Record<string, unknown>;
 }
 
 export async function createFeature(
   datasetId: string,
-  geometry: Record<string, unknown>,
+  geometry: Geometry,
   properties?: Record<string, unknown>,
 ): Promise<GeoJSONFeature> {
   return apiFetch<GeoJSONFeature>(`/datasets/${datasetId}/features/`, {
@@ -28,7 +29,7 @@ export async function getFeature(
 export async function updateFeature(
   datasetId: string,
   gid: number,
-  geometry?: Record<string, unknown>,
+  geometry?: Geometry,
   properties?: Record<string, unknown>,
 ): Promise<GeoJSONFeature> {
   const body: Record<string, unknown> = {};

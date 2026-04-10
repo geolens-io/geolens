@@ -58,7 +58,7 @@ function isTextColumn(type: string): boolean {
  */
 function computeBreaks(
   statsData: { min: number; max: number; quantiles: number[] },
-  method: 'quantile' | 'equal',
+  method: 'quantile' | 'equal_interval',
   classCount: number,
 ): { breaks: number[]; effectiveClassCount: number } {
   let breaks: number[];

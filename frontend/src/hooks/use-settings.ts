@@ -83,7 +83,9 @@ export function useApiKeyStatus() {
 // network / auth errors. ApiError carries a translated message already;
 // fallback to String(err) for unexpected error shapes.
 function _formatMutationError(fallbackKey: string, err: unknown): string {
-  const base = i18n.t(fallbackKey);
+  // i18next ``.t()`` returns ``unknown`` under the newer generic; narrow
+  // at the boundary so the string concatenation below type-checks.
+  const base = i18n.t(fallbackKey) as string;
   if (err instanceof ApiError && err.message) {
     return `${base}: ${err.message}`;
   }

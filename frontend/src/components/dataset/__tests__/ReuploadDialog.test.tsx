@@ -108,6 +108,8 @@ function makeDataset(): DatasetResponse {
     quality_statement: null,
     collections: [],
     quality_detail: null,
+    record_type: 'vector_dataset',
+    raster: null,
   };
 }
 
@@ -124,6 +126,7 @@ function makeProbeResponse(): ProbeResponse {
         feature_count: 12,
         layer_type: 'vector',
         layer_id: 1,
+        object_id_field: null,
       },
       {
         name: 'roads',
@@ -132,6 +135,7 @@ function makeProbeResponse(): ProbeResponse {
         feature_count: 30,
         layer_type: 'vector',
         layer_id: 2,
+        object_id_field: null,
       },
     ],
   };

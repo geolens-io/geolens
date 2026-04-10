@@ -115,11 +115,11 @@ beforeEach(() => {
   vi.mocked(useVrtStatus).mockReturnValue({
     data: { status: 'ready', last_generation_at: null, source_count: 2, active_generation: null, source_health: [] },
     isLoading: false,
-  } as ReturnType<typeof useVrtStatus>);
+  } as unknown as ReturnType<typeof useVrtStatus>);
   vi.mocked(useVrtGenerations).mockReturnValue({
     data: { generations: [], total: 0 },
     isLoading: false,
-  } as ReturnType<typeof useVrtGenerations>);
+  } as unknown as ReturnType<typeof useVrtGenerations>);
   vi.mocked(useRegenerateVrt).mockReturnValue(
     mockRegenerateMutation as unknown as ReturnType<typeof useRegenerateVrt>,
   );
