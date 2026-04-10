@@ -20,6 +20,14 @@ LAT_PATTERNS = {"lat", "latitude", "y", "lat_dd", "ycoord"}
 LNG_PATTERNS = {"lon", "lng", "long", "longitude", "x", "lon_dd", "xcoord"}
 WKT_PATTERNS = {"wkt", "geom", "geometry", "the_geom", "shape"}
 
+# Column names that collide with GeoLens-internal PostGIS columns created
+# during ingestion. If a source file has an attribute with any of these
+# names, the ingest pipeline auto-renames it to `src_<name>` before the
+# remaining post-ingest steps run. See metadata.py rename_reserved_columns.
+RESERVED_COLUMN_NAMES: frozenset[str] = frozenset(
+    {"gid", "geom", "geometry", "geom_4326", "fid", "ogc_fid"}
+)
+
 
 def detect_geometry_columns(columns: list[dict]) -> dict:
     """Detect potential geometry columns from column metadata.
@@ -327,6 +335,15 @@ async def run_ogr2ogr(
         f"data.{table_name}",
         "-lco",
         "FID=gid",
+        # -lco PRECISION=NO:
+        #   GDAL's PostgreSQL driver defaults to PRECISION=YES, which honors source
+        #   numeric(precision, scale) declarations and writes columns as PG NUMERIC.
+        #   We set NO to force all numeric-family fields to FLOAT8 / INTEGER / VARCHAR.
+        #   Tradeoff: we lose declared precision/scale but gain predictable query
+        #   performance and simpler downstream type inference (metadata.py
+        #   _infer_domain_type). Values above 2^53 may lose integer precision.
+        #   Locked via .planning/quick/260410-d7k-.../260410-d7k-CONTEXT.md decision
+        #   ("PRECISION=NO: leave it, document why"). Do not change without review.
         "-lco",
         "PRECISION=NO",
         "--config",
@@ -413,6 +430,9 @@ async def run_ogr2ogr_service(
         f"data.{table_name}",
         "-lco",
         "FID=gid",
+        # -lco PRECISION=NO: same tradeoff as run_ogr2ogr — forces all
+        # numeric-family fields to FLOAT8/INTEGER/VARCHAR for predictable type
+        # inference. See run_ogr2ogr comment and CONTEXT.md decision for details.
         "-lco",
         "PRECISION=NO",
         "--config",
