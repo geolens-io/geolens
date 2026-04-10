@@ -310,8 +310,7 @@ async def run_ogrinfo_preview(
                 for f in target_layer.get("fields", [])
             ]
             metadata["sample_rows"] = [
-                feat.get("properties", {})
-                for feat in target_layer.get("features", [])
+                feat.get("properties", {}) for feat in target_layer.get("features", [])
             ]
             return metadata
         except KeyError:
