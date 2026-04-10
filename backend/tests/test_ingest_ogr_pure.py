@@ -178,3 +178,75 @@ class TestParseTextOgrinfo:
             "layer_name": "",
             "feature_count": None,
         }
+
+
+class TestDetectDbfTruncationCollisions:
+    """Pure-unit tests for the DBF 10-char truncation collision detector.
+
+    These tests do not require ogr2ogr or a database and always run
+    regardless of environment (RESEARCH §2.3).
+    """
+
+    def test_detects_collision(self):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+
+        cols = [
+            {"name": "population_2020", "type": "Integer"},
+            {"name": "population_2021", "type": "Integer"},
+            {"name": "region", "type": "String"},
+        ]
+        result = detect_dbf_truncation_collisions(cols)
+        assert len(result) == 1
+        assert sorted(result[0]["originals"]) == ["population_2020", "population_2021"]
+        # 'population_2020'[:10] = 'population'
+        assert result[0]["truncated"] == "population"
+
+    def test_no_collision_when_names_differ_in_first_10(self):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+
+        cols = [
+            {"name": "pop_2020", "type": "Integer"},
+            {"name": "pop_2021", "type": "Integer"},
+        ]
+        # 'pop_2020'[:10] = 'pop_2020', 'pop_2021'[:10] = 'pop_2021' — no collision
+        result = detect_dbf_truncation_collisions(cols)
+        assert result == []
+
+    def test_empty_input(self):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+
+        assert detect_dbf_truncation_collisions([]) == []
+
+    def test_single_column_not_a_collision(self):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+
+        cols = [{"name": "population_2020", "type": "Integer"}]
+        assert detect_dbf_truncation_collisions(cols) == []
+
+    def test_truncation_is_case_insensitive(self):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+
+        # GDAL LAUNDER=YES lowercases names; the helper also lowercases
+        cols = [
+            {"name": "Population_2020", "type": "Integer"},
+            {"name": "population_2021", "type": "Integer"},
+        ]
+        result = detect_dbf_truncation_collisions(cols)
+        assert len(result) == 1
+        assert sorted(result[0]["originals"]) == ["Population_2020", "population_2021"]
+
+    def test_multiple_collision_groups(self):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+
+        cols = [
+            {"name": "population_2020", "type": "Integer"},
+            {"name": "population_2021", "type": "Integer"},
+            {"name": "temperature_avg", "type": "Real"},
+            {"name": "temperature_max", "type": "Real"},
+            {"name": "region", "type": "String"},
+        ]
+        result = detect_dbf_truncation_collisions(cols)
+        assert len(result) == 2
+        truncated_keys = {r["truncated"] for r in result}
+        assert "population" in truncated_keys
+        assert "temperatur" in truncated_keys

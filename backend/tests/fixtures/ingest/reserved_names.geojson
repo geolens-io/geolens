@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "name": "reserved_names",
+  "crs": {
+    "type": "name",
+    "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [2.3522, 48.8566] },
+      "properties": {
+        "gid": 100,
+        "geom": "not-actually-a-geometry",
+        "geom_4326": "also-not-a-geom",
+        "fid": 200,
+        "label": "first feature"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-0.1278, 51.5074] },
+      "properties": {
+        "gid": 101,
+        "geom": "still-not-geometry",
+        "geom_4326": "nope",
+        "fid": 201,
+        "label": "second feature"
+      }
+    }
+  ]
+}

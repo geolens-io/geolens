@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "name": "unicode_attrs",
+  "crs": {
+    "type": "name",
+    "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [2.3522, 48.8566] },
+      "properties": {
+        "Nom": "Paris",
+        "Größe": 105.4,
+        "Área": 2161.0,
+        "name_ascii": "paris_control"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-0.1278, 51.5074] },
+      "properties": {
+        "Nom": "London",
+        "Größe": 1572.0,
+        "Área": 8982.0,
+        "name_ascii": "london_control"
+      }
+    }
+  ]
+}
