@@ -34,7 +34,9 @@ def mock_ingest_task():
     impl audit KISS-9). Mock that single entry point so every commit_import
     path becomes a no-op.
     """
-    with patch("app.ingest.router.queue_ingest_job", new_callable=AsyncMock) as mock_task:
+    with patch(
+        "app.ingest.router.queue_ingest_job", new_callable=AsyncMock
+    ) as mock_task:
         yield mock_task
 
 

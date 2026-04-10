@@ -83,9 +83,7 @@ class TestDeferWithOrphanGuard:
                 received_exc.append(exc)
 
             with pytest.raises(HTTPException) as exc_info:
-                await defer_with_orphan_guard(
-                    _defer, rollback=_rollback, db=mock_db
-                )
+                await defer_with_orphan_guard(_defer, rollback=_rollback, db=mock_db)
 
             assert exc_info.value.status_code == 503
             assert "retry" in str(exc_info.value.detail).lower()
@@ -114,9 +112,7 @@ class TestDeferWithOrphanGuard:
                 raise ValueError("rollback crashed")
 
             with pytest.raises(HTTPException) as exc_info:
-                await defer_with_orphan_guard(
-                    _defer, rollback=_rollback, db=mock_db
-                )
+                await defer_with_orphan_guard(_defer, rollback=_rollback, db=mock_db)
 
             # 503 is always raised — rollback failure is logged, not swallowed.
             assert exc_info.value.status_code == 503
@@ -246,9 +242,7 @@ class TestReuploadOrphanGuard:
             mock_dataset = MagicMock()
             request = ReuploadCommitRequest(token=None)
 
-            failing_defer = AsyncMock(
-                side_effect=RuntimeError("priority queue dead")
-            )
+            failing_defer = AsyncMock(side_effect=RuntimeError("priority queue dead"))
 
             with (
                 patch(
@@ -289,9 +283,7 @@ class TestReuploadOrphanGuard:
             mock_dataset = MagicMock()
             request = ReuploadCommitRequest(token=None)
 
-            failing_defer = AsyncMock(
-                side_effect=RuntimeError("default queue dead")
-            )
+            failing_defer = AsyncMock(side_effect=RuntimeError("default queue dead"))
 
             with (
                 patch(

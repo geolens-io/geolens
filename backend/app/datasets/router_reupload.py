@@ -386,9 +386,7 @@ async def reupload_commit(
                     user_id=str(user.id),
                 )
 
-            await defer_with_orphan_guard(
-                _defer_priority, rollback=rollback, db=db
-            )
+            await defer_with_orphan_guard(_defer_priority, rollback=rollback, db=db)
         else:
 
             async def _defer_default() -> None:
@@ -399,9 +397,7 @@ async def reupload_commit(
                     user_id=str(user.id),
                 )
 
-            await defer_with_orphan_guard(
-                _defer_default, rollback=rollback, db=db
-            )
+            await defer_with_orphan_guard(_defer_default, rollback=rollback, db=db)
 
     return ReuploadCommitResponse(
         job_id=job.id,

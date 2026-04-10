@@ -368,7 +368,7 @@ async def compute_quality_score(
     ]
     if non_geom_cols:
         col_exprs = ", ".join(
-            f'COUNT({_sql_quote_ident(col["name"])}) '
+            f"COUNT({_sql_quote_ident(col['name'])}) "
             f'* 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
             for i, col in enumerate(non_geom_cols)
         )
