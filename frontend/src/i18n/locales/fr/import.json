@@ -58,6 +58,25 @@
     "hintGeometry": "Vérifiez que le fichier contient des données géométriques valides",
     "hintEmpty": "Le fichier semble être vide ou ne contient aucune entité géographique"
   },
+  "warnings": {
+    "bannerTitle": "Importation terminée avec des avertissements",
+    "reservedRename": {
+      "title": "Noms de colonnes réservés renommés",
+      "description": "Les colonnes source qui entrent en conflit avec les noms de colonnes internes de GeoLens ont été renommées automatiquement avec le préfixe `src_` afin que les données source et la géométrie de la pipeline puissent coexister."
+    },
+    "dbfTruncation": {
+      "title": "Collisions de noms de champs Shapefile",
+      "description": "Les noms de champs DBF Shapefile sont limités à 10 caractères. Deux champs source ou plus ont été réduits au même nom tronqué et ont pu être fusionnés lors de l'importation."
+    },
+    "archiveFailed": {
+      "title": "Échec de l'archivage du fichier original",
+      "description": "Le jeu de données a été importé avec succès, mais la copie du fichier source original vers le stockage durable a échoué. Le jeu de données reste interrogeable ; retéléchargez-le si vous avez besoin de restaurer le fichier original."
+    },
+    "temporalParseErrors": {
+      "title": "Champs temporels supprimés",
+      "description": "Les valeurs temporelles suivantes n'ont pas pu être analysées comme des dates ISO-8601 et ont été supprimées. Saisissez-les à nouveau dans l'éditeur de métadonnées du jeu de données pour les restaurer."
+    }
+  },
   "dropzone": {
     "instructions": "Glissez-déposez des fichiers ici, ou cliquez pour parcourir",
     "dropHere": "Déposez les fichiers ici",
@@ -175,6 +194,8 @@
     "autoDetected": "Detection automatique",
     "manualOverride": "Remplacement manuel",
     "nonSpatial": "Importer comme non spatial",
+    "embeddedGeometry": "Utilisation de la géométrie intégrée",
+    "embeddedGeometryHelp": "Cette source inclut déjà une géométrie native, GeoLens la conservera pendant l'importation.",
     "xColumn": "X (Longitude)",
     "yColumn": "Y (Latitude)",
     "wktColumn": "Colonne WKT",
@@ -211,6 +232,13 @@
     "committed": "Validé",
     "removeFile": "Supprimer le fichier",
     "importProgress": "Progression de l'importation",
+    "readyTitle_one": "1 jeu de données prêt",
+    "readyTitle_other": "{{count}} jeux de données prêts",
+    "readyDescription": "Ouvrez directement les jeux terminés ou continuez à téléverser pendant que les autres tâches se terminent.",
+    "kindRaster": "Jeu raster",
+    "kindVector": "Jeu spatial",
+    "kindTable": "Table non spatiale",
+    "openDataset": "Ouvrir le jeu de données",
     "uploadMore": "Télécharger plus",
     "rasterDatasetsReady": "{{count}} jeux de données raster prêts",
     "createVrtMosaic": "Créer un mosaïque VRT",

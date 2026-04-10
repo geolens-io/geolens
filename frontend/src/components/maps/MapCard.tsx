@@ -32,6 +32,8 @@ export function MapCard({ map, onDelete }: MapCardProps) {
       <Link
         to={`/maps/${map.id}`}
         className="w-44 shrink-0 bg-muted flex items-center justify-center overflow-hidden"
+        aria-label={t('maps.card.previewAlt', { name: map.name })}
+        title={t('maps.card.previewAlt', { name: map.name })}
       >
         {thumbnailSrc && !imgError ? (
           <img

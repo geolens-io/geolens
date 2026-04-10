@@ -27,6 +27,8 @@ export function MapCardGrid({ map, onDelete }: MapCardProps) {
       <Link
         to={`/maps/${map.id}`}
         className="aspect-video bg-muted flex items-center justify-center overflow-hidden"
+        aria-label={t('maps.card.previewAlt', { name: map.name })}
+        title={t('maps.card.previewAlt', { name: map.name })}
       >
         {thumbnailSrc && !imgError ? (
           <img

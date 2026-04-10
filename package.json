@@ -5,6 +5,10 @@
   "license": "Apache-2.0",
   "scripts": {
     "e2e": "npx playwright test",
+    "e2e:smoke": "npm run e2e:smoke:core && npm run e2e:smoke:builder && npm run e2e:smoke:fixtures",
+    "e2e:smoke:core": "npx playwright test e2e/admin.spec.ts e2e/auth.spec.ts e2e/search.spec.ts e2e/dataset-detail.spec.ts e2e/collections.spec.ts e2e/permissions.spec.ts --project=chromium",
+    "e2e:smoke:builder": "npx playwright test e2e/builder.spec.ts e2e/builder-styling.spec.ts --project=chromium",
+    "e2e:smoke:fixtures": "npx playwright test e2e/upload.spec.ts e2e/non-spatial.spec.ts --project=chromium",
     "e2e:export": "npx playwright test e2e/export-runtime.spec.ts --project=api --workers=1 --retries=0",
     "e2e:ui": "npx playwright test --ui"
   },

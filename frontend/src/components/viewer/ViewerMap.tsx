@@ -184,8 +184,9 @@ export function ViewerMap({
           // Anonymous / JWT path — single batch request. Required for the
           // public PublicMapViewerPage → ViewerMap path, which has no
           // apiKey and no embedToken. Without this branch, tokenMap stays
-          // empty and syncLayersToMap falls back to layer.tile_url
-          // (hardcoded `.pbf`), producing 503s on every raster tile fetch.
+          // empty and the first sync treats every layer as vector data,
+          // producing `.pbf` tile URLs for rasters and breaking anonymous
+          // raster rendering.
           const response = await getTileTokensBatch(layerDatasetIds);
           newMap = new Map<string, TileToken>();
           for (const [datasetId, entry] of Object.entries(response.tokens)) {
@@ -392,12 +393,10 @@ export function ViewerMap({
     // Gate the first sync on tile tokens arriving: syncLayersToMap branches
     // on `token?.kind === 'raster'` to pick the raster adapter vs. the
     // vector path. If we sync before tokens land, every layer — including
-    // rasters — is added as a vector source with `buildSignedTileUrl(...,
-    // null, ...)` producing URLs like `data.raster_xxx/z/x/y.pbf?
-    // sig=undefined&exp=undefined&scope=undefined`, which the server
-    // rejects with 422 and maplibre never recovers from. The embed-token
-    // path has its own transformRequest flow and doesn't depend on
-    // tokenMap, so it's allowed to sync immediately.
+    // rasters — is added as a vector source with a `.pbf` URL, which the
+    // server rejects for raster datasets and maplibre never recovers from.
+    // The embed-token path has its own transformRequest flow and doesn't
+    // depend on tokenMap, so it's allowed to sync immediately.
     if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
     runSync(map);
   }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken]);
@@ -412,8 +411,8 @@ export function ViewerMap({
   // indiscriminately — and `buildSignedTileUrl` always produces a vector
   // URL. That meant on every token refresh we were overwriting raster
   // sources' correct `/raster-tiles/.../tiles/{z}/{x}/{y}.png` URLs with
-  // broken vector URLs like `data.raster_xxx/z/x/y.pbf?sig=undefined`,
-  // which the server rejects with 422 and the raster never renders again.
+  // broken vector `.pbf` URLs, which the server rejects and the raster
+  // never renders again.
   // Gate on `source.type === 'vector'` and on the token also being the
   // vector kind so rasters (which have stable URLs and no expiration) are
   // left untouched.

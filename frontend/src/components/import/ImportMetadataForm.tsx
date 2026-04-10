@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { getGeometryTypeLabel } from '@/i18n/labels';
 import { stripExtension } from './utils';
 
 type GeometryMode = 'auto' | 'manual' | 'none';
@@ -19,6 +21,7 @@ interface ImportMetadataFormProps {
   isRaster?: boolean;
   previewData?: RasterPreviewResponse;
   previewColumns?: { name: string; type: string }[];
+  detectedGeometryType?: string | null;
   detectedGeometryColumns?: {
     x_column: string | null;
     y_column: string | null;
@@ -52,6 +55,7 @@ export function ImportMetadataForm({
   isRaster = false,
   previewData,
   previewColumns,
+  detectedGeometryType,
   detectedGeometryColumns,
 }: ImportMetadataFormProps) {
   const { t } = useTranslation('import');
@@ -88,8 +92,10 @@ export function ImportMetadataForm({
   const stringColumns = (previewColumns ?? []).filter(
     (c) => c.type === 'String',
   );
+  const hasEmbeddedGeometry = Boolean(detectedGeometryType);
+  const showEmbeddedGeometrySection = !isRaster && hasEmbeddedGeometry;
   const showGeomSection =
-    !isRaster && previewColumns && previewColumns.length > 0;
+    !isRaster && !hasEmbeddedGeometry && previewColumns && previewColumns.length > 0;
 
   // Raster-specific fields
   const [temporalStart, setTemporalStart] = useState(
@@ -195,6 +201,33 @@ export function ImportMetadataForm({
               {t('metadata.crsHelpText')}
             </p>
           </div>
+
+          {showEmbeddedGeometrySection && (
+            <div className="space-y-3 rounded-md border border-success/30 bg-success/5 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">
+                  {t('metadata.geometryColumns')}
+                </p>
+                <Badge variant="outline" className="border-success/40 bg-background/80">
+                  {detectedGeometryType
+                    ? getGeometryTypeLabel(t, detectedGeometryType)
+                    : t('preview.unknown')}
+                </Badge>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {t('metadata.embeddedGeometry', {
+                    defaultValue: 'Using embedded geometry',
+                  })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('metadata.embeddedGeometryHelp', {
+                    defaultValue: 'This source already includes native geometry, so GeoLens will keep it during import.',
+                  })}
+                </p>
+              </div>
+            </div>
+          )}
 
           {showGeomSection && (
             <div className="space-y-3 rounded-md border p-3">

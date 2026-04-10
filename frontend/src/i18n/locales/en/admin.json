@@ -494,7 +494,7 @@
       "branding": {
         "title": "Branding",
         "description": "Control the visibility of GeoLens branding across the application",
-        "showBadge": "Show \"Powered by GeoLens\" badge"
+        "showBadge": "Show \"Powered by GeoLens\" footer label"
       }
     },
     "network": {

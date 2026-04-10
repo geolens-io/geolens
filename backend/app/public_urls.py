@@ -72,7 +72,10 @@ def join_public_url(base_url: str, path: str) -> str:
     """Join an absolute public base URL with an API-relative path."""
     if not path.startswith("/"):
         path = "/" + path
-    return normalize_public_url(base_url) + path
+    normalized = normalize_public_url(base_url)
+    if normalized is None:
+        raise ValueError(f"Cannot join public URL: base_url={base_url!r} is not a valid URL")
+    return normalized + path
 
 
 def _is_env_only() -> bool:
@@ -120,6 +123,9 @@ def resolve_public_api_url(
 
     request_origin = _request_origin(request)
     if request_origin:
+        # _request_origin only returns a value when request is non-None
+        # AND could resolve an origin; narrow for mypy.
+        assert request is not None
         root_path = request.scope.get("root_path", "").rstrip("/")
         if root_path:
             return request_origin + root_path

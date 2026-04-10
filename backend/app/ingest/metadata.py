@@ -465,9 +465,15 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
 async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
     """Rename the geometry column to 'geom' if ogr2ogr used a different name.
 
-    This handles edge cases where ogr2ogr creates 'wkb_geometry' instead of
-    'geom' (e.g. when appending to a pre-existing table from a failed ingest,
-    or when the GDAL driver ignores -lco GEOMETRY_NAME).
+    In the happy path this renames the `_geolens_geom` placeholder that
+    `run_ogr2ogr` / `run_ogr2ogr_service` create (see the GEOMETRY_NAME
+    override in ogr.py) to `geom`. It also handles legacy edge cases where
+    ogr2ogr creates 'wkb_geometry' instead (e.g. when appending to a
+    pre-existing table or when a driver ignores -lco GEOMETRY_NAME).
+
+    Must run AFTER `rename_reserved_columns` so that any source attribute
+    named `geom`/`geometry` has already been moved to `src_<name>`,
+    leaving `geom` free for the rename.
 
     Returns True if the table has a geometry column, False for non-spatial tables.
     """

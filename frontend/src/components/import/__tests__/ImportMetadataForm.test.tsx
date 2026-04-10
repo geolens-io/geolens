@@ -5,6 +5,7 @@ import { ImportMetadataForm } from '../ImportMetadataForm';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
+      if (typeof opts?.defaultValue === 'string') return opts.defaultValue;
       if (opts) return `${key}:${JSON.stringify(opts)}`;
       return key;
     },
@@ -81,6 +82,21 @@ describe('ImportMetadataForm', () => {
       />,
     );
     expect(screen.queryByText('metadata.geometryColumns')).not.toBeInTheDocument();
+  });
+
+  it('shows a read-only embedded geometry state for native geometry sources', () => {
+    render(
+      <ImportMetadataForm
+        {...defaultProps}
+        previewColumns={sampleColumns}
+        detectedGeometryType="Point"
+        detectedGeometryColumns={null}
+      />,
+    );
+
+    expect(screen.getByText('Using embedded geometry')).toBeInTheDocument();
+    expect(screen.queryByLabelText('metadata.geometryMode')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('metadata.xColumn')).not.toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------
@@ -320,6 +336,29 @@ describe('ImportMetadataForm', () => {
         y_column: 'Latitude',
       }),
     );
+  });
+
+  it('submits native geometry sources without override columns', async () => {
+    const onCommit = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <ImportMetadataForm
+        {...defaultProps}
+        onCommit={onCommit}
+        previewColumns={sampleColumns}
+        detectedGeometryType="Point"
+        detectedGeometryColumns={null}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+
+    const call = onCommit.mock.calls[0][0];
+    expect(call).toEqual(expect.objectContaining({ title: 'test-data' }));
+    expect(call).not.toHaveProperty('x_column');
+    expect(call).not.toHaveProperty('y_column');
+    expect(call).not.toHaveProperty('geom_column');
   });
 
   // ---------------------------------------------------------------------------

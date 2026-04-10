@@ -58,6 +58,25 @@
     "hintGeometry": "Check that the file contains valid geometry data",
     "hintEmpty": "The file appears to be empty or contains no geographic features"
   },
+  "warnings": {
+    "bannerTitle": "Import completed with warnings",
+    "reservedRename": {
+      "title": "Reserved column names renamed",
+      "description": "Source columns that clash with GeoLens-internal column names were automatically renamed with a `src_` prefix so both the source data and pipeline geometry can coexist."
+    },
+    "dbfTruncation": {
+      "title": "Shapefile field name collisions",
+      "description": "Shapefile DBF field names are capped at 10 characters. Two or more source fields collapsed to the same truncated name and may have been merged during import."
+    },
+    "archiveFailed": {
+      "title": "Original file archive failed",
+      "description": "The dataset was imported successfully, but copying the original source file to durable storage failed. The dataset is still queryable; re-upload if you need the original file restored."
+    },
+    "temporalParseErrors": {
+      "title": "Temporal fields dropped",
+      "description": "The following temporal values could not be parsed as ISO-8601 dates and were dropped. Re-enter them in the dataset metadata editor to restore them."
+    }
+  },
   "dropzone": {
     "instructions": "Drag and drop files here, or click to browse",
     "dropHere": "Drop files here",
@@ -175,6 +194,8 @@
     "autoDetected": "Auto-detected",
     "manualOverride": "Manual override",
     "nonSpatial": "Import as non-spatial",
+    "embeddedGeometry": "Using embedded geometry",
+    "embeddedGeometryHelp": "This source already includes native geometry, so GeoLens will keep it during import.",
     "xColumn": "X (Longitude)",
     "yColumn": "Y (Latitude)",
     "wktColumn": "WKT Column",
@@ -211,6 +232,13 @@
     "committed": "Committed",
     "removeFile": "Remove file",
     "importProgress": "Import Progress",
+    "readyTitle_one": "1 dataset ready",
+    "readyTitle_other": "{{count}} datasets ready",
+    "readyDescription": "Open the finished datasets directly, or keep uploading while the rest of the jobs settle.",
+    "kindRaster": "Raster dataset",
+    "kindVector": "Spatial dataset",
+    "kindTable": "Non-spatial table",
+    "openDataset": "Open dataset",
     "uploadMore": "Upload More",
     "rasterDatasetsReady": "{{count}} raster datasets ready",
     "createVrtMosaic": "Create VRT Mosaic",

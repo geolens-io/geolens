@@ -66,10 +66,11 @@ describe('DatasetDetailHeader', () => {
     ];
 
     const desktop = partitionActions(actions, false);
-    expect(desktop.primary.map((action) => action.id)).toEqual([]);
-    expect(desktop.overflow.map((action) => action.id)).toEqual([
+    expect(desktop.primary.map((action) => action.id)).toEqual([
       'edit',
       'secondary-edit',
+    ]);
+    expect(desktop.overflow.map((action) => action.id)).toEqual([
       'draw',
       'delete',
     ]);
@@ -109,7 +110,7 @@ describe('DatasetDetailHeader', () => {
     expect(screen.getByTestId('leading')).toBeInTheDocument();
   });
 
-  it('routes overflow clicks to original handlers and preserves disabled state', async () => {
+  it('keeps desktop primary actions visible and preserves disabled overflow state', async () => {
     const user = userEvent.setup();
     const editHandler = vi.fn();
     const drawHandler = vi.fn();
@@ -126,12 +127,10 @@ describe('DatasetDetailHeader', () => {
       />,
     );
 
-    // With limit=0, all actions go to overflow menu
-    await user.click(screen.getByRole('button', { name: /more actions/i }));
+    expect(screen.getByRole('button', { name: 'EDIT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'DRAW' })).toBeInTheDocument();
 
-    // EDIT and DRAW are in the overflow menu
-    expect(screen.getByRole('menuitem', { name: 'EDIT' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'DRAW' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
 
     const overflowDelete = screen.getByRole('menuitem', { name: 'DELETE' });
     expect(overflowDelete).toHaveAttribute('data-disabled', '');

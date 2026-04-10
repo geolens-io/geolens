@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from pathlib import Path
 from typing import BinaryIO, Protocol
 
@@ -74,7 +75,10 @@ class StorageProvider(Protocol):
         self,
         key: str,
         upload_id: str,
-        parts: list[dict],
+        # Use builtins.list rather than bare `list` because this class
+        # defines a `list(...)` method below, and mypy treats the method
+        # name as shadowing the builtin inside annotations.
+        parts: "builtins.list[dict]",
     ) -> None:
         """Complete a multipart upload with the list of {ETag, PartNumber} dicts. Raises NotImplementedError for local storage."""
         ...
@@ -95,6 +99,10 @@ def init_storage() -> None:
     if settings.storage_provider == "s3":
         from app.storage.s3 import S3StorageProvider
 
+        if not settings.s3_bucket:
+            raise RuntimeError(
+                "storage_provider='s3' but s3_bucket is not configured"
+            )
         _storage = S3StorageProvider(
             bucket=settings.s3_bucket,
             endpoint=settings.s3_endpoint,

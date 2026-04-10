@@ -2,15 +2,12 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Permissions', () => {
   test('settings: permissions tab loads with matrix', async ({ page }) => {
-    await page.goto('/admin/settings#permissions');
+    await page.goto('/admin/settings/permissions');
 
-    // Verify settings page heading
+    // Verify permissions page heading
     await expect(
-      page.getByRole('heading', { name: 'Settings' }),
+      page.getByRole('heading', { name: 'Permissions' }),
     ).toBeVisible();
-
-    // Click the Permissions tab to ensure it's active
-    await page.getByRole('tab', { name: 'Permissions' }).click();
 
     // Verify matrix card
     await expect(page.getByText('Role Permissions')).toBeVisible({
@@ -42,10 +39,7 @@ test.describe('Permissions', () => {
   test('admin lockout: manage_users and manage_settings checkboxes are disabled for admin', async ({
     page,
   }) => {
-    await page.goto('/admin/settings#permissions');
-
-    // Click the Permissions tab to ensure it's active
-    await page.getByRole('tab', { name: 'Permissions' }).click();
+    await page.goto('/admin/settings/permissions');
 
     await expect(page.getByText('Role Permissions')).toBeVisible({
       timeout: 10_000,
@@ -53,14 +47,14 @@ test.describe('Permissions', () => {
 
     // Admin manage_users checkbox should be checked and disabled
     const manageUsersAdmin = page.getByRole('checkbox', {
-      name: 'Manage Users for admin',
+      name: 'Manage Users for Admin',
     });
     await expect(manageUsersAdmin).toBeChecked();
     await expect(manageUsersAdmin).toBeDisabled();
 
     // Admin manage_settings checkbox should be checked and disabled
     const manageSettingsAdmin = page.getByRole('checkbox', {
-      name: 'Manage Settings for admin',
+      name: 'Manage Settings for Admin',
     });
     await expect(manageSettingsAdmin).toBeChecked();
     await expect(manageSettingsAdmin).toBeDisabled();
@@ -70,7 +64,7 @@ test.describe('Permissions', () => {
     request,
   }) => {
     // Login to get token
-    const loginResp = await request.post('/api/auth/login', {
+    const loginResp = await request.post('http://localhost:8080/api/auth/login/', {
       form: {
         username: process.env.GEOLENS_ADMIN_USERNAME ?? 'admin',
         password: process.env.GEOLENS_ADMIN_PASSWORD ?? 'admin',
@@ -80,7 +74,7 @@ test.describe('Permissions', () => {
     const { access_token } = await loginResp.json();
 
     // Fetch permissions
-    const permResp = await request.get('/api/auth/me/permissions', {
+    const permResp = await request.get('http://localhost:8080/api/auth/me/permissions/', {
       headers: { Authorization: `Bearer ${access_token}` },
     });
     expect(permResp.ok()).toBeTruthy();
@@ -95,10 +89,10 @@ test.describe('Permissions', () => {
     }
   });
 
-  test('navbar: admin sees Maps, Import, and Admin links', async ({
+  test('navbar: admin sees Maps, Admin in the user menu, and Import in the Create menu', async ({
     page,
   }) => {
-    await page.goto('/search');
+    await page.goto('/');
     await expect(
       page.getByRole('combobox', { name: 'Search geospatial data...' }),
     ).toBeVisible();
@@ -106,7 +100,12 @@ test.describe('Permissions', () => {
     // Admin should see all permission-gated nav links
     const nav = page.locator('header nav');
     await expect(nav.getByRole('link', { name: 'Maps' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Import' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Admin' })).toBeVisible();
+
+    await page.getByRole('button', { name: /user menu/i }).click();
+    await expect(page.getByRole('menuitem', { name: 'Admin' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'Create' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Import Data' })).toBeVisible();
   });
 });

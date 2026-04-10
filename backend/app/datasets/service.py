@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import logging
 
 if TYPE_CHECKING:
-    from app.datasets.schemas import DatasetMeta
+    from app.datasets.schemas import DatasetMeta, DatasetResponse
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -367,7 +367,7 @@ async def get_dataset_detail(
     *,
     base_url: str | None = None,
     collections_data: list[dict] | None = None,
-) -> dict | None:
+) -> "DatasetResponse | None":
     """Fetch full dataset detail including raster assets, STAC assets, and collections.
 
     Returns a DatasetResponse or None if not found.
@@ -1023,21 +1023,23 @@ async def get_related_datasets(
 
     try:
         # Get the dataset's record_id
-        ds_result = await db.execute(
-            select(Dataset.record_id).where(Dataset.id == dataset_id)
-        )
-        row = ds_result.first()
-        if row is None:
+        record_id_row = (
+            await db.execute(
+                select(Dataset.record_id).where(Dataset.id == dataset_id)
+            )
+        ).first()
+        if record_id_row is None:
             return []
-        record_id = row[0]
+        record_id = record_id_row[0]
 
         # Get the dataset's embedding for distance calculation
-        emb_result = await db.execute(
-            select(RecordEmbedding.embedding)
-            .where(RecordEmbedding.record_id == record_id)
-            .limit(1)
-        )
-        emb_row = emb_result.first()
+        emb_row = (
+            await db.execute(
+                select(RecordEmbedding.embedding)
+                .where(RecordEmbedding.record_id == record_id)
+                .limit(1)
+            )
+        ).first()
         if emb_row is None:
             return []
         embedding = emb_row[0]
@@ -1060,7 +1062,10 @@ async def get_related_datasets(
         nn_dist_result = await db.execute(nn_dist_stmt)
         neighbor_map = {r.record_id: r.distance for r in nn_dist_result.all()}
 
-        # Join to Dataset + Record to get metadata, apply visibility filter
+        # Join to Dataset + Record to get metadata, apply visibility filter.
+        # Use a fresh local `ds_stmt` so mypy re-infers `Dataset` as the row
+        # type (the earlier `select(Dataset.record_id)` bound `ds_result` to
+        # `Result[UUID]` which leaked into the reassignment).
         ds_stmt = (
             select(Dataset)
             .join(Record, Dataset.record_id == Record.id)
@@ -1070,11 +1075,14 @@ async def get_related_datasets(
         ds_stmt = apply_visibility_filter(
             ds_stmt, user, user_roles, Record, DatasetGrant
         )
-        ds_result = await db.execute(ds_stmt)
-        datasets = list(ds_result.scalars().unique().all())
+        dataset_result = await db.execute(ds_stmt)
+        datasets = list(dataset_result.scalars().unique().all())
 
-        # Build response items sorted by similarity (descending)
-        items = []
+        # Build response items sorted by similarity (descending). `similarity`
+        # is always a float (the list is only appended to when distance is
+        # not None), but mypy widens the dict value type to the union of all
+        # keys; pin it on the sort key to keep the lambda return typed.
+        items: list[dict] = []
         for ds in datasets:
             distance = neighbor_map.get(ds.record_id)
             if distance is not None:
@@ -1089,7 +1097,7 @@ async def get_related_datasets(
                     }
                 )
 
-        items.sort(key=lambda x: x["similarity"], reverse=True)
+        items.sort(key=lambda x: float(x["similarity"]), reverse=True)
         return items[:limit]
 
     except Exception:

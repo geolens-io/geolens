@@ -667,6 +667,9 @@ class TestRegenerateVrtTask:
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=False)
+            # session.add is synchronous in real SQLAlchemy; AsyncMock would
+            # make it return an un-awaited coroutine and emit RuntimeWarning.
+            mock_session.add = MagicMock()
 
             call_count = [0]
 
@@ -792,6 +795,9 @@ class TestRegenerateVrtTask:
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=False)
+            # session.add is synchronous in real SQLAlchemy; AsyncMock would
+            # make it return an un-awaited coroutine and emit RuntimeWarning.
+            mock_session.add = MagicMock()
 
             call_count = [0]
 

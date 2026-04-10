@@ -284,19 +284,6 @@ export type IngestJobWarning =
   | IngestReservedRenameWarning
   | IngestDbfTruncationWarning;
 
-/**
- * Shape of IngestJob.user_metadata. Optional because most ingests have no
- * warnings and the backend only sets the keys it needs.
- */
-export interface IngestJobUserMetadata {
-  warnings?: IngestJobWarning[];
-  archive_failed?: boolean;
-  archive_error?: string;
-  collision_warning?: string;
-  // Free-form keys set by the commit flow (title, summary, etc.)
-  [key: string]: unknown;
-}
-
 export interface OGCRecordProperties {
   type: string;
   title: string;
@@ -471,6 +458,16 @@ export interface JobStatusResponse {
   source_filename: string | null;
   error_message: string | null;
   warning_message: string | null;
+  /**
+   * S3: structured warnings surfaced from IngestJob.user_metadata so the
+   * frontend can render a banner on the upload success screen / dataset
+   * detail page. Empty array when the ingest had no warnings.
+   */
+  warnings: IngestJobWarning[];
+  archive_failed: boolean;
+  temporal_parse_errors: Partial<
+    Record<'temporal_start' | 'temporal_end', string>
+  >;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;

@@ -138,6 +138,372 @@ class TestGetJobStatus:
         assert resp.json()["status"] == "failed"
         assert "Stale" in resp.json()["error_message"]
 
+    async def test_get_job_default_warnings_empty(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """S3: clean jobs return empty warnings/archive_failed/temporal_parse_errors."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["warnings"] == []
+        assert data["archive_failed"] is False
+        assert data["temporal_parse_errors"] == {}
+        assert data["warning_message"] is None
+
+    async def test_get_job_surfaces_reserved_rename_warnings(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """S3: structured reserved_rename warnings surface via JobStatusResponse."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        # Directly stamp user_metadata to simulate what _append_job_warning
+        # writes at the end of ingest_file.
+        job.user_metadata = {
+            "title": "Cities",
+            "warnings": [
+                {
+                    "kind": "reserved_rename",
+                    "details": [
+                        {"original": "geom", "renamed": "src_geom"},
+                        {"original": "gid", "renamed": "src_gid"},
+                    ],
+                }
+            ],
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["warnings"]) == 1
+        assert data["warnings"][0]["kind"] == "reserved_rename"
+        renames = data["warnings"][0]["details"]
+        originals = {r["original"] for r in renames}
+        assert originals == {"geom", "gid"}
+
+    async def test_get_job_surfaces_archive_failed(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """S3: archive_failed=True surfaces when storage put failed."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.user_metadata = {
+            "archive_failed": True,
+            "archive_error": "S3 unreachable after 3 retries",
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        assert resp.json()["archive_failed"] is True
+
+    async def test_get_job_surfaces_temporal_parse_errors(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """N5: unparseable temporal fields are surfaced to the client."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.user_metadata = {
+            "temporal_parse_errors": {
+                "temporal_start": "not-a-date",
+                "temporal_end": "2024-13-99",
+            }
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        errors = resp.json()["temporal_parse_errors"]
+        assert errors == {
+            "temporal_start": "not-a-date",
+            "temporal_end": "2024-13-99",
+        }
+
+    async def test_get_job_surfaces_legacy_collision_warning_message(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Legacy scalar warning_message still surfaces for table-name collisions."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.user_metadata = {
+            "collision_warning": "Table 'cities' already exists, using 'cities_2'",
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        assert "cities_2" in resp.json()["warning_message"]
+
+    async def test_get_job_ignores_malformed_warnings(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Router must not crash when user_metadata contains unexpected shapes."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        # warnings is a scalar (wrong), temporal_parse_errors is a list (wrong).
+        # Both should be ignored without raising.
+        job.user_metadata = {
+            "warnings": "not a list",
+            "temporal_parse_errors": ["also", "wrong"],
+            "archive_failed": "truthy-string",
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["warnings"] == []  # malformed scalar dropped
+        assert data["temporal_parse_errors"] == {}  # malformed list dropped
+        assert data["archive_failed"] is True  # truthy coerces via bool()
+
+    async def test_get_job_drops_unknown_warning_kind(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """TYPE-2: unknown warning ``kind`` values are dropped, not proxied.
+
+        Regression for the contract-drift scenario: if a future task emits a
+        warning kind the Pydantic union does not recognize, ``JobStatusResponse``
+        must still serialize cleanly (with the unknown entry skipped) instead
+        of 500ing the endpoint.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.user_metadata = {
+            "warnings": [
+                # Good entry — should surface.
+                {
+                    "kind": "reserved_rename",
+                    "details": [{"original": "gid", "renamed": "src_gid"}],
+                },
+                # Unknown kind — should be dropped without error.
+                {"kind": "future_kind_nobody_added_yet", "details": []},
+                # Malformed entry (missing required field) — dropped too.
+                {"kind": "reserved_rename"},
+            ],
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["warnings"]) == 1
+        assert data["warnings"][0]["kind"] == "reserved_rename"
+        assert data["warnings"][0]["details"] == [
+            {"original": "gid", "renamed": "src_gid"}
+        ]
+
+    async def test_get_job_drops_unknown_temporal_parse_error_keys(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """TYPE-3: ``temporal_parse_errors`` keys are narrowed to the contract set.
+
+        An upstream bug that emits ``temporal_created`` (unknown key) must not
+        make the whole response fail Pydantic ``Literal`` validation — the
+        router filters the dict before handing it to the schema.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.user_metadata = {
+            "temporal_parse_errors": {
+                "temporal_start": "bad-value",
+                "temporal_end": "also-bad",
+                "temporal_bogus": "should-be-dropped",
+            }
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200
+        errors = resp.json()["temporal_parse_errors"]
+        assert errors == {
+            "temporal_start": "bad-value",
+            "temporal_end": "also-bad",
+        }
+        assert "temporal_bogus" not in errors
+
+
+# ---------------------------------------------------------------------------
+# S3: Get job status by dataset_id
+# ---------------------------------------------------------------------------
+
+
+class TestGetJobStatusByDataset:
+    """S3 completion: look up ingest warnings by dataset_id.
+
+    Powers the permanent warnings banner on the dataset detail page — the
+    dataset doesn't store ingest warnings directly, so the UI fetches the
+    most recent completed job for the dataset and renders any warnings
+    attached to it.
+    """
+
+    async def test_returns_404_for_unknown_dataset(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        resp = await client.get(
+            f"/jobs/by-dataset/{uuid.uuid4()}", headers=admin_auth_header
+        )
+        assert resp.status_code == 404
+
+    async def test_returns_404_when_dataset_has_no_job(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Dataset registered from an existing table has no ingest job → 404."""
+        from tests.factories import create_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+        )
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=admin_auth_header
+        )
+        assert resp.status_code == 404
+
+    async def test_returns_warnings_for_dataset_with_job(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Dataset with a completed job surfaces warnings via the new endpoint."""
+        from tests.factories import create_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+        )
+
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.dataset_id = dataset.id
+        job.user_metadata = {
+            "warnings": [
+                {
+                    "kind": "reserved_rename",
+                    "details": [{"original": "gid", "renamed": "src_gid"}],
+                }
+            ],
+            "archive_failed": True,
+        }
+        await test_db_session.commit()
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dataset_id"] == str(dataset.id)
+        assert len(data["warnings"]) == 1
+        assert data["warnings"][0]["kind"] == "reserved_rename"
+        assert data["archive_failed"] is True
+
+    async def test_returns_most_recent_job_when_multiple_exist(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Re-ingest / reupload can create multiple jobs for one dataset."""
+        from tests.factories import create_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+        )
+
+        older = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        older.dataset_id = dataset.id
+        older.user_metadata = {"stamp": "older"}
+        await test_db_session.commit()
+
+        newer = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        newer.dataset_id = dataset.id
+        newer.user_metadata = {"stamp": "newer"}
+        # Ensure a distinct, later created_at so ORDER BY is deterministic.
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.ingest_jobs "
+                "SET created_at = NOW() + INTERVAL '1 second' "
+                "WHERE id = :job_id"
+            ),
+            {"job_id": str(newer.id)},
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        # id should match the newer job, not the older one.
+        assert resp.json()["id"] == str(newer.id)
+
+    async def test_404_when_dataset_not_visible_to_user(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Users who can't see the dataset cannot leak job existence via 403."""
+        from tests.factories import create_dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        # Private dataset owned by admin — editor cannot see it.
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+        )
+        job = await _create_job(
+            test_db_session, created_by=admin_id, status="complete"
+        )
+        job.dataset_id = dataset.id
+        await test_db_session.commit()
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=editor_auth_header
+        )
+        # Non-visible dataset should return 404, not 403 or 200.
+        assert resp.status_code == 404
+
+    async def test_unauthenticated_rejected(self, client: AsyncClient):
+        resp = await client.get(f"/jobs/by-dataset/{uuid.uuid4()}")
+        assert resp.status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Retry job

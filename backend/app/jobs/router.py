@@ -3,6 +3,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -12,9 +13,19 @@ from app.auth.dependencies import get_current_active_user, require_permission
 from app.auth.models import Role, User, UserRole
 from app.dependencies import get_db
 from app.ingest.schemas import UploadResponse
-from app.ingest.tasks import ingest_file, ingest_service
+from app.ingest.service import queue_ingest_job
 from app.jobs.models import IngestJob
-from app.jobs.schemas import JobStatusResponse, StaleCleanupResponse
+from app.jobs.schemas import (
+    DbfTruncationCollisionWarning,
+    JobStatusResponse,
+    ReservedRenameWarning,
+    StaleCleanupResponse,
+)
+
+# Contract: only these two keys may appear in temporal_parse_errors. The
+# alias lets ``cast`` narrow dict writes without triggering ruff F821 on
+# string literals inside the ``Literal[...]`` expression.
+TemporalParseKey = Literal["temporal_start", "temporal_end"]
 
 router = APIRouter(prefix="/jobs", tags=["Admin"])
 
@@ -129,10 +140,68 @@ async def get_job_status(
             job.completed_at = now
             await db.commit()
 
-    # Extract collision warning from user_metadata if present
-    warning_message = None
+    return _job_to_status_response(job)
+
+
+def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
+    """Extract warnings + structured metadata from ``user_metadata`` (S3/TYPE-2).
+
+    Shared by ``get_job_status`` (lookup by job_id) and
+    ``get_job_status_by_dataset`` (lookup by dataset_id) so the warning-parse
+    contract lives in a single place.
+
+    Warnings are validated through the ``IngestJobWarning`` discriminated
+    union; any malformed entry (unknown ``kind``, missing fields) is logged
+    and dropped so a stale-producer bug cannot break the whole endpoint.
+    """
+    import structlog
+    from pydantic import ValidationError
+
+    logger = structlog.get_logger()
+
+    warning_message: str | None = None
+    warnings: list[ReservedRenameWarning | DbfTruncationCollisionWarning] = []
+    archive_failed = False
+    temporal_parse_errors: dict[TemporalParseKey, str] = {}
     if job.user_metadata and isinstance(job.user_metadata, dict):
         warning_message = job.user_metadata.get("collision_warning")
+        raw_warnings = job.user_metadata.get("warnings")
+        if isinstance(raw_warnings, list):
+            for raw in raw_warnings:
+                if not isinstance(raw, dict):
+                    continue
+                kind = raw.get("kind")
+                try:
+                    if kind == "reserved_rename":
+                        warnings.append(ReservedRenameWarning.model_validate(raw))
+                    elif kind == "dbf_truncation_collision":
+                        warnings.append(
+                            DbfTruncationCollisionWarning.model_validate(raw)
+                        )
+                    else:
+                        logger.warning(
+                            "Dropping ingest warning with unknown kind",
+                            job_id=str(job.id),
+                            kind=kind,
+                        )
+                except ValidationError as exc:
+                    logger.warning(
+                        "Dropping malformed ingest warning",
+                        job_id=str(job.id),
+                        kind=kind,
+                        error=str(exc)[:500],
+                    )
+        archive_failed = bool(job.user_metadata.get("archive_failed"))
+        raw_temporal = job.user_metadata.get("temporal_parse_errors")
+        if isinstance(raw_temporal, dict):
+            # Narrow to the contract keys — drop anything unknown so the
+            # Pydantic ``Literal`` validation cannot reject the whole
+            # response on a stale producer. ``cast`` makes the narrowing
+            # explicit to mypy so no ``type: ignore`` is needed.
+            for k, v in raw_temporal.items():
+                key = str(k)
+                if key in ("temporal_start", "temporal_end"):
+                    temporal_parse_errors[cast(TemporalParseKey, key)] = str(v)
 
     return JobStatusResponse(
         id=job.id,
@@ -141,10 +210,68 @@ async def get_job_status(
         source_filename=job.source_filename,
         error_message=job.error_message,
         warning_message=warning_message,
+        warnings=warnings,
+        archive_failed=archive_failed,
+        temporal_parse_errors=temporal_parse_errors,
         started_at=job.started_at,
         completed_at=job.completed_at,
         created_at=job.created_at,
     )
+
+
+@router.get("/by-dataset/{dataset_id}", response_model=JobStatusResponse)
+async def get_job_status_by_dataset(
+    dataset_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobStatusResponse:
+    """Look up the most recent ingest job for a dataset.
+
+    Used by the dataset detail page to surface ingest warnings permanently
+    (S3 completion) — the job is the source of truth for
+    ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
+    / ``temporal_parse_errors`` metadata.
+
+    Returns the most recently created completed job for the dataset, or 404
+    if none exists (e.g. the dataset was registered from an existing table,
+    not ingested).
+    """
+    # Visibility check: reuse the dataset detail permission so only users
+    # who can see the dataset can see the job warnings. Avoid leaking the
+    # existence of jobs via 403 vs 404 divergence.
+    from app.auth.visibility import apply_visibility_filter, get_user_roles
+    from app.datasets.models import Dataset, DatasetGrant, Record
+
+    user_roles = await get_user_roles(db, user)
+    dataset_stmt = (
+        select(Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id == dataset_id)
+    )
+    dataset_stmt = apply_visibility_filter(
+        dataset_stmt, user, user_roles, Record, DatasetGrant
+    )
+    dataset_result = await db.execute(dataset_stmt)
+    if dataset_result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found or no ingest job associated",
+        )
+
+    job_result = await db.execute(
+        select(IngestJob)
+        .where(IngestJob.dataset_id == dataset_id)
+        .order_by(IngestJob.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No ingest job found for this dataset",
+        )
+
+    return _job_to_status_response(job)
 
 
 @router.post(
@@ -191,41 +318,26 @@ async def retry_job(
             detail="Only failed jobs can be retried",
         )
 
-    if job.source_url and not job.file_path:
-        # Service job — no staging file needed
-        job.status = "pending"
-        job.error_message = None
-        job.started_at = None
-        job.completed_at = None
-        job.dataset_id = None
-        await db.commit()
-
-        await ingest_service.defer_async(
-            job_id=str(job.id),
-            source_url=job.source_url,
-            source_layer=job.source_layer or "",
-            user_id=str(job.created_by),
-        )
-    else:
-        # File job — check staging file exists
+    # Validate staging file exists for file jobs before touching DB state.
+    is_service_job = bool(job.source_url and not job.file_path)
+    if not is_service_job:
         if not job.file_path or not Path(job.file_path).exists():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Staging file no longer available. Please re-upload.",
             )
 
-        job.status = "pending"
-        job.error_message = None
-        job.started_at = None
-        job.completed_at = None
-        job.dataset_id = None
-        await db.commit()
+    # Reset the job to pending and commit before re-queueing so the
+    # orphan guard in queue_ingest_job can flip it back to failed if
+    # the queue is down (RESILIENCE-2).
+    job.status = "pending"
+    job.error_message = None
+    job.started_at = None
+    job.completed_at = None
+    job.dataset_id = None
+    await db.commit()
 
-        await ingest_file.defer_async(
-            job_id=str(job.id),
-            file_path=job.file_path,
-            user_id=str(job.created_by),
-        )
+    await queue_ingest_job(job, str(job.created_by), db=db)
 
     return UploadResponse(
         job_id=job.id,

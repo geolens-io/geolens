@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ApiError } from '@/api/client';
 import { downloadCog } from '@/api/datasets';
+import { IngestWarningsBanner } from './IngestWarningsBanner';
 
 interface JobProgressProps {
   jobId: string;
@@ -134,6 +135,10 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
           {job.started_at && <p>{t('jobProgress.started')} {formatDateTimeSmart(job.started_at)}</p>}
           {job.completed_at && <p>{t('jobProgress.completed')} {formatDateTimeSmart(job.completed_at)}</p>}
         </div>
+
+        {job.status === 'complete' && (
+          <IngestWarningsBanner job={job} />
+        )}
 
         {job.status === 'complete' && job.dataset_id && (
           <div className="flex flex-wrap items-center gap-2">

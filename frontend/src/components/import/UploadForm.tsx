@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FileDropzone } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
-import { stripExtension } from './utils';
+import { inferImportedKind, stripExtension } from './utils';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
 import type { FileEntry, BatchPhase, CommitImportRequest } from '@/types/api';
@@ -80,6 +80,9 @@ export function UploadForm() {
       jobId: null,
       previewData: null,
       error: null,
+      submittedTitle: null,
+      submittedVisibility: null,
+      submittedKind: null,
     }));
 
     setEntries(newEntries);
@@ -129,7 +132,13 @@ export function UploadForm() {
       await commitImport(entry.jobId, request);
       setEntries((prev) => {
         const updated = prev.map((e) =>
-          e.id === entryId ? { ...e, status: 'tracking' as const } : e,
+          e.id === entryId ? {
+            ...e,
+            status: 'tracking' as const,
+            submittedTitle: request.title,
+            submittedVisibility: request.visibility ?? 'private',
+            submittedKind: inferImportedKind(e, request),
+          } : e,
         );
         const allDone = updated.every(
           (e) =>
@@ -173,7 +182,12 @@ export function UploadForm() {
               entry.previewData?.source_filename ?? entry.fileName,
             ) || 'Untitled';
           await commitImport(entry.jobId!, { title: name });
-          updateEntry(entry.id, { status: 'tracking' });
+          updateEntry(entry.id, {
+            status: 'tracking',
+            submittedTitle: name,
+            submittedVisibility: 'private',
+            submittedKind: inferImportedKind(entry),
+          });
         } catch (err) {
           const msg =
             err instanceof ApiError ? err.message : t('upload.bulkCommitFailed');

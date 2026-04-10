@@ -11,7 +11,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -81,8 +81,11 @@ class PersistentConfig(Generic[T]):
     def env_default(self) -> T:
         """Resolve env_default: factory (dynamic) or static."""
         if self._env_default_factory is not None:
-            return self._env_default_factory()
-        return self._env_default_static
+            return cast(T, self._env_default_factory())
+        # ``None`` is a valid default for Optional settings (e.g.
+        # ENABLED_WIDGETS = None means "all widgets enabled"), so we
+        # intentionally cast rather than assert non-None here.
+        return cast(T, self._env_default_static)
 
     async def get(self, db: AsyncSession) -> T:
         """Resolve effective value: env_only -> cache -> DB -> env_default."""
@@ -103,9 +106,13 @@ class PersistentConfig(Generic[T]):
             select(AppSetting.value).where(AppSetting.key == self.key)
         )
         row = result.scalar_one_or_none()
+        effective: T
         if row is not None:
             # AppSetting.value is JSONB -- unwrap the stored value
-            effective = row if not isinstance(row, dict) or "v" not in row else row["v"]
+            unwrapped = (
+                row if not isinstance(row, dict) or "v" not in row else row["v"]
+            )
+            effective = cast(T, unwrapped)
         else:
             effective = self.env_default
 
@@ -136,8 +143,13 @@ class PersistentConfig(Generic[T]):
         # Upsert
         result = await db.execute(select(AppSetting).where(AppSetting.key == self.key))
         existing = result.scalar_one_or_none()
-        # Wrap value in a JSONB-friendly dict for non-dict types
-        stored = value if isinstance(value, (dict, list)) else {"v": value}
+        # Wrap value in a JSONB-friendly dict for non-dict types. AppSetting.value
+        # is typed as dict JSONB, so cast the wrapped payload for mypy.
+        stored: dict[str, Any] = (
+            cast(dict[str, Any], value)
+            if isinstance(value, (dict, list))
+            else {"v": value}
+        )
         if existing is None:
             db.add(AppSetting(key=self.key, value=stored))
         else:
@@ -557,7 +569,7 @@ BRANDING_SHOW_BADGE = PersistentConfig[bool](
     key="branding.show_badge",
     env_default=True,
     tab="branding",
-    label="Show Powered by GeoLens Badge",
+    label="Show Powered by GeoLens Footer Label",
 )
 
 

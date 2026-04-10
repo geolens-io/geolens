@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -23,8 +22,6 @@ import { CreateDatasetDialog } from '@/components/create/CreateDatasetDialog';
 import { CollectionCreateDialog } from '@/components/collections/CollectionCreateDialog';
 import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
-import { GitHubIcon } from '@/components/icons/GitHubIcon';
-import { GEOLENS_GITHUB_URL } from '@/lib/external-links';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -344,17 +341,6 @@ export function Navbar() {
           <div className="hidden md:block">
             <CreateMenu />
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" asChild className="hidden md:inline-flex">
-                <a href={GEOLENS_GITHUB_URL} target="_blank" rel="noopener noreferrer">
-                  <GitHubIcon className="h-4 w-4" />
-                  <span className="sr-only">GitHub</span>
-                </a>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('nav.github')}</TooltipContent>
-          </Tooltip>
           <UserMenu />
         </div>
       </div>

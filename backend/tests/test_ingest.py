@@ -659,7 +659,11 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
     from sqlalchemy import text
 
     from app.datasets.models import Dataset
-    from app.ingest.tasks import _arcgis_type_to_column_type, _finalize_ingest
+    from app.ingest.tasks import (
+        IngestContext,
+        _arcgis_type_to_column_type,
+        _finalize_ingest,
+    )
     from app.jobs.models import IngestJob
 
     admin_id = await _get_admin_id_for_ingest(test_db_session)
@@ -700,16 +704,18 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
 
     try:
         await _finalize_ingest(
-            session=test_db_session,
-            job=job,
-            table_name=table_name,
-            user_id=str(admin_id),
-            has_geometry=False,
-            effective_srid=None,
-            source_format="arcgis_featureserver",
-            source_filename="TestTable",
-            original_srid=None,
-            user_metadata=user_metadata,
+            IngestContext(
+                session=test_db_session,
+                job=job,
+                table_name=table_name,
+                user_id=str(admin_id),
+                has_geometry=False,
+                effective_srid=None,
+                source_format="arcgis_featureserver",
+                source_filename="TestTable",
+                original_srid=None,
+                user_metadata=user_metadata,
+            )
         )
 
         from sqlalchemy import select
@@ -754,3 +760,478 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
             await test_db_session.execute(
                 text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
             )
+
+
+# ---------------------------------------------------------------------------
+# K1 — ingest_file phase helpers (_detect_and_override_geometry, _archive_original_file)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_detect_and_override_geometry_returns_none_when_no_override(
+    test_db_session,
+):
+    """Empty user_metadata → helper is a no-op returning None (KISS-2)."""
+    from app.ingest.tasks import _detect_and_override_geometry
+
+    geom_type = await _detect_and_override_geometry(
+        test_db_session,
+        table_name="ignored",
+        user_metadata={},
+    )
+    assert geom_type is None
+
+
+@pytest.mark.anyio
+async def test_detect_and_override_geometry_x_y_constructs_point(test_db_session):
+    """x_column + y_column metadata triggers construct_point_geometry."""
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from app.ingest.tasks import _detect_and_override_geometry
+
+    table_name = f"tst_xygeom_{_uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            "  gid SERIAL PRIMARY KEY,"
+            "  lon DOUBLE PRECISION,"
+            "  lat DOUBLE PRECISION"
+            ")"
+        )
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{table_name} (lon, lat) VALUES (2.35, 48.85)")
+    )
+    await test_db_session.commit()
+
+    try:
+        geom_type = await _detect_and_override_geometry(
+            test_db_session,
+            table_name=table_name,
+            user_metadata={"x_column": "lon", "y_column": "lat"},
+        )
+        assert geom_type == "Point"
+
+        # Verify a geom column was actually created and populated.
+        col_check = await test_db_session.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='data' AND table_name=:t AND column_name='geom'"
+            ).bindparams(t=table_name)
+        )
+        assert col_check.scalar_one_or_none() == "geom"
+
+        geom_check = await test_db_session.execute(
+            text(f"SELECT ST_AsText(geom) FROM data.{table_name} WHERE gid=1")
+        )
+        wkt = geom_check.scalar_one()
+        assert wkt.startswith("POINT(")
+    finally:
+        await test_db_session.execute(
+            text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_detect_and_override_geometry_uppercase_column_names_lowered(
+    test_db_session,
+):
+    """ogr2ogr lowercases column names; helper must match regardless of input case."""
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from app.ingest.tasks import _detect_and_override_geometry
+
+    table_name = f"tst_xyupper_{_uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            "  gid SERIAL PRIMARY KEY,"
+            "  lon DOUBLE PRECISION,"
+            "  lat DOUBLE PRECISION"
+            ")"
+        )
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{table_name} (lon, lat) VALUES (-0.13, 51.51)")
+    )
+    await test_db_session.commit()
+
+    try:
+        # Uppercase input — helper lowercases before querying.
+        geom_type = await _detect_and_override_geometry(
+            test_db_session,
+            table_name=table_name,
+            user_metadata={"x_column": "LON", "y_column": "LAT"},
+        )
+        assert geom_type == "Point"
+    finally:
+        await test_db_session.execute(
+            text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_detect_and_override_geometry_wkt_column_detects_type(test_db_session):
+    """geom_column metadata triggers construct_wkt_geometry and re-detects type."""
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from app.ingest.tasks import _detect_and_override_geometry
+
+    table_name = f"tst_wktgeom_{_uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            "  gid SERIAL PRIMARY KEY,"
+            "  wkt_field TEXT"
+            ")"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (wkt_field) "
+            "VALUES ('LINESTRING(0 0, 1 1, 2 2)')"
+        )
+    )
+    await test_db_session.commit()
+
+    try:
+        geom_type = await _detect_and_override_geometry(
+            test_db_session,
+            table_name=table_name,
+            user_metadata={"geom_column": "wkt_field"},
+        )
+        # Re-detected from the constructed column — PostGIS GeometryType()
+        # returns the uppercase short form (LINESTRING/POLYGON/etc).
+        assert geom_type == "LINESTRING"
+    finally:
+        await test_db_session.execute(
+            text(f"DROP TABLE IF EXISTS data.{table_name} CASCADE")
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_detect_and_override_geometry_empty_strings_treated_as_absent(
+    test_db_session,
+):
+    """Empty strings must not trigger the override path — they mean 'not set'."""
+    from app.ingest.tasks import _detect_and_override_geometry
+
+    geom_type = await _detect_and_override_geometry(
+        test_db_session,
+        table_name="ignored",
+        user_metadata={"x_column": "", "y_column": "", "geom_column": ""},
+    )
+    assert geom_type is None
+
+
+# ---------------------------------------------------------------------------
+# _archive_original_file tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_archive_original_file_success_leaves_user_metadata_untouched(
+    tmp_path, monkeypatch
+):
+    """Happy path: storage.put succeeds, job.user_metadata is NOT mutated."""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.ingest.tasks import _archive_original_file
+
+    # Create a real file to upload.
+    upload_file = tmp_path / "roads.geojson"
+    upload_file.write_text('{"type":"FeatureCollection","features":[]}')
+
+    put_calls = []
+
+    mock_storage = AsyncMock()
+    mock_storage.put = AsyncMock(side_effect=lambda key, fobj: put_calls.append(key))
+
+    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+
+    mock_session = AsyncMock()
+    mock_session.commit = AsyncMock()
+
+    job = MagicMock()
+    job.user_metadata = {"title": "Roads", "summary": "test"}
+
+    dataset_id = _uuid.uuid4()
+
+    await _archive_original_file(
+        mock_session,
+        job=job,
+        dataset_id=dataset_id,
+        file_path=str(upload_file),
+    )
+
+    # Storage.put called with expected key format
+    assert len(put_calls) == 1
+    assert put_calls[0] == f"originals/{dataset_id}/roads.geojson"
+
+    # user_metadata untouched on success
+    assert job.user_metadata == {"title": "Roads", "summary": "test"}
+    assert "archive_failed" not in job.user_metadata
+
+
+@pytest.mark.anyio
+async def test_archive_original_file_failure_marks_user_metadata(tmp_path, monkeypatch):
+    """Storage failure → job.user_metadata['archive_failed']=True + error recorded."""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.ingest.tasks import _archive_original_file
+
+    upload_file = tmp_path / "cities.csv"
+    upload_file.write_text("name,lat,lng\nParis,48.85,2.35\n")
+
+    mock_storage = AsyncMock()
+    mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
+
+    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+
+    mock_session = AsyncMock()
+    mock_session.commit = AsyncMock()
+
+    job = MagicMock()
+    job.user_metadata = {"title": "Cities"}
+
+    dataset_id = _uuid.uuid4()
+
+    # Must NOT raise — archive is best-effort.
+    await _archive_original_file(
+        mock_session,
+        job=job,
+        dataset_id=dataset_id,
+        file_path=str(upload_file),
+    )
+
+    assert job.user_metadata["archive_failed"] is True
+    assert "S3 unreachable" in job.user_metadata["archive_error"]
+    assert job.user_metadata["title"] == "Cities"  # preserved
+    mock_session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_archive_original_file_commit_failure_does_not_raise(
+    tmp_path, monkeypatch
+):
+    """RESILIENCE-1 regression: commit failure after archive failure must not raise.
+
+    Before fix: if storage.put raised AND then session.commit raised (e.g. a
+    transient pooler drop), the unguarded commit propagated out of the helper
+    and flipped the already-successful ingest into a 'failed' job via the
+    outer task try/except. The dataset was already committed, so Procrastinate
+    would re-run the whole pipeline on retry and produce duplicate datasets.
+
+    After fix: the metadata commit is in its own try/except so commit failures
+    are logged and dropped — the dataset stays successful.
+    """
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.ingest.tasks import _archive_original_file
+
+    upload_file = tmp_path / "fragile.geojson"
+    upload_file.write_text('{"type":"FeatureCollection","features":[]}')
+
+    mock_storage = AsyncMock()
+    mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
+    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+
+    mock_session = AsyncMock()
+    # Commit fails — simulate a pooler drop or deadlock.
+    mock_session.commit = AsyncMock(side_effect=RuntimeError("pooler dropped"))
+    mock_session.rollback = AsyncMock()
+
+    job = MagicMock()
+    job.user_metadata = {"title": "Fragile"}
+    dataset_id = _uuid.uuid4()
+
+    # Must NOT raise — both the archive put AND the metadata commit failed.
+    await _archive_original_file(
+        mock_session,
+        job=job,
+        dataset_id=dataset_id,
+        file_path=str(upload_file),
+    )
+
+    # user_metadata was updated in memory even though the commit didn't persist.
+    assert job.user_metadata["archive_failed"] is True
+    assert "S3 unreachable" in job.user_metadata["archive_error"]
+    # Rollback was called so the session is clean for the caller.
+    mock_session.rollback.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_archive_original_file_failure_truncates_long_error(
+    tmp_path, monkeypatch
+):
+    """Very long error messages are truncated to 500 chars to avoid JSONB bloat."""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.ingest.tasks import _archive_original_file
+
+    upload_file = tmp_path / "big.shp.zip"
+    upload_file.write_bytes(b"PK\x03\x04")  # fake zip header
+
+    long_error = "X" * 2000  # way over 500 char limit
+
+    mock_storage = AsyncMock()
+    mock_storage.put = AsyncMock(side_effect=RuntimeError(long_error))
+
+    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+
+    mock_session = AsyncMock()
+    mock_session.commit = AsyncMock()
+
+    job = MagicMock()
+    job.user_metadata = None  # test the None branch too
+
+    await _archive_original_file(
+        mock_session,
+        job=job,
+        dataset_id=_uuid.uuid4(),
+        file_path=str(upload_file),
+    )
+
+    assert job.user_metadata is not None
+    assert job.user_metadata["archive_failed"] is True
+    assert len(job.user_metadata["archive_error"]) == 500
+
+
+# ---------------------------------------------------------------------------
+# queue_ingest_job orphan-guard (RESILIENCE-2 extension)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_queue_ingest_job_file_defer_failure_marks_job_failed(tmp_path):
+    """Procrastinate outage during file ingest defer → job marked failed + 503."""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from fastapi import HTTPException
+
+    from app.ingest.service import queue_ingest_job
+
+    # Real file on disk so queue_ingest_job's size probe runs.
+    upload_file = tmp_path / "cities.geojson"
+    upload_file.write_text('{"type":"FeatureCollection","features":[]}')
+
+    mock_db = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    job = MagicMock()
+    job.id = _uuid.uuid4()
+    job.source_url = None
+    job.file_path = str(upload_file)
+    job.user_metadata = None
+    job.status = "pending"
+    job.error_message = None
+    job.completed_at = None
+
+    failing_defer = AsyncMock(side_effect=RuntimeError("procrastinate unreachable"))
+
+    with patch("app.ingest.tasks.ingest_file") as mock_task:
+        # Small file path routes to configure("priority").defer_async
+        priority_task = MagicMock()
+        priority_task.defer_async = failing_defer
+        mock_task.configure.return_value = priority_task
+        mock_task.defer_async = failing_defer
+
+        with pytest.raises(HTTPException) as exc_info:
+            await queue_ingest_job(job, "user-id", db=mock_db)
+
+    assert exc_info.value.status_code == 503
+    assert job.status == "failed"
+    assert job.error_message is not None
+    assert "procrastinate unreachable" in job.error_message
+    assert job.completed_at is not None
+    mock_db.commit.assert_awaited()
+
+
+@pytest.mark.anyio
+async def test_queue_ingest_job_service_defer_failure_marks_job_failed():
+    """Procrastinate outage during service ingest defer → job marked failed + 503."""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from fastapi import HTTPException
+
+    from app.ingest.service import queue_ingest_job
+
+    mock_db = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    job = MagicMock()
+    job.id = _uuid.uuid4()
+    job.source_url = "https://example.com/services/arcgis/0"
+    job.source_layer = "parcels"
+    job.file_path = None
+    job.user_metadata = None
+    job.status = "pending"
+    job.error_message = None
+    job.completed_at = None
+
+    failing_defer = AsyncMock(side_effect=RuntimeError("queue down"))
+
+    with patch(
+        "app.ingest.tasks.ingest_service",
+        defer_async=failing_defer,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await queue_ingest_job(job, "user-id", db=mock_db)
+
+    assert exc_info.value.status_code == 503
+    assert job.status == "failed"
+    assert "queue down" in job.error_message
+
+
+@pytest.mark.anyio
+async def test_queue_ingest_job_raster_defer_failure_marks_job_failed(tmp_path):
+    """Procrastinate outage during raster ingest defer → job marked failed + 503."""
+    import uuid as _uuid
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from fastapi import HTTPException
+
+    from app.ingest.service import queue_ingest_job
+
+    raster_file = tmp_path / "dem.tif"
+    raster_file.write_bytes(b"fake-raster")
+
+    mock_db = AsyncMock()
+    mock_db.commit = AsyncMock()
+
+    job = MagicMock()
+    job.id = _uuid.uuid4()
+    job.source_url = None
+    job.file_path = str(raster_file)
+    job.user_metadata = {"file_type": "raster"}
+    job.status = "pending"
+    job.error_message = None
+    job.completed_at = None
+
+    failing_defer = AsyncMock(side_effect=RuntimeError("raster queue dead"))
+
+    with patch(
+        "app.ingest.tasks.ingest_raster",
+        defer_async=failing_defer,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await queue_ingest_job(job, "user-id", db=mock_db)
+
+    assert exc_info.value.status_code == 503
+    assert job.status == "failed"
+    assert "raster queue dead" in job.error_message

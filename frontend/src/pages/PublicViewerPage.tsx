@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
@@ -10,10 +10,12 @@ import { Clock, MapPinOff } from 'lucide-react';
 import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
+import { AppFooter } from '@/components/layout/AppFooter';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { MapErrorBoundary } from '@/components/error';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
+import { Button } from '@/components/ui/button';
 
 function parseCenter(raw: string | null): { lng: number; lat: number } | null {
   if (!raw) return null;
@@ -38,7 +40,7 @@ export function PublicViewerPage() {
   useDocumentTitle(t('common:pageTitle.sharedMap'));
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
-  const showBadge = !isEnterprise || branding?.show_badge !== false;
+  const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
   const isEmbed = searchParams.get('embed') === 'true';
@@ -69,25 +71,51 @@ export function PublicViewerPage() {
   if (isError || !data) {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
-      <div className="flex items-center justify-center w-full h-screen bg-muted">
-        <div className="flex flex-col items-center gap-3 text-center">
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_hsl(var(--muted))_0,_transparent_55%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted))/0.45)] px-6">
+        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">
           {isExpired ? (
             <>
               <Clock className="size-10 text-muted-foreground" />
-              <h1 className="text-2xl font-semibold text-foreground">{t('viewer.linkExpired')}</h1>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                {t('viewer.linkExpiredDescription')}
-              </p>
+              <div className="mt-4 space-y-2 text-center">
+                <h1 className="text-2xl font-semibold text-foreground">{t('viewer.linkExpired')}</h1>
+                <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                  {t('viewer.linkExpiredDescription')}
+                </p>
+                <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                  {t('viewer.linkRecovery', {
+                    defaultValue: 'Ask the map owner for a fresh share link if you still need access.',
+                  })}
+                </p>
+              </div>
             </>
           ) : (
             <>
               <MapPinOff className="size-10 text-muted-foreground" />
-              <h1 className="text-2xl font-semibold text-foreground">{t('viewer.mapNotFound')}</h1>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                {t('viewer.mapNotFoundDescription')}
-              </p>
+              <div className="mt-4 space-y-2 text-center">
+                <h1 className="text-2xl font-semibold text-foreground">{t('viewer.mapNotFound')}</h1>
+                <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                  {t('viewer.mapNotFoundDescription')}
+                </p>
+                <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                  {t('viewer.linkRecovery', {
+                    defaultValue: 'Ask the map owner for a fresh share link if you still need access.',
+                  })}
+                </p>
+              </div>
             </>
           )}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Button asChild>
+              <Link to="/">
+                {t('viewer.browseCatalog', { defaultValue: 'Browse catalog' })}
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/login">
+                {t('viewer.signIn', { defaultValue: 'Sign in' })}
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -143,18 +171,12 @@ export function PublicViewerPage() {
         />
       )}
 
-      {/* Powered by GeoLens badge */}
-      {showBadge && (
-        <div className="absolute bottom-2 right-2 z-10 hidden min-[400px]:block">
-          <a
-            href="https://github.com/geolens-io/geolens"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5 transition-colors"
-          >
-            {t('viewer.poweredBy')}
-          </a>
-        </div>
+      {!isEmbed && (
+        <AppFooter
+          showBranding={showFooterBranding}
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-[10px] text-muted-foreground/80"
+          navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
+        />
       )}
     </main>
   );

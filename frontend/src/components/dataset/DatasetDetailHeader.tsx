@@ -51,7 +51,7 @@ interface DatasetDetailHeaderProps {
   className?: string;
 }
 
-export const DESKTOP_PRIMARY_ACTION_LIMIT = 0;
+export const DESKTOP_PRIMARY_ACTION_LIMIT = 2;
 export const MOBILE_PRIMARY_ACTION_LIMIT = 0;
 
 export function partitionActions(actions: DatasetDetailHeaderAction[], isMobile: boolean) {
