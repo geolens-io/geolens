@@ -7,7 +7,7 @@ const drawingState = vi.hoisted(() => ({
   setDrawing: vi.fn(),
   setMode: vi.fn(),
   clearDrawing: vi.fn(),
-  selectedFeature: null,
+  selectedFeature: null as { gid: number; tdId: string; properties: Record<string, unknown> } | null,
   setSelectedFeature: vi.fn(),
   clearSelectedFeature: vi.fn(),
   setEditDirty: vi.fn(),
@@ -139,6 +139,8 @@ describe('DatasetMap interaction state', () => {
     render(
       <DatasetMap
         bbox={[-10, -10, 10, 10]}
+        tableName={null}
+        geometryType={null}
         recordType="raster_dataset"
         rasterTileUrl="/raster-tiles/test/{z}/{x}/{y}.png"
       />,

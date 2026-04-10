@@ -66,7 +66,13 @@ export function AdminSettingsPage() {
 
   const handleDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
 
-  const visibleTabs = isEnterprise ? ALL_TAB_KEYS : ALL_TAB_KEYS.filter(t => t !== 'appearance');
+  // Explicit ``readonly TabKey[]`` annotation prevents TS from narrowing
+  // ``.filter(t => t !== 'appearance')`` to ``Exclude<TabKey, 'appearance'>[]``,
+  // which would then reject ``.includes(tab as TabKey)`` below when the
+  // runtime value actually is ``'appearance'``.
+  const visibleTabs: readonly TabKey[] = isEnterprise
+    ? ALL_TAB_KEYS
+    : ALL_TAB_KEYS.filter(t => t !== 'appearance');
   const activeTab = (tab && visibleTabs.includes(tab as TabKey) ? tab : null) as TabKey | null;
 
   if (!activeTab) {

@@ -106,7 +106,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('labels.fontSize')}</span>
             <Slider
-              value={[labelConfig.fontSize]}
+              value={[labelConfig.fontSize ?? 12]}
               min={8}
               max={24}
               step={1}
@@ -121,13 +121,13 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           {/* Colors */}
           <StyleColorPicker
             label={t('labels.textColor')}
-            color={labelConfig.textColor}
+            color={labelConfig.textColor ?? '#111827'}
             onChange={(hex) => update({ textColor: hex })}
           />
 
           <StyleColorPicker
             label={t('labels.haloColor')}
-            color={labelConfig.haloColor}
+            color={labelConfig.haloColor ?? '#ffffff'}
             onChange={(hex) => update({ haloColor: hex })}
           />
 

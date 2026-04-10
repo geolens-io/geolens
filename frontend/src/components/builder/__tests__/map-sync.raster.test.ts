@@ -67,6 +67,7 @@ function makeRasterToken(overrides: Partial<RasterTileToken> = {}): RasterTileTo
     minzoom: 0,
     maxzoom: 18,
     tile_size: 256,
+    format: 'png',
     ...overrides,
   };
 }

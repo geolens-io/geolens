@@ -38,7 +38,7 @@ const PRESET_COLORS = [
 export function StyleColorPicker({ label, color, onChange }: StyleColorPickerProps) {
   const [localColor, setLocalColor] = useState(color);
   useEffect(() => { setLocalColor(color); }, [color]);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const debouncedChange = useCallback((c: string) => {
     setLocalColor(c);
     clearTimeout(timerRef.current);

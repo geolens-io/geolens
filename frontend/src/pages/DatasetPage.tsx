@@ -279,6 +279,15 @@ export function DatasetPage() {
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
 
+  // Derived ground-sampling-distance. Backend `RasterMetadata` exposes
+  // `res_x` and `res_y` but not a pre-computed `gsd`, so mirror the
+  // backend's models.py formula (min of absolute pixel resolutions)
+  // here. Returns null if either resolution is unknown.
+  const rasterGsd: number | null =
+    dataset.raster?.res_x != null && dataset.raster?.res_y != null
+      ? Math.min(Math.abs(dataset.raster.res_x), Math.abs(dataset.raster.res_y))
+      : null;
+
   const isPublished = dataset.record_status === 'published';
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
   const requireMetadata = allSettings?.tabs?.general?.find((s: { key: string }) => s.key === 'require_metadata_for_publish')?.value ?? false;
@@ -361,10 +370,10 @@ export function DatasetPage() {
                 <span>{dataset.raster.band_count} {t('raster.bands').toLowerCase()}</span>
               </>
             )}
-            {dataset.raster?.gsd != null && (
+            {rasterGsd != null && (
               <>
                 <Sep />
-                <span>{dataset.raster.gsd} m</span>
+                <span>{rasterGsd} m</span>
               </>
             )}
             {dataset.raster?.epsg && (
@@ -558,10 +567,10 @@ export function DatasetPage() {
           {dataset.raster.band_count != null && (
             <div><span className="text-muted-foreground">{t('raster.bands')}</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
           )}
-          {(dataset.raster.res_x != null || dataset.raster.gsd != null) && (
+          {(dataset.raster.res_x != null || rasterGsd != null) && (
             <div>
               <span className="text-muted-foreground">{t('raster.resolution')}</span>{' '}
-              <span className="font-medium">{dataset.raster.gsd ? `${dataset.raster.gsd} m` : `${dataset.raster.res_x?.toFixed(6)}`}</span>
+              <span className="font-medium">{rasterGsd != null ? `${rasterGsd} m` : `${dataset.raster.res_x?.toFixed(6)}`}</span>
             </div>
           )}
           {dataset.raster.width != null && dataset.raster.height != null && (
@@ -595,7 +604,12 @@ export function DatasetPage() {
 
       <PendingEditsBar
         pendingCount={metadataPendingCount}
-        onSaveAll={savePendingDrafts}
+        onSaveAll={async () => {
+          // savePendingDrafts returns Promise<boolean> (true on success)
+          // but PendingEditsBar only needs a void/Promise<void> handler,
+          // so the boolean result is intentionally discarded here.
+          await savePendingDrafts();
+        }}
         onCancelAll={discardPendingDrafts}
         isSaving={isSavingPendingEdits}
       />

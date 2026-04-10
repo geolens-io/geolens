@@ -147,6 +147,7 @@ const EDITOR_USER: UserResponse = {
   email: 'editor@example.com',
   is_active: true,
   status: 'active',
+  last_login_at: null,
   created_at: '2026-03-01T00:00:00Z',
   roles: ['editor'],
 };
@@ -207,6 +208,8 @@ function makeDataset(): DatasetResponse {
       crs_defined: 100,
       computed_at: '2026-03-02T00:00:00Z',
     },
+    record_type: 'vector_dataset',
+    raster: null,
   };
 }
 

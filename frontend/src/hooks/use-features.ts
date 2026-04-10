@@ -15,7 +15,7 @@ export function useCreateFeature() {
       datasetId: string;
       geometry: Geometry;
       properties?: Record<string, unknown>;
-    }) => createFeature(datasetId, geometry as Record<string, unknown>, properties),
+    }) => createFeature(datasetId, geometry, properties),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
@@ -36,7 +36,7 @@ export function useUpdateFeature() {
       gid: number;
       geometry?: Geometry;
       properties?: Record<string, unknown>;
-    }) => updateFeature(datasetId, gid, geometry as Record<string, unknown> | undefined, properties),
+    }) => updateFeature(datasetId, gid, geometry, properties),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
