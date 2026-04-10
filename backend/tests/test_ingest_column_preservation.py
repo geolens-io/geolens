@@ -23,37 +23,24 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("ogr2ogr") is None,
-    reason="ogr2ogr binary not available on host (runs in backend Docker image / CI)",
-)
+# All tests in this file invoke ogr2ogr against PostGIS. Two module-level
+# guards apply:
+#
+#   1. ``pytest.mark.skipif`` bails out when the ogr2ogr binary is missing
+#      (common on dev hosts outside the backend Docker image / CI).
+#   2. ``pytest.mark.requires_ogr2ogr`` opts into the autouse
+#      ``_point_ogr2ogr_at_test_db`` fixture in ``conftest.py`` (K2-PRE),
+#      which monkey-patches ``build_pg_conn_str`` so tables land in the
+#      ``geolens_test`` database instead of dev/prod.
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("ogr2ogr") is None,
+        reason="ogr2ogr binary not available on host (runs in backend Docker image / CI)",
+    ),
+    pytest.mark.requires_ogr2ogr,
+]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ingest"
-
-
-@pytest.fixture(autouse=True)
-def _point_ogr2ogr_at_test_db(monkeypatch):
-    """Redirect ogr2ogr's PG connection string to the test database.
-
-    `build_pg_conn_str()` defaults to the dev/prod settings, which writes
-    to the WRONG database under pytest — the test_db_session fixture uses
-    a dedicated `geolens_test` schema. Without this patch the table lands
-    in dev/prod and `get_column_info(test_db_session, table)` returns no
-    rows, which is the root cause of the "0 >= 1" failures.
-    """
-    from app.config import settings
-    from app.ingest import ogr as _ogr
-
-    def _test_pg_conn_str() -> str:
-        return (
-            f"PG:host={settings.postgres_host} "
-            f"port={settings.postgres_port} "
-            f"dbname={settings.postgres_db_test} "
-            f"user={settings.postgres_user} "
-            f"password={settings.postgres_password}"
-        )
-
-    monkeypatch.setattr(_ogr, "build_pg_conn_str", _test_pg_conn_str)
 
 
 # ---------------------------------------------------------------------------
@@ -215,15 +202,24 @@ class TestReservedNameAutoRename:
         the source attribute with reprojected geometry via UPDATE.
 
         After fix: rename_reserved_columns() runs first, renaming the source
-        geom_4326 to src_geom_4326. add_4326_column() then creates a fresh
-        geom_4326 geometry column without collision.
+        geom_4326 to src_geom_4326. ensure_geom_column() then renames the
+        pipeline placeholder (`_geolens_geom`, per S1 fix) to `geom`. Finally
+        add_4326_column() creates a fresh geom_4326 geometry column without
+        collision.
         """
-        from app.ingest.metadata import add_4326_column, rename_reserved_columns
+        from app.ingest.metadata import (
+            add_4326_column,
+            ensure_geom_column,
+            rename_reserved_columns,
+        )
 
         table = _table_id("tst_add4326")
         try:
             result = await _load_fixture(test_db_session, "reserved_names.geojson", table)
             await rename_reserved_columns(test_db_session, table)
+            # Mirror _finalize_ingest: ensure_geom_column must run before
+            # add_4326_column so the pipeline placeholder becomes `geom`.
+            await ensure_geom_column(test_db_session, table)
 
             # This previously would either crash or silently clobber the source attr.
             await add_4326_column(test_db_session, table, result["srid"] or 4326)
@@ -265,6 +261,77 @@ class TestReservedNameAutoRename:
                     f"Renamed column {target!r} not visible in get_column_info output. "
                     f"Available: {col_names}"
                 )
+        finally:
+            await _drop_table(test_db_session, table)
+
+    async def test_source_geom_attribute_renamed_to_src_geom(self, test_db_session):
+        """S1 regression: source `geom` attribute does not collide with pipeline geom.
+
+        Before fix: ogr2ogr used GEOMETRY_NAME=geom and crashed at CREATE TABLE
+        because the source file also had a `geom` attribute. Both columns would
+        be declared as `"geom" VARCHAR` and `"geom" geometry(...)`.
+
+        After fix: ogr2ogr uses GEOMETRY_NAME=_geolens_geom (placeholder),
+        rename_reserved_columns() moves the source `geom` attribute to `src_geom`,
+        then ensure_geom_column() renames the placeholder to `geom`. Both the
+        source attribute and the pipeline geometry column coexist.
+        """
+        from app.ingest.metadata import ensure_geom_column, rename_reserved_columns
+
+        table = _table_id("tst_srcgeom")
+        try:
+            # _load_fixture runs ogrinfo + ogr2ogr. Pre-fix, ogr2ogr crashes here.
+            await _load_fixture(test_db_session, "reserved_names.geojson", table)
+
+            # Apply the post-ingest normalization pipeline in order.
+            renames = await rename_reserved_columns(test_db_session, table)
+            has_geom = await ensure_geom_column(test_db_session, table)
+
+            assert has_geom is True, "Pipeline geometry column should exist"
+
+            rename_originals = {r["original"] for r in renames}
+            assert "geom" in rename_originals, (
+                f"Source `geom` attribute should have been renamed, "
+                f"got originals: {rename_originals}"
+            )
+
+            # Verify both columns exist and have the expected types.
+            result = await test_db_session.execute(
+                text(
+                    "SELECT column_name, data_type, udt_name "
+                    "FROM information_schema.columns "
+                    "WHERE table_schema='data' AND table_name=:t "
+                    "AND column_name IN ('geom', 'src_geom')"
+                ).bindparams(t=table),
+            )
+            cols_by_name = {r[0]: (r[1], r[2]) for r in result.all()}
+
+            assert "geom" in cols_by_name, (
+                "Pipeline `geom` geometry column missing after rename"
+            )
+            pipeline_type, pipeline_udt = cols_by_name["geom"]
+            assert pipeline_udt == "geometry", (
+                f"`geom` should be a PostGIS geometry column, got "
+                f"data_type={pipeline_type!r} udt_name={pipeline_udt!r}"
+            )
+
+            assert "src_geom" in cols_by_name, (
+                "Source `geom` attribute was not preserved as `src_geom`"
+            )
+            src_type, src_udt = cols_by_name["src_geom"]
+            assert src_udt != "geometry", (
+                f"`src_geom` should be the source VARCHAR/text column, got "
+                f"udt_name={src_udt!r}"
+            )
+
+            # Confirm the source values survived the rename.
+            value_result = await test_db_session.execute(
+                text(f'SELECT src_geom FROM data.{table} ORDER BY gid')
+            )
+            values = [r[0] for r in value_result.all()]
+            assert values == ["not-actually-a-geometry", "also-text"], (
+                f"Source `geom` values lost or reordered: {values}"
+            )
         finally:
             await _drop_table(test_db_session, table)
 

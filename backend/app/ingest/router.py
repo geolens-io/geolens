@@ -1,7 +1,6 @@
 """Ingest API endpoints: file upload, preview, commit, and table registration."""
 
 import asyncio
-import json
 import math
 import uuid
 
@@ -53,11 +52,9 @@ from app.ingest.service import (
     save_upload_file,
     validate_file_extension,
 )
-from app.ingest.tasks import (
-    ingest_vrt,
-    regenerate_vrt,
-)
+from app.ingest.tasks import regenerate_vrt
 from app.ingest.validation import validate_file_content
+from app.jobs.defer_guard import defer_with_orphan_guard
 from app.persistent_config import (
     UPLOAD_ALLOWED_EXTENSIONS,
     UPLOAD_MAX_SIZE_MB,
@@ -372,6 +369,12 @@ async def upload_file(
             status="pending",
             message="File uploaded and ready for preview",
         )
+    # N4: except clause order matters. HTTPException must be caught and
+    # re-raised BEFORE the bare `except Exception`, otherwise a deliberate
+    # 4xx raised by a downstream helper (persistent config, validation,
+    # etc.) would be rewritten as a generic 500 by the fallback branch.
+    # Do not reorder these clauses without understanding the 4xx→500
+    # regression it would introduce.
     except HTTPException:
         raise
     except (IngestionError, ValueError) as exc:
@@ -526,7 +529,9 @@ async def commit_import(
     await db.commit()
 
     # Dispatch routing lives in the service layer (KISS-9).
-    await queue_ingest_job(job, str(user.id), token=token)
+    # queue_ingest_job now owns the orphan-guard: a defer failure will
+    # flip the committed pending job to failed and raise 503 (RESILIENCE-2).
+    await queue_ingest_job(job, str(user.id), db=db, token=token)
 
     return CommitResponse(
         job_id=job.id,
@@ -669,66 +674,12 @@ async def create_vrt(
     """Create a VRT dataset by combining existing raster datasets.
 
     Validates sources synchronously, then defers VRT assembly to an async task.
-    Returns a job_id for polling.
+    Returns a job_id for polling. Validation + queuing logic lives in
+    ``ingest.service.create_vrt_job`` (K5 extraction).
     """
-    from app.datasets.models import Dataset, Record
-    from app.raster.models import RasterAsset
+    from app.ingest.service import create_vrt_job
 
-    # 1. Validate minimum source count
-    if len(request.source_dataset_ids) < 2:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="At least 2 source datasets are required to create a VRT",
-        )
-
-    # 2. Load RasterAsset rows for each source dataset
-    result = await db.execute(
-        select(RasterAsset)
-        .join(Dataset, RasterAsset.dataset_id == Dataset.id)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(
-            Dataset.id.in_(request.source_dataset_ids),
-            Record.record_type == "raster_dataset",
-        )
-    )
-    found_assets = result.scalars().all()
-
-    # 3. Check all requested IDs were found and are raster_datasets
-    found_dataset_ids = {asset.dataset_id for asset in found_assets}
-    for sid in request.source_dataset_ids:
-        if sid not in found_dataset_ids:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Source dataset {sid} not found or not a raster dataset",
-            )
-
-    # 4. Validate source compatibility
-    errors = validate_sources(request.vrt_type, list(found_assets))
-    if errors:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=[e.model_dump() for e in errors],
-        )
-
-    # 5. Create IngestJob
-    job = await create_ingest_job(db, f"vrt_{request.vrt_type}", "", user.id)
-    job.user_metadata = {
-        "vrt_type": request.vrt_type,
-        "title": request.title,
-        "summary": request.summary,
-        "visibility": request.visibility,
-    }
-    await db.commit()
-
-    # 6. Defer async VRT assembly task
-    await ingest_vrt.defer_async(
-        job_id=str(job.id),
-        user_id=str(user.id),
-        source_dataset_ids=json.dumps([str(sid) for sid in request.source_dataset_ids]),
-        vrt_type=request.vrt_type,
-        resolution_strategy=request.resolution_strategy,
-    )
-
+    job = await create_vrt_job(db, request, user)
     return VrtCreateResponse(job_id=job.id, message="VRT creation queued")
 
 
@@ -850,6 +801,7 @@ async def add_vrt_source(
         max_position = -1
 
     # 7. Insert new source link
+    new_link_position = max_position + 1
     await db.execute(
         text(
             "INSERT INTO catalog.vrt_source_links(vrt_dataset_id, source_dataset_id, position) "
@@ -858,11 +810,15 @@ async def add_vrt_source(
         {
             "vrt_id": dataset_id,
             "src_id": request.source_dataset_id,
-            "pos": max_position + 1,
+            "pos": new_link_position,
         },
     )
 
-    # 8. Set VRT status to regenerating
+    # 8. Set VRT status to regenerating — capture pre-mutation values so
+    # the orphan-guard rollback (Theme H) can restore them if Procrastinate
+    # is unreachable.
+    previous_status = vrt_asset.status
+    previous_generation_id = vrt_asset.current_generation_id
     vrt_asset.status = "regenerating"
     vrt_asset.current_generation_id = uuid.uuid4()
 
@@ -870,13 +826,45 @@ async def add_vrt_source(
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
-    # 10. Commit + dispatch
+    # 10. Commit + dispatch.
+    # Unlike IngestJob orphans (rescued by 60-minute stale-cleanup), there
+    # is NO sweep for VRT assets stuck in ``status="regenerating"``. If
+    # Procrastinate is unreachable, the rollback below reverts the VRT
+    # asset state, deletes the inserted source link, and marks the job
+    # failed before re-raising as HTTP 503 — otherwise the VRT would be
+    # permanently stuck until an operator manually intervenes.
     await db.commit()
-    await regenerate_vrt.defer_async(
-        job_id=str(job.id),
-        vrt_dataset_id=str(dataset_id),
-        triggered_by=str(user.id),
-    )
+
+    inserted_source_id = request.source_dataset_id
+
+    async def _defer() -> None:
+        await regenerate_vrt.defer_async(
+            job_id=str(job.id),
+            vrt_dataset_id=str(dataset_id),
+            triggered_by=str(user.id),
+        )
+
+    async def _rollback(defer_exc: BaseException) -> None:
+        from datetime import datetime, timezone
+
+        # Revert VRT asset state to what it was before step 8.
+        vrt_asset.status = previous_status
+        vrt_asset.current_generation_id = previous_generation_id
+        # Delete the source link we just inserted so the VRT matches
+        # its pre-mutation source set.
+        await db.execute(
+            text(
+                "DELETE FROM catalog.vrt_source_links "
+                "WHERE vrt_dataset_id = :vrt_id AND source_dataset_id = :src_id"
+            ),
+            {"vrt_id": dataset_id, "src_id": inserted_source_id},
+        )
+        # Mark the IngestJob failed so /jobs listings reflect reality.
+        job.status = "failed"
+        job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
+        job.completed_at = datetime.now(timezone.utc)
+
+    await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
 
     return VrtMutationResponse(
         job_id=job.id, message="Source added, VRT regeneration started"
@@ -941,19 +929,23 @@ async def remove_vrt_source(
             detail="Removing this source would leave fewer than 2 sources. A VRT requires at least 2 sources.",
         )
 
-    # 4. Check source link exists
+    # 4. Check source link exists — also capture its position so the
+    # orphan-guard rollback (Theme H) can re-insert it with the original
+    # ordering if the defer fails.
     link_result = await db.execute(
         text(
-            "SELECT 1 FROM catalog.vrt_source_links "
+            "SELECT position FROM catalog.vrt_source_links "
             "WHERE vrt_dataset_id = :vrt_id AND source_dataset_id = :src_id"
         ),
         {"vrt_id": dataset_id, "src_id": source_dataset_id},
     )
-    if link_result.fetchone() is None:
+    link_row = link_result.fetchone()
+    if link_row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Source not linked to this VRT",
         )
+    deleted_link_position = link_row.position
 
     # 5. Delete the source link
     await db.execute(
@@ -964,7 +956,9 @@ async def remove_vrt_source(
         {"vrt_id": dataset_id, "src_id": source_dataset_id},
     )
 
-    # 6. Set VRT status to regenerating
+    # 6. Set VRT status to regenerating — capture pre-mutation values.
+    previous_status = vrt_asset.status
+    previous_generation_id = vrt_asset.current_generation_id
     vrt_asset.status = "regenerating"
     vrt_asset.current_generation_id = uuid.uuid4()
 
@@ -972,13 +966,46 @@ async def remove_vrt_source(
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
-    # 8. Commit + dispatch
+    # 8. Commit + dispatch with orphan guard (Theme H).
+    # No stale-cleanup sweep exists for VRT ``status="regenerating"``, so
+    # a Procrastinate outage would leave the VRT permanently stuck and
+    # the deleted source link gone until manual operator intervention.
+    # The rollback below re-inserts the link with its original position,
+    # reverts the VRT asset state, and marks the job failed.
     await db.commit()
-    await regenerate_vrt.defer_async(
-        job_id=str(job.id),
-        vrt_dataset_id=str(dataset_id),
-        triggered_by=str(user.id),
-    )
+
+    async def _defer() -> None:
+        await regenerate_vrt.defer_async(
+            job_id=str(job.id),
+            vrt_dataset_id=str(dataset_id),
+            triggered_by=str(user.id),
+        )
+
+    async def _rollback(defer_exc: BaseException) -> None:
+        from datetime import datetime, timezone
+
+        # Re-insert the deleted source link with its original position.
+        await db.execute(
+            text(
+                "INSERT INTO catalog.vrt_source_links("
+                "vrt_dataset_id, source_dataset_id, position) "
+                "VALUES (:vrt_id, :src_id, :pos)"
+            ),
+            {
+                "vrt_id": dataset_id,
+                "src_id": source_dataset_id,
+                "pos": deleted_link_position,
+            },
+        )
+        # Revert VRT asset state.
+        vrt_asset.status = previous_status
+        vrt_asset.current_generation_id = previous_generation_id
+        # Mark the IngestJob failed.
+        job.status = "failed"
+        job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
+        job.completed_at = datetime.now(timezone.utc)
+
+    await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
 
     return VrtMutationResponse(
         job_id=job.id, message="Source removed, VRT regeneration started"

@@ -286,6 +286,7 @@ async def regenerate_vrt_endpoint(
     from app.ingest.schemas import VrtMutationResponse
     from app.ingest.service import create_ingest_job
     from app.ingest.tasks import regenerate_vrt
+    from app.jobs.defer_guard import defer_with_orphan_guard
     from app.raster.models import RasterAsset, VrtGeneration
 
     dataset = await get_dataset(db, dataset_id)
@@ -345,7 +346,11 @@ async def regenerate_vrt_endpoint(
     db.add(generation)
     await db.flush()
 
-    # Update RasterAsset
+    # Update RasterAsset — capture pre-mutation values so the orphan
+    # guard rollback (Theme H) can restore them if Procrastinate is
+    # unreachable.
+    previous_status = vrt_asset.status
+    previous_generation_id = vrt_asset.current_generation_id
     vrt_asset.status = "regenerating"
     vrt_asset.current_generation_id = generation.id
 
@@ -355,12 +360,36 @@ async def regenerate_vrt_endpoint(
 
     await db.commit()
 
-    # Dispatch task
-    await regenerate_vrt.defer_async(
-        job_id=str(job.id),
-        vrt_dataset_id=str(dataset_id),
-        triggered_by=str(user.id),
-    )
+    # Dispatch task with orphan guard.
+    # No stale-cleanup sweep exists for VRT ``status="regenerating"``
+    # or for ``VrtGeneration`` rows — a Procrastinate outage would
+    # leave the VRT permanently stuck and the generation row dangling
+    # until manual operator intervention.
+    async def _defer() -> None:
+        await regenerate_vrt.defer_async(
+            job_id=str(job.id),
+            vrt_dataset_id=str(dataset_id),
+            triggered_by=str(user.id),
+        )
+
+    async def _rollback(defer_exc: BaseException) -> None:
+        # Mark the VrtGeneration record failed so listings reflect
+        # reality (the row was already committed via db.flush +
+        # db.commit above).
+        generation.status = "failed"
+        generation.completed_at = datetime.now(timezone.utc)
+        generation.error_message = (
+            f"Failed to queue VRT regeneration: {defer_exc}"
+        )
+        # Revert VRT asset state to pre-mutation values.
+        vrt_asset.status = previous_status
+        vrt_asset.current_generation_id = previous_generation_id
+        # Mark the IngestJob failed.
+        job.status = "failed"
+        job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
+        job.completed_at = datetime.now(timezone.utc)
+
+    await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
 
     return VrtMutationResponse(
         job_id=job.id,
