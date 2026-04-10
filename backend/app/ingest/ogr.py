@@ -134,7 +134,13 @@ def _extract_common_layer_metadata(
 
     Returns ``(target_layer, metadata_dict)`` where metadata_dict carries
     the fields common to both ``run_ogrinfo`` and ``run_ogrinfo_preview``:
-    srid, geometry_type, layer_name, feature_count, all_layers.
+    srid, geometry_type, layer_name, feature_count, columns, all_layers.
+
+    ``columns`` is a list of ``{"name": str, "type": str}`` mirroring the
+    field definitions from the target layer. Populating it in the shared
+    helper (rather than only in ``run_ogrinfo_preview``) lets shapefile
+    ingest reuse the DBF-collision detector without spawning a second
+    ogrinfo subprocess (PERF-1).
 
     Raises KeyError if the JSON has no ``layers`` entry so callers can
     fall through to their fallback path. KISS-12.
@@ -160,6 +166,11 @@ def _extract_common_layer_metadata(
             coord_system = geom_fields[0].get("coordinateSystem", {})
     srid = _extract_srid_from_json(coord_system or {})
 
+    columns = [
+        {"name": f.get("name", ""), "type": f.get("type", "")}
+        for f in target_layer.get("fields", [])
+    ]
+
     all_layers = None
     if len(layers) > 1 and not layer_name:
         all_layers = [
@@ -176,6 +187,7 @@ def _extract_common_layer_metadata(
         "geometry_type": geometry_type,
         "layer_name": target_layer.get("name", ""),
         "feature_count": target_layer.get("featureCount"),
+        "columns": columns,
         "all_layers": all_layers,
     }
 
@@ -247,6 +259,7 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
                 "geometry_type": None,
                 "layer_name": "",
                 "feature_count": None,
+                "columns": [],
                 "all_layers": None,
             }
         except json.JSONDecodeError:
@@ -271,6 +284,10 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
         )
 
     result = _parse_text_ogrinfo(stdout.decode())
+    # Text-fallback parse doesn't extract field definitions, so the DBF
+    # collision detector will still have to fall back to ogrinfo_preview
+    # on GDAL < 3.7. Keep the key present so callers can rely on it.
+    result["columns"] = []
     result["all_layers"] = None
     return result
 
@@ -304,11 +321,8 @@ async def run_ogrinfo_preview(
         try:
             data = json.loads(stdout.decode())
             target_layer, metadata = _extract_common_layer_metadata(data, layer_name)
-            # Preview also extracts columns and sample rows.
-            metadata["columns"] = [
-                {"name": f["name"], "type": f["type"]}
-                for f in target_layer.get("fields", [])
-            ]
+            # Preview also extracts sample rows; columns come from the
+            # shared helper (PERF-1).
             metadata["sample_rows"] = [
                 feat.get("properties", {}) for feat in target_layer.get("features", [])
             ]
@@ -329,7 +343,7 @@ async def run_ogrinfo_preview(
 
     # Fallback: summary only (no sample rows)
     info = await run_ogrinfo(file_path, layer_name=layer_name)
-    info["columns"] = []
+    info.setdefault("columns", [])
     info["sample_rows"] = []
     return info
 
@@ -393,8 +407,14 @@ async def run_ogr2ogr(
             [
                 "-nlt",
                 "PROMOTE_TO_MULTI",
+                # Use a non-colliding target name so that source attributes
+                # named `geom` or `geometry` (valid GeoJSON/Shapefile/GeoPackage
+                # property names) do not clash with the pipeline geometry
+                # column at CREATE TABLE time. `rename_reserved_columns` will
+                # rename the source attribute to `src_<name>` afterwards, and
+                # `ensure_geom_column` renames this placeholder to `geom`.
                 "-lco",
-                "GEOMETRY_NAME=geom",
+                "GEOMETRY_NAME=_geolens_geom",
                 "-lco",
                 "SPATIAL_INDEX=NONE",
             ]
@@ -480,12 +500,17 @@ async def run_ogr2ogr_service(
     ]
 
     if not is_non_spatial:
-        # Spatial layers: promote to multi-geometry and reproject to WGS84
+        # Spatial layers: promote to multi-geometry and reproject to WGS84.
+        # GEOMETRY_NAME=_geolens_geom avoids a CREATE TABLE collision when the
+        # remote service publishes an attribute named `geom`/`geometry`. The
+        # post-ingest `ensure_geom_column` step renames the placeholder to
+        # `geom` after `rename_reserved_columns` has moved any source
+        # attribute to `src_<name>`.
         cmd += [
             "-nlt",
             "PROMOTE_TO_MULTI",
             "-lco",
-            "GEOMETRY_NAME=geom",
+            "GEOMETRY_NAME=_geolens_geom",
             "-lco",
             "SPATIAL_INDEX=NONE",
             "-t_srs",
