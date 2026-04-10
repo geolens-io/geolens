@@ -1327,6 +1327,13 @@ async def create_vrt_dataset(
         summary=summary,
         record_type="vrt_dataset",
         visibility=visibility,
+        # Mirror the vector ingest path (datasets/service.py
+        # `create_dataset_record`) and the raster ingest helper above, which
+        # commit directly to `published`.
+        # Without this a public VRT stayed in `draft`, and the anonymous
+        # raster tile-access check at tiles/router.py `_resolve_raster_access`
+        # returned 404 for every public VRT tile request.
+        record_status="published",
         updated_by=created_by,
     )
     if meta.get("bbox_wkt"):
@@ -1941,9 +1948,12 @@ async def regenerate_vrt(
             # 12b. Update generation record
             generation.status = "completed"
             generation.completed_at = datetime.now(timezone.utc)
-            generation.duration_seconds = (
-                generation.completed_at - generation.started_at
-            ).total_seconds()
+            # `started_at` is set at record creation below in step 4 — guarded
+            # here so mypy/runtime don't crash if a future refactor drops it.
+            if generation.started_at is not None:
+                generation.duration_seconds = (
+                    generation.completed_at - generation.started_at
+                ).total_seconds()
 
             # 13. Update dataset footprint geometry
             dataset_result = await session.execute(

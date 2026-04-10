@@ -103,7 +103,14 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
 
     In S3 mode, uploads directly to S3 and returns the S3 key string.
     In local mode, uses chunked writes (8192 bytes) and returns a Path.
+
+    Callers MUST validate `file.filename` is non-empty before calling —
+    raising on a missing filename is the route handler's responsibility so
+    the error surfaces as HTTP 400, not an internal TypeError (TYPE-6).
     """
+    if not file.filename:
+        raise ValueError("Upload missing filename")
+
     if settings.storage_provider == "s3":
         from app.storage import get_storage
 
