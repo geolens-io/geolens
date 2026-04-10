@@ -347,6 +347,60 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 layer_name=layer_name,
             )
 
+            # 3a. Rename any source column that collides with a GeoLens-internal
+            #     name (gid, geom, geometry, geom_4326, fid, ogc_fid). Runs BEFORE
+            #     the user-geometry-override and _finalize_ingest steps so that
+            #     construct_point_geometry / add_4326_column cannot clash with a
+            #     source attribute of the same name.
+            from app.ingest.metadata import rename_reserved_columns
+
+            reserved_renames = await rename_reserved_columns(
+                session, table_name, known_source_columns=info.get("columns")
+            )
+            if reserved_renames:
+                warnings_list = list(
+                    (job.user_metadata or {}).get("warnings", [])
+                )
+                warnings_list.append(
+                    {"kind": "reserved_rename", "details": reserved_renames}
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "warnings": warnings_list,
+                }
+
+            # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
+            #     the source column list from ogrinfo (stored in info["columns"]).
+            if file_path.lower().endswith(".zip"):
+                from app.ingest.metadata import detect_dbf_truncation_collisions
+                from app.ingest.ogr import run_ogrinfo_preview as _run_preview
+
+                import structlog as _sl
+
+                preview_cols = (info.get("columns") or [])
+                if not preview_cols:
+                    preview_info = await _run_preview(
+                        file_path, sample_limit=0, layer_name=layer_name
+                    )
+                    preview_cols = preview_info.get("columns") or []
+                dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+                if dbf_collisions:
+                    warnings_list = list(
+                        (job.user_metadata or {}).get("warnings", [])
+                    )
+                    warnings_list.append(
+                        {"kind": "dbf_truncation_collision", "details": dbf_collisions}
+                    )
+                    job.user_metadata = {
+                        **(job.user_metadata or {}),
+                        "warnings": warnings_list,
+                    }
+                    _sl.stdlib.get_logger(__name__).warning(
+                        "Shapefile DBF 10-char truncation collision detected",
+                        table=table_name,
+                        collisions=dbf_collisions,
+                    )
+
             if user_wants_geom and x_column and y_column:
                 from app.ingest.metadata import construct_point_geometry
 
@@ -559,6 +613,23 @@ async def ingest_service(
                     )
                 else:
                     raise
+
+            # 4a. Rename any source column that collides with a GeoLens-internal
+            #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
+            from app.ingest.metadata import rename_reserved_columns
+
+            reserved_renames = await rename_reserved_columns(session, table_name)
+            if reserved_renames:
+                warnings_list = list(
+                    (job.user_metadata or {}).get("warnings", [])
+                )
+                warnings_list.append(
+                    {"kind": "reserved_rename", "details": reserved_renames}
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "warnings": warnings_list,
+                }
 
             # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = _enrich_source_url(source_url, layer_id)
@@ -820,6 +891,55 @@ async def reupload_file(
                 geometry_type=geometry_type,
             )
 
+            # 4a. Rename any source column that collides with a GeoLens-internal
+            #     name. Runs BEFORE post-process steps (ensure_geom_column /
+            #     add_4326_column) so they cannot clash with source attributes.
+            from app.ingest.metadata import rename_reserved_columns
+
+            reserved_renames = await rename_reserved_columns(
+                session, staging_tn, known_source_columns=info.get("columns")
+            )
+            if reserved_renames:
+                warnings_list = list(
+                    (job.user_metadata or {}).get("warnings", [])
+                )
+                warnings_list.append(
+                    {"kind": "reserved_rename", "details": reserved_renames}
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "warnings": warnings_list,
+                }
+
+            # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
+            if file_path.lower().endswith(".zip"):
+                from app.ingest.metadata import detect_dbf_truncation_collisions
+                from app.ingest.ogr import run_ogrinfo_preview as _run_preview_ru
+
+                import structlog as _sl_ru
+
+                preview_cols = info.get("columns") or []
+                if not preview_cols:
+                    preview_info = await _run_preview_ru(file_path, sample_limit=0)
+                    preview_cols = preview_info.get("columns") or []
+                dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+                if dbf_collisions:
+                    warnings_list = list(
+                        (job.user_metadata or {}).get("warnings", [])
+                    )
+                    warnings_list.append(
+                        {"kind": "dbf_truncation_collision", "details": dbf_collisions}
+                    )
+                    job.user_metadata = {
+                        **(job.user_metadata or {}),
+                        "warnings": warnings_list,
+                    }
+                    _sl_ru.stdlib.get_logger(__name__).warning(
+                        "Shapefile DBF 10-char truncation collision detected",
+                        table=staging_tn,
+                        collisions=dbf_collisions,
+                    )
+
             # 5. Post-process staging table
             if has_geometry:
                 await ensure_geom_column(session, staging_tn)
@@ -1019,6 +1139,23 @@ async def reupload_service(
                     raise
             except ValueError as exc:
                 raise IngestionError(str(exc)) from exc
+
+            # Rename any source column that collides with a GeoLens-internal name.
+            # Runs BEFORE ensure_geom_column / add_4326_column.
+            from app.ingest.metadata import rename_reserved_columns
+
+            reserved_renames = await rename_reserved_columns(session, staging_tn)
+            if reserved_renames:
+                warnings_list = list(
+                    (job.user_metadata or {}).get("warnings", [])
+                )
+                warnings_list.append(
+                    {"kind": "reserved_rename", "details": reserved_renames}
+                )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "warnings": warnings_list,
+                }
 
             has_geom = await ensure_geom_column(session, staging_tn)
             if has_geom:

@@ -210,16 +210,18 @@ async def get_sample_values(
         if "geometry" in col_type.lower():
             continue
 
-        # Validate column name (same safety pattern as other functions)
-        if not _TABLE_NAME_RE.match(col_name):
-            continue
+        # SQL-quote the identifier so non-ASCII, mixed-case, and hyphenated
+        # column names are handled correctly. The table-name validation above
+        # already guards against injection via the table path; quoting the
+        # column name is the safe alternative to the old regex filter.
+        quoted = '"' + col_name.replace('"', '""') + '"'
 
         rows = await session.execute(
             text(
-                f"SELECT DISTINCT {col_name}::text AS val "
+                f"SELECT DISTINCT {quoted}::text AS val "
                 f"FROM ("
-                f"  SELECT {col_name} FROM data.{table_name} "
-                f"  WHERE {col_name} IS NOT NULL LIMIT :sample_size"
+                f"  SELECT {quoted} FROM {_qtable(table_name)} "
+                f"  WHERE {quoted} IS NOT NULL LIMIT :sample_size"
                 f") sub LIMIT 10"
             ).bindparams(sample_size=sample_size)
         )
@@ -441,6 +443,124 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
     )
     await session.commit()
     return True
+
+
+async def rename_reserved_columns(
+    session: AsyncSession,
+    table_name: str,
+    *,
+    known_source_columns: list[dict] | None = None,
+) -> list[dict]:
+    """Rename any source column whose name collides with a GeoLens-internal
+    PostGIS column (gid, geom, geometry, geom_4326, fid, ogc_fid) to
+    ``src_<name>``. Runs BEFORE add_4326_column so that ALTER TABLE ADD COLUMN
+    geom_4326 cannot collide with a source attribute.
+
+    Only renames columns that were NOT created by the ingest pipeline itself:
+    - ``gid``: pipeline creates it as a serial PRIMARY KEY (column_default is
+      non-null). A source-origin ``gid`` has no default and is not an identity.
+    - ``geom`` / ``geometry``: pipeline creates a PostGIS geometry column
+      (data_type = 'USER-DEFINED', udt_name = 'geometry'). Any other type is
+      source-origin.
+    - ``geom_4326``: always renamed on entry — this helper runs before
+      add_4326_column, so any existing ``geom_4326`` must be source-origin.
+    - ``fid``, ``ogc_fid``: always renamed (ogr2ogr with -lco FID=gid does not
+      create these; any such column is source-origin).
+
+    Returns a list of rename records ``[{"original": "gid", "renamed": "src_gid"}, ...]``
+    which callers can attach to ``job.user_metadata['warnings']``.
+    """
+    from app.ingest.ogr import RESERVED_COLUMN_NAMES
+
+    _validate_table_name(table_name)
+
+    result = await session.execute(
+        text(
+            "SELECT column_name, data_type, udt_name, column_default, is_identity "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'data' AND table_name = :t "
+            "ORDER BY ordinal_position"
+        ).bindparams(t=table_name)
+    )
+    rows = result.all()
+    all_column_names = {r[0] for r in rows}
+
+    renames: list[dict] = []
+    for row in rows:
+        col_name, data_type, udt_name, col_default, is_identity = row
+        if col_name not in RESERVED_COLUMN_NAMES:
+            continue
+
+        # Determine if this column was created by the pipeline or came from the source.
+        if col_name == "gid":
+            # Pipeline-created gid is a serial/identity with a nextval default.
+            # Source-origin gid has no default and is not an identity column.
+            is_pipeline_gid = (col_default is not None and "nextval" in str(col_default)) or (
+                is_identity == "YES"
+            )
+            if is_pipeline_gid:
+                continue  # This is the pipeline's own gid — leave it alone.
+
+        elif col_name in ("geom", "geometry"):
+            # Pipeline-created geometry column has data_type = 'USER-DEFINED'
+            # and udt_name = 'geometry'. Source-origin columns have other types.
+            if data_type == "USER-DEFINED" and udt_name == "geometry":
+                continue  # Pipeline-created spatial column — leave it alone.
+
+        # All remaining reserved-name columns are source-origin. Rename to src_<name>.
+        # If src_<name> already exists, append a numeric suffix.
+        target = f"src_{col_name}"
+        suffix = 2
+        while target in all_column_names:
+            target = f"src_{col_name}_{suffix}"
+            suffix += 1
+
+        # Execute the rename using double-quoted identifiers (not bindable).
+        q_orig = '"' + col_name.replace('"', '""') + '"'
+        q_target = '"' + target.replace('"', '""') + '"'
+        await session.execute(
+            text(f'ALTER TABLE "data"."{table_name}" RENAME COLUMN {q_orig} TO {q_target}')
+        )
+
+        logger.warning(
+            "Renamed reserved source column",
+            table=table_name,
+            original=col_name,
+            renamed=target,
+        )
+        renames.append({"original": col_name, "renamed": target})
+        # Update the in-memory set so subsequent iterations see the new name.
+        all_column_names.discard(col_name)
+        all_column_names.add(target)
+
+    if renames:
+        await session.commit()
+    return renames
+
+
+def detect_dbf_truncation_collisions(
+    source_columns: list[dict],
+) -> list[dict]:
+    """Detect shapefile DBF 10-character field-name truncation collisions.
+
+    Given the source-file column list from run_ogrinfo_preview(), returns a
+    list of collision records grouped by the first 10 lowercase characters:
+      [{"truncated": "populatio", "originals": ["population_2020", "population_2021"]}]
+
+    Only returns groups with 2+ original names — a single column is not a
+    collision. Empty input returns an empty list.
+    """
+    truncation_map: dict[str, list[str]] = {}
+    for col in source_columns:
+        name = col.get("name", "")
+        truncated = name[:10].lower()
+        truncation_map.setdefault(truncated, []).append(name)
+
+    return [
+        {"truncated": truncated, "originals": originals}
+        for truncated, originals in truncation_map.items()
+        if len(originals) >= 2
+    ]
 
 
 # Web Mercator (EPSG:3857) cannot represent latitudes beyond ±85.06°.
