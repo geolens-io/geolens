@@ -15,7 +15,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from app.datasets.models import AttributeMetadata
+    from app.datasets.models import AttributeMetadata, Dataset
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -78,7 +78,9 @@ async def construct_point_geometry(
             f"CREATE INDEX idx_{table_name}_geom ON data.{table_name} USING GIST (geom)"
         )
     )
-    return result.rowcount
+    # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
+    # type stub is less specific so mypy can't narrow it here.
+    return result.rowcount  # type: ignore[attr-defined]
 
 
 async def construct_wkt_geometry(
@@ -120,7 +122,9 @@ async def construct_wkt_geometry(
             f"CREATE INDEX idx_{table_name}_geom ON data.{table_name} USING GIST (geom)"
         )
     )
-    return result.rowcount
+    # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
+    # type stub is less specific so mypy can't narrow it here.
+    return result.rowcount  # type: ignore[attr-defined]
 
 
 async def get_table_srid(session: AsyncSession, table_name: str) -> int | None:
@@ -268,7 +272,7 @@ async def compute_quality_score(
     session: AsyncSession,
     table_name: str,
     column_info: list[dict],
-    dataset: "Dataset",  # noqa: F821
+    dataset: "Dataset",
     max_validity_rows: int = 10000,
 ) -> dict:
     """Compute a weighted quality score for a dataset.
