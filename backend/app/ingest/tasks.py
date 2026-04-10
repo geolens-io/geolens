@@ -447,7 +447,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 user_metadata=um,
             )
 
-            # 9c. Archive original file to storage provider
+            # 9c. Archive original file to storage provider.
+            # Best-effort: archive failures do NOT fail the ingest (the dataset
+            # is already committed). But record the failure on the job so the
+            # UI can show a warning and operators can audit (R-2).
             archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
             try:
                 storage = get_storage()
@@ -462,6 +465,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     archive_key=archive_key,
                     error=str(archive_exc),
                 )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "archive_failed": True,
+                    "archive_error": str(archive_exc)[:500],
+                }
+                await session.commit()
 
         except Exception as exc:
             # On any failure, mark job as failed
@@ -966,7 +975,10 @@ async def reupload_file(
                 file_hash=file_hash,
             )
 
-            # 9. Archive original file to storage provider
+            # 9. Archive original file to storage provider.
+            # Best-effort: failure does NOT fail the reupload (data is already
+            # in PostGIS). But record on the job so the UI and operators see
+            # that the archive is stale (R-2).
             archive_key = f"originals/{dataset.id}/{Path(file_path).name}"
             try:
                 from app.storage import get_storage
@@ -975,7 +987,6 @@ async def reupload_file(
                 with open(file_path, "rb") as fobj:
                     await storage.put(archive_key, fobj)
             except Exception as archive_exc:
-                # Archival failure is non-fatal -- data is already in PostGIS
                 import structlog
 
                 _log = structlog.get_logger()
@@ -984,6 +995,11 @@ async def reupload_file(
                     archive_key=archive_key,
                     error=str(archive_exc),
                 )
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "archive_failed": True,
+                    "archive_error": str(archive_exc)[:500],
+                }
 
             # 10. Update job status to complete
             job.status = "complete"

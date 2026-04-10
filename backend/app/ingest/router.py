@@ -577,6 +577,19 @@ async def register_table(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+    except HTTPException:
+        raise
+    except Exception:
+        await db.rollback()
+        logger.exception(
+            "Unexpected error during table registration",
+            table_name=request.table_name,
+            user_id=str(user.id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed — see server logs",
+        )
 
     return TableRegisterResponse(
         dataset_id=dataset.id,
