@@ -341,3 +341,74 @@ async def register_existing_table(
     )
 
     return dataset
+
+
+async def queue_ingest_job(
+    job: IngestJob,
+    user_id: str,
+    *,
+    token: str | None = None,
+) -> None:
+    """Route a committed ingest job to the right Procrastinate task.
+
+    Extracts the routing decision tree from ``router.commit_import``
+    (KISS-9). Chooses between `ingest_service` (source_url set),
+    `ingest_raster` (file_type=raster), and `ingest_file` (default
+    vector path), and sends small vector files to the priority queue.
+
+    Raises ``HTTPException 400`` when the job has no file_path and no
+    source_url so the route handler surfaces a clear error.
+    """
+    import os
+
+    from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
+    from app.ingest.tasks import ingest_file, ingest_raster, ingest_service
+
+    if job.source_url and not job.file_path:
+        # Service job — route to ingest_service
+        await ingest_service.defer_async(
+            job_id=str(job.id),
+            source_url=job.source_url,
+            source_layer=job.source_layer or "",
+            user_id=user_id,
+            token=token,
+        )
+        return
+
+    if not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job has no file_path and no source_url — cannot queue ingest",
+        )
+    file_path = job.file_path
+
+    if (job.user_metadata or {}).get("file_type") == "raster":
+        # Raster file job — route to dedicated raster queue
+        await ingest_raster.defer_async(
+            job_id=str(job.id),
+            file_path=file_path,
+            user_id=user_id,
+        )
+        return
+
+    # Vector file — route small files to the priority queue.
+    file_size = 0
+    if file_path.startswith("/"):
+        try:
+            if Path(file_path).exists():
+                file_size = os.path.getsize(file_path)
+        except OSError:
+            pass  # If we can't stat, use default queue
+
+    if 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
+        await ingest_file.configure(queue="priority").defer_async(
+            job_id=str(job.id),
+            file_path=file_path,
+            user_id=user_id,
+        )
+    else:
+        await ingest_file.defer_async(
+            job_id=str(job.id),
+            file_path=file_path,
+            user_id=user_id,
+        )
