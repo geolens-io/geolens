@@ -354,9 +354,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             #     source attribute of the same name.
             from app.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(
-                session, table_name, known_source_columns=info.get("columns")
-            )
+            reserved_renames = await rename_reserved_columns(session, table_name)
             if reserved_renames:
                 warnings_list = list(
                     (job.user_metadata or {}).get("warnings", [])
@@ -372,14 +370,13 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
             #     the source column list from ogrinfo (stored in info["columns"]).
             if file_path.lower().endswith(".zip"):
+                import structlog
                 from app.ingest.metadata import detect_dbf_truncation_collisions
-                from app.ingest.ogr import run_ogrinfo_preview as _run_preview
+                from app.ingest.ogr import run_ogrinfo_preview
 
-                import structlog as _sl
-
-                preview_cols = (info.get("columns") or [])
+                preview_cols = info.get("columns") or []
                 if not preview_cols:
-                    preview_info = await _run_preview(
+                    preview_info = await run_ogrinfo_preview(
                         file_path, sample_limit=0, layer_name=layer_name
                     )
                     preview_cols = preview_info.get("columns") or []
@@ -395,7 +392,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                         **(job.user_metadata or {}),
                         "warnings": warnings_list,
                     }
-                    _sl.stdlib.get_logger(__name__).warning(
+                    structlog.get_logger().warning(
                         "Shapefile DBF 10-char truncation collision detected",
                         table=table_name,
                         collisions=dbf_collisions,
@@ -896,9 +893,7 @@ async def reupload_file(
             #     add_4326_column) so they cannot clash with source attributes.
             from app.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(
-                session, staging_tn, known_source_columns=info.get("columns")
-            )
+            reserved_renames = await rename_reserved_columns(session, staging_tn)
             if reserved_renames:
                 warnings_list = list(
                     (job.user_metadata or {}).get("warnings", [])
@@ -913,14 +908,13 @@ async def reupload_file(
 
             # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
             if file_path.lower().endswith(".zip"):
+                import structlog
                 from app.ingest.metadata import detect_dbf_truncation_collisions
-                from app.ingest.ogr import run_ogrinfo_preview as _run_preview_ru
-
-                import structlog as _sl_ru
+                from app.ingest.ogr import run_ogrinfo_preview
 
                 preview_cols = info.get("columns") or []
                 if not preview_cols:
-                    preview_info = await _run_preview_ru(file_path, sample_limit=0)
+                    preview_info = await run_ogrinfo_preview(file_path, sample_limit=0)
                     preview_cols = preview_info.get("columns") or []
                 dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
                 if dbf_collisions:
@@ -934,7 +928,7 @@ async def reupload_file(
                         **(job.user_metadata or {}),
                         "warnings": warnings_list,
                     }
-                    _sl_ru.stdlib.get_logger(__name__).warning(
+                    structlog.get_logger().warning(
                         "Shapefile DBF 10-char truncation collision detected",
                         table=staging_tn,
                         collisions=dbf_collisions,

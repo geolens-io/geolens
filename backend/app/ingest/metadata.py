@@ -304,16 +304,18 @@ async def compute_quality_score(
     # 4. Attribute completeness (weight 0.25)
     # Compute per-column non-null percentage in a SINGLE query instead of N queries.
     # A 50-column dataset previously triggered 50 sequential full-table scans.
+    # Column identifiers are SQL-quoted below so non-ASCII / mixed-case / CJK
+    # column names are counted correctly (see RESEARCH §2.5 regression fix).
     attribute_score: float = 100.0
     non_geom_cols = [
         c
         for c in column_info
-        if "geometry" not in c.get("type", "").lower()
-        and _TABLE_NAME_RE.match(c.get("name", ""))
+        if "geometry" not in c.get("type", "").lower() and c.get("name")
     ]
     if non_geom_cols:
         col_exprs = ", ".join(
-            f'COUNT("{col["name"]}") * 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
+            f'COUNT("{col["name"].replace(chr(34), chr(34) + chr(34))}") '
+            f'* 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
             for i, col in enumerate(non_geom_cols)
         )
         try:
@@ -448,8 +450,6 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
 async def rename_reserved_columns(
     session: AsyncSession,
     table_name: str,
-    *,
-    known_source_columns: list[dict] | None = None,
 ) -> list[dict]:
     """Rename any source column whose name collides with a GeoLens-internal
     PostGIS column (gid, geom, geometry, geom_4326, fid, ogc_fid) to
@@ -545,7 +545,7 @@ def detect_dbf_truncation_collisions(
 
     Given the source-file column list from run_ogrinfo_preview(), returns a
     list of collision records grouped by the first 10 lowercase characters:
-      [{"truncated": "populatio", "originals": ["population_2020", "population_2021"]}]
+      [{"truncated": "population", "originals": ["population_2020", "population_2021"]}]
 
     Only returns groups with 2+ original names — a single column is not a
     collision. Empty input returns an empty list.
