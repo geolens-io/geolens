@@ -47,15 +47,13 @@ from app.ingest.service import (
     create_ingest_job,
     discover_unregistered_tables,
     get_job_or_404,
+    queue_ingest_job,
     register_existing_table,
     resolve_file_path,
     save_upload_file,
     validate_file_extension,
 )
 from app.ingest.tasks import (
-    ingest_file,
-    ingest_raster,
-    ingest_service,
     ingest_vrt,
     regenerate_vrt,
 )
@@ -66,7 +64,6 @@ from app.persistent_config import (
     get_allowed_extensions_list,
 )
 from app.raster.validation import validate_sources
-from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
 from app.storage import get_storage
 
 logger = structlog.get_logger(__name__)
@@ -528,56 +525,8 @@ async def commit_import(
         job.user_metadata = commit_metadata
     await db.commit()
 
-    if job.source_url and not job.file_path:
-        # Service job — route to ingest_service
-        await ingest_service.defer_async(
-            job_id=str(job.id),
-            source_url=job.source_url,
-            source_layer=job.source_layer or "",
-            user_id=str(user.id),
-            token=token,
-        )
-    else:
-        # File-backed job — file_path must be set by upload/presigned-complete.
-        if not job.file_path:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Job has no file_path and no source_url — cannot queue ingest",
-            )
-        file_path: str = job.file_path
-
-        if (job.user_metadata or {}).get("file_type") == "raster":
-            # Raster file job — route to dedicated raster queue
-            await ingest_raster.defer_async(
-                job_id=str(job.id),
-                file_path=file_path,
-                user_id=str(user.id),
-            )
-        else:
-            # File job -- route small files to priority queue
-            import os
-
-            file_size = 0
-            # Only check local files; S3 paths (no leading /) use default queue
-            if file_path.startswith("/"):
-                try:
-                    if Path(file_path).exists():
-                        file_size = os.path.getsize(file_path)
-                except OSError:
-                    pass  # If we can't stat, use default queue
-
-            if 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
-                await ingest_file.configure(queue="priority").defer_async(
-                    job_id=str(job.id),
-                    file_path=file_path,
-                    user_id=str(user.id),
-                )
-            else:
-                await ingest_file.defer_async(
-                    job_id=str(job.id),
-                    file_path=file_path,
-                    user_id=str(user.id),
-                )
+    # Dispatch routing lives in the service layer (KISS-9).
+    await queue_ingest_job(job, str(user.id), token=token)
 
     return CommitResponse(
         job_id=job.id,
