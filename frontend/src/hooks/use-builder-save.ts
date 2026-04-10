@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { getSourceId } from '@/components/builder/map-sync';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
@@ -59,12 +60,47 @@ function whenMapIdle(map: MaplibreMap, fn: () => void) {
   const timer = setTimeout(() => { if (!done) { done = true; map.off('idle', onIdle); fn(); } }, 3000);
 }
 
+function waitForVisibleLayerSources(
+  map: MaplibreMap,
+  layers: MapLayerResponse[],
+  fn: () => void,
+) {
+  const visibleSourceIds = layers
+    .filter((layer) => layer.visible)
+    .map((layer) => getSourceId(layer.id));
+
+  if (visibleSourceIds.length === 0) {
+    whenMapIdle(map, fn);
+    return;
+  }
+
+  const deadline = Date.now() + 5000;
+
+  const poll = () => {
+    const sourcesReady = visibleSourceIds.every((sourceId) => !!map.getSource(sourceId));
+    if (sourcesReady || Date.now() >= deadline) {
+      whenMapIdle(map, fn);
+      return;
+    }
+    setTimeout(poll, 100);
+  };
+
+  poll();
+}
+
 /** Capture a 400x250 JPEG thumbnail from the map canvas and upload it.
  *  If the map is already idle/loaded, captures immediately (preserveDrawingBuffer
  *  guarantees canvas contents persist). Otherwise waits for the idle event with a
  *  3-second safety timeout to prevent silent drops. */
-function captureThumbnail(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
-  whenMapIdle(map, () => doCapture(map, mapId, queryClient));
+function captureThumbnail(
+  map: MaplibreMap,
+  mapId: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+  layers: MapLayerResponse[],
+) {
+  // Auto-capture can run before BuilderMap has synced GeoLens sources. Wait
+  // for visible sources first so the thumbnail includes rendered layers.
+  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient));
 }
 
 interface SaveState {
@@ -141,7 +177,7 @@ export function useBuilderSave(state: SaveState) {
           // Use `map` captured before mutate — mapInstanceRef.current may be
           // transiently null during re-render (callback ref identity change).
           if (map && id) {
-            captureThumbnail(map, id, queryClient);
+            captureThumbnail(map, id, queryClient, localLayers);
           }
         },
         onError: () => {
@@ -206,8 +242,8 @@ export function useBuilderSave(state: SaveState) {
   const maybeAutoCaptureThumbnail = useCallback((map: MaplibreMap) => {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
     thumbCaptured.current = true;
-    captureThumbnail(map, state.mapId, queryClient);
-  }, [state.hasThumbnail, state.mapId, queryClient]);
+    captureThumbnail(map, state.mapId, queryClient, state.localLayers);
+  }, [state.hasThumbnail, state.localLayers, state.mapId, queryClient]);
 
   // Warn before tab close / refresh with unsaved changes, and block in-app navigation
   const blocker = useUnsavedGuard(state.hasUnsavedChanges);

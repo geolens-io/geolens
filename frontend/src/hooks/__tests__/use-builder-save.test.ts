@@ -64,6 +64,7 @@ function createMockMap(overrides: { loaded?: boolean } = {}) {
     getZoom: vi.fn(() => 10),
     getBearing: vi.fn(() => 0),
     getPitch: vi.fn(() => 0),
+    getSource: vi.fn(() => undefined),
     triggerRepaint: vi.fn(),
     once: vi.fn(),
     off: vi.fn(),
@@ -76,11 +77,13 @@ interface SaveState {
   mapId: string | undefined;
   localLayers: MapLayerResponse[];
   localBasemap: string;
+  showBasemapLabels: boolean;
   localName: string;
   localDescription: string;
   mapInstanceRef: React.RefObject<ReturnType<typeof createMockMap> | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
+  hasThumbnail?: boolean;
 }
 
 function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
@@ -88,11 +91,39 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     mapId: 'map-1',
     localLayers: [],
     localBasemap: 'openfreemap-positron',
+    showBasemapLabels: true,
     localName: 'Test Map',
     localDescription: 'A test',
     mapInstanceRef: { current: createMockMap() },
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
+    ...overrides,
+  };
+}
+
+function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+  return {
+    id: 'layer-1',
+    dataset_id: 'dataset-1',
+    dataset_name: 'Layer 1',
+    dataset_geometry_type: 'MULTIPOLYGON',
+    dataset_table_name: 'layer_1',
+    dataset_extent_bbox: null,
+    dataset_column_info: null,
+    dataset_feature_count: null,
+    dataset_sample_values: null,
+    display_name: null,
+    sort_order: 0,
+    visible: true,
+    opacity: 1,
+    paint: {},
+    layout: {},
+    layer_type: 'vector_geolens',
+    dataset_record_type: 'vector_dataset',
+    filter: null,
+    label_config: null,
+    style_config: null,
+    show_in_legend: true,
     ...overrides,
   };
 }
@@ -347,6 +378,69 @@ describe('useBuilderSave', () => {
       act(() => { result.current.handleExportPNG(); });
 
       expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+    });
+  });
+
+  describe('maybeAutoCaptureThumbnail', () => {
+    it('waits for visible layer sources before capturing a missing thumbnail', () => {
+      vi.useFakeTimers();
+      const origCreateElement = document.createElement.bind(document);
+      const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag === 'canvas') {
+          return createMockCanvas() as unknown as HTMLCanvasElement;
+        }
+        return origCreateElement(tag, options);
+      });
+
+      const sources = new Map<string, object>();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) => sources.get(sourceId));
+
+      const state = makeSaveState({
+        hasThumbnail: false,
+        localLayers: [makeLayer()],
+        mapInstanceRef: { current: mockMap },
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { result } = renderHook(() => useBuilderSave(state as any));
+
+      act(() => {
+        result.current.maybeAutoCaptureThumbnail(mockMap as never);
+      });
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+      expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
+
+      act(() => {
+        sources.set('source-layer-1', { type: 'vector' });
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      const idleCallback = mockMap.once.mock.calls.find(
+        (c: unknown[]) => c[0] === 'idle',
+      )![1] as () => void;
+
+      act(() => {
+        idleCallback();
+      });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+      );
+
+      createElementSpy.mockRestore();
+      vi.useRealTimers();
     });
   });
 });
