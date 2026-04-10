@@ -13,6 +13,51 @@ class IngestionError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Subprocess timeouts (R-5, R-9)
+# ---------------------------------------------------------------------------
+# Wall-clock limits protect the Procrastinate worker from hanging on a bad
+# file or a slow/hung upstream service. Tune via settings if your datasets
+# are routinely large.
+
+OGRINFO_TIMEOUT_SECONDS = 300  # 5 min — metadata probe, should be fast
+OGR2OGR_FILE_TIMEOUT_SECONDS = 3600  # 1 hour — large files legitimately take a while
+OGR2OGR_SERVICE_TIMEOUT_SECONDS = 1800  # 30 min — existing value, now a named constant
+
+
+async def _communicate_with_timeout(
+    proc: asyncio.subprocess.Process,
+    timeout: float,
+    *,
+    tool_name: str,
+) -> tuple[bytes, bytes]:
+    """Run ``proc.communicate()`` with a timeout + graceful kill fallback.
+
+    On timeout, attempts ``proc.kill()``, then ``proc.terminate()``, then
+    gives up — in all cases raises IngestionError so the caller surfaces a
+    meaningful error instead of hanging the worker.
+    """
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            pass
+        raise IngestionError(
+            f"{tool_name} timed out after {int(timeout)}s — the file or upstream service is too slow"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Geometry column auto-detection patterns
 # ---------------------------------------------------------------------------
 
@@ -133,7 +178,9 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    stdout, stderr = await _communicate_with_timeout(
+        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
+    )
 
     if proc.returncode == 0:
         try:
@@ -190,7 +237,9 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    stdout, stderr = await _communicate_with_timeout(
+        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
+    )
 
     if proc.returncode != 0:
         raise IngestionError(
@@ -223,7 +272,9 @@ async def run_ogrinfo_preview(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    stdout, stderr = await _communicate_with_timeout(
+        proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
+    )
 
     if proc.returncode == 0:
         try:
@@ -388,7 +439,9 @@ async def run_ogr2ogr(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    stdout, stderr = await _communicate_with_timeout(
+        proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
+    )
 
     if proc.returncode != 0:
         raise IngestionError(
@@ -473,14 +526,10 @@ async def run_ogr2ogr_service(
         env=env,
     )
 
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise IngestionError(
-            f"ogr2ogr timed out after {int(timeout)}s importing remote service"
-        )
+    # Use the shared helper for graceful kill-on-timeout (R-9).
+    stdout, stderr = await _communicate_with_timeout(
+        proc, timeout, tool_name="ogr2ogr (service)"
+    )
 
     if proc.returncode != 0:
         raise IngestionError(
