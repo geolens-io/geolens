@@ -127,6 +127,59 @@ def _extract_srid_from_json(coord_system: dict) -> int | None:
     return None
 
 
+def _extract_common_layer_metadata(
+    data: dict, layer_name: str | None
+) -> tuple[dict, dict]:
+    """Extract the target layer and common metadata from parsed ogrinfo JSON.
+
+    Returns ``(target_layer, metadata_dict)`` where metadata_dict carries
+    the fields common to both ``run_ogrinfo`` and ``run_ogrinfo_preview``:
+    srid, geometry_type, layer_name, feature_count, all_layers.
+
+    Raises KeyError if the JSON has no ``layers`` entry so callers can
+    fall through to their fallback path. KISS-12.
+    """
+    layers = data.get("layers", [])
+    if not layers:
+        raise KeyError("no layers in ogrinfo JSON output")
+
+    target_layer = layers[0]
+    if layer_name:
+        for lyr in layers:
+            if lyr.get("name") == layer_name:
+                target_layer = lyr
+                break
+
+    geom_fields = target_layer.get("geometryFields", [])
+    geometry_type: str | None = None
+    coord_system = target_layer.get("coordinateSystem", {})
+    if geom_fields:
+        geometry_type = geom_fields[0].get("type")
+        # coordinateSystem may be nested inside geometryFields
+        if not coord_system:
+            coord_system = geom_fields[0].get("coordinateSystem", {})
+    srid = _extract_srid_from_json(coord_system or {})
+
+    all_layers = None
+    if len(layers) > 1 and not layer_name:
+        all_layers = [
+            {
+                "name": lyr.get("name", ""),
+                "feature_count": lyr.get("featureCount", 0),
+                "field_count": len(lyr.get("fields", [])),
+            }
+            for lyr in layers
+        ]
+
+    return target_layer, {
+        "srid": srid,
+        "geometry_type": geometry_type,
+        "layer_name": target_layer.get("name", ""),
+        "feature_count": target_layer.get("featureCount"),
+        "all_layers": all_layers,
+    }
+
+
 def _parse_text_ogrinfo(output: str) -> dict:
     """Parse text output from ogrinfo -so (fallback for GDAL < 3.7)."""
     srid = None
@@ -185,39 +238,10 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
     if proc.returncode == 0:
         try:
             data = json.loads(stdout.decode())
-            layers = data.get("layers", [])
-            if layers:
-                layer = layers[0]
-                geom_fields = layer.get("geometryFields", [])
-                geometry_type = None
-                coord_system = layer.get("coordinateSystem", {})
-                if geom_fields:
-                    geometry_type = geom_fields[0].get("type")
-                    # coordinateSystem may be nested inside geometryFields
-                    if not coord_system:
-                        coord_system = geom_fields[0].get("coordinateSystem", {})
-                srid = _extract_srid_from_json(coord_system or {})
-
-                # Build all_layers list for multi-layer files
-                all_layers = None
-                if len(layers) > 1 and not layer_name:
-                    all_layers = [
-                        {
-                            "name": lyr.get("name", ""),
-                            "feature_count": lyr.get("featureCount", 0),
-                            "field_count": len(lyr.get("fields", [])),
-                        }
-                        for lyr in layers
-                    ]
-
-                return {
-                    "srid": srid,
-                    "geometry_type": geometry_type,
-                    "layer_name": layer.get("name", ""),
-                    "feature_count": layer.get("featureCount"),
-                    "all_layers": all_layers,
-                }
-            # No layers found but command succeeded
+            _, metadata = _extract_common_layer_metadata(data, layer_name)
+            return metadata
+        except KeyError:
+            # No layers in JSON output but command succeeded — return empty shell.
             return {
                 "srid": None,
                 "geometry_type": None,
@@ -225,7 +249,7 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
                 "feature_count": None,
                 "all_layers": None,
             }
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError:
             pass  # Fall through to text fallback
 
     # Fallback: text output (GDAL < 3.7 or -json flag failed)
@@ -279,59 +303,19 @@ async def run_ogrinfo_preview(
     if proc.returncode == 0:
         try:
             data = json.loads(stdout.decode())
-            layers = data.get("layers", [])
-            if layers:
-                # Find the target layer
-                target_layer = layers[0]
-                if layer_name:
-                    for lyr in layers:
-                        if lyr.get("name") == layer_name:
-                            target_layer = lyr
-                            break
-
-                # Extract columns from layer fields
-                columns = [
-                    {"name": f["name"], "type": f["type"]}
-                    for f in target_layer.get("fields", [])
-                ]
-
-                # Extract sample rows from features
-                sample_rows = [
-                    feat.get("properties", {})
-                    for feat in target_layer.get("features", [])
-                ]
-
-                # Extract metadata
-                coord_system = target_layer.get("coordinateSystem", {})
-                srid = _extract_srid_from_json(coord_system or {})
-                geometry_type = None
-                geom_fields = target_layer.get("geometryFields", [])
-                if geom_fields:
-                    geometry_type = geom_fields[0].get("type")
-
-                # Build all_layers list for multi-layer files
-                all_layers = None
-                if len(layers) > 1 and not layer_name:
-                    all_layers = [
-                        {
-                            "name": lyr.get("name", ""),
-                            "feature_count": lyr.get("featureCount", 0),
-                            "field_count": len(lyr.get("fields", [])),
-                        }
-                        for lyr in layers
-                    ]
-
-                return {
-                    "srid": srid,
-                    "geometry_type": geometry_type,
-                    "layer_name": target_layer.get("name", ""),
-                    "feature_count": target_layer.get("featureCount"),
-                    "columns": columns,
-                    "sample_rows": sample_rows,
-                    "all_layers": all_layers,
-                }
-
-            # No layers found but command succeeded
+            target_layer, metadata = _extract_common_layer_metadata(data, layer_name)
+            # Preview also extracts columns and sample rows.
+            metadata["columns"] = [
+                {"name": f["name"], "type": f["type"]}
+                for f in target_layer.get("fields", [])
+            ]
+            metadata["sample_rows"] = [
+                feat.get("properties", {})
+                for feat in target_layer.get("features", [])
+            ]
+            return metadata
+        except KeyError:
+            # No layers in JSON output but command succeeded — return empty shell.
             return {
                 "srid": None,
                 "geometry_type": None,
@@ -341,7 +325,7 @@ async def run_ogrinfo_preview(
                 "sample_rows": [],
                 "all_layers": None,
             }
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError:
             pass  # Fall through to fallback
 
     # Fallback: summary only (no sample rows)

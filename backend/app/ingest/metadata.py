@@ -37,6 +37,16 @@ def _qtable(table_name: str) -> str:
     return f'"data"."{table_name}"'
 
 
+def _sql_quote_ident(name: str) -> str:
+    """Return a safely double-quoted SQL identifier.
+
+    Handles embedded double-quotes by doubling them, which is the
+    PostgreSQL-standard escape. Centralizes the quoting logic that
+    previously lived inline at every call site (PERF-6, KISS).
+    """
+    return '"' + name.replace('"', '""') + '"'
+
+
 async def construct_point_geometry(
     session: AsyncSession,
     table_name: str,
@@ -216,8 +226,7 @@ async def get_sample_values(
             continue
         if "geometry" in col_type.lower():
             continue
-        quoted = '"' + col_name.replace('"', '""') + '"'
-        candidates.append((col_name, quoted))
+        candidates.append((col_name, _sql_quote_ident(col_name)))
 
     if not candidates:
         return {}
@@ -337,7 +346,7 @@ async def compute_quality_score(
     ]
     if non_geom_cols:
         col_exprs = ", ".join(
-            f'COUNT("{col["name"].replace(chr(34), chr(34) + chr(34))}") '
+            f'COUNT({_sql_quote_ident(col["name"])}) '
             f'* 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
             for i, col in enumerate(non_geom_cols)
         )
@@ -563,8 +572,8 @@ async def rename_reserved_columns(
                     suffix += 1
 
                 # Execute the rename using double-quoted identifiers (not bindable).
-                q_orig = '"' + col_name.replace('"', '""') + '"'
-                q_target = '"' + target.replace('"', '""') + '"'
+                q_orig = _sql_quote_ident(col_name)
+                q_target = _sql_quote_ident(target)
                 await session.execute(
                     text(
                         f'ALTER TABLE "data"."{table_name}" '
