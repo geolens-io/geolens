@@ -64,6 +64,37 @@ def _append_job_warning(job, warning: dict) -> None:
     }
 
 
+async def _validate_upload_file_safety(
+    session,
+    *,
+    file_path: str,
+    source_filename: str | None,
+) -> None:
+    """Run the three-step upload-safety gauntlet before ogr2ogr touches a file.
+
+    - content validation (magic bytes, extension match, CSV parse)
+    - size validation (against the persistent_config max)
+    - zip-bomb / path-traversal validation (only for .zip uploads)
+
+    Shared by ``ingest_file``, ``reupload_file``, and ``ingest_raster``
+    (KISS-3/5/6 consolidation). Raises ``ValueError`` on any check so
+    each caller can map to its own job-failure handling.
+    """
+    from app.ingest.validation import (
+        validate_file_content,
+        validate_file_size,
+        validate_zip_safety,
+    )
+    from app.persistent_config import UPLOAD_MAX_SIZE_MB
+
+    max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
+
+    validate_file_content(file_path, source_filename)
+    validate_file_size(file_path, max_size_mb * 1024 * 1024)
+    if file_path.lower().endswith(".zip"):
+        validate_zip_safety(file_path)
+
+
 async def _finalize_ingest(
     *,
     session,
@@ -269,22 +300,13 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             original_file_path = file_path
             file_path = await resolve_file_path(file_path, job_id)
 
-            # Validate file content and safety before ogr2ogr
-            from app.ingest.validation import (
-                validate_file_content,
-                validate_file_size,
-                validate_zip_safety,
-            )
-
-            from app.persistent_config import UPLOAD_MAX_SIZE_MB
-
-            max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
-
+            # Validate file content and safety before ogr2ogr (KISS-3).
             try:
-                validate_file_content(file_path, job.source_filename)
-                validate_file_size(file_path, max_size_mb * 1024 * 1024)
-                if file_path.lower().endswith(".zip"):
-                    validate_zip_safety(file_path)
+                await _validate_upload_file_safety(
+                    session,
+                    file_path=file_path,
+                    source_filename=job.source_filename,
+                )
             except ValueError as exc:
                 job.status = "failed"
                 job.error_message = str(exc)
@@ -893,21 +915,13 @@ async def reupload_file(
             original_file_path = file_path
             file_path = await resolve_file_path(file_path, job_id)
 
-            # Validate file content and safety before ogr2ogr
-            from app.ingest.validation import (
-                validate_file_content,
-                validate_file_size,
-                validate_zip_safety,
-            )
-            from app.persistent_config import UPLOAD_MAX_SIZE_MB
-
-            max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
-
+            # Validate file content and safety before ogr2ogr (KISS-5).
             try:
-                validate_file_content(file_path, job.source_filename)
-                validate_file_size(file_path, max_size_mb * 1024 * 1024)
-                if file_path.lower().endswith(".zip"):
-                    validate_zip_safety(file_path)
+                await _validate_upload_file_safety(
+                    session,
+                    file_path=file_path,
+                    source_filename=job.source_filename,
+                )
             except ValueError as exc:
                 job.status = "failed"
                 job.error_message = str(exc)
@@ -1508,14 +1522,14 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
             file_path = await resolve_file_path(file_path, job_id)
 
-            # 3. Validate file content and size
-            from app.ingest.validation import validate_file_content, validate_file_size
-            from app.persistent_config import UPLOAD_MAX_SIZE_MB
-
-            max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
+            # 3. Validate file content and size (KISS-6). Raster uploads
+            # are .tif/.tiff/.vrt so the .zip branch of the helper is a no-op.
             try:
-                validate_file_content(file_path, job.source_filename)
-                validate_file_size(file_path, max_size_mb * 1024 * 1024)
+                await _validate_upload_file_safety(
+                    session,
+                    file_path=file_path,
+                    source_filename=job.source_filename,
+                )
             except ValueError as exc:
                 job.status = "failed"
                 job.error_message = str(exc)
