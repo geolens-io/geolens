@@ -2,9 +2,10 @@
 
 import asyncio
 import json
-import logging
 import math
 import uuid
+
+import structlog
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -67,7 +68,7 @@ from app.raster.validation import validate_sources
 from app.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
 from app.storage import get_storage
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/ingest", tags=["Datasets"])
 
@@ -298,6 +299,11 @@ async def upload_file(
     Validates the file extension, creates an ingest job, and saves the file
     to staging. Does NOT auto-queue ingestion -- use preview then commit.
     """
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload missing filename",
+        )
     try:
         allowed_list = await get_allowed_extensions_list(db)
         validate_file_extension(file.filename, allowed_list)
@@ -383,8 +389,13 @@ async def preview_file(
         )
 
     # Resolve S3 key to local file
-    file_path = job.file_path
-    if file_path and not Path(file_path).exists():
+    if not job.file_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job has no associated file — upload must complete before preview",
+        )
+    file_path: str = job.file_path
+    if not Path(file_path).exists():
         from app.ingest.service import resolve_file_path
 
         file_path = await resolve_file_path(file_path, str(job.id))
@@ -494,38 +505,47 @@ async def commit_import(
             user_id=str(user.id),
             token=token,
         )
-    elif (job.user_metadata or {}).get("file_type") == "raster":
-        # Raster file job — route to dedicated raster queue
-        await ingest_raster.defer_async(
-            job_id=str(job.id),
-            file_path=job.file_path,
-            user_id=str(user.id),
-        )
     else:
-        # File job -- route small files to priority queue
-        import os
+        # File-backed job — file_path must be set by upload/presigned-complete.
+        if not job.file_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Job has no file_path and no source_url — cannot queue ingest",
+            )
+        file_path: str = job.file_path
 
-        file_size = 0
-        # Only check local files; S3 paths (no leading /) use default queue
-        if job.file_path and job.file_path.startswith("/"):
-            try:
-                if Path(job.file_path).exists():
-                    file_size = os.path.getsize(job.file_path)
-            except OSError:
-                pass  # If we can't stat, use default queue
-
-        if file_size > 0 and file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
-            await ingest_file.configure(queue="priority").defer_async(
+        if (job.user_metadata or {}).get("file_type") == "raster":
+            # Raster file job — route to dedicated raster queue
+            await ingest_raster.defer_async(
                 job_id=str(job.id),
-                file_path=job.file_path,
+                file_path=file_path,
                 user_id=str(user.id),
             )
         else:
-            await ingest_file.defer_async(
-                job_id=str(job.id),
-                file_path=job.file_path,
-                user_id=str(user.id),
-            )
+            # File job -- route small files to priority queue
+            import os
+
+            file_size = 0
+            # Only check local files; S3 paths (no leading /) use default queue
+            if file_path.startswith("/"):
+                try:
+                    if Path(file_path).exists():
+                        file_size = os.path.getsize(file_path)
+                except OSError:
+                    pass  # If we can't stat, use default queue
+
+            if 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
+                await ingest_file.configure(queue="priority").defer_async(
+                    job_id=str(job.id),
+                    file_path=file_path,
+                    user_id=str(user.id),
+                )
+            else:
+                await ingest_file.defer_async(
+                    job_id=str(job.id),
+                    file_path=file_path,
+                    user_id=str(user.id),
+                )
 
     return CommitResponse(
         job_id=job.id,
@@ -796,6 +816,11 @@ async def add_vrt_source(
     existing_assets = list(existing_assets_result.scalars().all())
     all_assets = existing_assets + [source_asset]
 
+    if not vrt_asset.vrt_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"VRT dataset {dataset_id} has no vrt_type — cannot validate sources",
+        )
     errors = validate_sources(vrt_asset.vrt_type, all_assets)
     if errors:
         raise HTTPException(
