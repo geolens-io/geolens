@@ -1021,8 +1021,17 @@ async def reupload_file(
                     text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}")
                 )
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                # Cleanup failure is non-fatal for job reporting but worth
+                # logging so orphaned staging tables can be traced (R-6).
+                import structlog
+
+                structlog.get_logger().warning(
+                    "Staging-table cleanup failed during reupload_file failure",
+                    staging_table=staging_tn,
+                    cleanup_error=str(cleanup_exc),
+                    original_error=str(exc),
+                )
 
             # Mark job as failed
             job.status = "failed"
@@ -1212,8 +1221,16 @@ async def reupload_service(
                     text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}")
                 )
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                # R-6: log orphaned staging tables.
+                import structlog
+
+                structlog.get_logger().warning(
+                    "Staging-table cleanup failed during reupload_service failure",
+                    staging_table=staging_tn,
+                    cleanup_error=str(cleanup_exc),
+                    original_error=str(exc),
+                )
 
             job.status = "failed"
             job.error_message = str(exc)
@@ -1709,12 +1726,13 @@ async def ingest_vrt(
             vrt_size = os.path.getsize(vrt_path)
 
             # 8. Generate quicklooks (non-fatal)
+            ql256: bytes | None = None
+            ql512: bytes | None = None
             try:
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
                 logger_vrt.warning("Quicklook generation failed for VRT %s", job_id)
-                ql256 = ql512 = None
 
             # 9. Create DB records
             um = job.user_metadata or {}
@@ -1920,6 +1938,8 @@ async def regenerate_vrt(
             new_size = os.path.getsize(vrt_path)
 
             # 9. Generate quicklooks (non-fatal)
+            ql256: bytes | None = None
+            ql512: bytes | None = None
             try:
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
@@ -1927,7 +1947,6 @@ async def regenerate_vrt(
                 logger_regen.warning(
                     "Quicklook regeneration failed for VRT %s", vrt_dataset_id
                 )
-                ql256 = ql512 = None
 
             # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
             storage = get_storage()

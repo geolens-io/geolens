@@ -242,7 +242,9 @@ class BulkRegisterResponse(BaseModel):
 
 class PresignedUploadRequest(BaseModel):
     filename: str = Field(
-        description="Original filename being uploaded. Used to determine the file extension and content disposition."
+        min_length=1,
+        max_length=255,  # filesystem + S3 object-key practical limit
+        description="Original filename being uploaded. Used to determine the file extension and content disposition.",
     )
     file_size: int = Field(
         ge=1,
@@ -250,6 +252,7 @@ class PresignedUploadRequest(BaseModel):
     )
     content_type: str = Field(
         default="application/octet-stream",
+        max_length=255,  # RFC 6838 practical upper bound
         description="MIME type to associate with the uploaded object.",
     )
 

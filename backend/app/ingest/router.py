@@ -74,6 +74,37 @@ router = APIRouter(prefix="/ingest", tags=["Datasets"])
 
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
+# Fallback list used when the persistent_config DB lookup fails (R-7).
+# Kept intentionally conservative: matches the original production default.
+_FALLBACK_ALLOWED_EXTENSIONS: list[str] = [
+    ".geojson",
+    ".json",
+    ".csv",
+    ".xlsx",
+    ".gpkg",
+    ".zip",
+    ".tif",
+    ".tiff",
+    ".vrt",
+]
+
+
+async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
+    """Load allowed upload extensions with a DB-failure fallback (R-7).
+
+    A transient DB hiccup during config lookup previously crashed the
+    entire upload endpoint with a 500. Fall back to a safe default and
+    log the failure so operators can investigate without losing uploads.
+    """
+    try:
+        return await get_allowed_extensions_list(db)
+    except Exception as exc:
+        logger.warning(
+            "Failed to load allowed extensions from persistent_config — using fallback",
+            error=str(exc),
+        )
+        return list(_FALLBACK_ALLOWED_EXTENSIONS)
+
 
 @router.get("/upload/config", response_model=UploadConfigResponse)
 async def get_upload_config(
@@ -110,7 +141,7 @@ async def request_presigned_upload(
             detail="Presigned uploads only available in S3 mode",
         )
 
-    allowed_list = await get_allowed_extensions_list(db)
+    allowed_list = await _get_allowed_extensions_safely(db)
     validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time
@@ -305,7 +336,7 @@ async def upload_file(
             detail="Upload missing filename",
         )
     try:
-        allowed_list = await get_allowed_extensions_list(db)
+        allowed_list = await _get_allowed_extensions_safely(db)
         validate_file_extension(file.filename, allowed_list)
 
         job = await create_ingest_job(db, file.filename, "", user.id)
@@ -603,6 +634,12 @@ async def register_table(
     response_model=DiscoverResponse,
 )
 async def discover_tables(
+    limit: int = Query(
+        1000,
+        ge=1,
+        le=5000,
+        description="Maximum number of tables to return (PERF-11 bound).",
+    ),
     user: User = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> DiscoverResponse:
@@ -610,8 +647,10 @@ async def discover_tables(
 
     Returns tables not yet in the catalog, excluding staging, old, and
     system tables. Includes geometry type, SRID, and estimated row count.
+    Bounded by ``limit`` (default 1000, max 5000) so instances with
+    thousands of orphan tables don't blow up the response payload.
     """
-    tables = await discover_unregistered_tables(db)
+    tables = await discover_unregistered_tables(db, limit=limit)
     return DiscoverResponse(tables=tables)
 
 
@@ -841,7 +880,8 @@ async def add_vrt_source(
             detail=[e.model_dump() for e in errors],
         )
 
-    # 6. Get max position for new link
+    # 6. Get max position for new link. COALESCE(..., -1) guarantees non-null
+    # in SQL but mypy sees Any|None — default to -1 so the arithmetic is safe.
     max_pos_result = await db.execute(
         text(
             "SELECT COALESCE(MAX(position), -1) FROM catalog.vrt_source_links "
@@ -850,6 +890,8 @@ async def add_vrt_source(
         {"vrt_id": dataset_id},
     )
     max_position = max_pos_result.scalar()
+    if max_position is None:
+        max_position = -1
 
     # 7. Insert new source link
     await db.execute(
@@ -928,14 +970,15 @@ async def remove_vrt_source(
             detail="VRT is currently regenerating. Try again after the current operation completes.",
         )
 
-    # 3. Check minimum source count guard
+    # 3. Check minimum source count guard. COUNT(*) is non-null but mypy
+    # sees Any|None from scalar() — default to 0 so the comparison is safe.
     count_result = await db.execute(
         text(
             "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :vrt_id"
         ),
         {"vrt_id": dataset_id},
     )
-    source_count = count_result.scalar()
+    source_count = count_result.scalar() or 0
     if source_count <= 2:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
