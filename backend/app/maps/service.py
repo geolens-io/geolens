@@ -647,7 +647,9 @@ async def remove_layer(
 ) -> bool:
     """Delete a map layer by ID. Returns True if deleted, False if not found."""
     result = await session.execute(delete(MapLayer).where(MapLayer.id == layer_id))
-    return result.rowcount > 0
+    # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
+    # type stub is less specific so mypy can't narrow it here.
+    return result.rowcount > 0  # type: ignore[attr-defined]
 
 
 async def validate_public_visibility(
@@ -873,8 +875,13 @@ async def list_share_tokens(
     """List all share tokens with map names and embed token counts for admin view."""
     from app.embed_tokens.models import EmbedToken
 
-    # Build base filter conditions
-    conditions = []
+    # Build base filter conditions.
+    # Typed as the SQLAlchemy `ColumnElement[bool]` supertype so both
+    # BinaryExpression (`col == val`) and combined OR expressions fit
+    # without per-append type ignores.
+    from sqlalchemy.sql import ColumnElement
+
+    conditions: list[ColumnElement[bool]] = []
     if search:
         escaped = search.replace("%", r"\%").replace("_", r"\_")
         conditions.append(Map.name.ilike(f"%{escaped}%"))

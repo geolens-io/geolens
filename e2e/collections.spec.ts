@@ -1,212 +1,146 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-test.describe('Collections', () => {
-  const collectionName = `E2E Test Collection ${Date.now()}`;
-  const collectionDescription = 'Automated test collection for E2E';
-  const updatedDescription = 'Updated description for E2E test';
+const collectionName = `E2E Test Collection ${Date.now()}`;
+const collectionDescription = 'Automated test collection for E2E';
+const updatedDescription = 'Updated description for E2E test';
+let createdCollectionId: string | null = null;
 
+async function openCollectionDetail(page: Page) {
+  if (!createdCollectionId) {
+    throw new Error('Collection was not created before opening the detail page');
+  }
+
+  await page.goto(`/collections/${createdCollectionId}`);
+  await expect(page.getByRole('heading', { name: collectionName })).toBeVisible();
+}
+
+test.describe.serial('Collections', () => {
   test('browse collections page loads', async ({ page }) => {
     await page.goto('/collections');
 
-    // Verify page heading
     await expect(
       page.getByRole('heading', { name: 'Collections' }),
     ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'New Collection' }),
+    ).toBeVisible();
   });
 
-  test('create a new collection', async ({ page }) => {
+  test('create a new collection from the global create menu', async ({ page }) => {
     await page.goto('/collections');
 
-    // Click "New Collection" button
-    await page.getByRole('button', { name: 'New Collection' }).click();
+    await page.getByRole('button', { name: 'Create' }).click();
+    await page.getByRole('menuitem', { name: 'Collection' }).click();
 
-    // Verify create dialog opens
     await expect(
       page.getByRole('heading', { name: 'Create Collection' }),
     ).toBeVisible();
 
-    // Fill in collection details
     await page.getByLabel('Name').fill(collectionName);
     await page.locator('#collection-description').fill(collectionDescription);
 
-    // Submit the form
+    const createResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().includes('/api/catalog/collections/'),
+    );
     await page.getByRole('button', { name: 'Create' }).click();
 
-    // Verify success toast
+    const createResponse = await createResponsePromise;
+    const createdCollection = await createResponse.json();
+    createdCollectionId = createdCollection.id;
+    expect(createdCollectionId).toBeTruthy();
+
     await expect(page.getByText('Collection created')).toBeVisible({
       timeout: 10_000,
     });
-
-    // Verify collection appears in the list
-    await expect(page.getByText(collectionName)).toBeVisible({
-      timeout: 10_000,
-    });
+    await openCollectionDetail(page);
   });
 
   test('view collection detail page', async ({ page }) => {
-    await page.goto('/collections');
+    await openCollectionDetail(page);
 
-    // Wait for the collection to appear
-    await expect(page.getByText(collectionName)).toBeVisible({
-      timeout: 10_000,
-    });
-
-    // Click on the collection to navigate to detail
-    await page.getByText(collectionName).first().click();
-
-    // Verify detail page loaded with collection name as heading
-    await expect(
-      page.getByRole('heading', { name: collectionName }),
-    ).toBeVisible();
-
-    // Verify metadata section is present
-    await expect(page.getByText('Datasets')).toBeVisible();
-    await expect(page.getByText('Created')).toBeVisible();
-    await expect(page.getByText('Last Updated')).toBeVisible();
-
-    // Verify the description is shown
+    const metadata = page.getByLabel('Collection metadata');
+    await expect(metadata.getByText('Datasets')).toBeVisible();
+    await expect(metadata.getByText('Created')).toBeVisible();
+    await expect(metadata.getByText('Last Updated')).toBeVisible();
     await expect(page.getByText(collectionDescription)).toBeVisible();
-
-    // Verify breadcrumb back to collections
     await expect(
-      page.getByRole('link', { name: 'Collections' }),
+      page.getByLabel('breadcrumb').getByRole('link', { name: 'Collections' }),
     ).toBeVisible();
   });
 
   test('edit collection metadata', async ({ page }) => {
-    await page.goto('/collections');
+    await openCollectionDetail(page);
 
-    // Navigate to collection detail
-    await expect(page.getByText(collectionName)).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByText(collectionName).first().click();
-    await expect(
-      page.getByRole('heading', { name: collectionName }),
-    ).toBeVisible();
-
-    // Click Edit button
     await page.getByRole('button', { name: 'Edit' }).click();
-
-    // Verify edit dialog opens
     await expect(
       page.getByRole('heading', { name: 'Edit Collection' }),
     ).toBeVisible();
 
-    // Update the description
     await page.locator('#edit-collection-description').clear();
     await page.locator('#edit-collection-description').fill(updatedDescription);
-
-    // Save changes
     await page.getByRole('button', { name: 'Save' }).click();
 
-    // Verify success toast
     await expect(page.getByText('Collection updated')).toBeVisible({
       timeout: 10_000,
     });
-
-    // Verify updated description is shown on the page
-    await expect(page.getByText(updatedDescription)).toBeVisible();
+    await expect(page.locator('#main-content').getByText(updatedDescription)).toBeVisible();
   });
 
   test('add dataset to collection', async ({ page }) => {
-    await page.goto('/collections');
+    await openCollectionDetail(page);
 
-    // Navigate to collection detail
-    await expect(page.getByText(collectionName)).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByText(collectionName).first().click();
-    await expect(
-      page.getByRole('heading', { name: collectionName }),
-    ).toBeVisible();
-
-    // Verify the "Add Datasets" section is visible (editor-only)
     await expect(
       page.getByRole('heading', { name: 'Add Datasets' }),
     ).toBeVisible();
 
-    // Search for a dataset to add
-    await page
-      .getByPlaceholder('Search datasets by name...')
-      .fill('countries');
+    await page.getByPlaceholder('Search datasets by name...').fill('Railroads');
     await page.getByRole('button', { name: 'Search' }).click();
 
-    // Wait for search results to appear
-    await expect(page.getByText('World Countries')).toBeVisible({
+    const addButton = page.getByRole('button', { name: 'Add' }).first();
+    await expect(addButton).toBeVisible({
       timeout: 15_000,
     });
 
-    // Click Add button on the first result
-    await page.getByRole('button', { name: 'Add' }).first().click();
+    await addButton.click();
 
-    // Verify success toast
     await expect(page.getByText('Dataset added to collection')).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.getByText('No datasets in this collection')).toHaveCount(0);
+    await expect(page.getByTitle('Remove from collection').first()).toBeVisible();
   });
 
   test('remove dataset from collection', async ({ page }) => {
-    await page.goto('/collections');
+    await openCollectionDetail(page);
 
-    // Navigate to collection detail
-    await expect(page.getByText(collectionName)).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByText(collectionName).first().click();
-    await expect(
-      page.getByRole('heading', { name: collectionName }),
-    ).toBeVisible();
-
-    // Verify the dataset is listed in the collection
-    await expect(page.getByText('World Countries')).toBeVisible({
+    await expect(page.getByTitle('Remove from collection').first()).toBeVisible({
       timeout: 10_000,
     });
 
-    // Click the remove button (X icon) for the dataset
-    await page
-      .getByTitle('Remove from collection')
-      .first()
-      .click();
+    await page.getByTitle('Remove from collection').first().click();
 
-    // Verify success toast
     await expect(
       page.getByText('Dataset removed from collection'),
     ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('No datasets in this collection')).toBeVisible();
   });
 
   test('delete collection', async ({ page }) => {
-    await page.goto('/collections');
+    await openCollectionDetail(page);
 
-    // Navigate to collection detail
-    await expect(page.getByText(collectionName)).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByText(collectionName).first().click();
-    await expect(
-      page.getByRole('heading', { name: collectionName }),
-    ).toBeVisible();
-
-    // Click Delete button
     await page.getByRole('button', { name: 'Delete' }).click();
-
-    // Verify delete dialog opens
     await expect(
       page.getByRole('heading', { name: 'Delete Collection' }),
     ).toBeVisible();
 
-    // Type collection name to confirm
     await page.getByPlaceholder(collectionName).fill(collectionName);
-
-    // Click the delete confirmation button
     await page.getByRole('button', { name: 'Delete Collection' }).click();
 
-    // Verify success toast
     await expect(page.getByText('Collection deleted')).toBeVisible({
       timeout: 10_000,
     });
-
-    // Verify redirected back to collections list
     await page.waitForURL('/collections');
   });
 });

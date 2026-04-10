@@ -717,7 +717,7 @@ async def create_collections(
                 continue
 
             resp = await client.post(
-                f"{base_url}/api/catalog/collections/{coll_id}/datasets",
+                f"{base_url}/api/catalog/collections/{coll_id}/datasets/",
                 headers=headers,
                 json={"dataset_ids": dataset_ids},
             )

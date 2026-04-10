@@ -33,6 +33,12 @@ export async function getJobStatus(
   return apiFetch<JobStatusResponse>(`/jobs/${jobId}`);
 }
 
+export async function getJobStatusByDataset(
+  datasetId: string,
+): Promise<JobStatusResponse> {
+  return apiFetch<JobStatusResponse>(`/jobs/by-dataset/${datasetId}`);
+}
+
 export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse> {
   const url = layerName
     ? `/ingest/preview/${jobId}?layer_name=${encodeURIComponent(layerName)}`

@@ -21,8 +21,8 @@ test.describe('Authentication Flow', () => {
     // Submit
     await page.getByRole('button', { name: 'Sign In' }).click();
 
-    // Wait for redirect to the search workspace
-    await page.waitForURL('/search');
+    // Current auth flow lands on the root workspace.
+    await page.waitForURL((url) => url.pathname === '/');
 
     // Verify workspace loaded
     await expect(

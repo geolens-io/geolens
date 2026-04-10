@@ -30,6 +30,7 @@ Thumbs.db
 # Coverage reports
 htmlcov/
 coverage.xml
+.coverage
 
 # Playwright
 playwright/.auth/

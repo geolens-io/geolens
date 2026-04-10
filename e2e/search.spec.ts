@@ -24,22 +24,21 @@ test.describe('Search Flow', () => {
     // Search input should reflect the query
     const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
     await expect(searchInput).toHaveCount(1);
+    await expect(searchInput).toHaveValue('Zoning');
   });
 
   test('prefix search supports keyboard typeahead navigation', async ({ page }) => {
     // Verify search page loaded
     await page.goto('/');
     await expect(
-      page.getByRole('heading', { name: 'Find Geospatial Data' }),
-    ).toBeVisible();
-    await expect(
       page.getByRole('combobox', { name: 'Search geospatial data...' }),
-    ).toHaveCount(1);
+    ).toBeVisible();
 
     // Navigate with query param to bypass hero→sticky transition race condition.
     // This puts us directly in browse mode with a single SearchBar.
     await page.goto('/?q=Zoning');
     const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
+    await expect(searchInput).toHaveValue('Zoning');
 
     // Focus and re-fill to trigger typeahead (onFocus + onChange open the dropdown)
     await searchInput.click();

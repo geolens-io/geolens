@@ -38,6 +38,7 @@ describe('MapCard', () => {
     mockUseMapThumbnail.mockReturnValue(null);
     render(<MapCard map={makeMap({ thumbnail_url: null })} onDelete={() => {}} />);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Test Map preview' })).toBeInTheDocument();
   });
 
   it('renders MapIcon placeholder when img fires onError (simulating 404)', () => {
@@ -60,6 +61,7 @@ describe('MapCardGrid', () => {
     mockUseMapThumbnail.mockReturnValue(null);
     render(<MapCardGrid map={makeMap({ thumbnail_url: null })} onDelete={() => {}} />);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Test Map preview' })).toBeInTheDocument();
   });
 
   it('renders MapIcon placeholder when img fires onError (simulating 404)', () => {

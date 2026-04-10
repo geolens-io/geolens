@@ -45,7 +45,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     const datasets = dsData.datasets ?? dsData.items ?? dsData;
 
     const suitable = datasets.find(
-      (ds: any) => ds.record_type === 'vector' && hasTextColumn(ds.column_info),
+      (ds: any) => ds.record_type === 'vector_dataset' && hasTextColumn(ds.column_info),
     );
     const datasetId = suitable?.id ?? datasets[0]?.id;
     expect(datasetId).toBeTruthy();
@@ -87,12 +87,12 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
     // Expand the layer panel
-    const expandBtn = page.getByRole('button', { name: 'Expand layer options' });
+    const expandBtn = page.getByRole('button', { name: 'Expand options' });
     await expect(expandBtn).toBeVisible();
     await expandBtn.click();
 
-    // Style tab is active by default — Data-Driven Color section should be visible
-    await expect(page.getByText('Data-Driven Color')).toBeVisible();
+    // Style tab is active by default — Data-Driven Style section should be visible.
+    await expect(page.getByText('Data-Driven Style')).toBeVisible();
 
     // Select the first available column in the data-driven column dropdown
     const columnTrigger = page.getByText('Select column');
@@ -102,6 +102,8 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     // Wait for dropdown options and select the first one
     const firstOption = page.getByRole('option').first();
     await expect(firstOption).toBeVisible({ timeout: 5_000 });
+    const selectedColumn = (await firstOption.textContent())?.trim();
+    expect(selectedColumn).toBeTruthy();
     await firstOption.click();
 
     // Wait for category colors to load (API fetches distinct values for the column)
@@ -113,10 +115,8 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     const swatchCount = await swatches.count();
     expect(swatchCount).toBeGreaterThanOrEqual(1);
 
-    // Verify the layer row color swatch reflects the categorical colors
-    const layerSwatchSlices = page.locator('.h-3.w-3.rounded-sm .flex-1');
-    const sliceCount = await layerSwatchSlices.count();
-    expect(sliceCount).toBeGreaterThanOrEqual(1);
+    // Verify the categorical style summary is applied to the active layer.
+    await expect(page.getByText(`Styled by: ${selectedColumn}`)).toBeVisible();
   });
 
   test('colors preserved after collapse and re-expand', async ({ page }) => {
@@ -124,8 +124,8 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
     // Expand and configure categorical styling
-    await page.getByRole('button', { name: 'Expand layer options' }).click();
-    await expect(page.getByText('Data-Driven Color')).toBeVisible();
+    await page.getByRole('button', { name: 'Expand options' }).click();
+    await expect(page.getByText('Data-Driven Style')).toBeVisible();
 
     const columnTrigger = page.getByText('Select column');
     await expect(columnTrigger).toBeVisible();
@@ -141,11 +141,11 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     expect(firstColor).toBeTruthy();
 
     // Collapse the layer panel
-    await page.getByRole('button', { name: 'Collapse layer options' }).click();
-    await expect(page.getByText('Data-Driven Color')).not.toBeVisible();
+    await page.getByRole('button', { name: 'Collapse options' }).click();
+    await expect(page.getByText('Data-Driven Style')).not.toBeVisible();
 
     // Re-expand
-    await page.getByRole('button', { name: 'Expand layer options' }).click();
+    await page.getByRole('button', { name: 'Expand options' }).click();
 
     // Colors should still be present with the same count and first color
     await expect(page.getByText('Colors', { exact: true })).toBeVisible({ timeout: 5_000 });
@@ -160,19 +160,21 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
     // Expand the layer
-    await page.getByRole('button', { name: 'Expand layer options' }).click();
+    await page.getByRole('button', { name: 'Expand options' }).click();
 
     // No filter icon initially
     const layerNameArea = page.locator('[title="Double-click to rename"]');
+    const filterBadge = layerNameArea.locator('svg.lucide-funnel');
     await expect(layerNameArea).toBeVisible();
-    await expect(layerNameArea.locator('.lucide-filter')).not.toBeVisible();
+    await expect(filterBadge).not.toBeVisible();
 
     // Switch to Filter tab and add a filter condition
-    await page.getByRole('button', { name: 'Filter', exact: true }).click();
+    await page.getByRole('tab', { name: 'Filter', exact: true }).click();
     await page.getByRole('button', { name: 'Add filter' }).click();
+    await page.getByRole('textbox', { name: 'Value' }).fill('1');
 
     // Filter icon should appear in the layer row header
-    await expect(layerNameArea.locator('.lucide-filter')).toBeVisible({ timeout: 3_000 });
+    await expect(filterBadge).toBeVisible({ timeout: 3_000 });
   });
 
   test('labels icon appears when labels are enabled', async ({ page }) => {
@@ -180,7 +182,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
     // Expand the layer
-    await page.getByRole('button', { name: 'Expand layer options' }).click();
+    await page.getByRole('button', { name: 'Expand options' }).click();
 
     // No labels icon initially
     const layerNameArea = page.locator('[title="Double-click to rename"]');
@@ -188,7 +190,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(layerNameArea.locator('.lucide-type')).not.toBeVisible();
 
     // Switch to Labels tab and toggle labels on
-    await page.getByRole('button', { name: 'Labels', exact: true }).click();
+    await page.getByRole('tab', { name: 'Labels', exact: true }).click();
     const labelsSwitch = page.getByRole('switch');
     await expect(labelsSwitch).toBeVisible();
     await labelsSwitch.click();

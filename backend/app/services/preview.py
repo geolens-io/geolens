@@ -61,7 +61,7 @@ async def run_service_preview(
     Returns:
         Dict with keys: srid, geometry_type, layer_name, feature_count, columns, sample_rows
     """
-    empty_fallback = {
+    empty_fallback: dict = {
         "srid": None,
         "geometry_type": None,
         "layer_name": layer_name,

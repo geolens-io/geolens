@@ -1,7 +1,68 @@
 import { test, expect } from '@playwright/test';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
+const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+
+function getAuthToken(): string {
+  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
+  const state = JSON.parse(raw);
+  for (const origin of state.origins ?? []) {
+    for (const entry of origin.localStorage ?? []) {
+      if (entry.name === 'geolens-auth') {
+        return JSON.parse(entry.value).state?.token ?? '';
+      }
+    }
+  }
+  throw new Error('Could not extract auth token from storage state');
+}
+
 test.describe.serial('Non-spatial CSV', () => {
+  const datasetSlug = `sample-nonspatial-${Date.now()}`;
+  const tempCsvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geolens-nonspatial-'));
+  const tempCsvPath = path.join(tempCsvDir, `${datasetSlug}.csv`);
+  let datasetId: string | null = null;
+  let datasetTitle: string | null = null;
+
+  test.beforeAll(() => {
+    fs.copyFileSync(
+      path.join(__dirname, 'fixtures/sample-nonspatial.csv'),
+      tempCsvPath,
+    );
+  });
+
+  test.afterAll(async () => {
+    try {
+      if (datasetId && datasetTitle) {
+        let payload: { deleted: number; errors: number; results?: unknown[] } | null = null;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const response = await fetch(`${BASE_URL}/api/datasets/bulk-delete/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${getAuthToken()}`,
+            },
+            body: JSON.stringify({
+              datasets: [{ dataset_id: datasetId, confirm_title: datasetTitle }],
+            }),
+          });
+          expect(response.ok).toBe(true);
+          payload = await response.json();
+          if (payload.deleted === 1 && payload.errors === 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        }
+
+        expect(payload?.deleted).toBe(1);
+        expect(payload?.errors).toBe(0);
+      }
+    } finally {
+      fs.rmSync(tempCsvDir, { recursive: true, force: true });
+    }
+  });
+
   test('upload non-spatial CSV and complete ingestion', async ({ page }) => {
     test.slow();
 
@@ -12,12 +73,10 @@ test.describe.serial('Non-spatial CSV', () => {
     ).toBeVisible();
 
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles(
-      path.join(__dirname, 'fixtures/sample-nonspatial.csv'),
-    );
+    await fileInput.setInputFiles(tempCsvPath);
 
     // Wait for preview
-    await expect(page.getByText('sample-nonspatial')).toBeVisible({
+    await expect(page.getByText(datasetSlug)).toBeVisible({
       timeout: 30_000,
     });
 
@@ -27,20 +86,31 @@ test.describe.serial('Non-spatial CSV', () => {
       .first()
       .click();
 
-    // Wait for job tracking UI to appear (Import Progress heading or View Dataset link)
+    // Wait for job tracking UI to appear. The bulk-tracking list now
+    // ships the completed row with an "Open dataset" link (import.json
+    // `bulk.openDataset`); older builds used "View Dataset". Accept both
+    // so the test survives either translation string.
     await expect(
-      page.getByText(/Import Progress|View Dataset/),
+      page.getByText(/Import Progress|Open dataset|View Dataset/),
     ).toBeVisible({ timeout: 30_000 });
+
+    const datasetLink = page.getByRole('link', {
+      name: /Open dataset|View Dataset/i,
+    });
+    await expect(datasetLink).toBeVisible({ timeout: 30_000 });
+    await datasetLink.click();
+    await page.waitForURL(/\/datasets\/([a-f0-9-]+)$/);
+
+    const match = page.url().match(/\/datasets\/([a-f0-9-]+)$/);
+    expect(match?.[1]).toBeTruthy();
+    datasetId = match![1];
+    datasetTitle = datasetSlug;
+    expect(datasetTitle).toBeTruthy();
   });
 
   test('dataset page shows graceful non-spatial state', async ({ page }) => {
-    await page.goto('/search?q=sample-nonspatial');
-    const link = page
-      .getByRole('link', { name: /sample-nonspatial/i })
-      .first();
-    await expect(link).toBeVisible({ timeout: 15_000 });
-    await link.click();
-    await page.waitForURL(/\/datasets\//);
+    expect(datasetId).toBeTruthy();
+    await page.goto(`/datasets/${datasetId}`);
 
     // Verify page loads with heading
     await expect(
@@ -55,13 +125,8 @@ test.describe.serial('Non-spatial CSV', () => {
   test('attribute table shows rows for non-spatial dataset', async ({
     page,
   }) => {
-    await page.goto('/search?q=sample-nonspatial');
-    const link = page
-      .getByRole('link', { name: /sample-nonspatial/i })
-      .first();
-    await expect(link).toBeVisible({ timeout: 15_000 });
-    await link.click();
-    await page.waitForURL(/\/datasets\//);
+    expect(datasetId).toBeTruthy();
+    await page.goto(`/datasets/${datasetId}`);
 
     // Wait for the page to load
     await expect(

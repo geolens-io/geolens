@@ -1,5 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 
+const datasetTitle = 'Railroads';
+const datasetId = 'bf79f27c-3753-4573-a678-100bdeeee32f';
+
 function deriveDistinctDraft(currentSummary: string, marker: string): string {
   const suffix = ` [${marker}]`;
   const trimmedSummary = currentSummary.trimEnd();
@@ -13,11 +16,8 @@ function deriveDistinctDraft(currentSummary: string, marker: string): string {
 }
 
 async function openAdminCountriesDataset(page: Page) {
-  await page.goto('/search?q=Admin+0+Countries');
-  const link = page.getByRole('link', { name: /Admin 0 Countries \(10m\)/ }).first();
-  await expect(link).toBeVisible({ timeout: 15_000 });
-  await link.click();
-  await page.waitForURL(/\/datasets\//);
+  await page.goto(`/datasets/${datasetId}`);
+  await page.waitForURL(new RegExp(`/datasets/${datasetId}$`));
 }
 
 async function setStoredUserRoles(page: Page, roles: string[]) {
@@ -60,10 +60,20 @@ test.describe('Dataset Detail', () => {
     // Regression: dataset detail should expose exactly one canonical title heading
     const datasetHeading = page.getByRole('heading', {
       level: 1,
-      name: 'Admin 0 Countries (10m)',
+      name: datasetTitle,
     });
     await expect(datasetHeading).toHaveCount(1);
     await expect(datasetHeading).toBeVisible();
+
+    // Primary dataset management actions should remain visible on desktop.
+    await expect(page.getByRole('button', { name: /^(Publish|Unpublish)$/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Re-Upload' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0);
 
     // Verify map canvas renders
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({
@@ -82,7 +92,7 @@ test.describe('Dataset Detail', () => {
     expect(headingBeforeMap).toBe(true);
 
     // Verify dataset detail content renders with metadata tabs
-    await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
+    await expect(page.locator('[role="tab"]').filter({ hasText: 'Overview' })).toBeVisible();
     await expect(page.getByLabel('Overview').getByText('Feature Count')).toBeVisible();
 
     // Verify export triggers download

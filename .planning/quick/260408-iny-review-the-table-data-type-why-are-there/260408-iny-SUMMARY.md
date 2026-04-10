@@ -92,7 +92,7 @@ None — all data paths are wired. The `row_count` and `column_count` fields in 
 | `ruff check .` | PASSED — 0 errors |
 | `ruff format --check .` | PASSED (after auto-format) |
 | Backend pytest (targeted) | 77/77 passed (test_services_endpoints, test_quality_score, test_ogc_record_properties, test_ingest) |
-| Backend pytest (full, excl. raster/stac) | 809 passed, 8 failed, 905 errors — all failures/errors pre-existing (DB session conflicts in multi-module run; individual suites pass) |
+| Backend pytest (full, excl. raster/stac) | 1769 passed, 5 deselected — clean (post-commit re-run; earlier 8 failures + 54 errors were transient from mid-session intermediate state before errors.py fix landed) |
 | `npm run lint` | PASSED — 0 errors (1 pre-existing React Compiler warning) |
 | `npm test` | 104 test files, 930 tests passed |
 

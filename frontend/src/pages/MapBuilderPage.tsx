@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, Globe, Users, Lock, MoreHorizontal } from 'lucide-react';
+import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, Globe, Users, Lock, MoreHorizontal, GripVertical } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { BuilderMap } from '@/components/builder/BuilderMap';
@@ -339,6 +339,7 @@ export function MapBuilderPage() {
 
       {/* Desktop sidebar */}
       {!isMobile && <div
+        data-testid="builder-sidebar"
         className={cn(
           "relative border-e bg-background flex flex-col shrink-0 overflow-hidden",
           dialogs.sidebarCollapsed ? "w-0 border-e-0 transition-[width,border-width] duration-200 ease-out" : "",
@@ -352,9 +353,19 @@ export function MapBuilderPage() {
         {!dialogs.sidebarCollapsed && (
           <div
             onPointerDown={handleDragStart}
-            className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 z-10 transition-colors"
-            aria-hidden="true"
-          />
+            data-testid="builder-sidebar-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
+            title={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
+            className="group absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 transition-colors hover:bg-primary/10 active:bg-primary/15"
+          >
+            <div className="pointer-events-none absolute right-0 top-1/2 hidden -translate-y-1/2 lg:flex">
+              <div className="me-1 flex h-16 w-5 items-center justify-center rounded-full border border-border/70 bg-background/95 shadow-sm transition-colors group-hover:border-primary/40 group-hover:bg-accent">
+                <GripVertical className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+              </div>
+            </div>
+          </div>
         )}
         {/* Edge collapse button */}
         {!dialogs.sidebarCollapsed && (
@@ -425,6 +436,24 @@ export function MapBuilderPage() {
               </div>
 
               <div className="flex items-center gap-1 lg:gap-1.5">
+                {id && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => dialogs.setShowShare(true)}
+                        aria-label={t('tooltips.share')}
+                      >
+                        <Share2 className="h-3 w-3" />
+                        {t('tooltips.share')}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{t('tooltips.share')}</TooltipContent>
+                  </Tooltip>
+                )}
+
                 <DropdownMenu>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -441,12 +470,6 @@ export function MapBuilderPage() {
                     <TooltipContent side="bottom">{t('tooltips.moreActions')}</TooltipContent>
                   </Tooltip>
                   <DropdownMenuContent align="end">
-                    {id && (
-                      <DropdownMenuItem onClick={() => dialogs.setShowShare(true)}>
-                        <Share2 className="h-3.5 w-3.5 me-2" />
-                        {t('tooltips.share')}
-                      </DropdownMenuItem>
-                    )}
                     <DropdownMenuItem onClick={() => dialogs.setShowInfo(true)}>
                       <Info className="h-3.5 w-3.5 me-2" />
                       {t('tooltips.mapInfo')}
@@ -668,4 +691,3 @@ export function MapBuilderPage() {
     </div>
   );
 }
-

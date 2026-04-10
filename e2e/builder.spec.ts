@@ -158,6 +158,22 @@ test.describe.serial('Map Builder', () => {
     await expect(dialog).not.toBeVisible();
   });
 
+  test('share is visible as a primary action and no longer hidden in overflow', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+
+    const shareButton = page.getByRole('button', { name: 'Share' });
+    await expect(shareButton).toBeVisible();
+    await shareButton.click();
+    await expect(page.getByRole('heading', { name: 'Share' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: 'Share' })).toHaveCount(0);
+
+    const moreBtn = page.getByRole('button', { name: /more actions/i }).first();
+    await moreBtn.click();
+    await expect(page.getByRole('menuitem', { name: 'Share' })).toHaveCount(0);
+  });
+
   test('saves map without errors', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
@@ -308,9 +324,9 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Open the per-layer "More actions" menu (inside the layer row, not the header tray)
-    const layerRow = page.getByRole('button', { name: /hide layer .+ more actions/i }).first();
-    const moreBtn = layerRow.getByLabel(/more actions/i);
+    // Open the per-layer "More actions" menu. The first trigger belongs to the map header tray.
+    const moreBtn = page.getByRole('button', { name: 'More actions' }).nth(1);
+    await expect(moreBtn).toBeVisible();
     await moreBtn.click();
 
     // Click "Zoom to layer"
@@ -332,9 +348,9 @@ test.describe.serial('Map Builder', () => {
     await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-width'));
 
     // Get the drag handle and sidebar
-    const handle = page.locator('[class*="cursor-col-resize"]');
+    const handle = page.getByTestId('builder-sidebar-resize-handle');
     await expect(handle).toBeVisible();
-    const sidebar = page.locator('.border-r.bg-background');
+    const sidebar = page.getByTestId('builder-sidebar');
 
     const widthBefore = await sidebar.evaluate((el) => el.offsetWidth);
 

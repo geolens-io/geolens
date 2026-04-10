@@ -37,9 +37,17 @@ export function CollectionsPage() {
     <PageShell maxWidth="narrow">
       <PageHeader
         title={t('title')}
-        actions={
-          data ? <Badge variant="secondary">{searchQuery ? totalFiltered : data.total}</Badge> : undefined
-        }
+        actions={data || isEditor ? (
+          <>
+            {data ? <Badge variant="secondary">{searchQuery ? totalFiltered : data.total}</Badge> : undefined}
+            {isEditor && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4 me-1" />
+                {t('newCollection')}
+              </Button>
+            )}
+          </>
+        ) : undefined}
       />
 
       {/* Search input */}

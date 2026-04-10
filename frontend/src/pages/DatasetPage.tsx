@@ -2,11 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { useDataset, useUpdateDataset, useUpdatePublicationStatus, useValidation } from '@/hooks/use-dataset';
+import { useDatasetJobStatus } from '@/hooks/use-ingest';
+import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
 import { useDatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
 import { useDraftEditing } from '@/hooks/use-draft-editing';
 import { useHeroState } from '@/hooks/use-hero-state';
@@ -125,6 +127,12 @@ export function DatasetPage() {
     recordType: dataset?.record_type,
     hasTileUrl: !!dataset?.raster?.tile_url,
   });
+
+  // S3: fetch the ingest job for this dataset to surface structured warnings
+  // (reserved_rename, dbf_truncation_collision, archive_failed, temporal_parse_errors).
+  // 404 is a normal case — the dataset was registered from an existing table
+  // or created via a non-ingest path.
+  const { data: datasetJob } = useDatasetJobStatus(id ?? null);
 
   // Clear read-only selection when editing mode activates
   useEffect(() => {
@@ -487,25 +495,65 @@ export function DatasetPage() {
         }
       />
 
+      {/* S3: persistent ingest warnings (reserved renames, DBF collisions,
+          archive failures, temporal parse errors). Rendered permanently for
+          successfully-completed jobs only — a failed re-import may have
+          partially-recorded warnings that don't apply to the live dataset. */}
+      {datasetJob?.status === 'complete' && (
+        <IngestWarningsBanner job={datasetJob} className="mb-3" />
+      )}
+
       {/* Hero Data Grid for table datasets (no map) */}
       {isTable && (
-        <div className="rounded-lg border shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-1.5 bg-muted/30 border-b">
-            <span className="text-xs text-muted-foreground font-medium">
-              {t('page.dataPreview', { defaultValue: 'Data Preview' })}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              onClick={() => setIsHeroExpanded(prev => !prev)}
-              aria-label={isHeroExpanded ? 'Collapse data grid' : 'Expand data grid'}
-            >
-              {isHeroExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            </Button>
+        <div className="space-y-3">
+          <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg border bg-background p-2 shadow-sm">
+                  <Database className="h-5 w-5 text-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">
+                      {t('page.dataFirstTitle', { defaultValue: 'Data-first table dataset' })}
+                    </span>
+                    <Badge variant="outline" className="text-[11px]">
+                      <EyeOff className="me-1 h-3 w-3" />
+                      {t('page.noMapPreview', { defaultValue: 'No map preview' })}
+                    </Badge>
+                  </div>
+                  <p className="max-w-3xl text-sm text-muted-foreground">
+                    {t('page.dataFirstDescription', {
+                      defaultValue: 'This record is a non-spatial table. Review rows below, inspect schema in Structure, and use Connect for downstream access.',
+                    })}
+                  </p>
+                </div>
+              </div>
+              {dataset.feature_count != null && (
+                <Badge variant="secondary" className="self-start text-xs lg:self-center">
+                  {formatNumber(dataset.feature_count)} {dataset.feature_count === 1 ? 'row' : 'rows'}
+                </Badge>
+              )}
+            </div>
           </div>
-          <div className={isHeroExpanded ? 'h-[60vh]' : 'h-64'}>
-            <DataTab datasetId={id!} canEdit={isEditor} />
+          <div className="rounded-lg border shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
+              <span className="text-xs font-medium text-muted-foreground">
+                {t('page.dataPreview', { defaultValue: 'Data Preview' })}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={() => setIsHeroExpanded(prev => !prev)}
+                aria-label={isHeroExpanded ? 'Collapse data grid' : 'Expand data grid'}
+              >
+                {isHeroExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+            <div className={isHeroExpanded ? 'h-[60vh]' : 'h-64'}>
+              <DataTab datasetId={id!} canEdit={isEditor} />
+            </div>
           </div>
         </div>
       )}

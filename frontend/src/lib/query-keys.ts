@@ -143,6 +143,8 @@ export const queryKeys = {
   // -------------------------------------------------------------------------
   ingest: {
     jobStatus: (jobId: string | null) => ['job-status', jobId] as const,
+    jobStatusByDataset: (datasetId: string | null) =>
+      ['job-status-by-dataset', datasetId] as const,
     discoverTables: ['discover-tables'] as const,
     uploadConfig: ['upload-config'] as const,
   },

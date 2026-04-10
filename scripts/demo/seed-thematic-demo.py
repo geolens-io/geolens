@@ -318,10 +318,11 @@ async def assign_collection(
     ids = [r["dataset_id"] for r in results if r.get("dataset_id") and r["status"] in ("succeeded", "skipped")]
     if ids:
         resp = await client.post(
-            f"{base_url}/api/catalog/collections/{coll_id}/datasets",
+            f"{base_url}/api/catalog/collections/{coll_id}/datasets/",
             headers={**headers, "Content-Type": "application/json"},
             json={"dataset_ids": ids},
         )
+        resp.raise_for_status()
         print(f"  Collection {theme_module.THEME_NAME}: {len(ids)} datasets assigned (status {resp.status_code})")
 
 

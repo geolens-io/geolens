@@ -82,8 +82,18 @@ async def query_audit_logs(
     """Query audit logs with optional filters and pagination.
 
     Returns (logs, total_count) ordered by created_at descending.
+
+    Uses ``COUNT(*) OVER ()`` so the total count rides along with the
+    filtered slice in a single round trip, instead of running a
+    sibling count query (PERF-4).
     """
-    filter_kwargs = dict(
+    # Call _apply_filters directly with keyword args (not **unpack of a dict)
+    # so mypy preserves the per-parameter type narrowing — unpacking a
+    # heterogeneous dict drops each key's specific annotation.
+    total_col = func.count().over().label("total_count")
+    query = select(AuditLog, total_col).options(joinedload(AuditLog.user))
+    query = _apply_filters(
+        query,
         user_id=user_id,
         action=action,
         resource_type=resource_type,
@@ -92,20 +102,29 @@ async def query_audit_logs(
         date_to=date_to,
         search=search,
     )
-
-    query = select(AuditLog).options(joinedload(AuditLog.user))
-    query = _apply_filters(query, **filter_kwargs)
     query = query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit)
 
-    count_query = select(func.count()).select_from(AuditLog)
-    count_query = _apply_filters(count_query, **filter_kwargs)
-
     result = await session.execute(query)
-    logs = list(result.scalars().all())
+    rows = result.unique().all()
+    if not rows:
+        # Empty slice — fall back to a count-only query so callers still
+        # see the correct total for "no results on this page" pagination.
+        count_query = select(func.count()).select_from(AuditLog)
+        count_query = _apply_filters(
+            count_query,
+            user_id=user_id,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+        )
+        count_result = await session.execute(count_query)
+        return [], int(count_result.scalar_one())
 
-    count_result = await session.execute(count_query)
-    total = count_result.scalar_one()
-
+    logs = [row[0] for row in rows]
+    total = int(rows[0][1])
     return logs, total
 
 

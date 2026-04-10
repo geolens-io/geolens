@@ -58,6 +58,25 @@
     "hintGeometry": "Verifique que el archivo contenga datos de geometr\u00eda v\u00e1lidos",
     "hintEmpty": "El archivo parece estar vac\u00edo o no contiene entidades geogr\u00e1ficas"
   },
+  "warnings": {
+    "bannerTitle": "Importaci\u00f3n completada con advertencias",
+    "reservedRename": {
+      "title": "Nombres de columnas reservados renombrados",
+      "description": "Las columnas de origen que entran en conflicto con los nombres de columnas internas de GeoLens se renombraron autom\u00e1ticamente con el prefijo `src_` para que los datos de origen y la geometr\u00eda de la canalizaci\u00f3n puedan coexistir."
+    },
+    "dbfTruncation": {
+      "title": "Colisiones de nombres de campos de Shapefile",
+      "description": "Los nombres de campos DBF de Shapefile est\u00e1n limitados a 10 caracteres. Dos o m\u00e1s campos de origen se redujeron al mismo nombre truncado y pueden haberse fusionado durante la importaci\u00f3n."
+    },
+    "archiveFailed": {
+      "title": "Error al archivar el archivo original",
+      "description": "El conjunto de datos se import\u00f3 correctamente, pero la copia del archivo fuente original al almacenamiento duradero fall\u00f3. El conjunto de datos sigue siendo consultable; vuelva a subirlo si necesita restaurar el archivo original."
+    },
+    "temporalParseErrors": {
+      "title": "Campos temporales descartados",
+      "description": "Los siguientes valores temporales no se pudieron analizar como fechas ISO-8601 y se descartaron. Vuelva a introducirlos en el editor de metadatos del conjunto de datos para restaurarlos."
+    }
+  },
   "dropzone": {
     "instructions": "Arrastre y suelte archivos aqu\u00ed, o haga clic para explorar",
     "dropHere": "Suelte los archivos aqu\u00ed",
@@ -175,6 +194,8 @@
     "autoDetected": "Deteccion automatica",
     "manualOverride": "Anulacion manual",
     "nonSpatial": "Importar como no espacial",
+    "embeddedGeometry": "Usando geometría integrada",
+    "embeddedGeometryHelp": "Esta fuente ya incluye geometría nativa, por lo que GeoLens la conservará durante la importación.",
     "xColumn": "X (Longitud)",
     "yColumn": "Y (Latitud)",
     "wktColumn": "Columna WKT",
@@ -211,6 +232,13 @@
     "committed": "Confirmado",
     "removeFile": "Eliminar archivo",
     "importProgress": "Progreso de importaci\u00f3n",
+    "readyTitle_one": "1 conjunto listo",
+    "readyTitle_other": "{{count}} conjuntos listos",
+    "readyDescription": "Abra directamente los conjuntos terminados o siga cargando mientras se completan los demás trabajos.",
+    "kindRaster": "Conjunto ráster",
+    "kindVector": "Conjunto espacial",
+    "kindTable": "Tabla no espacial",
+    "openDataset": "Abrir conjunto de datos",
     "uploadMore": "Subir m\u00e1s",
     "rasterDatasetsReady": "{{count}} conjuntos de datos r\u00e1ster listos",
     "createVrtMosaic": "Crear mosaico VRT",

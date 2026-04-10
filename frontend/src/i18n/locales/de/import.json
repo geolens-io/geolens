@@ -58,6 +58,25 @@
     "hintGeometry": "Prüfen Sie, ob die Datei gültige Geometriedaten enthält",
     "hintEmpty": "Die Datei scheint leer zu sein oder enthält keine geographischen Features"
   },
+  "warnings": {
+    "bannerTitle": "Import mit Warnungen abgeschlossen",
+    "reservedRename": {
+      "title": "Reservierte Spaltennamen umbenannt",
+      "description": "Quellspalten, die mit GeoLens-internen Spaltennamen kollidieren, wurden automatisch mit dem Präfix `src_` umbenannt, damit Quelldaten und Pipeline-Geometrie nebeneinander existieren können."
+    },
+    "dbfTruncation": {
+      "title": "Shapefile-Feldnamenkollisionen",
+      "description": "Shapefile-DBF-Feldnamen sind auf 10 Zeichen begrenzt. Zwei oder mehr Quellfelder wurden auf denselben gekürzten Namen reduziert und können beim Import zusammengeführt worden sein."
+    },
+    "archiveFailed": {
+      "title": "Archivierung der Originaldatei fehlgeschlagen",
+      "description": "Der Datensatz wurde erfolgreich importiert, aber das Kopieren der Originalquelldatei in den dauerhaften Speicher ist fehlgeschlagen. Der Datensatz ist weiterhin abfragbar; laden Sie die Datei erneut hoch, wenn das Original wiederhergestellt werden soll."
+    },
+    "temporalParseErrors": {
+      "title": "Zeitfelder verworfen",
+      "description": "Die folgenden Zeitwerte konnten nicht als ISO-8601-Daten geparst und wurden verworfen. Geben Sie sie im Datensatz-Metadaten-Editor erneut ein, um sie wiederherzustellen."
+    }
+  },
   "dropzone": {
     "instructions": "Dateien hierher ziehen oder klicken zum Durchsuchen",
     "dropHere": "Dateien hier ablegen",
@@ -175,6 +194,8 @@
     "autoDetected": "Automatisch erkannt",
     "manualOverride": "Manuelle Ueberschreibung",
     "nonSpatial": "Als nicht-raeumlich importieren",
+    "embeddedGeometry": "Verwende eingebettete Geometrie",
+    "embeddedGeometryHelp": "Diese Quelle enthält bereits native Geometrie, daher übernimmt GeoLens sie beim Import.",
     "xColumn": "X (Laengengrad)",
     "yColumn": "Y (Breitengrad)",
     "wktColumn": "WKT-Spalte",
@@ -211,6 +232,13 @@
     "committed": "Übernommen",
     "removeFile": "Datei entfernen",
     "importProgress": "Importfortschritt",
+    "readyTitle_one": "1 Datensatz bereit",
+    "readyTitle_other": "{{count}} Datensätze bereit",
+    "readyDescription": "Öffnen Sie fertige Datensätze direkt oder laden Sie weiter hoch, während die übrigen Aufträge abgeschlossen werden.",
+    "kindRaster": "Rasterdatensatz",
+    "kindVector": "Räumlicher Datensatz",
+    "kindTable": "Nicht-räumliche Tabelle",
+    "openDataset": "Datensatz öffnen",
     "uploadMore": "Weitere hochladen",
     "rasterDatasetsReady": "{{count}} Rasterdatensätze bereit",
     "createVrtMosaic": "VRT-Mosaik erstellen",

@@ -445,7 +445,7 @@
       "branding": {
         "title": "Image de marque",
         "description": "Controlez la visibilite de la marque GeoLens dans l'application",
-        "showBadge": "Afficher le badge \"Powered by GeoLens\""
+        "showBadge": "Afficher le libelle de pied de page \"Powered by GeoLens\""
       }
     },
     "network": {

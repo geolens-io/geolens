@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
-import type { FileEntry, CommitImportRequest } from '@/types/api';
+import type { FileEntry, CommitImportRequest, FilePreviewResponse } from '@/types/api';
 import { isRasterPreview, isFilePreview } from './utils';
 
 function getLayerName(entry: FileEntry): string | undefined {
@@ -42,6 +42,7 @@ function ReviewFormBlock({
         isRaster={raster}
         previewData={raster ? preview : undefined}
         previewColumns={file ? (preview as FilePreviewResponse).columns : undefined}
+        detectedGeometryType={file ? (preview as FilePreviewResponse).geometry_type : undefined}
         detectedGeometryColumns={file ? (preview as FilePreviewResponse).detected_geometry_columns : undefined}
       />
     </div>

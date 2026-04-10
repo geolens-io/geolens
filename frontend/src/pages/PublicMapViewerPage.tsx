@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { MapErrorBoundary } from '@/components/error';
+import { Button } from '@/components/ui/button';
 import type { MapLayerResponse, SharedLayerResponse } from '@/types/api';
 
 /**
@@ -35,7 +36,6 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     label_config: layer.label_config,
     style_config: layer.style_config,
     show_in_legend: layer.show_in_legend,
-    tile_url: `/api/tiles/data.${layer.dataset_table_name}/{z}/{x}/{y}.pbf`,
   };
 }
 
@@ -68,15 +68,34 @@ export function PublicMapViewerPage() {
   if (isError || !data) {
     const isNotFound = error instanceof ApiError && (error.status === 404 || error.status === 403);
     return (
-      <div className="flex items-center justify-center w-full h-screen bg-muted">
-        <div className="flex flex-col items-center gap-3 text-center">
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_hsl(var(--muted))_0,_transparent_55%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted))/0.45)] px-6">
+        <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">
           <MapPinOff className="size-10 text-muted-foreground" />
-          <h1 className="text-2xl font-semibold text-foreground">
-            {isNotFound ? t('viewer.mapNotFound') : t('viewer.loadFailed')}
-          </h1>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            {t('viewer.mapNotFoundDescription')}
-          </p>
+          <div className="mt-4 space-y-2 text-center">
+            <h1 className="text-2xl font-semibold text-foreground">
+              {isNotFound ? t('viewer.mapNotFound') : t('viewer.loadFailed')}
+            </h1>
+            <p className="mx-auto max-w-md text-sm text-muted-foreground">
+              {t('viewer.mapNotFoundDescription')}
+            </p>
+            <p className="mx-auto max-w-md text-sm text-muted-foreground">
+              {t('viewer.authMapRecovery', {
+                defaultValue: 'Open your maps list to confirm access, or head back to the catalog to keep working.',
+              })}
+            </p>
+          </div>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Button asChild>
+              <Link to="/maps">
+                {t('viewer.openMaps', { defaultValue: 'Open maps' })}
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/">
+                {t('viewer.browseCatalog', { defaultValue: 'Browse catalog' })}
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     );

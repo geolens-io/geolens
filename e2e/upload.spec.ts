@@ -20,6 +20,8 @@ test.describe('Upload Flow', () => {
 
     // Wait for upload + preview to appear (reviewing phase)
     await expect(page.getByText('sample')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Using embedded geometry')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Import as non-spatial')).toHaveCount(0);
 
     // Commit the import
     await page
@@ -27,9 +29,13 @@ test.describe('Upload Flow', () => {
       .first()
       .click();
 
-    // Verify tracking phase (import progress)
+    // Verify tracking phase (import progress) and compact completion state
     await expect(page.getByText(/complete|tracking|success|Import Progress/i)).toBeVisible({
       timeout: 30_000,
     });
+    await expect(page.getByRole('link', { name: 'Open dataset' })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByRole('link', { name: 'View Dataset' })).toHaveCount(0);
   });
 });

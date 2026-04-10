@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000'
+
 function manualChunks(id: string) {
   if (id.includes('/src/i18n/locales/')) {
     if (id.includes('/locales/de/')) return 'i18n-de'
@@ -48,8 +50,12 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
+      '/health': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
       '/api': {
-        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000',
+        target: apiProxyTarget,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
         configure: (proxy) => {
@@ -59,7 +65,7 @@ export default defineConfig({
         },
       },
       '/raster-tiles': {
-        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000',
+        target: apiProxyTarget,
         changeOrigin: true,
         rewrite: (p) => {
           // /raster-tiles/{id}/tiles/{z}/{x}/{y}.png → /tiles/raster-proxy/{id}/{z}/{x}/{y}.png

@@ -1,7 +1,24 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import fs from 'fs';
+import path from 'path';
 
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
+const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+
+function getAuthToken(): string {
+  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
+  const state = JSON.parse(raw);
+  for (const origin of state.origins ?? []) {
+    for (const entry of origin.localStorage ?? []) {
+      if (entry.name === 'geolens-auth') {
+        return JSON.parse(entry.value).state?.token ?? '';
+      }
+    }
+  }
+  throw new Error('Could not extract auth token from storage state');
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatViolations(violations: any[]): string {
@@ -15,6 +32,37 @@ function formatViolations(violations: any[]): string {
 }
 
 test.describe('Accessibility - WCAG 2AA', () => {
+  let builderMapId: string;
+
+  test.beforeAll(async () => {
+    const response = await fetch(`${BASE_URL}/api/maps/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+      body: JSON.stringify({
+        name: `A11y Builder Test ${Date.now()}`,
+        description: 'Temporary map for builder accessibility coverage',
+      }),
+    });
+
+    expect(response.ok).toBe(true);
+    const payload = await response.json();
+    builderMapId = payload.id;
+    expect(builderMapId).toBeTruthy();
+  });
+
+  test.afterAll(async () => {
+    if (!builderMapId) return;
+    await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+    });
+  });
+
   test('public search page has no accessibility violations', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
@@ -76,7 +124,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
   });
 
   test('map builder page has no accessibility violations', async ({ page }) => {
-    await page.goto('/maps/new');
+    await page.goto(`/maps/${builderMapId}`);
     await page.waitForLoadState('networkidle');
 
     // Wait for builder sidebar to be present
