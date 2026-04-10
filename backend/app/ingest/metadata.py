@@ -221,6 +221,22 @@ async def get_sample_values(
     """
     _validate_table_name(table_name)
 
+    # Look up the actual columns in the table so we can filter out any
+    # entries in `column_info` that don't exist (ArcGIS / service ingest
+    # can build column_info from the upstream API schema, which may not
+    # match the landed PostgreSQL table name-for-name — e.g. case
+    # laundering). Missing a single column in the batched query would
+    # error the whole statement, so we must intersect first.
+    live_result = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'data' AND table_name = :t"
+        ).bindparams(t=table_name)
+    )
+    live_columns = {row[0] for row in live_result.all()}
+    if not live_columns:
+        return {}
+
     # Collect non-geometry columns with their identifier quoted once.
     candidates: list[tuple[str, str]] = []
     for col in column_info:
@@ -230,6 +246,8 @@ async def get_sample_values(
             continue
         if "geometry" in col_type.lower():
             continue
+        if col_name not in live_columns:
+            continue  # silently skip columns that don't exist in the table
         candidates.append((col_name, _sql_quote_ident(col_name)))
 
     if not candidates:

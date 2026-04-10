@@ -31,6 +31,31 @@ pytestmark = pytest.mark.skipif(
 FIXTURES = Path(__file__).parent / "fixtures" / "ingest"
 
 
+@pytest.fixture(autouse=True)
+def _point_ogr2ogr_at_test_db(monkeypatch):
+    """Redirect ogr2ogr's PG connection string to the test database.
+
+    `build_pg_conn_str()` defaults to the dev/prod settings, which writes
+    to the WRONG database under pytest — the test_db_session fixture uses
+    a dedicated `geolens_test` schema. Without this patch the table lands
+    in dev/prod and `get_column_info(test_db_session, table)` returns no
+    rows, which is the root cause of the "0 >= 1" failures.
+    """
+    from app.config import settings
+    from app.ingest import ogr as _ogr
+
+    def _test_pg_conn_str() -> str:
+        return (
+            f"PG:host={settings.postgres_host} "
+            f"port={settings.postgres_port} "
+            f"dbname={settings.postgres_db_test} "
+            f"user={settings.postgres_user} "
+            f"password={settings.postgres_password}"
+        )
+
+    monkeypatch.setattr(_ogr, "build_pg_conn_str", _test_pg_conn_str)
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
