@@ -89,7 +89,10 @@ async def _validate_upload_file_safety(
 
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(session)
 
-    validate_file_content(file_path, source_filename)
+    # validate_file_content wants a non-None filename for extension parsing;
+    # fall back to the file's own basename so the content-check still runs.
+    effective_filename = source_filename or Path(file_path).name
+    validate_file_content(file_path, effective_filename)
     validate_file_size(file_path, max_size_mb * 1024 * 1024)
     if file_path.lower().endswith(".zip"):
         validate_zip_safety(file_path)
@@ -102,7 +105,7 @@ async def _finalize_ingest(
     table_name: str,
     user_id: str,
     has_geometry: bool | None,
-    effective_srid: int,
+    effective_srid: int | None,
     source_format: str,
     source_filename: str | None,
     original_srid: int | None,
@@ -155,8 +158,14 @@ async def _finalize_ingest(
     elif has_geometry:
         await ensure_geom_column(session, table_name)
 
-    # Clip geometries to Web Mercator bounds and add 4326 column
+    # Clip geometries to Web Mercator bounds and add 4326 column.
+    # When has_geometry is truthy, callers always supply a non-null
+    # effective_srid — guard for mypy since the two params are independent
+    # at the signature level.
     if has_geometry:
+        assert effective_srid is not None, (
+            "effective_srid must be set when has_geometry is True"
+        )
         await clip_to_mercator_bounds(session, table_name)
         await add_4326_column(session, table_name, effective_srid)
 
@@ -888,18 +897,19 @@ async def reupload_file(
     from sqlalchemy.orm import joinedload
 
     async with async_session() as session:
-        # Load job and dataset records
-        result = await session.execute(
+        # Load job and dataset records — separate variable names so mypy
+        # tracks each query's row type independently.
+        job_result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = job_result.scalar_one()
 
-        result = await session.execute(
+        dataset_result = await session.execute(
             select(Dataset)
             .options(joinedload(Dataset.record))
             .where(Dataset.id == uuid.UUID(dataset_id))
         )
-        dataset = result.scalar_one()
+        dataset = dataset_result.scalar_one()
 
         staging_tn = f"{dataset.table_name[:54]}_staging"
 
@@ -1134,17 +1144,17 @@ async def reupload_service(
     )
 
     async with async_session() as session:
-        result = await session.execute(
+        job_result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = job_result.scalar_one()
 
-        result = await session.execute(
+        dataset_result = await session.execute(
             select(Dataset)
             .options(joinedload(Dataset.record))
             .where(Dataset.id == uuid.UUID(dataset_id))
         )
-        dataset = result.scalar_one()
+        dataset = dataset_result.scalar_one()
 
         staging_tn = f"{dataset.table_name[:54]}_staging"
 
@@ -1573,6 +1583,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 nodata=user_nodata,
                 assign_crs=assign_crs if assign_crs and crs_missing else None,
             )
+            assert local_cog_path is not None  # check_and_prepare_cog always returns a path
 
             # 7. Hash COG
             asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
