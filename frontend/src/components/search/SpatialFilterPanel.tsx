@@ -4,6 +4,7 @@ import {
   TerraDraw,
   TerraDrawRectangleMode,
   TerraDrawPolygonMode,
+  type GeoJSONStoreFeatures,
 } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -125,10 +126,10 @@ export function SpatialFilterPanel({
     // Restore from initialBbox if no drawn feature
     if (initialBbox && !drawnFeatureIdRef.current) {
       try {
-        const poly = bboxToPolygon(initialBbox);
-        const ids = td.addFeatures([poly]);
-        if (ids.length > 0) {
-          drawnFeatureIdRef.current = ids[0];
+        const poly = bboxToPolygon(initialBbox) as unknown as GeoJSONStoreFeatures;
+        const results = td.addFeatures([poly]);
+        if (results.length > 0 && results[0].id != null) {
+          drawnFeatureIdRef.current = results[0].id;
           setPendingBbox(initialBbox);
         }
       } catch {
@@ -240,10 +241,10 @@ export function SpatialFilterPanel({
       // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
         try {
-          const poly = bboxToPolygon(initialBbox);
-          const ids = td.addFeatures([poly]);
-          if (ids.length > 0) {
-            drawnFeatureIdRef.current = ids[0];
+          const poly = bboxToPolygon(initialBbox) as unknown as GeoJSONStoreFeatures;
+          const results = td.addFeatures([poly]);
+          if (results.length > 0 && results[0].id != null) {
+            drawnFeatureIdRef.current = results[0].id;
             setPendingBbox(initialBbox);
           }
         } catch {
@@ -390,9 +391,10 @@ export function SpatialFilterPanel({
                   drawnFeatureIdRef.current = null;
                 }
                 if (td) {
-                  const poly = bboxToPolygon(bboxStr);
-                  const ids = td.addFeatures([poly]);
-                  if (ids.length > 0) drawnFeatureIdRef.current = ids[0];
+                  const poly = bboxToPolygon(bboxStr) as unknown as GeoJSONStoreFeatures;
+                  const results = td.addFeatures([poly]);
+                  if (results.length > 0 && results[0].id != null)
+                    drawnFeatureIdRef.current = results[0].id;
                 }
                 setPendingBbox(bboxStr);
                 setDrawMode('rectangle');

@@ -3,7 +3,9 @@ import { getEnvConfig } from '@/lib/env';
 /**
  * Resolve the tile base URL from env config or tile config CDN setting.
  */
-export function resolveTileBaseUrl(tileConfig?: { cdn_base_url?: string } | null): string | undefined {
+export function resolveTileBaseUrl(
+  tileConfig?: { cdn_base_url?: string | null } | null,
+): string | undefined {
   return getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
 }
 

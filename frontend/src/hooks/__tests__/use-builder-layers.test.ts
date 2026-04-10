@@ -41,6 +41,7 @@ function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
     bearing: 0,
     pitch: 0,
     basemap_style: 'positron',
+    show_basemap_labels: true,
     visibility: 'private',
     thumbnail_url: null,
     created_by: null,
@@ -60,8 +61,6 @@ function renderBuilderLayers(
 ) {
   const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-  const searchParams = new URLSearchParams();
-  const setSearchParams = vi.fn() as unknown as Parameters<typeof useBuilderLayers>[6];
 
   return renderHook(() =>
     useBuilderLayers(
@@ -70,8 +69,6 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
-      searchParams,
-      setSearchParams,
     ),
   );
 }

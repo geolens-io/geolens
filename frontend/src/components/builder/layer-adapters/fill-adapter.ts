@@ -14,10 +14,12 @@ export const fillAdapter: LayerAdapter = {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
       const fillPaint = stripCustomProps(basePaint);
       const strokeDisabled = !!(rawPaint['_stroke-disabled']);
-      const effectiveFillPaint = Object.keys(fillPaint).length ? { ...fillPaint } : {
-        'fill-color': MAP_COLORS.default.fill,
-        'fill-opacity': MAP_COLORS.default.fillOpacity,
-      };
+      const effectiveFillPaint: Record<string, unknown> = Object.keys(fillPaint).length
+        ? { ...fillPaint }
+        : {
+            'fill-color': MAP_COLORS.default.fill,
+            'fill-opacity': MAP_COLORS.default.fillOpacity,
+          };
       // Suppress native 1px fill outline when stroke is disabled
       if (strokeDisabled) {
         effectiveFillPaint['fill-outline-color'] = 'transparent';

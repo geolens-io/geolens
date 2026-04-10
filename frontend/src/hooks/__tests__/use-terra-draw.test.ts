@@ -103,12 +103,12 @@ describe('extractSingleGeometry', () => {
   });
 
   it('returns same geometry for single types (no-op)', () => {
-    const geometry = { type: 'Point', coordinates: [1, 2] };
+    const geometry: GeoJSON.Geometry = { type: 'Point', coordinates: [1, 2] };
     expect(extractSingleGeometry(geometry)).toBe(geometry);
   });
 
   it('returns same geometry for MultiPoint with empty coordinates', () => {
-    const geometry = { type: 'MultiPoint', coordinates: [] };
+    const geometry: GeoJSON.Geometry = { type: 'MultiPoint', coordinates: [] };
     expect(extractSingleGeometry(geometry)).toBe(geometry);
   });
 });
@@ -167,6 +167,11 @@ describe('isMultiPartGeometry', () => {
   });
 
   it('returns false when coordinates is not an array', () => {
-    expect(isMultiPartGeometry({ type: 'MultiPoint', coordinates: null })).toBe(false);
+    expect(
+      isMultiPartGeometry({
+        type: 'MultiPoint',
+        coordinates: null as unknown as GeoJSON.Position[],
+      }),
+    ).toBe(false);
   });
 });

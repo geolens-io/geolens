@@ -61,7 +61,11 @@ export function formatBytes(bytes: number | null): string {
 }
 
 export function formatRelativeDate(dateString: string | null): string {
-  const fallback = i18n.t('common:notAvailable');
+  // i18next's ``.t()`` returns ``unknown`` under the new generic signature
+  // (the default ``returnNull`` / ``returnEmptyString`` options can both
+  // yield non-string results). Narrow to ``string`` at the boundary so
+  // downstream callers receive the expected type.
+  const fallback = i18n.t('common:notAvailable') as string;
   if (!dateString) return fallback;
   const result = formatProvenanceTime(dateString, {
     fallbackRelative: fallback,

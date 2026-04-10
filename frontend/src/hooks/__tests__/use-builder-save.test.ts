@@ -20,7 +20,7 @@ vi.mock('@/hooks/use-maps', () => ({
   }),
 }));
 
-const mockUploadThumbnail = vi.fn(() => Promise.resolve());
+const mockUploadThumbnail = vi.fn((..._args: unknown[]) => Promise.resolve());
 vi.mock('@/api/maps', () => ({
   uploadThumbnail: (...args: unknown[]) => mockUploadThumbnail(...args),
 }));
@@ -64,7 +64,7 @@ function createMockMap(overrides: { loaded?: boolean } = {}) {
     getZoom: vi.fn(() => 10),
     getBearing: vi.fn(() => 0),
     getPitch: vi.fn(() => 0),
-    getSource: vi.fn(() => undefined),
+    getSource: vi.fn<(sourceId: string) => unknown>(() => undefined),
     triggerRepaint: vi.fn(),
     once: vi.fn(),
     off: vi.fn(),

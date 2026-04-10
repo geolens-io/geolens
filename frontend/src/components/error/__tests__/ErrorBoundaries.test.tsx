@@ -13,7 +13,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function ThrowingChild({ error }: { error?: Error }) {
+function ThrowingChild({ error }: { error?: Error }): React.ReactElement {
   throw error ?? new Error('Test error');
 }
 
