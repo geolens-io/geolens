@@ -1590,16 +1590,27 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
             ts_raw = um.get("temporal_start") or meta.get("temporal_start")
             te_raw = um.get("temporal_end")
+            import structlog as _sl_temporal
+
+            _log_temporal = _sl_temporal.get_logger()
             if ts_raw:
                 try:
                     record.temporal_start = _date.fromisoformat(ts_raw)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    _log_temporal.debug(
+                        "Ignoring unparseable temporal_start on raster ingest",
+                        raw_value=str(ts_raw)[:100],
+                        error=str(exc),
+                    )
             if te_raw:
                 try:
                     record.temporal_end = _date.fromisoformat(te_raw)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    _log_temporal.debug(
+                        "Ignoring unparseable temporal_end on raster ingest",
+                        raw_value=str(te_raw)[:100],
+                        error=str(exc),
+                    )
             await session.flush()
 
             # 10. Store COG and quicklooks to managed storage
