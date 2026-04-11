@@ -256,17 +256,6 @@ Plans:
 - A7 resolved (UNSUPPORTED): `csv_to_choropleth.py` helper pre-joins indicator CSVs to ADM0 polygons at seeder build time before ingest (Option C)
 - Signature map: "One Territory, Multiple Official Maps" (Kashmir toggle across 3 NE country-specific shapefiles) is the conversation-starter
 
-### Phase 219: regenerate_vrt Phase Extraction
-**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `_update_vrt_dataset_geometry(session, vrt_asset, metadata)` — so the 15 documented steps stay readable without changing behavior
-**Depends on**: Integration fixture coverage against a real tiny VRT (mock-free tests) must exist before this phase can start — pair with K3-PRE-style follow-up work
-**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §K4)
-**Plans**: TBD
-
-**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
-- Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
-- Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT)
-- Raster VRT has historical flakiness — test coverage is non-negotiable
-
 ### Phase 220: CommitRequest Discriminated Union
 **Goal**: Split the flat `CommitRequest` (`backend/app/ingest/schemas.py:97`, 1 required + 13 optional fields) into a shared `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`), and refactor `commit_import` at `backend/app/ingest/router.py:495-540` to validate the request body against a server-dispatched subclass chosen by `_pick_commit_subclass(job)` (mirroring the three-way branch in `service.py:477-506`). Zero wire format change, zero OpenAPI drift, zero frontend coordination — field-applicability rules move from prose descriptions into the type system.
 **Depends on**: None (discuss-phase narrowed scope to internal backend refactor; the OpenAPI contract is preserved via Option C — flat `CommitRequest` stays on the route signature while the handler re-validates against the subclass)
@@ -309,6 +298,32 @@ Plans:
 - The existing `cast(T, ...)` pattern matches the rest of the codebase's approach at generic boundaries — this phase consciously diverges from that convention for runtime safety at the config boundary
 - The SecretStr migration (commits `a6371f9f`, `56c59cfd`) touched `app/config.py` and consumers, NOT `app/persistent_config.py` — these 3 cast sites are byte-for-byte unchanged since snapshot `f6a7f96a`
 
+### Phase 223: Raster VRT Integration Fixtures
+**Goal**: Build integration test infrastructure for raster VRT — generate a real tiny GeoTIFF at test time (via GDAL/rasterio, no committed binary), build a 2-source VRT from it in a temp dir, and write an integration test that calls the current `regenerate_vrt` at `backend/app/ingest/tasks.py:2093` end-to-end and asserts on the real output (CRS, bounds, footprint, metadata). This fixture becomes the behavioral anchor for Phase 219 — any drift from the future refactor will show as a test failure.
+**Depends on**: None (prerequisite for Phase 219; inserted after Phase 222 to unblock the regenerate_vrt refactor)
+**Requirements**: RASTER-VRT-FIX-01 (Backend Ingest Quality)
+**Plans**: 1 plan
+- [x] 223-01-PLAN.md — Build integration-anchor test (backend/tests/test_regenerate_vrt_integration.py) that generates 2 real GeoTIFFs, creates the full DB row graph (source + VRT Records/Datasets/RasterAssets, vrt_source_links, IngestJob), wires a LocalStorageProvider to tmp_path, invokes `await regenerate_vrt.func(...)` directly, and asserts on 15 state mutations. Backfills RASTER-VRT-FIX-01 into REQUIREMENTS.md.
+
+**Key decisions (locked 2026-04-11 via discuss-phase, see 223-CONTEXT.md):**
+- D-01: Reuse `_write_tmp_tif` from `test_raster_ingest.py` via direct import (no promotion to conftest)
+- D-02: Real `LocalStorageProvider(base_dir=tmp_path / "storage")`; monkey-patch `app.ingest.tasks.get_storage` (verified top-level import)
+- D-03: 15-assertion coverage of the full pipeline (storage write + 11 RasterAsset fields + job state + VrtGeneration + spatial_extent)
+- D-04: New file `test_regenerate_vrt_integration.py` — additive; existing `test_vrt_source_management_174.py::TestRegenerateVrtTask` stays as-is
+- D-05: Stub `generate_quicklook` at `app.ingest.tasks.generate_quicklook` boundary to avoid PIL/matplotlib surprises
+- D-06: Single requirement ID `RASTER-VRT-FIX-01` under Backend Ingest Quality section
+
+### Phase 219: regenerate_vrt Phase Extraction
+**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `_update_vrt_dataset_geometry(session, vrt_asset, metadata)` — so the 15 documented steps stay readable without changing behavior
+**Depends on**: Phase 223 (raster VRT integration fixture — provides the behavioral anchor that this refactor needs to verify parity)
+**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §K4)
+**Plans**: TBD
+
+**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
+- Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
+- Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT) — **UNBLOCKED by Phase 223 on 2026-04-11**
+- Raster VRT has historical flakiness — test coverage is non-negotiable
+
 ## Progress
 
 **Execution Order:** 212 → 213 → 214 → 215 → 216 → 217
@@ -332,6 +347,7 @@ Plans:
 | 220. CommitRequest Discriminated Union | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
+| 223. Raster VRT Integration Fixtures | v14.0 | 1/1 | Complete    | 2026-04-11 |
 
 ## Backlog
 
