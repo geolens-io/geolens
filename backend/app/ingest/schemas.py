@@ -176,6 +176,24 @@ class ServiceCommitRequest(BaseCommitRequest):
 
 
 class CommitRequest(BaseModel):
+    """Wire-level schema for ``POST /ingest/commit/{job_id}``.
+
+    Preserved as a flat union of all possible commit fields so that the
+    FastAPI route signature renders correctly in OpenAPI and so that the
+    frontend's ``CommitImportRequest`` TypeScript type stays unchanged.
+
+    The route handler re-validates the body against a subclass chosen by
+    ``_pick_commit_subclass(job)`` (see ``app.ingest.router``):
+
+      - ``VectorCommitRequest`` — default for file uploads
+      - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
+      - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is None
+
+    For new internal code that constructs a commit view, prefer importing
+    the appropriate subclass directly. This flat class is the wire contract,
+    not an implementation detail.
+    """
+
     title: str = Field(
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
