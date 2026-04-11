@@ -323,7 +323,10 @@ function buildWherePredicate(
 }
 
 async function loginAsAdmin(request: APIRequestContext): Promise<string> {
-  const loginResponse = await request.post('/api/auth/login', {
+  // Trailing slash is required: FastAPI's /auth/login/ route 307-redirects
+  // without it, and the Location header resolves to the Docker-internal
+  // api:8000 hostname which Playwright (running on the host) cannot reach.
+  const loginResponse = await request.post('/api/auth/login/', {
     form: {
       username: adminUser,
       password: adminPass,
@@ -460,7 +463,8 @@ async function resolveRuntimeDataset(
     );
   }
 
-  const searchResponse = await request.get('/api/search/datasets?limit=10', {
+  // Trailing slash required — see loginAsAdmin() above for the rationale.
+  const searchResponse = await request.get('/api/search/datasets/?limit=10', {
     headers: authHeader,
   });
   expect(searchResponse.ok()).toBeTruthy();
