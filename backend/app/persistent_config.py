@@ -59,6 +59,41 @@ _DEFAULT_GLOBAL_RATE_LIMIT = 60
 
 
 # ---------------------------------------------------------------------------
+# Shared validation helper (used by PersistentConfig.get and get_all_registry_values)
+# ---------------------------------------------------------------------------
+
+
+def _validate_or_fallback(
+    cfg: PersistentConfig[T], raw: Any
+) -> tuple[T, bool]:
+    """Validate `raw` against cfg's TypeAdapter; return (value, validated_ok).
+
+    Called by `PersistentConfig.get()` and `get_all_registry_values()` on the
+    DB-hit branch to enforce runtime shape at the JSONB unwrap boundary.
+
+    On ValidationError: logs a structured warning and returns
+    `(cfg.env_default, False)`. Does NOT raise. Does NOT write to cache — the
+    caller uses the boolean to decide whether to cache.
+
+    Security note: `exc.errors()` includes the offending `input` value in its
+    payload. Current registered configs do not store secrets (secrets live in
+    `app.config.settings` / env vars, not `app_settings`). If a future
+    PersistentConfig adds a secret-containing key, the logger must scrub the
+    `input` field from the errors list before emission.
+    """
+    try:
+        return cfg._adapter.validate_python(raw), True
+    except ValidationError as exc:
+        logger.warning(
+            "persistent_config.validation_failed",
+            key=cfg.key,
+            errors=exc.errors(),
+            action="fell_back_to_env_default",
+        )
+        return cfg.env_default, False
+
+
+# ---------------------------------------------------------------------------
 # PersistentConfig generic class
 # ---------------------------------------------------------------------------
 
@@ -115,15 +150,18 @@ class PersistentConfig(Generic[T]):
         )
         row = result.scalar_one_or_none()
         effective: T
+        validated_ok = True  # default: cache-write OK (applies to env_default path)
         if row is not None:
             # AppSetting.value is JSONB -- unwrap the stored value
             unwrapped = row if not isinstance(row, dict) or "v" not in row else row["v"]
-            effective = cast(T, unwrapped)
+            effective, validated_ok = _validate_or_fallback(self, unwrapped)
         else:
             effective = self.env_default
 
-        # Populate cache
-        if cache is not None:
+        # Populate cache only when we got a valid DB value or env_default path.
+        # On validation fallback, skip cache write so the next read re-hits the
+        # DB and re-logs until the corrupt row is fixed (D-03).
+        if cache is not None and validated_ok:
             await cache.set(cache_key, effective, ttl=_CACHE_TTL)
         self._update_sync_cache(effective)
         return effective
