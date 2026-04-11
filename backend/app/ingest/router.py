@@ -542,10 +542,26 @@ async def commit_import(
             detail="Job already processed",
         )
 
-    # Store user metadata on the job (merge with existing user_metadata for service jobs)
-    # Exclude token from persisted metadata (AUTH-04: never store token in DB)
-    token = request.token
-    commit_metadata = request.model_dump(exclude={"token"})
+    # Re-validate the body against the subclass the job belongs to. Extras
+    # from other subclasses are silently ignored (Pydantic default), so
+    # kitchen-sink bodies still commit cleanly (D-02).
+    Subclass = _pick_commit_subclass(job)
+    try:
+        commit = Subclass.model_validate(request.model_dump())
+    except ValidationError as e:
+        # Preserve FastAPI's standard 422 envelope. Currently a safety net:
+        # the flat CommitRequest already validated 'title' at the signature
+        # level. This branch only fires if a subclass adds stricter
+        # per-field rules in a future phase.
+        raise RequestValidationError(errors=e.errors())
+
+    # Extract token only for service commits (ServiceCommitRequest is the
+    # only subclass with a token field). AUTH-04: never persisted.
+    token = getattr(commit, "token", None)
+
+    # Persist the subclass-filtered view. model_dump(exclude={"token"}) is
+    # a no-op when the subclass has no token field.
+    commit_metadata = commit.model_dump(exclude={"token"})
     if job.user_metadata:
         # Service jobs already have service_type and layer_id from preview
         merged = {**job.user_metadata, **commit_metadata}
