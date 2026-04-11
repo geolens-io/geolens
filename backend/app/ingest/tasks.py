@@ -2149,6 +2149,47 @@ def _validate_and_extract_vrt_metadata(vrt_path: "Path") -> dict:
     return meta
 
 
+async def _update_vrt_dataset_geometry(
+    session: "AsyncSession",
+    vrt_id: "uuid.UUID",
+    metadata: dict,
+) -> "Dataset | None":
+    """Load VRT Dataset and update record.spatial_extent from bbox_wkt.
+
+    Owns step 13 of regenerate_vrt. Async -- touches the session. Does NOT
+    commit: the caller batches this update with step 14's
+    ``await session.commit()``.
+
+    Returns the fetched Dataset so the caller can pass it to
+    ``defer_embedding`` at step 15. Returns None if the Dataset row cannot
+    be found (preserving the existing ``scalar_one_or_none`` +
+    ``if vrt_dataset is not None`` pattern).
+
+    Args:
+        session: The active AsyncSession (owned by regenerate_vrt).
+        vrt_id: UUID of the VRT dataset.
+        metadata: The metadata dict returned by
+            ``_validate_and_extract_vrt_metadata`` (expected to optionally
+            contain ``bbox_wkt``).
+
+    Returns:
+        The Dataset row, or None if not found.
+    """
+    from sqlalchemy import func, select
+
+    from app.datasets.models import Dataset
+
+    dataset_result = await session.execute(
+        select(Dataset).where(Dataset.id == vrt_id)
+    )
+    vrt_dataset = dataset_result.scalar_one_or_none()
+    if vrt_dataset is not None and metadata.get("bbox_wkt"):
+        vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
+            metadata["bbox_wkt"], 4326
+        )
+    return vrt_dataset
+
+
 @task_app.task(queue="raster", retry=1)
 async def regenerate_vrt(
     job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
