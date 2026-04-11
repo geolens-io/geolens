@@ -63,6 +63,7 @@ Requirements covering ingest-side data-quality correctness observed in post-impl
 - [ ] **INGEST-N6-02**: A regression test constructs a synthetic table with a column that is ≥99% NULL (≥1 non-null in a 2000-row insert) and asserts that `get_sample_values` returns at least 1 sample value for that column. A paired dense-column control assertion ensures the existing `LIMIT 10` display cap behavior is unchanged by the bump.
 - [ ] **INGEST-K6-01**: `CommitRequest` is split into `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`) so field applicability rules live in the type system. The `POST /ingest/commit/{job_id}` handler dispatches server-side from `job.source_url` + `job.user_metadata.file_type` with zero wire format change.
 - [ ] **INGEST-K6-02**: Direct router test coverage for `POST /ingest/commit/{job_id}` is established — prior to Phase 220 the endpoint had **zero** direct router tests (only indirect coverage via orphan-guard mocks). New tests assert 202 + `queue_ingest_job` invocation for each file type, plus a negative test confirming kitchen-sink bodies still commit.
+- [ ] **RASTER-VRT-FIX-01**: Integration test `backend/tests/test_regenerate_vrt_integration.py` provides a behavioral anchor for `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`). Generates 2 real 64x64 GeoTIFFs, creates all DB rows (source + VRT Records/Datasets/RasterAssets, `vrt_source_links`, `IngestJob`), wires a `LocalStorageProvider` at `tmp_path`, invokes `await regenerate_vrt.func(...)` directly, and asserts on 15 state mutations (storage write + 11 `RasterAsset` fields + `IngestJob.status/dataset_id` + `VrtGeneration` completion + `Record.spatial_extent`). Prerequisite for Phase 219's 3-helper refactor — any drift in behavior will fail the test.
 
 ### Backend Config Hardening
 
@@ -142,12 +143,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGEST-K6-02 | Phase 220 | Pending |
 | CONFIG-T5-01 | Phase 222 | Pending |
 | CONFIG-T5-02 | Phase 222 | Pending |
+| RASTER-VRT-FIX-01 | Phase 223 | Pending |
 
 **Coverage:**
 - v14.0 requirements: 27 total
 - Mapped to phases: 27
 - Unmapped: 0 ✓
-- Backend Ingest Quality: 4 total (INGEST-N6-01, INGEST-N6-02 — Phase 221; INGEST-K6-01, INGEST-K6-02 — Phase 220)
+- Backend Ingest Quality: 5 total (INGEST-N6-01, INGEST-N6-02 — Phase 221; INGEST-K6-01, INGEST-K6-02 — Phase 220; RASTER-VRT-FIX-01 — Phase 223)
 - Backend Config Hardening: 2 total (CONFIG-T5-01, CONFIG-T5-02 — Phase 222)
 
 ---
