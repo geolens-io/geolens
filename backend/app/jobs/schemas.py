@@ -73,8 +73,8 @@ class JobStatusResponse(BaseModel):
     archive_failed: bool = False
     # TYPE-3: the temporal parser only ever emits these two keys; pin the
     # shape so adding a third key requires touching the contract deliberately.
-    temporal_parse_errors: dict[Literal["temporal_start", "temporal_end"], str] = (
-        Field(default_factory=dict)
+    temporal_parse_errors: dict[Literal["temporal_start", "temporal_end"], str] = Field(
+        default_factory=dict
     )
     started_at: datetime | None
     completed_at: datetime | None

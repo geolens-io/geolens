@@ -1024,9 +1024,7 @@ async def get_related_datasets(
     try:
         # Get the dataset's record_id
         record_id_row = (
-            await db.execute(
-                select(Dataset.record_id).where(Dataset.id == dataset_id)
-            )
+            await db.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
         ).first()
         if record_id_row is None:
             return []

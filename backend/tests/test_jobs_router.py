@@ -143,9 +143,7 @@ class TestGetJobStatus:
     ):
         """S3: clean jobs return empty warnings/archive_failed/temporal_parse_errors."""
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
 
         resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
         assert resp.status_code == 200
@@ -160,9 +158,7 @@ class TestGetJobStatus:
     ):
         """S3: structured reserved_rename warnings surface via JobStatusResponse."""
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         # Directly stamp user_metadata to simulate what _append_job_warning
         # writes at the end of ingest_file.
         job.user_metadata = {
@@ -193,9 +189,7 @@ class TestGetJobStatus:
     ):
         """S3: archive_failed=True surfaces when storage put failed."""
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.user_metadata = {
             "archive_failed": True,
             "archive_error": "S3 unreachable after 3 retries",
@@ -211,9 +205,7 @@ class TestGetJobStatus:
     ):
         """N5: unparseable temporal fields are surfaced to the client."""
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.user_metadata = {
             "temporal_parse_errors": {
                 "temporal_start": "not-a-date",
@@ -235,9 +227,7 @@ class TestGetJobStatus:
     ):
         """Legacy scalar warning_message still surfaces for table-name collisions."""
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.user_metadata = {
             "collision_warning": "Table 'cities' already exists, using 'cities_2'",
         }
@@ -252,9 +242,7 @@ class TestGetJobStatus:
     ):
         """Router must not crash when user_metadata contains unexpected shapes."""
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         # warnings is a scalar (wrong), temporal_parse_errors is a list (wrong).
         # Both should be ignored without raising.
         job.user_metadata = {
@@ -282,9 +270,7 @@ class TestGetJobStatus:
         of 500ing the endpoint.
         """
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.user_metadata = {
             "warnings": [
                 # Good entry — should surface.
@@ -319,9 +305,7 @@ class TestGetJobStatus:
         router filters the dict before handing it to the schema.
         """
         admin_id = await get_user_id(test_db_session, "admin")
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.user_metadata = {
             "temporal_parse_errors": {
                 "temporal_start": "bad-value",
@@ -400,9 +384,7 @@ class TestGetJobStatusByDataset:
             visibility="public",
         )
 
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.dataset_id = dataset.id
         job.user_metadata = {
             "warnings": [
@@ -488,9 +470,7 @@ class TestGetJobStatusByDataset:
             created_by=admin_id,
             visibility="private",
         )
-        job = await _create_job(
-            test_db_session, created_by=admin_id, status="complete"
-        )
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
         job.dataset_id = dataset.id
         await test_db_session.commit()
 
