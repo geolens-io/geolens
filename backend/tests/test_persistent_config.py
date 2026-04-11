@@ -901,3 +901,26 @@ async def test_bulk_settings_update_creates_per_field_audit_entries(
         },
         headers=admin_auth_header,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 222: TypeAdapter runtime validation at JSONB unwrap boundary (D-06)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_persistent_config_init_requires_type_kwarg():
+    """Signature sanity: type_ is keyword-only and required."""
+    from pydantic import TypeAdapter
+
+    from app.persistent_config import PersistentConfig
+
+    # Happy construction
+    cfg = PersistentConfig[int](key="_test_throwaway", type_=int, env_default=5)
+    assert cfg._type is int
+    assert isinstance(cfg._adapter, TypeAdapter)
+    assert cfg._adapter.validate_python(5) == 5
+
+    # Missing type_ raises TypeError at init
+    with pytest.raises(TypeError, match="type_"):
+        PersistentConfig[int](key="_test_throwaway2", env_default=5)  # type: ignore[call-arg]
