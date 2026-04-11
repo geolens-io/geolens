@@ -2121,6 +2121,34 @@ def _build_vrt_to_temp(
     return Path(vrt_path)
 
 
+def _validate_and_extract_vrt_metadata(vrt_path: "Path") -> dict:
+    """Extract metadata from a newly-built VRT, validate CRS, add hash + size.
+
+    Owns steps 6-8 of regenerate_vrt. Synchronous -- the caller wraps this
+    in ``asyncio.to_thread(...)``.
+
+    Args:
+        vrt_path: Path to the built VRT file (from _build_vrt_to_temp).
+
+    Returns:
+        The metadata dict from ``extract_raster_metadata``, enriched with
+        ``sha256`` (64-char hex digest) and ``size_bytes`` (int) keys.
+
+    Raises:
+        ValueError: If the extracted metadata has no ``crs_wkt`` -- meaning
+            the regenerated VRT has no coordinate reference system.
+    """
+    import os
+
+    meta = extract_raster_metadata(str(vrt_path))
+    if not meta.get("crs_wkt"):
+        raise ValueError("Regenerated VRT has no coordinate reference system.")
+
+    meta["sha256"] = sha256_file(str(vrt_path))
+    meta["size_bytes"] = os.path.getsize(str(vrt_path))
+    return meta
+
+
 @task_app.task(queue="raster", retry=1)
 async def regenerate_vrt(
     job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
