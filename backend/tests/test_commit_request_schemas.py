@@ -70,7 +70,9 @@ class TestVectorCommitRequest:
         with pytest.raises(ValidationError) as exc:
             VectorCommitRequest.model_validate({"summary": "no title here"})
         errors = exc.value.errors()
-        assert any(err["type"] == "missing" and err["loc"] == ("title",) for err in errors)
+        assert any(
+            err["type"] == "missing" and err["loc"] == ("title",) for err in errors
+        )
 
     def test_title_max_length(self) -> None:
         """Title >500 chars raises."""
@@ -120,7 +122,12 @@ class TestServiceCommitRequest:
 
     def test_spatial_fields_silently_ignored(self) -> None:
         s = ServiceCommitRequest.model_validate(
-            {"title": "WFS", "compression": "LZW", "x_column": "lon", "srid_override": 4326}
+            {
+                "title": "WFS",
+                "compression": "LZW",
+                "x_column": "lon",
+                "srid_override": 4326,
+            }
         )
         dumped = s.model_dump()
         assert "compression" not in dumped
@@ -138,23 +145,46 @@ class TestFieldDistribution:
 
     def test_base_fields(self) -> None:
         assert set(BaseCommitRequest.model_fields) == {
-            "title", "summary", "visibility", "temporal_start", "temporal_end"
+            "title",
+            "summary",
+            "visibility",
+            "temporal_start",
+            "temporal_end",
         }
 
     def test_vector_fields(self) -> None:
         assert set(VectorCommitRequest.model_fields) == {
-            "title", "summary", "visibility", "temporal_start", "temporal_end",
-            "srid_override", "layer_name", "x_column", "y_column", "geom_column",
+            "title",
+            "summary",
+            "visibility",
+            "temporal_start",
+            "temporal_end",
+            "srid_override",
+            "layer_name",
+            "x_column",
+            "y_column",
+            "geom_column",
         }
 
     def test_raster_fields(self) -> None:
         assert set(RasterCommitRequest.model_fields) == {
-            "title", "summary", "visibility", "temporal_start", "temporal_end",
-            "srid_override", "compression", "resampling", "nodata_override",
+            "title",
+            "summary",
+            "visibility",
+            "temporal_start",
+            "temporal_end",
+            "srid_override",
+            "compression",
+            "resampling",
+            "nodata_override",
         }
 
     def test_service_fields(self) -> None:
         assert set(ServiceCommitRequest.model_fields) == {
-            "title", "summary", "visibility", "temporal_start", "temporal_end",
+            "title",
+            "summary",
+            "visibility",
+            "temporal_start",
+            "temporal_end",
             "token",
         }

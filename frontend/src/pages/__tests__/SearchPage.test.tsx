@@ -143,7 +143,10 @@ describe('SearchPage', () => {
     render(<SearchPage />, { route: '/' });
 
     expect(screen.getByTestId('search-bar')).toHaveAttribute('data-mode', 'compact');
-    expect(screen.getByTestId('filter-panel')).toHaveTextContent('12');
+    expect(screen.getAllByTestId('filter-panel')).toHaveLength(2);
+    screen.getAllByTestId('filter-panel').forEach((panel) => {
+      expect(panel).toHaveTextContent('12');
+    });
     expect(screen.getByRole('heading', { level: 1, name: /search the geolens catalog/i, hidden: true })).toHaveClass('sr-only');
     expect(screen.queryByTestId('saved-searches')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /view on github/i })).not.toBeInTheDocument();
@@ -157,7 +160,10 @@ describe('SearchPage', () => {
 
     expect(screen.getByTestId('search-bar')).toHaveAttribute('data-mode', 'compact');
     expect(screen.getByTestId('saved-searches')).toBeInTheDocument();
-    expect(screen.getByTestId('filter-panel')).toHaveTextContent('12');
+    expect(screen.getAllByTestId('filter-panel')).toHaveLength(2);
+    screen.getAllByTestId('filter-panel').forEach((panel) => {
+      expect(panel).toHaveTextContent('12');
+    });
   });
 
   it('renders skeletons while loading with no cached data', () => {
