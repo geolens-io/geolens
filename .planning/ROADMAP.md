@@ -319,7 +319,7 @@ Plans:
 **Requirements**: INGEST-K4-01
 **Plans**: 1 plan
 Plans:
-- [ ] 219-01-PLAN.md — 3 helper extractions + regenerate_vrt body refactor + Phase 223 regression gate + REQUIREMENTS.md backfill
+- [x] 219-01-PLAN.md — 3 helper extractions + regenerate_vrt body refactor + Phase 223 regression gate + REQUIREMENTS.md backfill
 
 **Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
 - Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
@@ -345,7 +345,7 @@ Plans:
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
-| 219. regenerate_vrt Phase Extraction | v14.0 | 0/? | Not started | - |
+| 219. regenerate_vrt Phase Extraction | v14.0 | 1/1 | Complete   | 2026-04-11 |
 | 220. CommitRequest Discriminated Union | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
