@@ -403,6 +403,117 @@ class TestUnicodeSampleValues:
 
 
 # ---------------------------------------------------------------------------
+# §N6  get_sample_values yields samples for sparse (>=99%-null) columns
+# ---------------------------------------------------------------------------
+
+
+class TestSparseColumnSampleValues:
+    """INGEST-N6: get_sample_values returns samples for 99%+ NULL columns.
+
+    Regression test for the sparse-column yield bug introduced by the
+    CTE-batched rewrite (commit 180cfa97). Pre-bump (sample_size=1000),
+    a column that is 99.95% NULL would yield 0 or 1 samples depending on
+    row ordering. Post-bump (sample_size=10000), the same column yields
+    ~5 samples, comfortably under the LIMIT 10 display cap.
+    """
+
+    async def test_sparse_column_yields_at_least_one_sample(self, test_db_session):
+        """A 99.95%-null column must still have sample values with default sample_size."""
+        from app.ingest.metadata import get_sample_values
+
+        table = _table_id("tst_sparse")
+        try:
+            # Build a synthetic table with:
+            #   - `id` (non-null control column — always populated)
+            #   - `sparse_col` (99.95% NULL — non-null on row 1 only, NULL on rows 2-2000)
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} ("
+                    f"  id integer PRIMARY KEY,"
+                    f"  sparse_col text"
+                    f")"
+                )
+            )
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table} (id, sparse_col) "
+                    f"SELECT g, CASE WHEN g = 1 THEN 'only-value' ELSE NULL END "
+                    f"FROM generate_series(1, 2000) g"
+                )
+            )
+            await test_db_session.commit()
+
+            column_info = [
+                {"name": "id", "type": "integer"},
+                {"name": "sparse_col", "type": "text"},
+            ]
+            samples = await get_sample_values(test_db_session, table, column_info)
+
+            # Control: the dense id column always has samples.
+            assert "id" in samples, (
+                f"Control column 'id' missing from samples. "
+                f"Got keys: {list(samples.keys())}"
+            )
+            assert len(samples["id"]) >= 1
+
+            # Regression: the sparse column must also have at least one sample.
+            # Pre-bump (sample_size=1000): zero or one non-null in a 1000-row
+            # scan window on the 1-in-2000 row -> flaky or empty.
+            # Post-bump (sample_size=10000): the 10000-row scan window always
+            # includes row 1 -> sample is always present.
+            assert "sparse_col" in samples, (
+                f"Sparse column 'sparse_col' missing from samples. "
+                f"Got keys: {list(samples.keys())}. This is the exact regression "
+                f"the sample_size bump is meant to fix."
+            )
+            assert samples["sparse_col"] == ["only-value"]
+        finally:
+            await _drop_table(test_db_session, table)
+
+    async def test_dense_column_unchanged_by_bump(self, test_db_session):
+        """Control: dense columns continue to yield up to 10 distinct samples.
+
+        Ensures the bump did not accidentally change behavior for the
+        common case where LIMIT 10 is the binding constraint.
+        """
+        from app.ingest.metadata import get_sample_values
+
+        table = _table_id("tst_dense_ctrl")
+        try:
+            await test_db_session.execute(
+                text(
+                    f"CREATE TABLE data.{table} (  id integer PRIMARY KEY,  color text)"
+                )
+            )
+            # 12 distinct values across 24 rows — every value appears twice.
+            # Expected: LIMIT 10 truncates to 10 distinct.
+            await test_db_session.execute(
+                text(
+                    f"INSERT INTO data.{table} (id, color) VALUES "
+                    f"(1,'red'),(2,'red'),(3,'orange'),(4,'orange'),"
+                    f"(5,'yellow'),(6,'yellow'),(7,'green'),(8,'green'),"
+                    f"(9,'blue'),(10,'blue'),(11,'indigo'),(12,'indigo'),"
+                    f"(13,'violet'),(14,'violet'),(15,'cyan'),(16,'cyan'),"
+                    f"(17,'magenta'),(18,'magenta'),(19,'teal'),(20,'teal'),"
+                    f"(21,'lime'),(22,'lime'),(23,'pink'),(24,'pink')"
+                )
+            )
+            await test_db_session.commit()
+
+            column_info = [
+                {"name": "id", "type": "integer"},
+                {"name": "color", "type": "text"},
+            ]
+            samples = await get_sample_values(test_db_session, table, column_info)
+
+            assert "color" in samples
+            # LIMIT 10 display cap unchanged — should be exactly 10 distinct.
+            assert len(samples["color"]) == 10
+        finally:
+            await _drop_table(test_db_session, table)
+
+
+# ---------------------------------------------------------------------------
 # §2.3  DBF truncation collision detection (shapefile-specific)
 # ---------------------------------------------------------------------------
 

@@ -109,7 +109,7 @@ env \
   POSTGRES_HOST=localhost \
   POSTGRES_PORT="${DB_PORT:-5434}" \
   POSTGRES_DB="${POSTGRES_DB:-geolens}" \
-  JWT_SECRET_KEY=test-secret-key-for-ci \
+  JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars \
   GEOLENS_ADMIN_USERNAME=admin \
   GEOLENS_ADMIN_PASSWORD=admin \
   uv run pytest -v --tb=short --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml
@@ -124,7 +124,7 @@ env \
   `geolens_test` for the suite.
 - `backend/tests/conftest.py` wires test storage and staging to temp directories. Filesystem-sensitive ingest/export tests rely on that fixture behavior.
 - Coverage output is generated under `backend/htmlcov/`, plus `backend/.coverage` and `backend/coverage.xml`. Do not commit those artifacts.
-- Warning-only output is currently expected from some third-party deprecations and the intentionally short JWT test secret.
+- Warning-only output is currently expected from some third-party deprecations.
 
 ## Recommended Local Order
 
@@ -154,6 +154,11 @@ Make sure the CI job has full history available. The current workflow does this 
 Check:
 
 - staging dir writability
+- when running backend tests in a standalone container, mount the same shared
+  `/app/staging` volume that the `titiler` service uses; otherwise the
+  `test_vrt_titiler.py` integration path can reach Titiler but still fail with
+  `Tile fetch failed` because the generated VRT/COG files are not on the shared
+  volume
 - temp file cleanup for uploaded/remote validation paths
 - whether you are using the same env vars as the CI-style backend command
 

@@ -16,6 +16,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.auth.models import User
 from app.jobs.models import IngestJob
 from tests.conftest import get_auth_header
 
@@ -1235,3 +1236,225 @@ async def test_queue_ingest_job_raster_defer_failure_marks_job_failed(tmp_path):
     assert exc_info.value.status_code == 503
     assert job.status == "failed"
     assert "raster queue dead" in job.error_message
+
+
+class TestCommitImportDispatch:
+    """Direct router coverage for POST /ingest/commit/{job_id} (Phase 220,
+    INGEST-K6-02). Before this phase, the endpoint had zero direct tests."""
+
+    async def test_vector_job_commits_with_vector_body(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ingest_task,  # explicit to make the assertion visible
+    ) -> None:
+        """Vector job + vector body -> 202 + queue_ingest_job called."""
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="roads.geojson",
+            file_path="/tmp/fake.geojson",
+            created_by=admin.id,
+            status="pending",
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={
+                "title": "Roads",
+                "summary": "Street centerlines",
+                "srid_override": 4326,
+                "x_column": "lon",
+                "y_column": "lat",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202, resp.text
+        data = resp.json()
+        assert data["job_id"] == str(job.id)
+        assert data["status"] == "pending"
+        assert mock_ingest_task.await_count == 1
+
+    async def test_raster_job_commits_with_raster_body(
+        self, client, admin_auth_header, test_db_session, mock_ingest_task
+    ) -> None:
+        """Raster job + raster body -> 202 + queue_ingest_job called."""
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="dem.tif",
+            file_path="/tmp/fake.tif",
+            created_by=admin.id,
+            status="pending",
+            user_metadata={"file_type": "raster"},  # the raster discriminator
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={
+                "title": "Elevation",
+                "compression": "LZW",
+                "resampling": "bilinear",
+                "srid_override": 3857,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202, resp.text
+        assert mock_ingest_task.await_count == 1
+        # Verify raster-only fields made it into user_metadata
+        await test_db_session.refresh(job)
+        assert job.user_metadata["compression"] == "LZW"
+        assert job.user_metadata["resampling"] == "bilinear"
+
+    async def test_service_job_commits_with_service_body(
+        self, client, admin_auth_header, test_db_session, mock_ingest_task
+    ) -> None:
+        """Service job + service body -> 202 + queue_ingest_job called with token kwarg."""
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="TestLayer",
+            source_url="https://example.arcgis.com/FeatureServer/0",  # service discriminator
+            source_layer="0",
+            created_by=admin.id,
+            status="pending",
+            user_metadata={
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_id": 0,
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={
+                "title": "Federal Grants",
+                "summary": "Opportunities",
+                "token": "bearer-abc",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202, resp.text
+        assert mock_ingest_task.await_count == 1
+        # Token must be forwarded via kwarg, not persisted to metadata
+        call_kwargs = mock_ingest_task.await_args.kwargs
+        assert call_kwargs["token"] == "bearer-abc"
+        await test_db_session.refresh(job)
+        assert "token" not in (job.user_metadata or {})
+
+    async def test_vector_job_with_kitchen_sink_body_silently_ignores_extras(
+        self, client, admin_auth_header, test_db_session, mock_ingest_task
+    ) -> None:
+        """Vector job + kitchen-sink body (mixed vector/raster/service fields) -> 202.
+
+        Regression test for D-02: the frontend may send irrelevant fields
+        and the server must silently ignore them, not 422.
+        """
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="mixed.geojson",
+            file_path="/tmp/fake.geojson",
+            created_by=admin.id,
+            status="pending",
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={
+                "title": "Mixed",
+                # vector-applicable
+                "x_column": "lon",
+                "y_column": "lat",
+                # raster-only (should be dropped)
+                "compression": "LZW",
+                "resampling": "bilinear",
+                "nodata_override": -9999,
+                # service-only (should be dropped from metadata)
+                "token": "leaked-token",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202, resp.text
+        assert mock_ingest_task.await_count == 1
+
+        # queue_ingest_job was called with token=None (not "leaked-token")
+        # because vector subclass has no token field and nothing set it.
+        call_kwargs = mock_ingest_task.await_args.kwargs
+        assert call_kwargs.get("token") is None
+
+        # user_metadata does NOT contain the raster-only fields or token
+        await test_db_session.refresh(job)
+        meta = job.user_metadata or {}
+        assert "compression" not in meta
+        assert "resampling" not in meta
+        assert "nodata_override" not in meta
+        assert "token" not in meta
+        assert meta["x_column"] == "lon"
+        assert meta["y_column"] == "lat"
+
+    async def test_commit_missing_title_returns_422(
+        self, client, admin_auth_header, test_db_session, mock_ingest_task
+    ) -> None:
+        """Missing required 'title' returns 422 via the project's Problem
+        Details handler.
+
+        The project overrides FastAPI's default RequestValidationError handler
+        in ``app/ogc/errors.py`` to produce an RFC 7807 Problem Details envelope
+        (``title``, ``status``, ``detail``). Using ``RequestValidationError``
+        (not ``HTTPException(422)``) in the handler refactor ensures the
+        envelope shape is consistent with every other 422 in the API — which
+        is the whole point of Pitfall 2.
+        """
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="f.geojson",
+            file_path="/tmp/fake.geojson",
+            created_by=admin.id,
+            status="pending",
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={"summary": "no title"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        body = resp.json()
+        # Project envelope: RFC 7807 Problem Details with flat ``detail`` string
+        assert body["title"] == "Validation Error"
+        assert body["status"] == 422
+        assert "title" in body["detail"]  # e.g. "body.title: Field required"
+        assert "Field required" in body["detail"] or "required" in body["detail"]
+        assert mock_ingest_task.await_count == 0

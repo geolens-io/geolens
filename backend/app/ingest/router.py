@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from app.jobs.models import IngestJob
@@ -21,6 +23,7 @@ from app.config import settings
 from app.dependencies import get_db
 from app.ingest.ogr import IngestionError, detect_geometry_columns, run_ogrinfo_preview
 from app.ingest.schemas import (
+    BaseCommitRequest,
     BulkRegisterItem,
     BulkRegisterRequest,
     BulkRegisterResponse,
@@ -32,11 +35,14 @@ from app.ingest.schemas import (
     PresignedCompleteRequest,
     PresignedUploadRequest,
     PresignedUploadResponse,
+    RasterCommitRequest,
     RasterPreviewResponse,
     RegisterRequest,
+    ServiceCommitRequest,
     TableRegisterResponse,
     UploadConfigResponse,
     UploadResponse,
+    VectorCommitRequest,
     VrtAddSourceRequest,
     VrtCreateRequest,
     VrtCreateResponse,
@@ -492,6 +498,26 @@ async def preview_file(
     )
 
 
+def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
+    """Return the CommitRequest subclass for the given job.
+
+    Mirrors the discrimination logic in ``queue_ingest_job`` at
+    ``app.ingest.service:477-506``:
+      - ``job.source_url`` set (and no ``file_path``) -> service
+      - ``job.user_metadata['file_type'] == 'raster'`` -> raster
+      - otherwise -> vector (default)
+
+    CRITICAL: Service jobs are discriminated by ``source_url``, NOT by
+    ``user_metadata.file_type == 'service'`` — that string does not exist
+    anywhere in the codebase. See Phase 220 research Pitfall 1.
+    """
+    if job.source_url and not job.file_path:
+        return ServiceCommitRequest
+    if (job.user_metadata or {}).get("file_type") == "raster":
+        return RasterCommitRequest
+    return VectorCommitRequest
+
+
 @router.post(
     "/commit/{job_id}",
     response_model=CommitResponse,
@@ -516,10 +542,26 @@ async def commit_import(
             detail="Job already processed",
         )
 
-    # Store user metadata on the job (merge with existing user_metadata for service jobs)
-    # Exclude token from persisted metadata (AUTH-04: never store token in DB)
-    token = request.token
-    commit_metadata = request.model_dump(exclude={"token"})
+    # Re-validate the body against the subclass the job belongs to. Extras
+    # from other subclasses are silently ignored (Pydantic default), so
+    # kitchen-sink bodies still commit cleanly (D-02).
+    Subclass = _pick_commit_subclass(job)
+    try:
+        commit = Subclass.model_validate(request.model_dump())
+    except ValidationError as e:
+        # Preserve FastAPI's standard 422 envelope. Currently a safety net:
+        # the flat CommitRequest already validated 'title' at the signature
+        # level. This branch only fires if a subclass adds stricter
+        # per-field rules in a future phase.
+        raise RequestValidationError(errors=e.errors())
+
+    # Extract token only for service commits (ServiceCommitRequest is the
+    # only subclass with a token field). AUTH-04: never persisted.
+    token = getattr(commit, "token", None)
+
+    # Persist the subclass-filtered view. model_dump(exclude={"token"}) is
+    # a no-op when the subclass has no token field.
+    commit_metadata = commit.model_dump(exclude={"token"})
     if job.user_metadata:
         # Service jobs already have service_type and layer_id from preview
         merged = {**job.user_metadata, **commit_metadata}
