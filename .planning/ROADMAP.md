@@ -282,8 +282,10 @@ Plans:
 ### Phase 221: get_sample_values Sparse-Column Default Bump
 **Goal**: Bump the default `sample_size` parameter on `get_sample_values` (`backend/app/ingest/metadata.py:208`) from 1000 to 10000 so sparse columns (e.g. 99%-null columns) yield sample values within the existing `LIMIT 10` display cap, preserving the CTE-batched approach at lines 269-274 as-is
 **Depends on**: None
-**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §N6)
-**Plans**: TBD
+**Requirements**: INGEST-N6-01, INGEST-N6-02
+**Plans**: 1 plan
+Plans:
+- [x] 221-01-PLAN.md — Default bump (1000 → 10000), docstring scan-width/RAM caveat, TestSparseColumnSampleValues regression class, REQUIREMENTS.md backfill
 
 **Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
 - The CTE approach is dramatically faster than the pre-audit per-column `LIMIT 1000` pattern — do not revert
@@ -304,7 +306,7 @@ Plans:
 
 ## Progress
 
-**Execution Order:** 212 → 213 → 214 → 215 �� 216 → 217
+**Execution Order:** 212 → 213 → 214 → 215 → 216 → 217
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -323,7 +325,7 @@ Plans:
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
 | 219. regenerate_vrt Phase Extraction | v14.0 | 0/? | Not started | - |
 | 220. CommitRequest Discriminated Union | v14.0 | 0/? | Not started | - |
-| 221. get_sample_values Sparse-Column Default Bump | v14.0 | 0/? | Not started | - |
+| 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 0/? | Not started | - |
 
 ## Backlog
@@ -392,7 +394,6 @@ Plans:
 
 **Sizing:** LARGE (4-6h)
 **Dependencies:** None — but requires careful test coverage for both vector ingest paths
-**Requirements:** TBD
 
 **Key decisions locked from handoff:**
 - `_apply_reupload_swap` (`backend/app/ingest/tasks.py:990`) atomic-swap dance (RENAME live→live_old, RENAME staging→live, DROP live_old with `SET LOCAL lock_timeout = '5s'`) stays separate from the shared staging helper — it is the one real architectural divergence between the two paths

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
-stopped_at: Quick task 260411-a62 shipped (post-impl-20260410 handoff closeout — 5 backlog entries 999.4-999.8 + disposition table in handoff doc, 1 docs commit); Phase 215 Homepage still pending discuss/plan
-last_updated: "2026-04-11T11:45:00.000Z"
+stopped_at: Phase 221 context gathered
+last_updated: "2026-04-11T12:55:45.121Z"
 last_activity: 2026-04-11
 progress:
-  total_phases: 10
-  completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  total_phases: 15
+  completed_phases: 5
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 218 — demo-themed-collections
+**Current focus:** Phase 221 — get_sample_values Sparse-Column Default Bump
 
 ## Current Position
 
-Phase: 999.1
+Phase: 222
 Plan: Not started
-Status: Executing Phase 218
-Last activity: 2026-04-11 - Completed quick task 260411-a62: review and close out remaining items in post-impl-20260410 handoff
+Status: Executing Phase 221
+Last activity: 2026-04-11
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -36,7 +36,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 **Velocity:**
 
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -48,6 +48,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 | 213 | 2 | - | - |
 | 214 | 2 | - | - |
 | 218 | 5 | - | - |
+| 221 | 1 | - | - |
 
 **Recent Trend:**
 
@@ -100,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-10T09:12:33-04:00
-Stopped at: Quick task 260409 shipped (map thumbnail capture timing fix, 1 code commit); Phase 215 Homepage still pending discuss/plan
-Resume file: (none — Phase 215 has no CONTEXT.md yet)
+Last session: 2026-04-11T12:10:18.542Z
+Stopped at: Phase 221 context gathered
+Resume file: .planning/phases/221-get-sample-values-sparse-column-observation/221-CONTEXT.md
