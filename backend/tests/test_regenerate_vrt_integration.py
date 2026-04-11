@@ -252,3 +252,148 @@ async def vrt_db_state(
         "expected_vrt_key": expected_vrt_key,
         "vrt_record_id": vrt_record.id,
     }
+
+
+async def test_regenerate_vrt_happy_path_end_to_end(
+    test_db_session,
+    vrt_db_state: dict,
+    local_storage,  # fixture wires up storage + settings.upload_staging_dir
+    quicklook_stub,  # fixture stubs generate_quicklook
+    clean_tables,  # opt-in truncate after test (Research Open Question #1)
+):
+    """Full integration test: invoke regenerate_vrt and assert on 15 state mutations.
+
+    This is the behavioral anchor for Phase 219's refactor. Any drift in the
+    observable outcome of regenerate_vrt will fail this test — that's the
+    whole point of shipping this before Phase 219.
+
+    The 15 assertions cover every DB + storage mutation that regenerate_vrt
+    performs in the happy path. See CONTEXT.md D-03 for the enumerated list.
+    """
+    from app.datasets.models import Record
+    from app.ingest.tasks import regenerate_vrt
+    from app.jobs.models import IngestJob
+    from app.raster.models import RasterAsset, VrtGeneration
+
+    session = test_db_session
+
+    # --- INVOKE ------------------------------------------------------------
+    # Call the underlying coroutine via Task.func, bypassing the queue.
+    await regenerate_vrt.func(
+        job_id=vrt_db_state["job_id"],
+        vrt_dataset_id=vrt_db_state["vrt_dataset_id"],
+    )
+
+    # --- REFRESH -----------------------------------------------------------
+    # regenerate_vrt commits its own session; our test_db_session is separate.
+    # Re-query to get the post-task state.
+    vrt_asset_result = await session.execute(
+        select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+    )
+    vrt_asset = vrt_asset_result.scalar_one()
+    await session.refresh(vrt_asset)
+
+    job_result = await session.execute(
+        select(IngestJob).where(IngestJob.id == uuid.UUID(vrt_db_state["job_id"]))
+    )
+    job = job_result.scalar_one()
+    await session.refresh(job)
+
+    gen_result = await session.execute(
+        select(VrtGeneration).where(
+            VrtGeneration.vrt_dataset_id == uuid.UUID(vrt_db_state["vrt_dataset_id"])
+        )
+    )
+    generation = gen_result.scalar_one()
+
+    record_result = await session.execute(
+        select(Record).where(Record.id == vrt_db_state["vrt_record_id"])
+    )
+    vrt_record = record_result.scalar_one()
+
+    # --- ASSERTIONS (the 15 anchor mutations) ------------------------------
+
+    storage = local_storage  # the LocalStorageProvider from the fixture
+    vrt_key = vrt_db_state["expected_vrt_key"]
+
+    # [1] Storage write: the VRT key exists after the task.
+    assert await storage.exists(vrt_key), (
+        f"Expected VRT file to exist at {vrt_key} after regenerate_vrt"
+    )
+
+    # [2] Storage read-back: bytes are non-empty AND rasterio can re-open the
+    # VRT from disk and read its metadata.
+    vrt_bytes = await storage.get(vrt_key)
+    assert len(vrt_bytes) > 0
+    vrt_abs_path = local_storage.base_dir / vrt_key
+    with rasterio.open(str(vrt_abs_path)) as src:
+        assert src.count == 1  # single band, matches source
+        assert src.crs is not None
+        assert src.crs.to_epsg() == 4326
+
+    # [3] vrt_asset.status == "ready"
+    assert vrt_asset.status == "ready", (
+        f"Expected status='ready', got {vrt_asset.status!r}"
+    )
+
+    # [4] vrt_asset.crs_wkt is populated (non-None, WGS84 WKT)
+    assert vrt_asset.crs_wkt is not None
+    assert "WGS" in vrt_asset.crs_wkt or "4326" in vrt_asset.crs_wkt
+
+    # [5] vrt_asset.epsg == 4326
+    assert vrt_asset.epsg == 4326
+
+    # [6] vrt_asset.band_count == 1
+    assert vrt_asset.band_count == 1
+
+    # [7] width and height are populated and > 0
+    assert vrt_asset.width is not None and vrt_asset.width > 0
+    assert vrt_asset.height is not None and vrt_asset.height > 0
+
+    # [8] sha256 is populated, 64 chars, AND matches storage content hash
+    assert vrt_asset.sha256 is not None
+    assert len(vrt_asset.sha256) == 64  # hex digest
+    expected_sha = hashlib.sha256(vrt_bytes).hexdigest()
+    assert vrt_asset.sha256 == expected_sha, (
+        f"sha256 mismatch: asset={vrt_asset.sha256}, storage={expected_sha}"
+    )
+
+    # [9] size_bytes > 0
+    assert vrt_asset.size_bytes is not None and vrt_asset.size_bytes > 0
+
+    # [10] last_regenerated_at is populated
+    assert vrt_asset.last_regenerated_at is not None
+
+    # [11] current_generation_id is cleared after completion
+    assert vrt_asset.current_generation_id is None
+
+    # [12] job.status == "complete"
+    assert job.status == "complete", (
+        f"Expected job status='complete', got {job.status!r}"
+    )
+
+    # [13] job.dataset_id points at the VRT dataset
+    assert job.dataset_id == uuid.UUID(vrt_db_state["vrt_dataset_id"])
+
+    # [14] VrtGeneration row has status="completed", duration_seconds > 0,
+    # completed_at populated, source_count == 2, triggered_by == "system"
+    assert generation.status == "completed"
+    assert generation.duration_seconds is not None
+    assert generation.duration_seconds > 0
+    assert generation.completed_at is not None
+    assert generation.source_count == 2
+    assert generation.triggered_by == "system"  # default kwarg in regenerate_vrt
+
+    # [15] vrt_record.spatial_extent is populated (the ST_GeomFromText update landed)
+    # spatial_extent is a Geometry column; its post-load value is a WKB string or
+    # a geoalchemy2 Geometry element. Just assert non-None.
+    assert vrt_record.spatial_extent is not None
+
+    # --- BONUS: Rasterio re-open + bounds sanity check ---------------------
+    # (per CONTEXT.md Claude's Discretion + RESEARCH.md recommendation)
+    with rasterio.open(str(vrt_abs_path)) as src:
+        bounds = src.bounds
+        assert bounds.left is not None and bounds.right is not None
+        # At least one pixel of extent
+        assert bounds.right > bounds.left
+        assert bounds.top > bounds.bottom
