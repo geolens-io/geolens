@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from app.jobs.models import IngestJob
@@ -21,6 +23,7 @@ from app.config import settings
 from app.dependencies import get_db
 from app.ingest.ogr import IngestionError, detect_geometry_columns, run_ogrinfo_preview
 from app.ingest.schemas import (
+    BaseCommitRequest,
     BulkRegisterItem,
     BulkRegisterRequest,
     BulkRegisterResponse,
@@ -32,11 +35,14 @@ from app.ingest.schemas import (
     PresignedCompleteRequest,
     PresignedUploadRequest,
     PresignedUploadResponse,
+    RasterCommitRequest,
     RasterPreviewResponse,
     RegisterRequest,
+    ServiceCommitRequest,
     TableRegisterResponse,
     UploadConfigResponse,
     UploadResponse,
+    VectorCommitRequest,
     VrtAddSourceRequest,
     VrtCreateRequest,
     VrtCreateResponse,
@@ -490,6 +496,26 @@ async def preview_file(
         layers=info.get("all_layers"),
         detected_geometry_columns=detected_geom_cols,
     )
+
+
+def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
+    """Return the CommitRequest subclass for the given job.
+
+    Mirrors the discrimination logic in ``queue_ingest_job`` at
+    ``app.ingest.service:477-506``:
+      - ``job.source_url`` set (and no ``file_path``) -> service
+      - ``job.user_metadata['file_type'] == 'raster'`` -> raster
+      - otherwise -> vector (default)
+
+    CRITICAL: Service jobs are discriminated by ``source_url``, NOT by
+    ``user_metadata.file_type == 'service'`` — that string does not exist
+    anywhere in the codebase. See Phase 220 research Pitfall 1.
+    """
+    if job.source_url and not job.file_path:
+        return ServiceCommitRequest
+    if (job.user_metadata or {}).get("file_type") == "raster":
+        return RasterCommitRequest
+    return VectorCommitRequest
 
 
 @router.post(
