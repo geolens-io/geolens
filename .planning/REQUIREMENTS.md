@@ -61,6 +61,8 @@ Requirements covering ingest-side data-quality correctness observed in post-impl
 
 - [ ] **INGEST-N6-01**: `get_sample_values()` default `sample_size` is bumped to 10000 so that the CTE pre-scan is wide enough to fill the per-column `LIMIT 10` display cap on columns up to ~99.9% null. Docstring documents the base-scan-width / RAM trade-off so operators understand the cost on multi-million-row tables.
 - [ ] **INGEST-N6-02**: A regression test constructs a synthetic table with a column that is ≥99% NULL (≥1 non-null in a 2000-row insert) and asserts that `get_sample_values` returns at least 1 sample value for that column. A paired dense-column control assertion ensures the existing `LIMIT 10` display cap behavior is unchanged by the bump.
+- [ ] **INGEST-K6-01**: `CommitRequest` is split into `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`) so field applicability rules live in the type system. The `POST /ingest/commit/{job_id}` handler dispatches server-side from `job.source_url` + `job.user_metadata.file_type` with zero wire format change.
+- [ ] **INGEST-K6-02**: Direct router test coverage for `POST /ingest/commit/{job_id}` is established — prior to Phase 220 the endpoint had **zero** direct router tests (only indirect coverage via orphan-guard mocks). New tests assert 202 + `queue_ingest_job` invocation for each file type, plus a negative test confirming kitchen-sink bodies still commit.
 
 ## Future Requirements
 
@@ -129,12 +131,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | A11Y-04 | Phase 217 | Pending |
 | INGEST-N6-01 | Phase 221 | Pending |
 | INGEST-N6-02 | Phase 221 | Pending |
+| INGEST-K6-01 | Phase 220 | Pending |
+| INGEST-K6-02 | Phase 220 | Pending |
 
 **Coverage:**
 - v14.0 requirements: 27 total
 - Mapped to phases: 27
 - Unmapped: 0 ✓
-- Backend Ingest Quality: 2 total (INGEST-N6-01, INGEST-N6-02 — Phase 221)
+- Backend Ingest Quality: 4 total (INGEST-N6-01, INGEST-N6-02 — Phase 221; INGEST-K6-01, INGEST-K6-02 — Phase 220)
 
 ---
 *Requirements defined: 2026-04-04*
