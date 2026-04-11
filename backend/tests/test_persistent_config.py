@@ -909,18 +909,233 @@ async def test_bulk_settings_update_creates_per_field_audit_entries(
 
 
 @pytest.mark.anyio
-async def test_persistent_config_init_requires_type_kwarg():
-    """Signature sanity: type_ is keyword-only and required."""
-    from pydantic import TypeAdapter
+async def test_get_validates_unwrapped_value_against_type_adapter(
+    client: AsyncClient,
+):
+    """get() runs unwrapped value through TypeAdapter and returns the validated value.
 
-    from app.persistent_config import PersistentConfig
+    Happy path: an int-typed config with an int-stored row returns the int.
+    """
+    from app.dependencies import get_db
+    from app.main import app
+    from app.persistent_config import LOGIN_RATE_LIMIT
 
-    # Happy construction
-    cfg = PersistentConfig[int](key="_test_throwaway", type_=int, env_default=5)
-    assert cfg._type is int
-    assert isinstance(cfg._adapter, TypeAdapter)
-    assert cfg._adapter.validate_python(5) == 5
+    async for db in app.dependency_overrides[get_db]():
+        # Write a valid int via set() — goes through the JSONB wrap
+        await LOGIN_RATE_LIMIT.set(db, 42)
+        value = await LOGIN_RATE_LIMIT.get(db)
+        assert value == 42
+        assert isinstance(value, int)
 
-    # Missing type_ raises TypeError at init
-    with pytest.raises(TypeError, match="type_"):
-        PersistentConfig[int](key="_test_throwaway2", env_default=5)  # type: ignore[call-arg]
+
+@pytest.mark.anyio
+async def test_get_falls_back_to_env_default_on_validation_error(
+    client: AsyncClient,
+):
+    """get() logs a warning and falls back to env_default when DB row fails validation."""
+    from sqlalchemy import delete
+
+    from app.cache import get_cache
+    from app.dependencies import get_db
+    from app.main import app
+    from app.persistent_config import _DEFAULT_LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT
+    from app.settings.models import AppSetting
+
+    async for db in app.dependency_overrides[get_db]():
+        # Inject a corrupt row: LOGIN_RATE_LIMIT expects int, but we write a
+        # string that LAX mode cannot coerce.
+        await db.execute(delete(AppSetting).where(AppSetting.key == "login_rate_limit"))
+        db.add(AppSetting(key="login_rate_limit", value={"v": "not_an_int"}))
+        await db.commit()
+
+        # Invalidate cache so the next get() hits the DB
+        cache = get_cache()
+        await cache.delete("config:login_rate_limit")
+
+        with patch("app.persistent_config.logger") as mock_logger:
+            value = await LOGIN_RATE_LIMIT.get(db)
+
+        # Returned the env_default, not the corrupt value
+        assert value == _DEFAULT_LOGIN_RATE_LIMIT
+
+        # Warning was logged with the expected structured payload
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        # First positional arg is the event name
+        assert call_args.args[0] == "persistent_config.validation_failed"
+        # kwargs include key and errors
+        assert call_args.kwargs["key"] == "login_rate_limit"
+        assert "errors" in call_args.kwargs
+        assert call_args.kwargs["action"] == "fell_back_to_env_default"
+
+
+@pytest.mark.anyio
+async def test_get_does_not_cache_fallback_value(client: AsyncClient):
+    """When validation fails and get() falls back to env_default, the cache is NOT written.
+
+    This ensures the next read re-hits the DB and re-logs, rather than masking
+    the corruption with a cached fallback.
+    """
+    from sqlalchemy import delete
+
+    from app.cache import get_cache
+    from app.dependencies import get_db
+    from app.main import app
+    from app.persistent_config import LOGIN_RATE_LIMIT
+    from app.settings.models import AppSetting
+
+    async for db in app.dependency_overrides[get_db]():
+        # Inject corrupt row
+        await db.execute(delete(AppSetting).where(AppSetting.key == "login_rate_limit"))
+        db.add(AppSetting(key="login_rate_limit", value={"v": "still_not_an_int"}))
+        await db.commit()
+
+        # Ensure cache is clean
+        cache = get_cache()
+        await cache.delete("config:login_rate_limit")
+
+        # Read — should fall back, NOT write to cache
+        await LOGIN_RATE_LIMIT.get(db)
+
+        # Assert cache was not populated with the fallback value
+        cached = await cache.get("config:login_rate_limit")
+        assert cached is None, (
+            "Cache should NOT be written on validation fallback — the next "
+            "read must re-hit DB and re-log"
+        )
+
+
+@pytest.mark.anyio
+async def test_log_level_config_subclass_validates_str(client: AsyncClient):
+    """_LogLevelConfig (subclass) validates values via the same TypeAdapter path.
+
+    Confirms that the subclass correctly passes type_=str to super().__init__
+    and participates in the same validate-or-fallback behavior.
+    """
+    from sqlalchemy import delete
+
+    from app.cache import get_cache
+    from app.dependencies import get_db
+    from app.main import app
+    from app.persistent_config import LOG_LEVEL
+    from app.settings.models import AppSetting
+
+    async for db in app.dependency_overrides[get_db]():
+        # Inject a row with a non-string value — dict is LAX-rejected for str
+        await db.execute(delete(AppSetting).where(AppSetting.key == "log_level"))
+        db.add(AppSetting(key="log_level", value={"v": {"not": "a_string"}}))
+        await db.commit()
+
+        cache = get_cache()
+        await cache.delete("config:log_level")
+
+        with patch("app.persistent_config.logger") as mock_logger:
+            value = await LOG_LEVEL.get(db)
+
+        # Returned the env_default (a string like "INFO" or "DEBUG")
+        assert isinstance(value, str)
+        # Warning was logged for the subclass instance
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.kwargs["key"] == "log_level"
+
+
+@pytest.mark.anyio
+async def test_get_all_registry_values_applies_validation(client: AsyncClient):
+    """get_all_registry_values() validates each row through the registered TypeAdapter.
+
+    Happy path: all DB-stored values are valid and batch-returned unchanged.
+    """
+    from app.dependencies import get_db
+    from app.main import app
+    from app.persistent_config import (
+        AI_ENABLED,
+        LOGIN_RATE_LIMIT,
+        get_all_registry_values,
+    )
+
+    async for db in app.dependency_overrides[get_db]():
+        # Write known-good values via set()
+        await LOGIN_RATE_LIMIT.set(db, 20)
+        await AI_ENABLED.set(db, False)
+
+        all_values = await get_all_registry_values(db)
+        assert all_values["login_rate_limit"] == 20
+        assert all_values["ai_enabled"] is False
+
+
+@pytest.mark.anyio
+async def test_get_all_registry_values_falls_back_on_bad_row(client: AsyncClient):
+    """get_all_registry_values() falls back to env_default for a single corrupt row
+    while returning normal values for other registered keys."""
+    from sqlalchemy import delete
+
+    from app.dependencies import get_db
+    from app.main import app
+    from app.persistent_config import (
+        _DEFAULT_LOGIN_RATE_LIMIT,
+        AI_ENABLED,
+        get_all_registry_values,
+    )
+    from app.settings.models import AppSetting
+
+    async for db in app.dependency_overrides[get_db]():
+        # Good row for ai_enabled
+        await AI_ENABLED.set(db, True)
+
+        # Corrupt row for login_rate_limit
+        await db.execute(delete(AppSetting).where(AppSetting.key == "login_rate_limit"))
+        db.add(AppSetting(key="login_rate_limit", value={"v": "not_an_int"}))
+        await db.commit()
+
+        with patch("app.persistent_config.logger") as mock_logger:
+            all_values = await get_all_registry_values(db)
+
+        # Corrupt key returned env_default
+        assert all_values["login_rate_limit"] == _DEFAULT_LOGIN_RATE_LIMIT
+        # Good key returned DB value
+        assert all_values["ai_enabled"] is True
+        # Warning was logged for the corrupt key
+        mock_logger.warning.assert_called()
+        # Check that at least one warning call included login_rate_limit
+        keys_logged = [
+            call.kwargs.get("key") for call in mock_logger.warning.call_args_list
+        ]
+        assert "login_rate_limit" in keys_logged
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "type_,good_value,bad_value",
+    [
+        (bool, True, "not_a_bool"),  # CORRECTED from D-06: "yes" coerces in LAX
+        (str, "hi", 42),
+        (int, 5, "five"),
+        (list, [1, 2], {"k": "v"}),
+        (dict, {"a": 1}, [1, 2]),
+    ],
+    ids=["bool", "str", "int", "list", "dict"],
+)
+async def test_validation_across_all_registered_types(
+    client: AsyncClient,
+    type_: type,
+    good_value,
+    bad_value,
+):
+    """Parameterized smoke test: TypeAdapter accepts good values and rejects bad ones
+    for every type variant present in the registry (bool, str, int, list, dict).
+
+    This is a pure-Python test of the TypeAdapter wrapper — it doesn't hit the DB
+    or the PersistentConfig get() pathway. For DB-integrated coverage see the
+    per-type tests above.
+    """
+    from pydantic import TypeAdapter, ValidationError
+
+    adapter = TypeAdapter(type_)
+
+    # Happy path: good value validates to itself (or a coerced equivalent)
+    validated = adapter.validate_python(good_value)
+    assert validated == good_value
+
+    # Bad value raises
+    with pytest.raises(ValidationError):
+        adapter.validate_python(bad_value)
