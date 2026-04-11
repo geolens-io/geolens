@@ -99,7 +99,9 @@ async def seed_initial_admin() -> None:
         if user_count == 0:
             admin_user = User(
                 username=settings.geolens_admin_username,
-                password_hash=hash_password(settings.geolens_admin_password),
+                password_hash=hash_password(
+                    settings.geolens_admin_password.get_secret_value()
+                ),
                 is_active=True,
             )
             session.add(admin_user)
@@ -430,7 +432,9 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
-app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret_key)
+app.add_middleware(
+    SessionMiddleware, secret_key=settings.jwt_secret_key.get_secret_value()
+)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(

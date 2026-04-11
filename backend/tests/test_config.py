@@ -1,49 +1,27 @@
 """Tests for config.py Settings class — DATABASE_URL override and connection properties."""
 
-import os
-import sys
-
 import pytest
 
-# Env vars needed for module-level _create_settings() on first import
-_IMPORT_ENV = {
-    "POSTGRES_PASSWORD": "testpass",
-    "JWT_SECRET_KEY": "testsecret",
-    "GEOLENS_ADMIN_USERNAME": "admin",
-    "GEOLENS_ADMIN_PASSWORD": "adminpass",
-}
+from app.config import Settings
 
-# Settings constructor kwargs (lowercase field names)
+# Settings constructor kwargs (lowercase field names).
+# JWT_SECRET_KEY must be ≥ 32 chars to satisfy validate_jwt_secret_length.
 BASE_ENV = {
     "postgres_password": "testpass",
-    "jwt_secret_key": "testsecret",
+    "jwt_secret_key": "testsecret-padding-to-32-chars-min",
     "geolens_admin_username": "admin",
     "geolens_admin_password": "adminpass",
 }
 
-# Ensure the module-level _create_settings() succeeds on first import by
-# temporarily injecting required env vars before importing the module.
-# We track exactly which keys we added so we can cleanly restore the env
-# afterwards without touching any vars set by other test modules.
-_ADDED_IMPORT_ENV_KEYS = [k for k in _IMPORT_ENV if k not in os.environ]
-for k, v in _IMPORT_ENV.items():
-    os.environ.setdefault(k, v)
-
-# Force-reload if previously cached without our env vars
-if "app.config" in sys.modules:
-    del sys.modules["app.config"]
-
-from app.config import Settings  # noqa: E402
-
-# Restore original env: only pop keys we added ourselves. Tests below create
-# Settings explicitly via kwargs, so this module does not need _IMPORT_ENV
-# values to remain in the process environment.
-for _k in _ADDED_IMPORT_ENV_KEYS:
-    os.environ.pop(_k, None)
-
 
 def _make_settings(**overrides):
-    """Create a fresh Settings instance with given env overrides."""
+    """Create a fresh Settings instance with given env overrides.
+
+    Bypasses the env_file fallback by passing every required field as a kwarg
+    so test isolation is unaffected by the host's .env file. Each call returns
+    an independent Settings instance — the module-level ``settings`` singleton
+    in ``app.config`` is never touched.
+    """
     env = {**BASE_ENV, **overrides}
     return Settings(**env)
 
@@ -301,3 +279,95 @@ class TestExternalPooler:
         )
         args = s.database_connect_args
         assert args == {"statement_cache_size": 0}
+
+
+class TestJwtSecretLengthValidator:
+    """JWT_SECRET_KEY must be at least 32 characters."""
+
+    def test_short_jwt_secret_rejected(self):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(jwt_secret_key="too-short")
+        assert "32 characters" in str(exc_info.value)
+
+    def test_exactly_32_chars_accepted(self):
+        # The .env.example default ("dev-only-change-me-in-production") is 32 chars
+        s = _make_settings(jwt_secret_key="dev-only-change-me-in-production")
+        assert s.jwt_secret_key.get_secret_value() == "dev-only-change-me-in-production"
+
+    def test_long_jwt_secret_accepted(self):
+        long_key = "x" * 64
+        s = _make_settings(jwt_secret_key=long_key)
+        assert s.jwt_secret_key.get_secret_value() == long_key
+
+
+class TestLogLevelValidator:
+    """LOG_LEVEL must be a valid stdlib logging level."""
+
+    def test_valid_levels_accepted(self):
+        for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            s = _make_settings(log_level=level)
+            assert s.log_level == level
+
+    def test_lowercase_accepted_and_uppercased(self):
+        s = _make_settings(log_level="info")
+        assert s.log_level == "INFO"
+
+    def test_invalid_level_rejected(self):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(log_level="verbose")
+        assert "LOG_LEVEL" in str(exc_info.value)
+
+
+class TestSecretStrMasking:
+    """Sensitive fields use SecretStr so values are masked in repr/str/dump."""
+
+    def test_postgres_password_masked_in_repr(self):
+        s = _make_settings()
+        assert "testpass" not in repr(s.postgres_password)
+        assert "**" in repr(s.postgres_password)
+
+    def test_jwt_secret_masked_in_repr(self):
+        s = _make_settings()
+        assert "testsecret" not in repr(s.jwt_secret_key)
+        assert "**" in repr(s.jwt_secret_key)
+
+    def test_admin_password_masked_in_repr(self):
+        s = _make_settings()
+        assert "adminpass" not in repr(s.geolens_admin_password)
+
+    def test_secret_value_accessible_via_get_secret_value(self):
+        s = _make_settings()
+        assert s.postgres_password.get_secret_value() == "testpass"
+        assert s.geolens_admin_password.get_secret_value() == "adminpass"
+
+    def test_database_url_unwraps_password(self):
+        """Internal database_url property must produce a real DSN, not 'SecretStr(...)'."""
+        s = _make_settings()
+        assert "testpass" in s.database_url
+        assert "SecretStr" not in s.database_url
+
+    def test_database_url_sync_unwraps_password(self):
+        s = _make_settings()
+        assert "testpass" in s.database_url_sync
+
+    def test_procrastinate_conninfo_unwraps_password(self):
+        s = _make_settings()
+        assert "password=testpass" in s.procrastinate_conninfo
+
+    def test_ogr_connection_string_unwraps_password(self):
+        s = _make_settings()
+        assert "password=testpass" in s.ogr_connection_string
+
+    def test_anthropic_key_optional_secretstr(self):
+        s = _make_settings(anthropic_api_key="sk-ant-test")
+        # Truthy check still works
+        assert s.anthropic_api_key
+        # Mask in repr
+        assert "sk-ant-test" not in repr(s.anthropic_api_key)
+        # Unwrap available
+        assert s.anthropic_api_key.get_secret_value() == "sk-ant-test"
+
+    def test_empty_string_anthropic_key_becomes_none(self):
+        """empty_str_to_none still applies to SecretStr fields."""
+        s = _make_settings(anthropic_api_key="")
+        assert s.anthropic_api_key is None

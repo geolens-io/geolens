@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from app.config import settings
 
 ADMIN_USER = settings.geolens_admin_username
-ADMIN_PASS = settings.geolens_admin_password
+ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
 
 
 # ---------------------------------------------------------------------------

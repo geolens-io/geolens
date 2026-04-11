@@ -1,18 +1,4 @@
-# ruff: noqa: E402
-
 """Tests for the Prometheus metrics module."""
-
-import os
-
-# Env vars needed for module-level _create_settings() on first import
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/test")
-os.environ.setdefault(
-    "PROCRASTINATE_DATABASE_URL", "postgresql://user:pass@localhost/test"
-)
-os.environ.setdefault("POSTGRES_PASSWORD", "testpass")
-os.environ.setdefault("JWT_SECRET_KEY", "testsecret")
-os.environ.setdefault("GEOLENS_ADMIN_USERNAME", "admin")
-os.environ.setdefault("GEOLENS_ADMIN_PASSWORD", "adminpass")
 
 from unittest.mock import AsyncMock, MagicMock, patch
 

@@ -1,24 +1,33 @@
 import sys
+from pathlib import Path
 
-from pydantic import ValidationError, field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic import SecretStr, ValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve the project-root .env file at import time. ``__file__`` is
+# ``backend/app/config.py``; ``parents[2]`` walks up to the repo root.
+# This works regardless of CWD, so the legacy ``backend/.env`` symlink is
+# no longer needed for host-side ``cd backend && uv run pytest`` workflows.
+# Inside Docker the file does not exist (env vars come from compose), and
+# pydantic-settings silently skips a missing env_file, which is fine.
+_PROJECT_ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
     postgres_user: str = "geolens"
-    postgres_password: str
+    postgres_password: SecretStr
     postgres_host: str = "db"
     postgres_port: int = 5432
     postgres_db: str = "geolens"
     postgres_db_test: str = "geolens_test"
 
     # Auth / JWT
-    jwt_secret_key: str
+    jwt_secret_key: SecretStr
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
     geolens_admin_username: str
-    geolens_admin_password: str
+    geolens_admin_password: SecretStr
     registration_enabled: bool = False
 
     # CORS (comma-separated origins, empty = same-origin only)
@@ -47,11 +56,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # AI map generation (optional — feature disabled when key is absent)
-    anthropic_api_key: str | None = None
+    anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-4-20250514"
 
     # OpenAI-compatible provider (used when anthropic_api_key is not set)
-    openai_api_key: str | None = None
+    openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"
     openai_base_url: str | None = None  # For Groq, Together, Ollama, etc.
 
@@ -67,7 +76,7 @@ class Settings(BaseSettings):
     s3_endpoint: str | None = None
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None
-    s3_secret_access_key: str | None = None
+    s3_secret_access_key: SecretStr | None = None
     s3_region: str = "us-east-1"
     s3_allow_http: bool = False
     s3_addressing_style: str = "auto"
@@ -79,7 +88,7 @@ class Settings(BaseSettings):
     cdn_base_url: str | None = None
 
     # Tile signing secret (falls back to jwt_secret_key if not set)
-    tile_signing_secret: str | None = None
+    tile_signing_secret: SecretStr | None = None
 
     # Tile cache TTL in seconds
     tile_cache_ttl: int = 300
@@ -130,9 +139,32 @@ class Settings(BaseSettings):
     )
     @classmethod
     def empty_str_to_none(cls, v: str | None) -> str | None:
+        # mode="before" runs ahead of type coercion, so returning a raw str
+        # for SecretStr-typed fields lets pydantic wrap it on the way out.
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("jwt_secret_key", mode="after")
+    @classmethod
+    def validate_jwt_secret_length(cls, v: SecretStr) -> SecretStr:
+        """Reject JWT secrets shorter than 32 chars (HS256 entropy floor)."""
+        if len(v.get_secret_value()) < 32:
+            raise ValueError(
+                "JWT_SECRET_KEY must be at least 32 characters. "
+                "Generate one with: openssl rand -hex 32"
+            )
+        return v
+
+    @field_validator("log_level", mode="after")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Reject log levels that the stdlib logging module won't accept."""
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        upper = v.upper()
+        if upper not in allowed:
+            raise ValueError(f"LOG_LEVEL must be one of {sorted(allowed)}, got {v!r}")
+        return upper
 
     @model_validator(mode="after")
     def validate_provider_settings(self) -> "Settings":
@@ -191,7 +223,7 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
             return self._strip_ssl_from_url(url)
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
@@ -226,7 +258,7 @@ class Settings(BaseSettings):
     @property
     def test_database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db_test}"
         )
 
@@ -243,14 +275,14 @@ class Settings(BaseSettings):
                 url = url.replace("postgres://", "postgresql+psycopg://", 1)
             return url
         return (
-            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
     @property
     def test_database_url_sync(self) -> str:
         return (
-            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db_test}"
         )
 
@@ -288,7 +320,7 @@ class Settings(BaseSettings):
         return (
             f"host={self.postgres_host} port={self.postgres_port} "
             f"dbname={self.postgres_db} user={self.postgres_user} "
-            f"password={self.postgres_password} "
+            f"password={self.postgres_password.get_secret_value()} "
             f"options='-c search_path={self.procrastinate_schema},public'"
         )
 
@@ -325,10 +357,15 @@ class Settings(BaseSettings):
             f"port={self.postgres_port} "
             f"dbname={self.postgres_db} "
             f"user={self.postgres_user} "
-            f"password={self.postgres_password}"
+            f"password={self.postgres_password.get_secret_value()}"
         )
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = SettingsConfigDict(
+        env_file=str(_PROJECT_ROOT_ENV),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 def _create_settings() -> Settings:

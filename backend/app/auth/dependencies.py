@@ -62,7 +62,7 @@ async def get_optional_user(
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret_key,
+            settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
         )
         user_id_str: str | None = payload.get("sub")
@@ -113,7 +113,7 @@ async def get_current_user(
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret_key,
+            settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
         )
         user_id_str: str | None = payload.get("sub")

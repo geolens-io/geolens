@@ -14,7 +14,7 @@ from app.config import settings
 def _get_signing_key() -> bytes:
     """Return the signing key bytes, preferring tile_signing_secret."""
     secret = settings.tile_signing_secret or settings.jwt_secret_key
-    return secret.encode()
+    return secret.get_secret_value().encode()
 
 
 def round_expiry(ttl_seconds: int = 900) -> int:

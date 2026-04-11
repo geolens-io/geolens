@@ -160,7 +160,9 @@ class TestRasterAuthCheck:
         )
 
         auth_header = await _get_auth_header(
-            client, settings.geolens_admin_username, settings.geolens_admin_password
+            client,
+            settings.geolens_admin_username,
+            settings.geolens_admin_password.get_secret_value(),
         )
         resp = await client.get(
             "/tiles/raster-auth-check/",
@@ -299,7 +301,9 @@ class TestRasterAuthRbacParity:
         )
 
         admin_auth_header = await _get_auth_header(
-            client, settings.geolens_admin_username, settings.geolens_admin_password
+            client,
+            settings.geolens_admin_username,
+            settings.geolens_admin_password.get_secret_value(),
         )
         username = f"rbac_parity_{uuid.uuid4().hex[:6]}"
         password = "testpass123"

@@ -35,7 +35,7 @@ class TestSecretEncryption:
         import base64
 
         raw_key = base64.urlsafe_b64encode(
-            settings.jwt_secret_key.encode()[:32].ljust(32, b"\x00")
+            settings.jwt_secret_key.get_secret_value().encode()[:32].ljust(32, b"\x00")
         )
         assert fernet._signing_key != raw_key[:16]
 
