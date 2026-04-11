@@ -26,7 +26,13 @@ from sqlalchemy import select, text
 # Fixture helpers (D-01: direct cross-test-file import)
 from tests.test_raster_ingest import _write_tmp_tif
 
-pytestmark = pytest.mark.asyncio  # strict mode requires explicit marker
+# NOTE: No `pytestmark = pytest.mark.asyncio`. The project configures
+# `anyio_mode = "auto"` alongside `asyncio_mode = "strict"` in
+# backend/pyproject.toml:61-67. AnyIO owns async integration fixtures
+# (including `client`, `test_db_session`) so pytest-asyncio must NOT
+# claim this test — doing so runs fixtures on a different event loop
+# than the test body and causes "Future attached to a different loop"
+# from asyncpg. Leave the module unmarked; AnyIO will run it.
 
 
 @pytest.fixture
@@ -111,6 +117,7 @@ def quicklook_stub(monkeypatch: pytest.MonkeyPatch):
 async def vrt_db_state(
     test_db_session,  # from conftest.py
     source_tifs: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> dict:
     """Create all DB rows regenerate_vrt needs to succeed.
 
@@ -128,9 +135,24 @@ async def vrt_db_state(
     (_create_vrt_dataset_rows), minus distribution rows and source_dataset_ids
     parameter handling.
     """
+    import app.database as db_module
+    import app.ingest.tasks as tasks_module
     from app.datasets.models import Dataset, Record
     from app.jobs.models import IngestJob
     from app.raster.models import RasterAsset
+
+    # CRITICAL: tasks.py:14 does `from app.database import async_session`, which
+    # binds the name at module import time. The `client` fixture patches
+    # `db_module.async_session` to the test session factory, but that does NOT
+    # update the already-bound `app.ingest.tasks.async_session`. Without this
+    # re-patch, regenerate_vrt opens its own session on the production engine
+    # (bound to a different event loop) and asyncpg raises
+    # "Future attached to a different loop".
+    #
+    # Because this fixture depends on `test_db_session` (which depends on
+    # `client`), `db_module.async_session` is already the test factory here,
+    # and we just need to mirror it into the tasks module.
+    monkeypatch.setattr(tasks_module, "async_session", db_module.async_session)
 
     session = test_db_session
     source_uris = list(source_tifs.keys())  # ["rasters/src-1/source.cog.tif", ...]
