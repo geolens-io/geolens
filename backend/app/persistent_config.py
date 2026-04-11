@@ -69,12 +69,16 @@ class PersistentConfig(Generic[T]):
     def __init__(
         self,
         key: str,
+        *,
+        type_: type[T],
         env_default: T | None = None,
         tab: str = "",
         label: str = "",
         env_default_factory: Any | None = None,
     ) -> None:
         self.key = key
+        self._type = type_
+        self._adapter: TypeAdapter[T] = TypeAdapter(type_)
         self._env_default_static = env_default
         self._env_default_factory = env_default_factory
         self.tab = tab
