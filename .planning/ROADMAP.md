@@ -256,9 +256,62 @@ Plans:
 - A7 resolved (UNSUPPORTED): `csv_to_choropleth.py` helper pre-joins indicator CSVs to ADM0 polygons at seeder build time before ingest (Option C)
 - Signature map: "One Territory, Multiple Official Maps" (Kashmir toggle across 3 NE country-specific shapefiles) is the conversation-starter
 
+### Phase 219: regenerate_vrt Phase Extraction
+**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `_update_vrt_dataset_geometry(session, vrt_asset, metadata)` — so the 15 documented steps stay readable without changing behavior
+**Depends on**: Integration fixture coverage against a real tiny VRT (mock-free tests) must exist before this phase can start — pair with K3-PRE-style follow-up work
+**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §K4)
+**Plans**: TBD
+
+**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
+- Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
+- Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT)
+- Raster VRT has historical flakiness — test coverage is non-negotiable
+
+### Phase 220: CommitRequest Discriminated Union
+**Goal**: Split the flat `CommitRequest` (`backend/app/ingest/schemas.py:97`, 1 required + 13 optional fields) into a shared `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`), and refactor `commit_import` at `backend/app/ingest/router.py:495-540` to validate the request body against a server-dispatched subclass chosen by `_pick_commit_subclass(job)` (mirroring the three-way branch in `service.py:477-506`). Zero wire format change, zero OpenAPI drift, zero frontend coordination — field-applicability rules move from prose descriptions into the type system.
+**Depends on**: None (discuss-phase narrowed scope to internal backend refactor; the OpenAPI contract is preserved via Option C — flat `CommitRequest` stays on the route signature while the handler re-validates against the subclass)
+**Requirements**: INGEST-K6-01, INGEST-K6-02
+**Plans**: 1 plan
+Plans:
+- [x] 220-01-PLAN.md — Schema split (Base + 3 subclasses), `_pick_commit_subclass` dispatch helper, handler refactor with `RequestValidationError`, new `test_commit_request_schemas.py` unit tests, new `TestCommitImportDispatch` integration class, REQUIREMENTS.md backfill, K6 handoff resolution marker
+
+**Key decisions locked from discuss-phase (2026-04-11, see `220-CONTEXT.md`):**
+- **D-01 (Discrimination):** Server-derived from job state (Option C). Flat `CommitRequest` stays on the route signature for OpenAPI + auto-422 on `title`. Handler re-validates `request.model_dump()` against the subclass chosen by `_pick_commit_subclass(job)`. Client body NEVER includes a `file_type` field.
+- **D-02 (Validation strictness):** Silent extras. No `model_config = ConfigDict(extra='forbid')` — kitchen-sink bodies still commit cleanly, matching current behavior.
+- **D-03 (Backward compatibility):** Internal-only refactor. No deprecation window, no `Accept-Version` header, no dual-mode query parameter.
+- **D-04 (Field distribution):** Base = `title`, `summary`, `visibility`, `temporal_start`, `temporal_end`. Vector = base + `srid_override`, `layer_name`, `x_column`, `y_column`, `geom_column`. Raster = base + `srid_override`, `compression`, `resampling`, `nodata_override`. Service = base + `token`. `srid_override` is duplicated on Vector + Raster (not hoisted). `token` is Service-only.
+- **D-05 (Tests):** Three layers — Pydantic unit tests per subclass, router integration tests per file_type, negative kitchen-sink test. Establishes direct router coverage for `POST /ingest/commit/{job_id}` which had ZERO prior tests.
+- **D-06 (Frontend):** Zero changes. `frontend/src/types/api.ts:531` stays flat.
+- **Critical correction to CONTEXT.md D-01 (from research):** Service jobs are NOT discriminated by `user_metadata.file_type == "service"` (that string does not exist anywhere in the codebase). They are discriminated by `job.source_url` being set — the dispatch helper mirrors the three-way branch used by `queue_ingest_job` at `service.py:477-506`.
+
+### Phase 221: get_sample_values Sparse-Column Default Bump
+**Goal**: Bump the default `sample_size` parameter on `get_sample_values` (`backend/app/ingest/metadata.py:208`) from 1000 to 10000 so sparse columns (e.g. 99%-null columns) yield sample values within the existing `LIMIT 10` display cap, preserving the CTE-batched approach at lines 269-274 as-is
+**Depends on**: None
+**Requirements**: INGEST-N6-01, INGEST-N6-02
+**Plans**: 1 plan
+Plans:
+- [x] 221-01-PLAN.md — Default bump (1000 → 10000), docstring scan-width/RAM caveat, TestSparseColumnSampleValues regression class, REQUIREMENTS.md backfill
+
+**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
+- The CTE approach is dramatically faster than the pre-audit per-column `LIMIT 1000` pattern — do not revert
+- Be aware of the side effect on base scan width + RAM under extreme row counts when raising the default
+- No user complaints have been filed as of 2026-04-11 — promoted from observational to actionable on 2026-04-11
+
+### Phase 222: persistent_config.py Runtime Validation via TypeAdapter
+**Goal**: Replace the 3 `cast(T, ...)` sites at `backend/app/persistent_config.py:84, 88, 113` with `TypeAdapter[T].validate_python(unwrapped)` for runtime shape validation at the JSONB unwrap boundary, accepting the breaking change to `PersistentConfig`'s constructor that this requires
+**Depends on**: None, but carries breaking changes to every call site that constructs a `PersistentConfig` instance
+**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §Type-5)
+**Plans**: TBD
+
+**Key decisions locked from 2026-04-11 research (validated via quick task 260411-a62):**
+- `PersistentConfig` is declared `Generic[T]` with `T = TypeVar("T")` — `TypeAdapter[T].validate_python()` cannot work as a drop-in replacement because `T` is unbound at method-resolution time
+- Implementation path requires EITHER reifying `T` by storing the type at `__init__` time OR accepting an explicit `adapter: TypeAdapter[T]` parameter on the constructor — pick one when planning
+- The existing `cast(T, ...)` pattern matches the rest of the codebase's approach at generic boundaries — this phase consciously diverges from that convention for runtime safety at the config boundary
+- The SecretStr migration (commits `a6371f9f`, `56c59cfd`) touched `app/config.py` and consumers, NOT `app/persistent_config.py` — these 3 cast sites are byte-for-byte unchanged since snapshot `f6a7f96a`
+
 ## Progress
 
-**Execution Order:** 212 → 213 → 214 → 215 �� 216 → 217
+**Execution Order:** 212 → 213 → 214 → 215 → 216 → 217
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -275,6 +328,10 @@ Plans:
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
+| 219. regenerate_vrt Phase Extraction | v14.0 | 0/? | Not started | - |
+| 220. CommitRequest Discriminated Union | v14.0 | 1/1 | Complete    | 2026-04-11 |
+| 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
+| 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
 
 ## Backlog
 
@@ -333,4 +390,21 @@ Plans:
 - Feature count cap at 5,000 (preview path, not production tile path)
 - Frontend auto-decides MVT vs GeoJSON-Z based on dataset size and `is_3d` flag
 - Not recommended to ship unless Phases 999.1 and 999.2 reveal concrete user demand
+
+### Phase 999.4: Shared Vector Staging Pipeline (ingest_file ↔ reupload_file) (BACKLOG)
+
+**Goal:** Extract a shared `_ingest_vector_into_staging(session, job, file_path, target_table) -> tuple[dict, bool]` helper covering the 9 shared pipeline steps (validate → ogrinfo → ogr2ogr → rename_reserved_columns → DBF collision detect → ensure_geom → clip → add_4326 → grant) that currently duplicate ~150 lines between `ingest_file` (`backend/app/ingest/tasks.py:523`, 232 lines) and `reupload_file` (`backend/app/ingest/tasks.py:1106`, 223 lines). Both callers retain their own step-8+ paths (create_dataset vs `_apply_reupload_swap`).
+
+**Source:** Promoted from [post-impl-20260410-HANDOFF-REMAINING.md](../../docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md#k2-kiss-5--shared-vector-staging-pipeline-between-ingest_file-and-reupload_file) — validated against the working tree on 2026-04-11 via quick task `260411-a62`; all line numbers, effort estimates, and blockers still hold.
+
+**Sizing:** LARGE (4-6h)
+**Dependencies:** None — but requires careful test coverage for both vector ingest paths
+
+**Key decisions locked from handoff:**
+- `_apply_reupload_swap` (`backend/app/ingest/tasks.py:990`) atomic-swap dance (RENAME live→live_old, RENAME staging→live, DROP live_old with `SET LOCAL lock_timeout = '5s'`) stays separate from the shared staging helper — it is the one real architectural divergence between the two paths
+- Shared helper covers steps 1-7; `ingest_file` then calls `_finalize_ingest` / `create_dataset`, while `reupload_file` calls `_apply_reupload_swap`
+- Needs a dedicated plan, not a drive-by refactor — effort estimate 4-6h holds
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
 

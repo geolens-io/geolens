@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
-stopped_at: Quick task 260410-d7k shipped (ingest column-preservation audit + fixes + regression tests, 3 code commits); Phase 215 Homepage still pending discuss/plan
-last_updated: "2026-04-10T14:30:00.000Z"
-last_activity: 2026-04-10
+stopped_at: Phase 222 context gathered
+last_updated: "2026-04-11T17:28:34.817Z"
+last_activity: 2026-04-11
 progress:
-  total_phases: 10
-  completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  total_phases: 15
+  completed_phases: 7
+  total_plans: 14
+  completed_plans: 14
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 218 — demo-themed-collections
+**Current focus:** Phase 222 — persistent_config.py Runtime Validation via TypeAdapter
 
 ## Current Position
 
 Phase: 999.1
 Plan: Not started
-Status: Executing Phase 218
-Last activity: 2026-04-10 - Completed quick task 260410-d7k: review and make sure during the Import operations are all columns being imported
+Status: Executing Phase 222
+Last activity: 2026-04-11
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -36,7 +36,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 **Velocity:**
 
-- Total plans completed: 11
+- Total plans completed: 14
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -48,6 +48,9 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 | 213 | 2 | - | - |
 | 214 | 2 | - | - |
 | 218 | 5 | - | - |
+| 221 | 1 | - | - |
+| 220 | 1 | - | - |
+| 222 | 1 | - | - |
 
 **Recent Trend:**
 
@@ -96,9 +99,10 @@ None yet.
 | 260408-mgg | A7 spike: verify table→polygon join in map builder (verdict: unsupported, Option C fallback) | 2026-04-08 | doc-only | Verified | [260408-mgg-a7-spike-verify-map-builder-can-join-rec](./quick/260408-mgg-a7-spike-verify-map-builder-can-join-rec/) |
 | 260409 | map thumbnails not working, this seems to be a regression | 2026-04-10 | d8d59cbd | Verified | [260409-map-thumbnails-not-working-this-seems-to](./quick/260409-map-thumbnails-not-working-this-seems-to/) |
 | 260410-d7k | review and make sure during the Import operations are all columns being imported | 2026-04-10 | 630f585f | Verified | [260410-d7k-review-and-make-sure-during-the-import-o](./quick/260410-d7k-review-and-make-sure-during-the-import-o/) |
+| 260411-a62 | review and close out remaining items in post-impl-20260410 handoff | 2026-04-11 | cea32bca | Verified | [260411-a62-review-the-remaining-items-in-docs-inter](./quick/260411-a62-review-the-remaining-items-in-docs-inter/) |
 
 ## Session Continuity
 
-Last session: 2026-04-10T09:12:33-04:00
-Stopped at: Quick task 260409 shipped (map thumbnail capture timing fix, 1 code commit); Phase 215 Homepage still pending discuss/plan
-Resume file: (none — Phase 215 has no CONTEXT.md yet)
+Last session: 2026-04-11T16:31:23.849Z
+Stopped at: Phase 222 context gathered
+Resume file: .planning/phases/222-persistent-config-cast-runtime-validation/222-CONTEXT.md

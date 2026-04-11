@@ -12,6 +12,20 @@ test.describe('Search Flow', () => {
     await expect(
       page.getByRole('combobox', { name: 'Search geospatial data...' }),
     ).toHaveCount(1);
+
+    const filterRail = page.getByTestId('search-filter-rail');
+    const resultsRegion = page.getByRole('region', { name: 'Search results' });
+    await expect(filterRail).toBeVisible();
+    await expect(resultsRegion).toBeVisible();
+
+    const [filterRailBox, resultsBox] = await Promise.all([
+      filterRail.boundingBox(),
+      resultsRegion.boundingBox(),
+    ]);
+
+    expect(filterRailBox).not.toBeNull();
+    expect(resultsBox).not.toBeNull();
+    expect(filterRailBox!.x).toBeLessThan(resultsBox!.x);
   });
 
   test('query params are respected at /?q=something', async ({ page }) => {

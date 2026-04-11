@@ -205,7 +205,7 @@ async def get_sample_values(
     session: AsyncSession,
     table_name: str,
     column_info: list[dict],
-    sample_size: int = 1000,
+    sample_size: int = 10000,
 ) -> dict:
     """Extract distinct sample values per column from a data table.
 
@@ -218,6 +218,15 @@ async def get_sample_values(
     non-null ``::text`` values per column. This is one query and one
     table scan regardless of column count — replaces the previous N+1
     per-column query pattern (PERF-1).
+
+    The default ``sample_size`` of 10000 is chosen so that columns which
+    are up to ~99.9% NULL still yield non-empty sample values within the
+    per-column ``LIMIT 10`` display cap. Because the CTE materializes
+    ``sample_size`` rows up-front, base-scan width and peak query RAM
+    grow linearly with this value; bumping it further for even sparser
+    columns should be weighed against the cost on multi-million-row
+    tables. Callers needing narrower sampling can pass ``sample_size``
+    explicitly.
     """
     _validate_table_name(table_name)
 

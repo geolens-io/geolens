@@ -55,6 +55,23 @@ Requirements for the getgeolens.com marketing site launch. Each maps to roadmap 
 - [ ] **A11Y-03**: Semantic HTML landmarks (nav, main, footer, headings hierarchy)
 - [ ] **A11Y-04**: Axe accessibility scan passes with zero critical/serious violations
 
+### Backend Ingest Quality
+
+Requirements covering ingest-side data-quality correctness observed in post-impl audits and regression-tested in dedicated phases.
+
+- [ ] **INGEST-N6-01**: `get_sample_values()` default `sample_size` is bumped to 10000 so that the CTE pre-scan is wide enough to fill the per-column `LIMIT 10` display cap on columns up to ~99.9% null. Docstring documents the base-scan-width / RAM trade-off so operators understand the cost on multi-million-row tables.
+- [ ] **INGEST-N6-02**: A regression test constructs a synthetic table with a column that is ≥99% NULL (≥1 non-null in a 2000-row insert) and asserts that `get_sample_values` returns at least 1 sample value for that column. A paired dense-column control assertion ensures the existing `LIMIT 10` display cap behavior is unchanged by the bump.
+- [ ] **INGEST-K6-01**: `CommitRequest` is split into `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`) so field applicability rules live in the type system. The `POST /ingest/commit/{job_id}` handler dispatches server-side from `job.source_url` + `job.user_metadata.file_type` with zero wire format change.
+- [ ] **INGEST-K6-02**: Direct router test coverage for `POST /ingest/commit/{job_id}` is established — prior to Phase 220 the endpoint had **zero** direct router tests (only indirect coverage via orphan-guard mocks). New tests assert 202 + `queue_ingest_job` invocation for each file type, plus a negative test confirming kitchen-sink bodies still commit.
+- [ ] **RASTER-VRT-FIX-01**: Integration test `backend/tests/test_regenerate_vrt_integration.py` provides a behavioral anchor for `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`). Generates 2 real 64x64 GeoTIFFs, creates all DB rows (source + VRT Records/Datasets/RasterAssets, `vrt_source_links`, `IngestJob`), wires a `LocalStorageProvider` at `tmp_path`, invokes `await regenerate_vrt.func(...)` directly, and asserts on 15 state mutations (storage write + 11 `RasterAsset` fields + `IngestJob.status/dataset_id` + `VrtGeneration` completion + `Record.spatial_extent`). Prerequisite for Phase 219's 3-helper refactor — any drift in behavior will fail the test.
+
+### Backend Config Hardening
+
+Requirements covering runtime validation at the persistent_config JSONB read boundary (post-impl-20260410-HANDOFF-REMAINING.md §Type-5).
+
+- [ ] **CONFIG-T5-01**: `PersistentConfig[T]` runtime-validates JSONB-unwrapped values via `TypeAdapter[T]` at the DB read boundary. On `pydantic.ValidationError`: logs a structured warning including `key` + `errors` payload, returns `env_default`, does not write to cache, does not raise, does not audit. The same validation path applies to the batch loader (`get_all_registry_values`).
+- [ ] **CONFIG-T5-02**: All 30 `PersistentConfig[X]` / `_LogLevelConfig` instantiations in `backend/app/persistent_config.py` pass a runtime `type_=X` argument matching their static `[X]` subscript. The `_LogLevelConfig` subclass passes `type_=str` via `super().__init__`.
+
 ## Future Requirements
 
 Deferred to future milestone. Tracked but not in current roadmap.
@@ -120,11 +137,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QUICK-03 | Phase 216 | Pending |
 | A11Y-02 | Phase 217 | Pending |
 | A11Y-04 | Phase 217 | Pending |
+| INGEST-N6-01 | Phase 221 | Pending |
+| INGEST-N6-02 | Phase 221 | Pending |
+| INGEST-K6-01 | Phase 220 | Pending |
+| INGEST-K6-02 | Phase 220 | Pending |
+| CONFIG-T5-01 | Phase 222 | Pending |
+| CONFIG-T5-02 | Phase 222 | Pending |
+| RASTER-VRT-FIX-01 | Phase 223 | Pending |
 
 **Coverage:**
 - v14.0 requirements: 27 total
 - Mapped to phases: 27
 - Unmapped: 0 ✓
+- Backend Ingest Quality: 5 total (INGEST-N6-01, INGEST-N6-02 — Phase 221; INGEST-K6-01, INGEST-K6-02 — Phase 220; RASTER-VRT-FIX-01 — Phase 223)
+- Backend Config Hardening: 2 total (CONFIG-T5-01, CONFIG-T5-02 — Phase 222)
 
 ---
 *Requirements defined: 2026-04-04*

@@ -32,9 +32,9 @@ function SearchControls({ totalResults, children }: SearchControlsProps) {
           {children}
         </div>
       ) : null}
-      <div className="mt-3 border-t border-border/40 pt-3">
+      <div className="mt-3 border-t border-border/40 pt-3 lg:hidden">
         <div className="md:px-1">
-          <FilterPanel totalResults={totalResults} />
+          <FilterPanel totalResults={totalResults} showDesktop={false} />
         </div>
       </div>
     </>
@@ -62,67 +62,81 @@ export function SearchPage() {
         {t('workspaceTitle', { defaultValue: 'Search the GeoLens catalog' })}
       </h1>
 
-      <PageShell maxWidth="wide" className="space-y-5 pb-8 pt-5 sm:pt-6">
-        <section className="rounded-[22px] border border-border/50 bg-background/95 px-4 py-4 shadow-sm sm:px-5">
-          <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined}>
-            {token ? <SavedSearches className="justify-center md:justify-start" /> : null}
-          </SearchControls>
-        </section>
+      <PageShell maxWidth="wide" className="pb-8 pt-5 sm:pt-6">
+        <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
+          <aside className="hidden lg:block">
+            <div className="sticky top-24">
+              <FilterPanel
+                totalResults={totalMatched > 0 ? totalMatched : undefined}
+                showMobile={false}
+                desktopLayout="rail"
+              />
+            </div>
+          </aside>
 
-        {isFetching && data && (
-          <div role="status" aria-live="polite" className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            {t('updating')}
+          <div className="min-w-0 space-y-5">
+            <section className="rounded-[22px] border border-border/50 bg-background/95 px-4 py-4 shadow-sm sm:px-5">
+              <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined}>
+                {token ? <SavedSearches className="justify-center md:justify-start" /> : null}
+              </SearchControls>
+            </section>
+
+            {isFetching && data && (
+              <div role="status" aria-live="polite" className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                {t('updating')}
+              </div>
+            )}
+
+            {isLoading && !data && (
+              <div role="status" aria-live="polite" className="grid gap-3">
+                <span className="sr-only">{t('loadingDatasets')}</span>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <DatasetCardSkeleton key={i} />
+                ))}
+              </div>
+            )}
+
+            {error && (
+              <ErrorState message={t('error.message', { message: error.message })} />
+            )}
+
+            {data && data.features.length === 0 && (
+              <EmptyState
+                icon={SearchX}
+                title={t('empty.title')}
+                description={t('empty.description')}
+                action={
+                  token ? (
+                    <Button asChild>
+                      <Link to="/import">
+                        <Upload className="h-4 w-4 me-1" />
+                        {t('empty.cta')}
+                      </Link>
+                    </Button>
+                  ) : undefined
+                }
+              />
+            )}
+
+            {data && data.features.length > 0 && (
+              <section className="scroll-mt-24 space-y-3" aria-label={t('results', { defaultValue: 'Search results' })}>
+                {data.features.map((feature) => (
+                  <SearchResultCard key={feature.id} feature={feature} />
+                ))}
+              </section>
+            )}
+
+            {data && totalMatched > 0 && (
+              <Pagination
+                total={totalMatched}
+                offset={offset}
+                limit={limit}
+                onPageChange={handlePageChange}
+              />
+            )}
           </div>
-        )}
-
-        {isLoading && !data && (
-          <div role="status" aria-live="polite" className="grid gap-4">
-            <span className="sr-only">{t('loadingDatasets')}</span>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <DatasetCardSkeleton key={i} />
-            ))}
-          </div>
-        )}
-
-        {error && (
-          <ErrorState message={t('error.message', { message: error.message })} />
-        )}
-
-        {data && data.features.length === 0 && (
-          <EmptyState
-            icon={SearchX}
-            title={t('empty.title')}
-            description={t('empty.description')}
-            action={
-              token ? (
-                <Button asChild>
-                  <Link to="/import">
-                    <Upload className="h-4 w-4 me-1" />
-                    {t('empty.cta')}
-                  </Link>
-                </Button>
-              ) : undefined
-            }
-          />
-        )}
-
-        {data && data.features.length > 0 && (
-          <section className="scroll-mt-24 space-y-4" aria-label={t('results', { defaultValue: 'Search results' })}>
-            {data.features.map((feature) => (
-              <SearchResultCard key={feature.id} feature={feature} />
-            ))}
-          </section>
-        )}
-
-        {data && totalMatched > 0 && (
-          <Pagination
-            total={totalMatched}
-            offset={offset}
-            limit={limit}
-            onPageChange={handlePageChange}
-          />
-        )}
+        </div>
       </PageShell>
     </>
   );

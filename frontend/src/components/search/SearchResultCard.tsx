@@ -188,8 +188,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   return (
     <Link to={linkPath} className="group block" data-testid="search-result-card">
       <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
-        <div className="p-4">
-          <div className="flex flex-col gap-2">
+        <div className="p-3 sm:p-4 lg:p-3.5">
+          <div className="flex flex-col gap-1.5">
 
             {/* Band 1 — Header */}
             {isCollection ? (
@@ -214,8 +214,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
               </div>
             ) : (
               /* Dataset: grid with fixed square thumbnail */
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_160px]">
-                <div className="min-w-0 flex flex-col gap-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_132px] xl:grid-cols-[minmax(0,1fr)_148px]">
+                <div className="min-w-0 flex flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <RecordTypeBadge recordType={recordType} />
                     {properties.keywords?.includes('synthetic') && (
@@ -224,7 +224,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                       </Badge>
                     )}
                   </div>
-                  <span className="block text-lg font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-2">
+                  <span className="block text-base font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-2">
                     {properties.title}
                   </span>
                   {sourceOrganization && (
@@ -308,10 +308,10 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
 
                 {/* Right: 160x160 square preview — hidden on mobile */}
                 <div className="hidden md:flex md:items-start">
-                  <div className="size-[160px] shrink-0 overflow-hidden rounded-lg border border-border/40">
+                  <div className="size-[132px] shrink-0 overflow-hidden rounded-lg border border-border/40 xl:size-[148px]">
                     {isTable ? (
                       <div
-                        className="flex size-[160px] flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 to-orange-200 text-orange-900 dark:from-orange-950/40 dark:to-orange-900/30 dark:text-orange-200"
+                        className="flex size-[132px] flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 to-orange-200 text-orange-900 dark:from-orange-950/40 dark:to-orange-900/30 dark:text-orange-200 xl:size-[148px]"
                         role="img"
                         aria-label={
                           properties.column_count
@@ -333,14 +333,14 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                       <img
                         src={quicklookSrc}
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
-                        className="size-[160px] object-cover"
+                        className="size-[132px] object-cover xl:size-[148px]"
                       />
                     ) : qlLoading ? (
-                      <div className="flex size-[160px] items-center justify-center bg-muted/25">
+                      <div className="flex size-[132px] items-center justify-center bg-muted/25 xl:size-[148px]">
                         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       </div>
                     ) : (
-                      <BBoxPreview bbox={bbox} className="size-[160px] rounded-md bg-muted" />
+                      <BBoxPreview bbox={bbox} className="size-[132px] rounded-md bg-muted xl:size-[148px]" />
                     )}
                   </div>
                 </div>

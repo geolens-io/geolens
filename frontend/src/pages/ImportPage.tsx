@@ -16,8 +16,13 @@ export function ImportPage() {
   useDocumentTitle(t('common:pageTitle.import'));
 
   return (
-    <PageShell>
-      <PageHeader title={t('title')} />
+    <PageShell className="space-y-6">
+      <PageHeader
+        title={t('title')}
+        description={t('pageDescription', {
+          defaultValue: 'Bring local files, database tables, or remote services into the GeoLens catalog.',
+        })}
+      />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
         <TabsList>

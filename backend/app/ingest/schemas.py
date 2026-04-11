@@ -94,7 +94,106 @@ class RasterPreviewResponse(BaseModel):
     )
 
 
+class BaseCommitRequest(BaseModel):
+    """Fields common to every commit request type.
+
+    Not meant to be instantiated directly — the router always selects
+    one of VectorCommitRequest, RasterCommitRequest, or
+    ServiceCommitRequest based on server-side job state.
+    """
+
+    title: str = Field(
+        min_length=1, max_length=500, description="Human-readable dataset title."
+    )
+    summary: str | None = Field(
+        default=None, description="Optional dataset description shown in the catalog."
+    )
+    visibility: Visibility = Field(
+        default="private",
+        description="Dataset visibility level: 'private' (owner-only), 'restricted' (RBAC-controlled), 'internal' (all users), 'public' (anonymous access).",
+    )
+    temporal_start: str | None = Field(
+        default=None, description="ISO 8601 start of the dataset's temporal extent."
+    )
+    temporal_end: str | None = Field(
+        default=None, description="ISO 8601 end of the dataset's temporal extent."
+    )
+
+
+class VectorCommitRequest(BaseCommitRequest):
+    """Commit request for vector file uploads (GeoJSON, Shapefile, GPKG, CSV, etc.)."""
+
+    srid_override: int | None = Field(
+        default=None,
+        description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
+    )
+    layer_name: str | None = Field(
+        default=None,
+        description="Multi-layer source only: name of the specific layer to ingest.",
+    )
+    x_column: str | None = Field(
+        default=None,
+        description="CSV/Excel only: name of the longitude/X coordinate column.",
+    )
+    y_column: str | None = Field(
+        default=None,
+        description="CSV/Excel only: name of the latitude/Y coordinate column.",
+    )
+    geom_column: str | None = Field(
+        default=None,
+        description="CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
+    )
+
+
+class RasterCommitRequest(BaseCommitRequest):
+    """Commit request for raster file uploads (GeoTIFF, VRT)."""
+
+    srid_override: int | None = Field(
+        default=None,
+        description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
+    )
+    compression: str | None = Field(
+        default=None,
+        description="Raster only: target compression for COG output (e.g. 'LZW', 'DEFLATE').",
+    )
+    resampling: str | None = Field(
+        default=None,
+        description="Raster only: resampling method for COG conversion (e.g. 'nearest', 'bilinear', 'cubic').",
+    )
+    nodata_override: float | str | None = Field(
+        default=None,
+        description="Raster only: nodata value to use when source has none defined.",
+    )
+
+
+class ServiceCommitRequest(BaseCommitRequest):
+    """Commit request for remote service layers (WFS, ArcGIS FeatureServer)."""
+
+    token: str | None = Field(
+        default=None,
+        description="Optional auth token for protected services. Never persisted to the database.",
+    )
+
+
 class CommitRequest(BaseModel):
+    """Wire-level schema for ``POST /ingest/commit/{job_id}``.
+
+    Preserved as a flat union of all possible commit fields so that the
+    FastAPI route signature renders correctly in OpenAPI and so that the
+    frontend's ``CommitImportRequest`` TypeScript type stays unchanged.
+
+    The route handler re-validates the body against a subclass chosen by
+    ``_pick_commit_subclass(job)`` (see ``app.ingest.router``):
+
+      - ``VectorCommitRequest`` — default for file uploads
+      - ``RasterCommitRequest`` — when ``job.user_metadata['file_type'] == 'raster'``
+      - ``ServiceCommitRequest`` — when ``job.source_url`` is set and ``job.file_path`` is None
+
+    For new internal code that constructs a commit view, prefer importing
+    the appropriate subclass directly. This flat class is the wire contract,
+    not an implementation detail.
+    """
+
     title: str = Field(
         min_length=1, max_length=500, description="Human-readable dataset title."
     )

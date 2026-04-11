@@ -13,7 +13,9 @@ import time
 import uuid
 from typing import Any, Generic, TypeVar, cast
 
+import structlog
 from fastapi import HTTPException
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,8 @@ from app.cache.provider import CacheProvider
 from app.config import settings
 from app.public_urls import resolve_public_api_url, resolve_public_app_url
 from app.settings.models import AppSetting
+
+logger = structlog.stdlib.get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -55,6 +59,39 @@ _DEFAULT_GLOBAL_RATE_LIMIT = 60
 
 
 # ---------------------------------------------------------------------------
+# Shared validation helper (used by PersistentConfig.get and get_all_registry_values)
+# ---------------------------------------------------------------------------
+
+
+def _validate_or_fallback(cfg: PersistentConfig[T], raw: Any) -> tuple[T, bool]:
+    """Validate `raw` against cfg's TypeAdapter; return (value, validated_ok).
+
+    Called by `PersistentConfig.get()` and `get_all_registry_values()` on the
+    DB-hit branch to enforce runtime shape at the JSONB unwrap boundary.
+
+    On ValidationError: logs a structured warning and returns
+    `(cfg.env_default, False)`. Does NOT raise. Does NOT write to cache — the
+    caller uses the boolean to decide whether to cache.
+
+    Security note: `exc.errors()` includes the offending `input` value in its
+    payload. Current registered configs do not store secrets (secrets live in
+    `app.config.settings` / env vars, not `app_settings`). If a future
+    PersistentConfig adds a secret-containing key, the logger must scrub the
+    `input` field from the errors list before emission.
+    """
+    try:
+        return cfg._adapter.validate_python(raw), True
+    except ValidationError as exc:
+        logger.warning(
+            "persistent_config.validation_failed",
+            key=cfg.key,
+            errors=exc.errors(),
+            action="fell_back_to_env_default",
+        )
+        return cfg.env_default, False
+
+
+# ---------------------------------------------------------------------------
 # PersistentConfig generic class
 # ---------------------------------------------------------------------------
 
@@ -65,12 +102,16 @@ class PersistentConfig(Generic[T]):
     def __init__(
         self,
         key: str,
+        *,
+        type_: type[T],
         env_default: T | None = None,
         tab: str = "",
         label: str = "",
         env_default_factory: Any | None = None,
     ) -> None:
         self.key = key
+        self._type = type_
+        self._adapter: TypeAdapter[T] = TypeAdapter(type_)
         self._env_default_static = env_default
         self._env_default_factory = env_default_factory
         self.tab = tab
@@ -107,15 +148,18 @@ class PersistentConfig(Generic[T]):
         )
         row = result.scalar_one_or_none()
         effective: T
+        validated_ok = True  # default: cache-write OK (applies to env_default path)
         if row is not None:
             # AppSetting.value is JSONB -- unwrap the stored value
             unwrapped = row if not isinstance(row, dict) or "v" not in row else row["v"]
-            effective = cast(T, unwrapped)
+            effective, validated_ok = _validate_or_fallback(self, unwrapped)
         else:
             effective = self.env_default
 
-        # Populate cache
-        if cache is not None:
+        # Populate cache only when we got a valid DB value or env_default path.
+        # On validation fallback, skip cache write so the next read re-hits the
+        # DB and re-logs until the corrupt row is fixed (D-03).
+        if cache is not None and validated_ok:
             await cache.set(cache_key, effective, ttl=_CACHE_TTL)
         self._update_sync_cache(effective)
         return effective
@@ -239,6 +283,11 @@ class PersistentConfig(Generic[T]):
 
 
 class _LogLevelConfig(PersistentConfig[str]):
+    def __init__(self, key: str, **kwargs: Any) -> None:
+        # Hard-code type_=str for this subclass — the sole purpose of the
+        # subclass is to attach a side effect hook for log level propagation.
+        super().__init__(key, type_=str, **kwargs)
+
     def _on_change(self, value: str) -> None:
         logging.getLogger().setLevel(value.upper())
 
@@ -250,6 +299,7 @@ class _LogLevelConfig(PersistentConfig[str]):
 # -- General tab --
 REGISTRATION_ENABLED = PersistentConfig[bool](
     key="registration_enabled",
+    type_=bool,
     env_default_factory=lambda: settings.registration_enabled,
     tab="auth",
     label="Registration Enabled",
@@ -257,6 +307,7 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
 
 PUBLIC_BASE_URL = PersistentConfig[str](
     key="public_base_url",
+    type_=str,
     env_default_factory=lambda: resolve_public_api_url(
         settings.public_app_url,
         settings.public_api_url,
@@ -268,6 +319,7 @@ PUBLIC_BASE_URL = PersistentConfig[str](
 
 PUBLIC_APP_URL = PersistentConfig[str](
     key="public_app_url",
+    type_=str,
     env_default_factory=lambda: resolve_public_app_url(
         settings.public_app_url,
         settings.public_api_url,
@@ -279,6 +331,7 @@ PUBLIC_APP_URL = PersistentConfig[str](
 
 PUBLIC_API_URL = PersistentConfig[str](
     key="public_api_url",
+    type_=str,
     env_default_factory=lambda: resolve_public_api_url(
         settings.public_app_url,
         settings.public_api_url,
@@ -297,6 +350,7 @@ LOG_LEVEL = _LogLevelConfig(
 
 LOG_JSON = PersistentConfig[bool](
     key="log_json",
+    type_=bool,
     env_default_factory=lambda: settings.log_json,
     tab="general",
     label="JSON Logging",
@@ -304,6 +358,7 @@ LOG_JSON = PersistentConfig[bool](
 
 REQUIRE_METADATA_FOR_PUBLISH = PersistentConfig[bool](
     key="require_metadata_for_publish",
+    type_=bool,
     env_default=False,
     tab="general",
     label="Require Metadata for Publishing",
@@ -312,6 +367,7 @@ REQUIRE_METADATA_FOR_PUBLISH = PersistentConfig[bool](
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",
+    type_=int,
     env_default_factory=lambda: settings.access_token_expire_minutes,
     tab="auth",
     label="Access Token Expiry (min)",
@@ -319,6 +375,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
 
 REFRESH_TOKEN_EXPIRE_DAYS = PersistentConfig[int](
     key="refresh_token_expire_days",
+    type_=int,
     env_default_factory=lambda: settings.refresh_token_expire_days,
     tab="auth",
     label="Refresh Token Expiry (days)",
@@ -326,6 +383,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = PersistentConfig[int](
 
 LOGIN_RATE_LIMIT = PersistentConfig[int](
     key="login_rate_limit",
+    type_=int,
     env_default=_DEFAULT_LOGIN_RATE_LIMIT,
     tab="auth",
     label="Login Rate Limit (per min)",
@@ -334,6 +392,7 @@ LOGIN_RATE_LIMIT = PersistentConfig[int](
 # -- AI tab --
 AI_ENABLED = PersistentConfig[bool](
     key="ai_enabled",
+    type_=bool,
     env_default=True,
     tab="ai",
     label="AI Features Enabled",
@@ -341,6 +400,7 @@ AI_ENABLED = PersistentConfig[bool](
 
 LLM_PROVIDER = PersistentConfig[str](
     key="llm_provider",
+    type_=str,
     env_default_factory=lambda: (
         "anthropic" if settings.anthropic_api_key else "openai_compatible"
     ),
@@ -350,6 +410,7 @@ LLM_PROVIDER = PersistentConfig[str](
 
 LLM_MODEL = PersistentConfig[str](
     key="llm_model",
+    type_=str,
     env_default_factory=lambda: (
         settings.llm_model if settings.anthropic_api_key else settings.openai_model
     ),
@@ -359,6 +420,7 @@ LLM_MODEL = PersistentConfig[str](
 
 OPENAI_BASE_URL = PersistentConfig[str](
     key="openai_base_url",
+    type_=str,
     env_default_factory=lambda: settings.openai_base_url or "",
     tab="ai",
     label="OpenAI-Compatible Base URL",
@@ -366,6 +428,7 @@ OPENAI_BASE_URL = PersistentConfig[str](
 
 EMBEDDING_MODEL = PersistentConfig[str](
     key="embedding_model",
+    type_=str,
     env_default_factory=lambda: settings.embedding_model,
     tab="ai",
     label="Embedding Model",
@@ -373,6 +436,7 @@ EMBEDDING_MODEL = PersistentConfig[str](
 
 EMBEDDING_DIMS = PersistentConfig[int](
     key="embedding_dims",
+    type_=int,
     env_default_factory=lambda: settings.embedding_dims,
     tab="ai",
     label="Embedding Dimensions",
@@ -380,6 +444,7 @@ EMBEDDING_DIMS = PersistentConfig[int](
 
 EMBEDDING_BASE_URL = PersistentConfig[str](
     key="embedding_base_url",
+    type_=str,
     env_default_factory=lambda: settings.embedding_base_url or "",
     tab="ai",
     label="Embedding Base URL",
@@ -387,6 +452,7 @@ EMBEDDING_BASE_URL = PersistentConfig[str](
 
 SEMANTIC_SEARCH_ENABLED = PersistentConfig[bool](
     key="semantic_search_enabled",
+    type_=bool,
     env_default=False,
     tab="ai",
     label="Semantic Search",
@@ -394,6 +460,7 @@ SEMANTIC_SEARCH_ENABLED = PersistentConfig[bool](
 
 AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
     key="ai_send_sample_values",
+    type_=bool,
     env_default=True,
     tab="ai",
     label="Send Sample Values to LLM",
@@ -401,6 +468,7 @@ AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
 
 LLM_MODEL_LIGHT = PersistentConfig[str](
     key="llm_model_light",
+    type_=str,
     env_default_factory=lambda: (
         "claude-haiku-4-5-20251001" if settings.anthropic_api_key else "gpt-4o-mini"
     ),
@@ -411,6 +479,7 @@ LLM_MODEL_LIGHT = PersistentConfig[str](
 # -- Network tab --
 GLOBAL_RATE_LIMIT = PersistentConfig[int](
     key="global_rate_limit",
+    type_=int,
     env_default=_DEFAULT_GLOBAL_RATE_LIMIT,
     tab="network",
     label="Global Rate Limit (per second)",
@@ -418,6 +487,7 @@ GLOBAL_RATE_LIMIT = PersistentConfig[int](
 
 CORS_ALLOWED_ORIGINS = PersistentConfig[str](
     key="cors_allowed_origins",
+    type_=str,
     env_default_factory=lambda: settings.cors_allowed_origins,
     tab="network",
     label="CORS Allowed Origins",
@@ -426,6 +496,7 @@ CORS_ALLOWED_ORIGINS = PersistentConfig[str](
 # -- Storage tab --
 UPLOAD_MAX_SIZE_MB = PersistentConfig[int](
     key="upload_max_size_mb",
+    type_=int,
     env_default_factory=lambda: settings.upload_max_size_mb,
     tab="storage",
     label="Upload Max Size (MB)",
@@ -433,6 +504,7 @@ UPLOAD_MAX_SIZE_MB = PersistentConfig[int](
 
 UPLOAD_ALLOWED_EXTENSIONS = PersistentConfig[str](
     key="upload_allowed_extensions",
+    type_=str,
     env_default_factory=lambda: settings.upload_allowed_extensions,
     tab="storage",
     label="Allowed Upload Extensions",
@@ -461,9 +533,9 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
         raw = all_settings.get(cfg.key)
         if raw is not None:
             # AppSetting.value is JSONB — unwrap the stored scalar wrapper
-            settings_dict[cfg.key] = (
-                raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
-            )
+            unwrapped = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+            value, _ok = _validate_or_fallback(cfg, unwrapped)
+            settings_dict[cfg.key] = value
         else:
             settings_dict[cfg.key] = cfg.env_default
 
@@ -478,6 +550,7 @@ async def get_allowed_extensions_list(db: AsyncSession) -> list[str]:
 
 TILE_CACHE_TTL = PersistentConfig[int](
     key="tile_cache_ttl",
+    type_=int,
     env_default_factory=lambda: settings.tile_cache_ttl,
     tab="storage",
     label="Tile Cache TTL (s)",
@@ -525,6 +598,7 @@ _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 
 BASEMAPS = PersistentConfig[list](
     key="basemaps",
+    type_=list,
     env_default=_DEFAULT_BASEMAPS,
     tab="map",
     label="Basemaps",
@@ -532,6 +606,7 @@ BASEMAPS = PersistentConfig[list](
 
 MAP_DEFAULTS = PersistentConfig[dict](
     key="map_defaults",
+    type_=dict,
     env_default=_DEFAULT_MAP_DEFAULTS,
     tab="map",
     label="Map Defaults",
@@ -541,6 +616,7 @@ MAP_DEFAULTS = PersistentConfig[dict](
 # -- Widgets --
 ENABLED_WIDGETS = PersistentConfig[list](
     key="enabled_widgets",
+    type_=list,
     env_default=None,
     tab="map",
     label="Enabled Widgets",
@@ -557,6 +633,7 @@ def _default_role_permissions() -> dict:
 
 ROLE_PERMISSIONS = PersistentConfig[dict](
     key="role_permissions",
+    type_=dict,
     env_default_factory=_default_role_permissions,
     tab="permissions",
     label="Role Permissions",
@@ -565,6 +642,7 @@ ROLE_PERMISSIONS = PersistentConfig[dict](
 # -- Branding tab --
 BRANDING_SHOW_BADGE = PersistentConfig[bool](
     key="branding.show_badge",
+    type_=bool,
     env_default=True,
     tab="branding",
     label="Show Powered by GeoLens Footer Label",
