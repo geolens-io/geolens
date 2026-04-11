@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:22.22.2-alpine AS builder
+FROM node:25.8.2-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
