@@ -334,3 +334,97 @@ Plans:
 - Frontend auto-decides MVT vs GeoJSON-Z based on dataset size and `is_3d` flag
 - Not recommended to ship unless Phases 999.1 and 999.2 reveal concrete user demand
 
+### Phase 999.4: Shared Vector Staging Pipeline (ingest_file ↔ reupload_file) (BACKLOG)
+
+**Goal:** Extract a shared `_ingest_vector_into_staging(session, job, file_path, target_table) -> tuple[dict, bool]` helper covering the 9 shared pipeline steps (validate → ogrinfo → ogr2ogr → rename_reserved_columns → DBF collision detect → ensure_geom → clip → add_4326 → grant) that currently duplicate ~150 lines between `ingest_file` (`backend/app/ingest/tasks.py:523`, 232 lines) and `reupload_file` (`backend/app/ingest/tasks.py:1106`, 223 lines). Both callers retain their own step-8+ paths (create_dataset vs `_apply_reupload_swap`).
+
+**Source:** Promoted from [post-impl-20260410-HANDOFF-REMAINING.md](../../docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md#k2-kiss-5--shared-vector-staging-pipeline-between-ingest_file-and-reupload_file) — validated against the working tree on 2026-04-11 via quick task `260411-a62`; all line numbers, effort estimates, and blockers still hold.
+
+**Sizing:** LARGE (4-6h)
+**Dependencies:** None — but requires careful test coverage for both vector ingest paths
+**Requirements:** TBD
+
+**Key decisions locked from handoff:**
+- `_apply_reupload_swap` (`backend/app/ingest/tasks.py:990`) atomic-swap dance (RENAME live→live_old, RENAME staging→live, DROP live_old with `SET LOCAL lock_timeout = '5s'`) stays separate from the shared staging helper — it is the one real architectural divergence between the two paths
+- Shared helper covers steps 1-7; `ingest_file` then calls `_finalize_ingest` / `create_dataset`, while `reupload_file` calls `_apply_reupload_swap`
+- Needs a dedicated plan, not a drive-by refactor — effort estimate 4-6h holds
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.5: regenerate_vrt Phase Extraction (BACKLOG)
+
+**Goal:** Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers: `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `_update_vrt_dataset_geometry(session, vrt_asset, metadata)`. Keeps the 15 documented steps readable by extracting the VRT-build, metadata-extract, and footprint-update phases from the inline flow.
+
+**Source:** Promoted from [post-impl-20260410-HANDOFF-REMAINING.md](../../docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md#k4-kiss-7--regenerate_vrt-phase-extraction) — validated against the working tree on 2026-04-11 via quick task `260411-a62`.
+
+**Sizing:** LARGE (3-4h + test coverage)
+**Dependencies:** Needs integration coverage against a real tiny VRT fixture before starting — pair with K3-PRE-style follow-up work
+**Requirements:** TBD
+
+**Key decisions locked from handoff:**
+- Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
+- Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT)
+- Raster VRT has historical flakiness — test coverage is non-negotiable
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.6: CommitRequest Discriminated Union (BACKLOG)
+
+**Goal:** Split `CommitRequest` (`backend/app/ingest/schemas.py:97`, currently 1 required + 13 optional fields) into `VectorCommitRequest | RasterCommitRequest | ServiceCommitRequest` and wire the router to accept `Annotated[VectorCommitRequest | RasterCommitRequest | ServiceCommitRequest, Field(discriminator="file_type")]`. Moves field-applicability rules out of prose descriptions and into the schema shape.
+
+**Source:** Promoted from [post-impl-20260410-HANDOFF-REMAINING.md](../../docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md#k6-kiss-13--commitrequest-discriminated-union) — validated against the working tree on 2026-04-11 via quick task `260411-a62`.
+
+**Sizing:** MEDIUM backend + SMALL frontend + coordination overhead
+**Dependencies:** None technical, but requires coordinated frontend + OpenAPI + external-consumer rollout
+**Requirements:** TBD
+
+**Key decisions locked from handoff:**
+- This is an API contract change — any external consumer hitting `POST /ingest/commit/{job_id}` needs coordinated updates
+- Needs a deprecation window if the API is externally consumed
+- Current field count (for reference when planning): 4 generic (`summary`, `visibility`, `temporal_start`, `temporal_end`) + 5 vector (`srid_override`, `layer_name`, `x_column`, `y_column`, `geom_column`) + 3 raster (`compression`, `resampling`, `nodata_override`) + 1 service auth (`token`)
+- Frontend serialization (in `frontend/src/components/import/`) and OpenAPI generation both need to move in lockstep
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.7: get_sample_values Sparse-Column Observation (BACKLOG — OBSERVATIONAL)
+
+**Goal:** Observational backlog entry for the CTE-batched `get_sample_values` at `backend/app/ingest/metadata.py:204` (default `sample_size: int = 1000` at line 208). No action unless users complain. If a user reports missing sample values on sparse columns (e.g. a 99%-null column), the 1-line fix is to bump the default from 1000 to 10000 in the function signature. The CTE approach at lines 269-274 stays as-is (it is dramatically faster than the pre-audit per-column `LIMIT 1000` pattern, and 10 values is within the existing `LIMIT 10` display cap).
+
+**Source:** Promoted from [post-impl-20260410-HANDOFF-REMAINING.md](../../docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md#n6-get_sample_values-sparse-column-observation) — validated against the working tree on 2026-04-11 via quick task `260411-a62`.
+
+**Sizing:** XSMALL (1-line change if triggered)
+**Dependencies:** None
+**Requirements:** TBD
+
+**Key decisions locked from handoff + 2026-04-11 research:**
+- **This is an observational entry, not an actionable fix-now task.** Disposition: "no action unless users complain."
+- No user complaints have been filed as of 2026-04-11 (grep of `docs-internal/` and `CHANGELOG.md` surfaces only the audit docs that describe the observation)
+- If a complaint surfaces, re-classify as actionable and bump `sample_size` default to 10000 at `backend/app/ingest/metadata.py:208`
+- Be aware of the side effect on base scan width + RAM under extreme row counts if the bump is ever applied
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.8: persistent_config.py cast(T, ...) Runtime Validation (BACKLOG — DEFERRED)
+
+**Goal:** Observational backlog entry for the 3 `cast(T, ...)` sites at `backend/app/persistent_config.py:84, 88, 113`. Deferred by audit recommendation. Optional future migration: switch to `TypeAdapter[T].validate_python(unwrapped)` for runtime shape validation at the JSONB unwrap boundary.
+
+**Source:** Promoted from [post-impl-20260410-HANDOFF-REMAINING.md](../../docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md#type-5-persistent_configpy-castt-runtime-validation) — validated against the working tree on 2026-04-11 via quick task `260411-a62`.
+
+**Sizing:** SMALL if attempted (but deferred by audit)
+**Dependencies:** None
+**Requirements:** TBD
+
+**Key decisions locked from 2026-04-11 research:**
+- **This is a deferred entry, not an actionable fix-now task.** `PersistentConfig` is declared `Generic[T]` with `T = TypeVar("T")`, so `TypeAdapter[T].validate_python()` cannot work as a drop-in replacement — `T` is an unbound TypeVar at method-resolution time and `TypeAdapter` needs a concrete runtime type
+- A real migration requires EITHER reifying `T` by storing the type at `__init__` time (breaking change for every call site that constructs a `PersistentConfig`) OR accepting an explicit `adapter: TypeAdapter[T]` parameter on the constructor (same shape, different ergonomics)
+- The existing `cast(T, ...)` pattern is not a regression — it matches the rest of the codebase's approach at generic boundaries
+- Re-evaluate ONLY if `PersistentConfig`'s signature is being changed for another reason (e.g. Pydantic version migration touching the persistent config layer); otherwise let it sit
+- The SecretStr migration (commits `a6371f9f`, `56c59cfd`) touched `app/config.py` and consumers, NOT `app/persistent_config.py` — so these 3 cast sites are byte-for-byte unchanged since snapshot `f6a7f96a`
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
