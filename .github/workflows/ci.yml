@@ -84,7 +84,8 @@ jobs:
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
       POSTGRES_DB: geolens_test
-      JWT_SECRET_KEY: test-secret-key-for-ci
+      # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
       GEOLENS_ADMIN_USERNAME: admin
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: .
@@ -270,9 +271,11 @@ jobs:
       - name: Create .env file
         run: |
           cp .env.example .env
-          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=geolens_dev/' .env
-          sed -i 's/^JWT_SECRET_KEY=$/JWT_SECRET_KEY=e2e-test-secret-key/' .env
-          sed -i 's/^GEOLENS_ADMIN_PASSWORD=$/GEOLENS_ADMIN_PASSWORD=admin/' .env
+          # Override the dev defaults with CI-distinct values. JWT_SECRET_KEY must
+          # be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+          sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
+          sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=e2e-test-secret-key-padding-32chars-min|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
 
       - name: Export admin credentials for E2E
         run: |
