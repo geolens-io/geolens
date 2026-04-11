@@ -9,11 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **BREAKING: `JWT_SECRET_KEY` must now be at least 32 characters.** The backend validates the length at startup; shorter values fail fast with an actionable error. HS256 requires ≥ 256 bits of entropy — shorter secrets were brute-forceable. See the [upgrade guide](docs/upgrade-guide.md#unreleased--jwt_secret_key-minimum-length) for rotation instructions. The `.env.example` default passes unchanged; only deployments with custom short secrets are affected.
+- Secret fields (`POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `S3_SECRET_ACCESS_KEY`, `TILE_SIGNING_SECRET`) now use Pydantic `SecretStr` internally. Values are masked (`**********`) in `repr()`, structured-log dict coercion, and `ValidationError` output — they can no longer leak into exception traces or log lines by accident. Downstream behavior is unchanged; values are unwrapped via `.get_secret_value()` only at the library boundary (JWT encode/decode, HMAC tile signing, Fernet KDF, boto3, Anthropic/OpenAI clients).
+- New `reveal()` helper in `app/config.py` centralizes `SecretStr | None → str | None` unwrapping for optional credential fields.
+
 ### Added
 - Astro-based marketing site scaffold (phases 212-214)
 - `seed_tiles` CLI script for pre-seeding Redis tile cache
 - Public map viewer UX improvements and legend unification
 - 3D data and maps support feasibility design doc
+- `LOG_LEVEL` value validation at startup: typos like `LOG_LEVEL=verbose` now fail fast instead of crashing the stdlib logger at first call.
+- `ENV_ONLY_CONFIG` and `GEOLENS_EDITION` documented in `.env.example` (previously undocumented but referenced in code and the admin UI lockdown banner).
 
 ### Removed
 - **SAML support has been removed.** The OAuth provider system shipped with `provider_type='saml'` accepted by the API but no working SAML login flow ever existed (only an XML metadata parser). An admin could create a SAML provider and have it appear on the login page, but clicking it produced no authentication. The dead code path has been removed across the stack:
@@ -31,8 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Connection pool pre-ping now defaults to `True` to detect broken connections in managed databases.
 - Top-level `CONTRIBUTING.md` consolidated into `.github/CONTRIBUTING.md`.
 - OAuth `client_id` and `client_secret` are now required fields when creating a provider (previously optional placeholders for the SAML branch).
+- `backend/.env` symlink removed. `app/config.py` now resolves the project-root `.env` via `Path(__file__).resolve().parents[2] / ".env"` so host-side workflows (`cd backend && uv run pytest|uvicorn|alembic`) continue to work without the symlink.
+- `VITE_API_PROXY_TARGET` renamed to `API_PROXY_TARGET` in `docker-compose.yml` (frontend service) and `frontend/vite.config.ts`. The old name still works for one release via a fallback in `vite.config.ts` — local compose overrides can migrate at leisure. The var is only consumed by the Node-side Vite dev-server proxy and was never exposed to the browser bundle, so the misleading `VITE_` prefix has been dropped.
+- Settings `model_config` is now a typed `SettingsConfigDict` (Pydantic v2) so typos in config keys fail at mypy/runtime instead of being silently ignored.
+- `.env.example` cleanup: deprecated `PUBLIC_BASE_URL=...` active default commented out; `API_PORT` and `FRONTEND_PORT` gained per-variable comments matching the rest of the file; `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB_TEST` now carry a pointer to `.env.test.example` for host-side test runs.
 
 ### Fixed
+- `app/main.py:193` S3 health-check error-branch typo: `settings.s3_endpoint_url` (which does not exist) corrected to `settings.s3_endpoint`. The bug was pre-existing; it would have crashed the app with `AttributeError` the first time the S3 startup health check actually failed, masking the real S3 error behind an unrelated traceback. Found and fixed during the env-audit post-implementation review.
+- CI E2E workflow sed commands were silently no-op'ing: they targeted empty values (`^VAR=$`) that never existed in `.env.example`. The patterns were rewritten to match any value (`^VAR=.*`) so the E2E job actually injects the CI-distinct secrets it claims to set. CI `JWT_SECRET_KEY` values were also padded to ≥ 32 characters so the new length validator passes in CI. The 1879-test full backend suite continues to pass.
+- Test infrastructure: removed brittle `os.environ.setdefault` / `del sys.modules["app.config"]` blocks from `test_cache.py`, `test_health.py`, `test_metrics.py`, `test_tile_cache.py`, and `test_config.py`. These were workarounds for a module-level import failure that no longer exists now that config.py resolves the project-root `.env` at import time. The old pattern also caused cross-test stale-settings pollution when `test_config.py` ran before `test_auth.py`.
 - **Post-impl audit 2026-04-10 follow-ups** (`docs-internal/audits/post-impl-20260410-HANDOFF.md`):
   - **S1 — source `geom`/`geometry` column collision (P1):** vector uploads with an attribute literally named `geom` or `geometry` no longer crash `ogr2ogr` at CREATE TABLE time. `run_ogr2ogr`/`run_ogr2ogr_service` now use `GEOMETRY_NAME=_geolens_geom` as a placeholder, which `ensure_geom_column` renames to `geom` after `rename_reserved_columns` has moved the source attribute to `src_geom`. Regression test lives in `tests/test_ingest_column_preservation.py::test_source_geom_attribute_renamed_to_src_geom`; the `reserved_names.geojson` fixture once again includes a source `geom` attribute.
   - **S2 — cross-module mypy cleanup (P1):** resolved 7 errors in `app/datasets/service.py` (including the UUID-vs-Dataset attr-defined errors in `get_related_datasets`), 2 in `app/storage/provider.py`, 2 in `app/public_urls.py`, 6 in `app/audit/service.py`, 3 in `app/maps/service.py`, 3 in `app/persistent_config.py`, and 1 in `app/services/preview.py`. `mypy` is now clean across `app/ingest/`, `app/datasets/service.py`, and the audited supporting modules.

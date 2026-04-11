@@ -73,6 +73,38 @@ docker compose up -d --build
 
 ## Version-Specific Notes
 
+### Unreleased — `JWT_SECRET_KEY` minimum length
+
+The backend now enforces a **32-character minimum** on `JWT_SECRET_KEY` at startup (HS256 requires ≥ 256 bits of entropy). A deployment with a shorter secret will fail fast on the next restart with:
+
+```
+FATAL: JWT_SECRET_KEY must be at least 32 characters. Generate one with: openssl rand -hex 32
+```
+
+**Before upgrading**, verify your secret length:
+
+```bash
+echo -n "$JWT_SECRET_KEY" | wc -c
+```
+
+If it reports fewer than 32, generate a replacement and update your `.env`:
+
+```bash
+JWT_SECRET_KEY=$(openssl rand -hex 32)
+```
+
+**Rotating the key invalidates all issued JWT tokens** — all users will be logged out and need to sign in again. Plan the rotation during a low-traffic window, or coordinate with your user base.
+
+The fresh-install default in `.env.example` (`dev-only-change-me-in-production`, 32 chars) passes the validator unchanged, so new deployments are unaffected.
+
+**Other env hardening in this release:**
+
+- Secret fields (`POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `S3_SECRET_ACCESS_KEY`, `TILE_SIGNING_SECRET`) are now stored as Pydantic `SecretStr` internally. Values are masked in logs, `repr()`, and validation-error output. Application behavior is unchanged — this is a defense-in-depth improvement.
+- `LOG_LEVEL` values are now validated against the stdlib logging set (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). A typo like `LOG_LEVEL=verbose` now fails at startup instead of crashing later.
+- Two previously undocumented env vars — `ENV_ONLY_CONFIG` and `GEOLENS_EDITION` — are now documented in `.env.example`. Neither is required.
+- The `backend/.env` symlink has been removed. Host-side workflows (`cd backend && uv run pytest`) now resolve `./.env` at the project root via the Settings `env_file` path. No action required unless you had local scripts depending on `backend/.env` as a literal path.
+- `VITE_API_PROXY_TARGET` (docker-compose.yml frontend service) was renamed to `API_PROXY_TARGET`. The old name still works for one release via a fallback in `vite.config.ts` — update your local compose overrides when convenient.
+
 ### About 1.0.0 (the public release)
 
 GeoLens 1.0.0 is the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 13.0 during pre-public development. Those legacy versions never shipped to anyone outside the project.

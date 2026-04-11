@@ -94,7 +94,7 @@ _storage: StorageProvider | None = None
 def init_storage() -> None:
     """Initialize the storage provider singleton. Called once at startup."""
     global _storage
-    from app.config import settings
+    from app.config import reveal, settings
 
     if settings.storage_provider == "s3":
         from app.storage.s3 import S3StorageProvider
@@ -106,11 +106,7 @@ def init_storage() -> None:
             endpoint=settings.s3_endpoint,
             region=settings.s3_region,
             access_key_id=settings.s3_access_key_id,
-            secret_access_key=(
-                settings.s3_secret_access_key.get_secret_value()
-                if settings.s3_secret_access_key
-                else None
-            ),
+            secret_access_key=reveal(settings.s3_secret_access_key),
             allow_http=settings.s3_allow_http,
             addressing_style=settings.s3_addressing_style,
         )

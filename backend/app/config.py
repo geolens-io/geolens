@@ -4,6 +4,17 @@ from pathlib import Path
 from pydantic import SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+def reveal(secret: SecretStr | None) -> str | None:
+    """Unwrap an optional SecretStr to its raw value, or return None.
+
+    Downstream libraries (boto3, Anthropic, OpenAI, etc.) expect ``str | None``
+    for credential fields. This helper removes the repeated
+    ``x.get_secret_value() if x else None`` triplet from call sites.
+    """
+    return secret.get_secret_value() if secret is not None else None
+
+
 # Resolve the project-root .env file at import time. ``__file__`` is
 # ``backend/app/config.py``; ``parents[2]`` walks up to the repo root.
 # This works regardless of CWD, so the legacy ``backend/.env`` symlink is

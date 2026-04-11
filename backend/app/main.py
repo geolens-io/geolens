@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
                 "S3 health check failed -- cannot start",
                 error=str(exc),
                 bucket=settings.s3_bucket,
-                endpoint=settings.s3_endpoint_url,
+                endpoint=settings.s3_endpoint,
                 region=settings.s3_region,
             )
             raise RuntimeError(f"S3 health check failed: {exc}") from exc
