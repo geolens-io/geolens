@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
-stopped_at: Quick task 260410-d7k shipped (ingest column-preservation audit + fixes + regression tests, 3 code commits); Phase 215 Homepage still pending discuss/plan
-last_updated: "2026-04-10T14:30:00.000Z"
-last_activity: 2026-04-10
+stopped_at: Quick task 260411-a62 shipped (post-impl-20260410 handoff closeout — 5 backlog entries 999.4-999.8 + disposition table in handoff doc, 1 docs commit); Phase 215 Homepage still pending discuss/plan
+last_updated: "2026-04-11T11:45:00.000Z"
+last_activity: 2026-04-11
 progress:
   total_phases: 10
   completed_phases: 4
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.1
 Plan: Not started
 Status: Executing Phase 218
-Last activity: 2026-04-10 - Completed quick task 260410-d7k: review and make sure during the Import operations are all columns being imported
+Last activity: 2026-04-11 - Completed quick task 260411-a62: review and close out remaining items in post-impl-20260410 handoff
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -96,6 +96,7 @@ None yet.
 | 260408-mgg | A7 spike: verify table→polygon join in map builder (verdict: unsupported, Option C fallback) | 2026-04-08 | doc-only | Verified | [260408-mgg-a7-spike-verify-map-builder-can-join-rec](./quick/260408-mgg-a7-spike-verify-map-builder-can-join-rec/) |
 | 260409 | map thumbnails not working, this seems to be a regression | 2026-04-10 | d8d59cbd | Verified | [260409-map-thumbnails-not-working-this-seems-to](./quick/260409-map-thumbnails-not-working-this-seems-to/) |
 | 260410-d7k | review and make sure during the Import operations are all columns being imported | 2026-04-10 | 630f585f | Verified | [260410-d7k-review-and-make-sure-during-the-import-o](./quick/260410-d7k-review-and-make-sure-during-the-import-o/) |
+| 260411-a62 | review and close out remaining items in post-impl-20260410 handoff | 2026-04-11 | cea32bca | Verified | [260411-a62-review-the-remaining-items-in-docs-inter](./quick/260411-a62-review-the-remaining-items-in-docs-inter/) |
 
 ## Session Continuity
 
