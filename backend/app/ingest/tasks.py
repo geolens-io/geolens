@@ -2089,6 +2089,38 @@ async def ingest_vrt(
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _build_vrt_to_temp(
+    ordered_assets: list,
+    vrt_type: str,
+    resolution_strategy: str,
+    tmp_dir: str,
+) -> "Path":
+    """Resolve source paths and build a VRT file to a temp path.
+
+    Owns steps 4b-5 of regenerate_vrt. Synchronous -- the caller wraps this
+    in ``asyncio.to_thread(...)`` to preserve the existing thread-offload
+    pattern.
+
+    Args:
+        ordered_assets: Source RasterAsset rows in VRT position order.
+        vrt_type: 'mosaic' or 'stack' (from vrt_asset.vrt_type).
+        resolution_strategy: 'finest' | 'average' | ... (from
+            vrt_asset.resolution_strategy).
+        tmp_dir: Pre-created temp directory (owned by the caller's
+            finally block).
+
+    Returns:
+        Path to the written VRT file (``tmp_dir/source.vrt``).
+    """
+    import os
+    from pathlib import Path
+
+    source_paths = [resolve_vrt_source_path(a.asset_uri) for a in ordered_assets]
+    vrt_path = os.path.join(tmp_dir, "source.vrt")
+    build_vrt(vrt_type, source_paths, vrt_path, resolution_strategy)
+    return Path(vrt_path)
+
+
 @task_app.task(queue="raster", retry=1)
 async def regenerate_vrt(
     job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
