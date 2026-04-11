@@ -13,7 +13,9 @@ import time
 import uuid
 from typing import Any, Generic, TypeVar, cast
 
+import structlog
 from fastapi import HTTPException
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,8 @@ from app.cache.provider import CacheProvider
 from app.config import settings
 from app.public_urls import resolve_public_api_url, resolve_public_app_url
 from app.settings.models import AppSetting
+
+logger = structlog.stdlib.get_logger(__name__)
 
 T = TypeVar("T")
 
