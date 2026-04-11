@@ -13,6 +13,10 @@ from app.config import settings
 
 def _get_signing_key() -> bytes:
     """Return the signing key bytes, preferring tile_signing_secret."""
+    # SecretStr implements __bool__ against the inner value, so the `or`
+    # fallthrough yields jwt_secret_key when tile_signing_secret is None or
+    # an empty SecretStr (the latter is already coerced to None by
+    # empty_str_to_none in config.py, but the check is defensive either way).
     secret = settings.tile_signing_secret or settings.jwt_secret_key
     return secret.get_secret_value().encode()
 
