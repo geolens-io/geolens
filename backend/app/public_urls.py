@@ -74,7 +74,9 @@ def join_public_url(base_url: str, path: str) -> str:
         path = "/" + path
     normalized = normalize_public_url(base_url)
     if normalized is None:
-        raise ValueError(f"Cannot join public URL: base_url={base_url!r} is not a valid URL")
+        raise ValueError(
+            f"Cannot join public URL: base_url={base_url!r} is not a valid URL"
+        )
     return normalized + path
 
 

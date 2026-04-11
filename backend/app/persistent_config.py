@@ -109,9 +109,7 @@ class PersistentConfig(Generic[T]):
         effective: T
         if row is not None:
             # AppSetting.value is JSONB -- unwrap the stored value
-            unwrapped = (
-                row if not isinstance(row, dict) or "v" not in row else row["v"]
-            )
+            unwrapped = row if not isinstance(row, dict) or "v" not in row else row["v"]
             effective = cast(T, unwrapped)
         else:
             effective = self.env_default
