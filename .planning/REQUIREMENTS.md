@@ -55,6 +55,13 @@ Requirements for the getgeolens.com marketing site launch. Each maps to roadmap 
 - [ ] **A11Y-03**: Semantic HTML landmarks (nav, main, footer, headings hierarchy)
 - [ ] **A11Y-04**: Axe accessibility scan passes with zero critical/serious violations
 
+### Backend Ingest Quality
+
+Requirements covering ingest-side data-quality correctness observed in post-impl audits and regression-tested in dedicated phases.
+
+- [ ] **INGEST-N6-01**: `get_sample_values()` default `sample_size` is bumped to 10000 so that the CTE pre-scan is wide enough to fill the per-column `LIMIT 10` display cap on columns up to ~99.9% null. Docstring documents the base-scan-width / RAM trade-off so operators understand the cost on multi-million-row tables.
+- [ ] **INGEST-N6-02**: A regression test constructs a synthetic table with a column that is ≥99% NULL (≥1 non-null in a 2000-row insert) and asserts that `get_sample_values` returns at least 1 sample value for that column. A paired dense-column control assertion ensures the existing `LIMIT 10` display cap behavior is unchanged by the bump.
+
 ## Future Requirements
 
 Deferred to future milestone. Tracked but not in current roadmap.
@@ -120,11 +127,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QUICK-03 | Phase 216 | Pending |
 | A11Y-02 | Phase 217 | Pending |
 | A11Y-04 | Phase 217 | Pending |
+| INGEST-N6-01 | Phase 221 | Pending |
+| INGEST-N6-02 | Phase 221 | Pending |
 
 **Coverage:**
 - v14.0 requirements: 27 total
 - Mapped to phases: 27
 - Unmapped: 0 ✓
+- Backend Ingest Quality: 2 total (INGEST-N6-01, INGEST-N6-02 — Phase 221)
 
 ---
 *Requirements defined: 2026-04-04*
