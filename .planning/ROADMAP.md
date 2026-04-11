@@ -326,6 +326,21 @@ Plans:
 - Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT) — **UNBLOCKED by Phase 223 on 2026-04-11**
 - Raster VRT has historical flakiness — test coverage is non-negotiable
 
+### Phase 224: Post-Impl Audit Remediation (2026-04-11)
+**Goal**: Resolve all 24 must-fix items (3 P0 + 21 P1) surfaced by the 2026-04-11 post-impl audit pair (`post-impl-20260411.md` + backend delta `post-impl-20260411-b.md`). Focus: user-felt search performance, systemic Pydantic/SQL column-width drift, backend resilience gaps (storage event-loop blocking, middleware chunked-encoding bypass, worker rolling-restart race), and response_model coverage on OGC `/collections/datasets/*` endpoints.
+**Depends on**: None (can run in parallel with Phase 215 marketing work — touches backend + limited frontend; no overlap with the getgeolens.com repo)
+**Requirements**: TBD (draft from 224-CONTEXT.md references to parent audit findings)
+**Plans**: TBD (fresh session will run `/gsd-plan-phase 224` to decompose into wave-structured execution plans)
+
+**Key decisions locked from the audit chain:**
+- Combined parent + delta = 86 backend findings; remediation scope is P0 + P1 only (24 items). P2/P3 items stay tracked in the audit reports for future cleanup phases.
+- **The P0 search Cartesian joinedload exists at 3 sites, not 1** — fix must touch `search/service.py:676`, `search/service.py:885` (RRF re-fetch), AND `stac/router.py:217-231` in a single patch to avoid leaving STAC/RRF broken
+- **Pydantic/SQL column-width drift is systemic** — 6 must-fix mismatches span `DatasetMeta`, `RecordContact`, `RecordKeyword`, `RecordDistribution` (3 fields), and `UserCreate.email`. Fix in one migration + matching schema changes.
+- **Phase 222's `PersistentConfig[list]`/`[dict]` bare generics regression** — fresh phase-222 work shipped with hollow runtime validation for `BASEMAPS`, `MAP_DEFAULTS`, `ENABLED_WIDGETS`, `ROLE_PERMISSIONS`. Parameterized types are required to make phase 222's promise real.
+- **`LocalStorageProvider` blocks the event loop** — biggest operational risk in the delta. Every `async def` method has a sync body; needs `asyncio.to_thread` wrapping to match `S3StorageProvider`.
+- Plan structure should match audit dimensions: recommended split into ~5 plans (Backend Perf, Backend Type Safety, Backend Resilience, Frontend, Simplification dead-code cleanup). Wave 1 runs backend plans in parallel; Wave 2 runs frontend after backend `share_url` lands; Wave 3 is verification.
+- **Do NOT touch the marketing site path** (phases 215/216/217) or the `getgeolens.com` repo — this phase is scoped strictly to remediation in this repo.
+
 ## Progress
 
 **Execution Order:** 212 → 213 → 214 → 215 → 216 → 217
@@ -341,7 +356,7 @@ Plans:
 | 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 214. Product Preview Assets | v14.0 | 2/2 | Complete    | 2026-04-05 |
-| 215. Homepage | v14.0 | 0/? | Not started | - |
+| 215. Homepage | v14.0 | 3/4 | In Progress|  |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
@@ -350,6 +365,7 @@ Plans:
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 223. Raster VRT Integration Fixtures | v14.0 | 1/1 | Complete    | 2026-04-11 |
+| 224. Post-Impl Audit Remediation | v14.0 | 0/? | Not started | - |
 
 ## Backlog
 
