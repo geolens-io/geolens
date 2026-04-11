@@ -314,10 +314,12 @@ Plans:
 - D-06: Single requirement ID `RASTER-VRT-FIX-01` under Backend Ingest Quality section
 
 ### Phase 219: regenerate_vrt Phase Extraction
-**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `_update_vrt_dataset_geometry(session, vrt_asset, metadata)` — so the 15 documented steps stay readable without changing behavior
+**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `async _update_vrt_dataset_geometry(session, vrt_id, metadata) -> Dataset | None` — so the 15 documented steps stay readable without changing behavior. Byte-identical behavior verified against Phase 223 integration test.
 **Depends on**: Phase 223 (raster VRT integration fixture — provides the behavioral anchor that this refactor needs to verify parity)
-**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §K4)
-**Plans**: TBD
+**Requirements**: INGEST-K4-01
+**Plans**: 1 plan
+Plans:
+- [ ] 219-01-PLAN.md — 3 helper extractions + regenerate_vrt body refactor + Phase 223 regression gate + REQUIREMENTS.md backfill
 
 **Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
 - Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone

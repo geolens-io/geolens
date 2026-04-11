@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
-stopped_at: Phase 223 context gathered
-last_updated: "2026-04-11T20:29:04.242Z"
+stopped_at: Phase 219 context gathered
+last_updated: "2026-04-11T20:31:28.822Z"
 last_activity: 2026-04-11
 progress:
   total_phases: 16
@@ -104,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T19:35:53.765Z
-Stopped at: Phase 223 context gathered
-Resume file: .planning/phases/223-raster-vrt-integration-fixtures/223-CONTEXT.md
+Last session: 2026-04-11T20:31:28.819Z
+Stopped at: Phase 219 context gathered
+Resume file: .planning/phases/219-regenerate-vrt-phase-extraction/219-CONTEXT.md
