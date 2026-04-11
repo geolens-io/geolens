@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
@@ -110,6 +111,9 @@ export function JobList() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <span className="sr-only">{t('jobs.table.details', { defaultValue: 'Details' })}</span>
+                </TableHead>
                 <TableHead>{t('jobs.table.createdAt')}</TableHead>
                 <TableHead>{t('jobs.table.user')}</TableHead>
                 <TableHead>{t('jobs.table.filename')}</TableHead>
@@ -119,6 +123,7 @@ export function JobList() {
             </TableHeader>
             <TableBody>
               <DataTableSkeleton columns={[
+                { width: 'w-8' },
                 { width: 'w-28' },
                 { width: 'w-20' },
                 { width: 'w-32' },
@@ -137,6 +142,9 @@ export function JobList() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <span className="sr-only">{t('jobs.table.details', { defaultValue: 'Details' })}</span>
+                    </TableHead>
                     <TableHead>{t('jobs.table.createdAt')}</TableHead>
                     <TableHead>{t('jobs.table.user')}</TableHead>
                     <TableHead>{t('jobs.table.filename')}</TableHead>
@@ -148,20 +156,37 @@ export function JobList() {
                   {(data?.jobs ?? []).map((job) => (
                     <Fragment key={job.id}>
                       <TableRow
-                        className="cursor-pointer"
-                        tabIndex={0}
-                        role="button"
-                        aria-expanded={expandedId === job.id}
-                        onClick={() =>
-                          setExpandedId(expandedId === job.id ? null : job.id)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setExpandedId(expandedId === job.id ? null : job.id);
-                          }
-                        }}
+                        data-state={expandedId === job.id ? 'selected' : undefined}
                       >
+                        <TableCell>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            data-testid="job-details-toggle"
+                            aria-expanded={expandedId === job.id}
+                            aria-label={
+                              expandedId === job.id
+                                ? t('jobs.hideDetails', {
+                                    defaultValue: 'Hide details for {{name}}',
+                                    name: job.source_filename ?? t('jobs.title'),
+                                  })
+                                : t('jobs.showDetails', {
+                                    defaultValue: 'Show details for {{name}}',
+                                    name: job.source_filename ?? t('jobs.title'),
+                                  })
+                            }
+                            onClick={() =>
+                              setExpandedId(expandedId === job.id ? null : job.id)
+                            }
+                          >
+                            {expandedId === job.id ? (
+                              <ChevronDown className="size-4" />
+                            ) : (
+                              <ChevronRight className="size-4" />
+                            )}
+                          </Button>
+                        </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {formatDate(job.created_at)}
                         </TableCell>
@@ -185,7 +210,7 @@ export function JobList() {
                       </TableRow>
                       {expandedId === job.id && (
                         <TableRow key={`${job.id}-detail`}>
-                          <TableCell colSpan={5}>
+                          <TableCell colSpan={6}>
                             <div className="rounded-md bg-muted/50 p-3">
                               {job.error_message && (
                                 <div className="mb-2">

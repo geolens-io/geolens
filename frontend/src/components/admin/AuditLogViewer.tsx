@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuditLogs } from '@/hooks/use-admin';
 import { useEdition } from '@/hooks/use-edition';
 import { formatDateTimeSmart } from '@/lib/format';
@@ -134,6 +135,9 @@ export function AuditLogViewer() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <span className="sr-only">{t('audit.table.details', { defaultValue: 'Details' })}</span>
+                </TableHead>
                 <TableHead>{t('audit.table.timestamp')}</TableHead>
                 <TableHead>{t('audit.table.user')}</TableHead>
                 <TableHead>{t('audit.table.action')}</TableHead>
@@ -144,6 +148,7 @@ export function AuditLogViewer() {
             </TableHeader>
             <TableBody>
               <DataTableSkeleton columns={[
+                { width: 'w-8' },
                 { width: 'w-28' },
                 { width: 'w-20' },
                 { width: 'w-24', rounded: true },
@@ -163,6 +168,9 @@ export function AuditLogViewer() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <span className="sr-only">{t('audit.table.details', { defaultValue: 'Details' })}</span>
+                    </TableHead>
                     <TableHead>{t('audit.table.timestamp')}</TableHead>
                     <TableHead>{t('audit.table.user')}</TableHead>
                     <TableHead>{t('audit.table.action')}</TableHead>
@@ -175,20 +183,37 @@ export function AuditLogViewer() {
                   {(data?.logs ?? []).map((log) => (
                     <Fragment key={log.id}>
                       <TableRow
-                        className="cursor-pointer"
-                        tabIndex={0}
-                        role="button"
-                        aria-expanded={expandedId === log.id}
-                        onClick={() =>
-                          setExpandedId(expandedId === log.id ? null : log.id)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setExpandedId(expandedId === log.id ? null : log.id);
-                          }
-                        }}
+                        data-state={expandedId === log.id ? 'selected' : undefined}
                       >
+                        <TableCell>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            data-testid="audit-details-toggle"
+                            aria-expanded={expandedId === log.id}
+                            aria-label={
+                              expandedId === log.id
+                                ? t('audit.hideDetails', {
+                                    defaultValue: 'Hide details for {{action}}',
+                                    action: log.action,
+                                  })
+                                : t('audit.showDetails', {
+                                    defaultValue: 'Show details for {{action}}',
+                                    action: log.action,
+                                  })
+                            }
+                            onClick={() =>
+                              setExpandedId(expandedId === log.id ? null : log.id)
+                            }
+                          >
+                            {expandedId === log.id ? (
+                              <ChevronDown className="size-4" />
+                            ) : (
+                              <ChevronRight className="size-4" />
+                            )}
+                          </Button>
+                        </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {formatDateTimeSmart(log.created_at)}
                         </TableCell>
@@ -212,10 +237,10 @@ export function AuditLogViewer() {
                       </TableRow>
                       {expandedId === log.id && (
                         <TableRow>
-                          <TableCell colSpan={6}>
+                          <TableCell colSpan={7}>
                             <div className="rounded-md bg-muted/50 p-3">
                               <p className="mb-1 text-xs font-medium text-muted-foreground">
-                                {t('audit.detailsHint')}
+                                {t('audit.detailsDescription', { defaultValue: 'Expanded log details' })}
                               </p>
                               <pre className="overflow-x-auto text-xs">
                                 {JSON.stringify(log.details ?? {}, null, 2)}

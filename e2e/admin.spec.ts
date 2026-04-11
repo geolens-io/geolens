@@ -40,6 +40,10 @@ test.describe('Admin Panel', () => {
     await expect(page.locator('label').filter({ hasText: 'User' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Created At' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Filename' })).toBeVisible();
+    const detailsToggle = page.getByTestId('job-details-toggle').first();
+    await expect(detailsToggle).toBeVisible();
+    await detailsToggle.click();
+    await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
   });
 
   test('audit log: view entries and table structure', async ({ page }) => {
@@ -54,6 +58,9 @@ test.describe('Admin Panel', () => {
     await expect(page.getByRole('button', { name: 'Clear' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Timestamp' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'IP Address' })).toBeVisible();
+    await expect(page.getByTestId('audit-details-toggle').first()).toBeVisible();
+    await page.getByTestId('audit-details-toggle').first().click();
+    await expect(page.getByText('Expanded log details')).toBeVisible();
   });
 
   test('settings: general page loads with feature toggles', async ({ page }) => {
@@ -76,7 +83,7 @@ test.describe('Admin Panel', () => {
     await expect(
       page.getByRole('heading', { name: 'Auth', exact: true }),
     ).toBeVisible();
-    await expect(page.getByText('OAuth Providers')).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'OAuth Providers' })).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText('Access Token Lifetime (minutes)')).toBeVisible();
