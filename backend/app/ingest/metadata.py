@@ -205,7 +205,7 @@ async def get_sample_values(
     session: AsyncSession,
     table_name: str,
     column_info: list[dict],
-    sample_size: int = 1000,
+    sample_size: int = 10000,
 ) -> dict:
     """Extract distinct sample values per column from a data table.
 
