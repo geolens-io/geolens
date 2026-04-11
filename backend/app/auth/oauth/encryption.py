@@ -21,7 +21,9 @@ def _get_fernet() -> Fernet:
         salt=b"geolens-oauth-secrets",
         info=b"fernet-key",
     )
-    key = base64.urlsafe_b64encode(kdf.derive(settings.jwt_secret_key.encode()))
+    key = base64.urlsafe_b64encode(
+        kdf.derive(settings.jwt_secret_key.get_secret_value().encode())
+    )
     return Fernet(key)
 
 

@@ -6,14 +6,6 @@ from unittest.mock import AsyncMock, patch
 import fakeredis.aioredis
 import pytest
 
-# Inject dummy env vars before importing app modules (same pattern as test_storage.py)
-import os
-
-os.environ.setdefault("POSTGRES_PASSWORD", "test")
-os.environ.setdefault("JWT_SECRET_KEY", "test")
-os.environ.setdefault("GEOLENS_ADMIN_USERNAME", "admin")
-os.environ.setdefault("GEOLENS_ADMIN_PASSWORD", "admin")
-
 from app.cache.memory import InMemoryCacheProvider
 from app.cache.redis import RedisCacheProvider
 from app.cache.tiles import invalidate_catalog_cache  # noqa: F401

@@ -100,15 +100,17 @@ def init_storage() -> None:
         from app.storage.s3 import S3StorageProvider
 
         if not settings.s3_bucket:
-            raise RuntimeError(
-                "storage_provider='s3' but s3_bucket is not configured"
-            )
+            raise RuntimeError("storage_provider='s3' but s3_bucket is not configured")
         _storage = S3StorageProvider(
             bucket=settings.s3_bucket,
             endpoint=settings.s3_endpoint,
             region=settings.s3_region,
             access_key_id=settings.s3_access_key_id,
-            secret_access_key=settings.s3_secret_access_key,
+            secret_access_key=(
+                settings.s3_secret_access_key.get_secret_value()
+                if settings.s3_secret_access_key
+                else None
+            ),
             allow_http=settings.s3_allow_http,
             addressing_style=settings.s3_addressing_style,
         )

@@ -1,17 +1,10 @@
 """Tests for TileCacheProvider and pool settings externalization."""
 
 import gzip
-import os
 from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
 import pytest
-
-# Inject dummy env vars before importing app modules
-os.environ.setdefault("POSTGRES_PASSWORD", "test")
-os.environ.setdefault("JWT_SECRET_KEY", "test")
-os.environ.setdefault("GEOLENS_ADMIN_USERNAME", "admin")
-os.environ.setdefault("GEOLENS_ADMIN_PASSWORD", "admin")
 
 from app.cache.tile_cache import TileCacheProvider
 
@@ -217,7 +210,7 @@ def test_settings_db_pool_size_env_override(monkeypatch):
 
     s = Settings(
         postgres_password="test",
-        jwt_secret_key="test",
+        jwt_secret_key="test-jwt-secret-padding-to-32-chars",
         geolens_admin_username="admin",
         geolens_admin_password="admin",
     )
@@ -231,7 +224,7 @@ def test_settings_tile_pool_max_size_env_override(monkeypatch):
 
     s = Settings(
         postgres_password="test",
-        jwt_secret_key="test",
+        jwt_secret_key="test-jwt-secret-padding-to-32-chars",
         geolens_admin_username="admin",
         geolens_admin_password="admin",
     )

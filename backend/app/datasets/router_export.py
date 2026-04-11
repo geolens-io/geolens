@@ -136,7 +136,9 @@ async def _resolve_download_user(
     qt = request.query_params.get("token")
     if qt:
         try:
-            payload = jwt.decode(qt, settings.jwt_secret_key, algorithms=["HS256"])
+            payload = jwt.decode(
+                qt, settings.jwt_secret_key.get_secret_value(), algorithms=["HS256"]
+            )
             user_id = payload.get("sub")
             if user_id:
                 result = await db.execute(

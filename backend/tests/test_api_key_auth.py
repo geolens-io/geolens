@@ -16,7 +16,7 @@ from app.config import settings
 from tests.conftest import _create_test_user, get_auth_header
 
 ADMIN_USER = settings.geolens_admin_username
-ADMIN_PASS = settings.geolens_admin_password
+ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
 
 
 @pytest.mark.anyio

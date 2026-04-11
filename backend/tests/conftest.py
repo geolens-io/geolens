@@ -232,7 +232,9 @@ async def _ensure_roles_and_admin(session_factory: async_sessionmaker) -> None:
         if admin is None:
             admin_user = User(
                 username=settings.geolens_admin_username,
-                password_hash=hash_password(settings.geolens_admin_password),
+                password_hash=hash_password(
+                    settings.geolens_admin_password.get_secret_value()
+                ),
                 is_active=True,
             )
             session.add(admin_user)
@@ -248,7 +250,9 @@ async def _ensure_roles_and_admin(session_factory: async_sessionmaker) -> None:
             # Re-activate admin if a previous test deactivated it
             admin.is_active = True
             # Reset password to known value
-            admin.password_hash = hash_password(settings.geolens_admin_password)
+            admin.password_hash = hash_password(
+                settings.geolens_admin_password.get_secret_value()
+            )
             await session.commit()
 
 
@@ -289,7 +293,9 @@ async def _create_test_user(
 async def admin_auth_header(client: AsyncClient) -> dict[str, str]:
     """Return auth headers for the seeded admin user."""
     return await get_auth_header(
-        client, settings.geolens_admin_username, settings.geolens_admin_password
+        client,
+        settings.geolens_admin_username,
+        settings.geolens_admin_password.get_secret_value(),
     )
 
 
@@ -374,7 +380,7 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
             f"port={_settings.postgres_port} "
             f"dbname={_settings.postgres_db_test} "
             f"user={_settings.postgres_user} "
-            f"password={_settings.postgres_password}"
+            f"password={_settings.postgres_password.get_secret_value()}"
         )
 
     monkeypatch.setattr(_ogr, "build_pg_conn_str", _test_pg_conn_str)

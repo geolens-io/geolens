@@ -88,8 +88,13 @@ async def resolve_embedding_base_url(session: AsyncSession) -> str:
 def build_openai_client(base_url: str) -> OpenAI:
     """Return a cached OpenAI client for the given base URL."""
     if base_url not in _cached_openai_clients:
+        api_key = (
+            settings.openai_api_key.get_secret_value()
+            if settings.openai_api_key
+            else None
+        )
         _cached_openai_clients[base_url] = OpenAI(
-            api_key=settings.openai_api_key,
+            api_key=api_key,
             base_url=base_url,
             timeout=httpx.Timeout(60.0, connect=10.0),
             max_retries=2,

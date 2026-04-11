@@ -288,7 +288,7 @@ async def admin_auth_header(client: AsyncClient) -> dict:
         "/auth/login/",
         data={
             "username": app_settings.geolens_admin_username,
-            "password": app_settings.geolens_admin_password,
+            "password": app_settings.geolens_admin_password.get_secret_value(),
         },
     )
     token = resp.json()["access_token"]
@@ -707,7 +707,7 @@ async def test_token_lifetime_from_persistent_config(
         "/auth/login/",
         data={
             "username": app_settings.geolens_admin_username,
-            "password": app_settings.geolens_admin_password,
+            "password": app_settings.geolens_admin_password.get_secret_value(),
         },
     )
     assert resp.status_code == 200
@@ -717,7 +717,7 @@ async def test_token_lifetime_from_persistent_config(
     # Decode the token and verify expiry
     decoded = pyjwt.decode(
         data["access_token"],
-        app_settings.jwt_secret_key,
+        app_settings.jwt_secret_key.get_secret_value(),
         algorithms=[app_settings.jwt_algorithm],
     )
     # Token exp should be within ~2 minutes of iat

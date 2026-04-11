@@ -1,36 +1,16 @@
 """Tests for health service and infrastructure schemas."""
 
 import asyncio
-import os
-import sys
 from unittest.mock import patch
 
 import pytest
 
-# Env vars needed for module-level _create_settings() on first import
-_IMPORT_ENV = {
-    "POSTGRES_PASSWORD": "testpass",
-    "JWT_SECRET_KEY": "testsecret",
-    "GEOLENS_ADMIN_USERNAME": "admin",
-    "GEOLENS_ADMIN_PASSWORD": "adminpass",
-}
-
-_orig_env = os.environ.copy()
-for k, v in _IMPORT_ENV.items():
-    os.environ.setdefault(k, v)
-
-if "app.config" in sys.modules:
-    del sys.modules["app.config"]
-
-from app.health.service import _probe, check_health  # noqa: E402
-from app.admin.schemas import (  # noqa: E402
+from app.health.service import _probe, check_health
+from app.admin.schemas import (
     InfrastructureConfig,
     InfrastructureResponse,
     ProviderHealth,
 )
-
-os.environ.clear()
-os.environ.update(_orig_env)
 
 
 @pytest.mark.asyncio
