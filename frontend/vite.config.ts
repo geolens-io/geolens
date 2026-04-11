@@ -3,7 +3,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
-const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000'
+// API_PROXY_TARGET is consumed only by the dev-server proxy below (Node side).
+// It is *not* exposed to the browser bundle, so the legacy `VITE_` prefix is not
+// required. The fallback for backwards compatibility is preserved one release.
+const apiProxyTarget =
+  process.env.API_PROXY_TARGET ||
+  process.env.VITE_API_PROXY_TARGET ||
+  'http://localhost:8000'
 
 function manualChunks(id: string) {
   if (id.includes('/src/i18n/locales/')) {

@@ -209,7 +209,10 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      VITE_API_PROXY_TARGET: http://api:8000
+      # API_PROXY_TARGET is consumed only by vite.config.ts (Node side) — it
+      # configures the dev-server proxy. The previous name VITE_API_PROXY_TARGET
+      # is misleading because nothing in the browser bundle reads it.
+      API_PROXY_TARGET: http://api:8000
     depends_on:
       api:
         condition: service_healthy
