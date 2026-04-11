@@ -285,6 +285,11 @@ class PersistentConfig(Generic[T]):
 
 
 class _LogLevelConfig(PersistentConfig[str]):
+    def __init__(self, key: str, **kwargs: Any) -> None:
+        # Hard-code type_=str for this subclass — the sole purpose of the
+        # subclass is to attach a side effect hook for log level propagation.
+        super().__init__(key, type_=str, **kwargs)
+
     def _on_change(self, value: str) -> None:
         logging.getLogger().setLevel(value.upper())
 
