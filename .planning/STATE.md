@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
-stopped_at: Phase 221 context gathered
-last_updated: "2026-04-11T12:55:45.121Z"
+stopped_at: Phase 220 context gathered
+last_updated: "2026-04-11T16:21:37.759Z"
 last_activity: 2026-04-11
 progress:
   total_phases: 15
-  completed_phases: 5
-  total_plans: 12
-  completed_plans: 12
+  completed_phases: 6
+  total_plans: 13
+  completed_plans: 13
   percent: 100
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 221 — get_sample_values Sparse-Column Default Bump
+**Current focus:** Phase 220 — CommitRequest Discriminated Union
 
 ## Current Position
 
-Phase: 222
+Phase: 221
 Plan: Not started
-Status: Executing Phase 221
+Status: Executing Phase 220
 Last activity: 2026-04-11
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
@@ -36,7 +36,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 **Velocity:**
 
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -49,6 +49,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 | 214 | 2 | - | - |
 | 218 | 5 | - | - |
 | 221 | 1 | - | - |
+| 220 | 1 | - | - |
 
 **Recent Trend:**
 
@@ -101,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-11T12:10:18.542Z
-Stopped at: Phase 221 context gathered
-Resume file: .planning/phases/221-get-sample-values-sparse-column-observation/221-CONTEXT.md
+Last session: 2026-04-11T15:25:10.423Z
+Stopped at: Phase 220 context gathered
+Resume file: .planning/phases/220-commitrequest-discriminated-union/220-CONTEXT.md

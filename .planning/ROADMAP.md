@@ -268,16 +268,21 @@ Plans:
 - Raster VRT has historical flakiness — test coverage is non-negotiable
 
 ### Phase 220: CommitRequest Discriminated Union
-**Goal**: Split `CommitRequest` (`backend/app/ingest/schemas.py:97`, 1 required + 13 optional fields) into `VectorCommitRequest | RasterCommitRequest | ServiceCommitRequest` and wire the router to accept `Annotated[VectorCommitRequest | RasterCommitRequest | ServiceCommitRequest, Field(discriminator="file_type")]`, moving field-applicability rules out of prose descriptions and into the schema shape
-**Depends on**: Nothing technical, but requires coordinated frontend + OpenAPI + external-consumer rollout
-**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §K6)
-**Plans**: TBD
+**Goal**: Split the flat `CommitRequest` (`backend/app/ingest/schemas.py:97`, 1 required + 13 optional fields) into a shared `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`), and refactor `commit_import` at `backend/app/ingest/router.py:495-540` to validate the request body against a server-dispatched subclass chosen by `_pick_commit_subclass(job)` (mirroring the three-way branch in `service.py:477-506`). Zero wire format change, zero OpenAPI drift, zero frontend coordination — field-applicability rules move from prose descriptions into the type system.
+**Depends on**: None (discuss-phase narrowed scope to internal backend refactor; the OpenAPI contract is preserved via Option C — flat `CommitRequest` stays on the route signature while the handler re-validates against the subclass)
+**Requirements**: INGEST-K6-01, INGEST-K6-02
+**Plans**: 1 plan
+Plans:
+- [x] 220-01-PLAN.md — Schema split (Base + 3 subclasses), `_pick_commit_subclass` dispatch helper, handler refactor with `RequestValidationError`, new `test_commit_request_schemas.py` unit tests, new `TestCommitImportDispatch` integration class, REQUIREMENTS.md backfill, K6 handoff resolution marker
 
-**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
-- This is an API contract change — any external consumer hitting `POST /ingest/commit/{job_id}` needs coordinated updates
-- Needs a deprecation window if the API is externally consumed
-- Current field count (for planning reference): 4 generic (`summary`, `visibility`, `temporal_start`, `temporal_end`) + 5 vector (`srid_override`, `layer_name`, `x_column`, `y_column`, `geom_column`) + 3 raster (`compression`, `resampling`, `nodata_override`) + 1 service auth (`token`)
-- Frontend serialization (in `frontend/src/components/import/`) and OpenAPI generation both need to move in lockstep
+**Key decisions locked from discuss-phase (2026-04-11, see `220-CONTEXT.md`):**
+- **D-01 (Discrimination):** Server-derived from job state (Option C). Flat `CommitRequest` stays on the route signature for OpenAPI + auto-422 on `title`. Handler re-validates `request.model_dump()` against the subclass chosen by `_pick_commit_subclass(job)`. Client body NEVER includes a `file_type` field.
+- **D-02 (Validation strictness):** Silent extras. No `model_config = ConfigDict(extra='forbid')` — kitchen-sink bodies still commit cleanly, matching current behavior.
+- **D-03 (Backward compatibility):** Internal-only refactor. No deprecation window, no `Accept-Version` header, no dual-mode query parameter.
+- **D-04 (Field distribution):** Base = `title`, `summary`, `visibility`, `temporal_start`, `temporal_end`. Vector = base + `srid_override`, `layer_name`, `x_column`, `y_column`, `geom_column`. Raster = base + `srid_override`, `compression`, `resampling`, `nodata_override`. Service = base + `token`. `srid_override` is duplicated on Vector + Raster (not hoisted). `token` is Service-only.
+- **D-05 (Tests):** Three layers — Pydantic unit tests per subclass, router integration tests per file_type, negative kitchen-sink test. Establishes direct router coverage for `POST /ingest/commit/{job_id}` which had ZERO prior tests.
+- **D-06 (Frontend):** Zero changes. `frontend/src/types/api.ts:531` stays flat.
+- **Critical correction to CONTEXT.md D-01 (from research):** Service jobs are NOT discriminated by `user_metadata.file_type == "service"` (that string does not exist anywhere in the codebase). They are discriminated by `job.source_url` being set — the dispatch helper mirrors the three-way branch used by `queue_ingest_job` at `service.py:477-506`.
 
 ### Phase 221: get_sample_values Sparse-Column Default Bump
 **Goal**: Bump the default `sample_size` parameter on `get_sample_values` (`backend/app/ingest/metadata.py:208`) from 1000 to 10000 so sparse columns (e.g. 99%-null columns) yield sample values within the existing `LIMIT 10` display cap, preserving the CTE-batched approach at lines 269-274 as-is
@@ -324,7 +329,7 @@ Plans:
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
 | 219. regenerate_vrt Phase Extraction | v14.0 | 0/? | Not started | - |
-| 220. CommitRequest Discriminated Union | v14.0 | 0/? | Not started | - |
+| 220. CommitRequest Discriminated Union | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 0/? | Not started | - |
 
