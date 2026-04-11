@@ -301,6 +301,7 @@ class _LogLevelConfig(PersistentConfig[str]):
 # -- General tab --
 REGISTRATION_ENABLED = PersistentConfig[bool](
     key="registration_enabled",
+    type_=bool,
     env_default_factory=lambda: settings.registration_enabled,
     tab="auth",
     label="Registration Enabled",
@@ -308,6 +309,7 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
 
 PUBLIC_BASE_URL = PersistentConfig[str](
     key="public_base_url",
+    type_=str,
     env_default_factory=lambda: resolve_public_api_url(
         settings.public_app_url,
         settings.public_api_url,
@@ -319,6 +321,7 @@ PUBLIC_BASE_URL = PersistentConfig[str](
 
 PUBLIC_APP_URL = PersistentConfig[str](
     key="public_app_url",
+    type_=str,
     env_default_factory=lambda: resolve_public_app_url(
         settings.public_app_url,
         settings.public_api_url,
@@ -330,6 +333,7 @@ PUBLIC_APP_URL = PersistentConfig[str](
 
 PUBLIC_API_URL = PersistentConfig[str](
     key="public_api_url",
+    type_=str,
     env_default_factory=lambda: resolve_public_api_url(
         settings.public_app_url,
         settings.public_api_url,
@@ -348,6 +352,7 @@ LOG_LEVEL = _LogLevelConfig(
 
 LOG_JSON = PersistentConfig[bool](
     key="log_json",
+    type_=bool,
     env_default_factory=lambda: settings.log_json,
     tab="general",
     label="JSON Logging",
@@ -355,6 +360,7 @@ LOG_JSON = PersistentConfig[bool](
 
 REQUIRE_METADATA_FOR_PUBLISH = PersistentConfig[bool](
     key="require_metadata_for_publish",
+    type_=bool,
     env_default=False,
     tab="general",
     label="Require Metadata for Publishing",
@@ -363,6 +369,7 @@ REQUIRE_METADATA_FOR_PUBLISH = PersistentConfig[bool](
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",
+    type_=int,
     env_default_factory=lambda: settings.access_token_expire_minutes,
     tab="auth",
     label="Access Token Expiry (min)",
@@ -370,6 +377,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
 
 REFRESH_TOKEN_EXPIRE_DAYS = PersistentConfig[int](
     key="refresh_token_expire_days",
+    type_=int,
     env_default_factory=lambda: settings.refresh_token_expire_days,
     tab="auth",
     label="Refresh Token Expiry (days)",
@@ -377,6 +385,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = PersistentConfig[int](
 
 LOGIN_RATE_LIMIT = PersistentConfig[int](
     key="login_rate_limit",
+    type_=int,
     env_default=_DEFAULT_LOGIN_RATE_LIMIT,
     tab="auth",
     label="Login Rate Limit (per min)",
@@ -385,6 +394,7 @@ LOGIN_RATE_LIMIT = PersistentConfig[int](
 # -- AI tab --
 AI_ENABLED = PersistentConfig[bool](
     key="ai_enabled",
+    type_=bool,
     env_default=True,
     tab="ai",
     label="AI Features Enabled",
@@ -392,6 +402,7 @@ AI_ENABLED = PersistentConfig[bool](
 
 LLM_PROVIDER = PersistentConfig[str](
     key="llm_provider",
+    type_=str,
     env_default_factory=lambda: (
         "anthropic" if settings.anthropic_api_key else "openai_compatible"
     ),
@@ -401,6 +412,7 @@ LLM_PROVIDER = PersistentConfig[str](
 
 LLM_MODEL = PersistentConfig[str](
     key="llm_model",
+    type_=str,
     env_default_factory=lambda: (
         settings.llm_model if settings.anthropic_api_key else settings.openai_model
     ),
@@ -410,6 +422,7 @@ LLM_MODEL = PersistentConfig[str](
 
 OPENAI_BASE_URL = PersistentConfig[str](
     key="openai_base_url",
+    type_=str,
     env_default_factory=lambda: settings.openai_base_url or "",
     tab="ai",
     label="OpenAI-Compatible Base URL",
@@ -417,6 +430,7 @@ OPENAI_BASE_URL = PersistentConfig[str](
 
 EMBEDDING_MODEL = PersistentConfig[str](
     key="embedding_model",
+    type_=str,
     env_default_factory=lambda: settings.embedding_model,
     tab="ai",
     label="Embedding Model",
@@ -424,6 +438,7 @@ EMBEDDING_MODEL = PersistentConfig[str](
 
 EMBEDDING_DIMS = PersistentConfig[int](
     key="embedding_dims",
+    type_=int,
     env_default_factory=lambda: settings.embedding_dims,
     tab="ai",
     label="Embedding Dimensions",
@@ -431,6 +446,7 @@ EMBEDDING_DIMS = PersistentConfig[int](
 
 EMBEDDING_BASE_URL = PersistentConfig[str](
     key="embedding_base_url",
+    type_=str,
     env_default_factory=lambda: settings.embedding_base_url or "",
     tab="ai",
     label="Embedding Base URL",
@@ -438,6 +454,7 @@ EMBEDDING_BASE_URL = PersistentConfig[str](
 
 SEMANTIC_SEARCH_ENABLED = PersistentConfig[bool](
     key="semantic_search_enabled",
+    type_=bool,
     env_default=False,
     tab="ai",
     label="Semantic Search",
@@ -445,6 +462,7 @@ SEMANTIC_SEARCH_ENABLED = PersistentConfig[bool](
 
 AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
     key="ai_send_sample_values",
+    type_=bool,
     env_default=True,
     tab="ai",
     label="Send Sample Values to LLM",
@@ -452,6 +470,7 @@ AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
 
 LLM_MODEL_LIGHT = PersistentConfig[str](
     key="llm_model_light",
+    type_=str,
     env_default_factory=lambda: (
         "claude-haiku-4-5-20251001" if settings.anthropic_api_key else "gpt-4o-mini"
     ),
@@ -462,6 +481,7 @@ LLM_MODEL_LIGHT = PersistentConfig[str](
 # -- Network tab --
 GLOBAL_RATE_LIMIT = PersistentConfig[int](
     key="global_rate_limit",
+    type_=int,
     env_default=_DEFAULT_GLOBAL_RATE_LIMIT,
     tab="network",
     label="Global Rate Limit (per second)",
@@ -469,6 +489,7 @@ GLOBAL_RATE_LIMIT = PersistentConfig[int](
 
 CORS_ALLOWED_ORIGINS = PersistentConfig[str](
     key="cors_allowed_origins",
+    type_=str,
     env_default_factory=lambda: settings.cors_allowed_origins,
     tab="network",
     label="CORS Allowed Origins",
@@ -477,6 +498,7 @@ CORS_ALLOWED_ORIGINS = PersistentConfig[str](
 # -- Storage tab --
 UPLOAD_MAX_SIZE_MB = PersistentConfig[int](
     key="upload_max_size_mb",
+    type_=int,
     env_default_factory=lambda: settings.upload_max_size_mb,
     tab="storage",
     label="Upload Max Size (MB)",
@@ -484,6 +506,7 @@ UPLOAD_MAX_SIZE_MB = PersistentConfig[int](
 
 UPLOAD_ALLOWED_EXTENSIONS = PersistentConfig[str](
     key="upload_allowed_extensions",
+    type_=str,
     env_default_factory=lambda: settings.upload_allowed_extensions,
     tab="storage",
     label="Allowed Upload Extensions",
@@ -531,6 +554,7 @@ async def get_allowed_extensions_list(db: AsyncSession) -> list[str]:
 
 TILE_CACHE_TTL = PersistentConfig[int](
     key="tile_cache_ttl",
+    type_=int,
     env_default_factory=lambda: settings.tile_cache_ttl,
     tab="storage",
     label="Tile Cache TTL (s)",
@@ -578,6 +602,7 @@ _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 
 BASEMAPS = PersistentConfig[list](
     key="basemaps",
+    type_=list,
     env_default=_DEFAULT_BASEMAPS,
     tab="map",
     label="Basemaps",
@@ -585,6 +610,7 @@ BASEMAPS = PersistentConfig[list](
 
 MAP_DEFAULTS = PersistentConfig[dict](
     key="map_defaults",
+    type_=dict,
     env_default=_DEFAULT_MAP_DEFAULTS,
     tab="map",
     label="Map Defaults",
@@ -594,6 +620,7 @@ MAP_DEFAULTS = PersistentConfig[dict](
 # -- Widgets --
 ENABLED_WIDGETS = PersistentConfig[list](
     key="enabled_widgets",
+    type_=list,
     env_default=None,
     tab="map",
     label="Enabled Widgets",
@@ -610,6 +637,7 @@ def _default_role_permissions() -> dict:
 
 ROLE_PERMISSIONS = PersistentConfig[dict](
     key="role_permissions",
+    type_=dict,
     env_default_factory=_default_role_permissions,
     tab="permissions",
     label="Role Permissions",
@@ -618,6 +646,7 @@ ROLE_PERMISSIONS = PersistentConfig[dict](
 # -- Branding tab --
 BRANDING_SHOW_BADGE = PersistentConfig[bool](
     key="branding.show_badge",
+    type_=bool,
     env_default=True,
     tab="branding",
     label="Show Powered by GeoLens Footer Label",
