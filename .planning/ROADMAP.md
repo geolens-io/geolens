@@ -331,7 +331,7 @@ Plans:
 | 219. regenerate_vrt Phase Extraction | v14.0 | 0/? | Not started | - |
 | 220. CommitRequest Discriminated Union | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
-| 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 0/? | Not started | - |
+| 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
 
 ## Backlog
 
