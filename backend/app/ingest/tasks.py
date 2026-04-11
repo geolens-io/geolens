@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.datasets.models import Dataset
     from app.ingest.warnings import IngestJobWarning
     from app.jobs.models import IngestJob
 
@@ -2179,9 +2180,7 @@ async def _update_vrt_dataset_geometry(
 
     from app.datasets.models import Dataset
 
-    dataset_result = await session.execute(
-        select(Dataset).where(Dataset.id == vrt_id)
-    )
+    dataset_result = await session.execute(select(Dataset).where(Dataset.id == vrt_id))
     vrt_dataset = dataset_result.scalar_one_or_none()
     if vrt_dataset is not None and metadata.get("bbox_wkt"):
         vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
@@ -2225,14 +2224,13 @@ async def regenerate_vrt(
         vrt_dataset_id=vrt_dataset_id,
     )
     import io
-    import os
     import shutil
     import tempfile
 
     from app.datasets.models import Dataset
     from app.jobs.models import IngestJob
     from app.raster.models import RasterAsset, VrtGeneration
-    from sqlalchemy import func, select, text
+    from sqlalchemy import select, text
 
     logger_regen = __import__("logging").getLogger(__name__)
 
