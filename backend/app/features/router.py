@@ -25,6 +25,7 @@ from app.features.service import (
     delete_feature,
     get_feature_by_id,
     get_features,
+    get_features_geojson_z,
     insert_feature,
     parse_bbox,
     refresh_dataset_metadata,
@@ -44,6 +45,55 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+@features_router.get(
+    "/{dataset_id}/features.geojson",
+    response_class=JSONResponse,
+    responses={200: {"content": {"application/geo+json": {}}}, **ERROR_RESPONSES_AUTH},
+)
+async def get_features_geojson_z_endpoint(
+    dataset_id: uuid.UUID,
+    include_z: bool = Query(False, description="Include Z coordinates in geometry output"),
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates."""
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    await check_dataset_access(db, dataset, dataset_id, user)
+
+    if dataset.geometry_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Dataset has no geometry",
+        )
+
+    rows, truncated, total_count = await get_features_geojson_z(
+        db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
+    )
+
+    body = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": row["gid"],
+                "geometry": row["geometry"],
+                "properties": row["properties"],
+            }
+            for row in rows
+        ],
+        "truncated": truncated,
+        "total_count": total_count,
+    }
+
+    return JSONResponse(content=body, media_type="application/geo+json")
 
 
 @features_router.get(
