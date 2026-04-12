@@ -175,12 +175,7 @@ async def download_cog(
     from app.raster.models import RasterAsset
 
     # 0. Verify export permission
-    role_result = await db.execute(
-        select(Role.name)
-        .join(UserRole, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == user.id)
-    )
-    user_roles = {row[0] for row in role_result.all()}
+    user_roles = await get_user_roles(db, user)
     matrix = await get_effective_permissions(db)
     if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
         raise HTTPException(

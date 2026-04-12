@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class ContactCreate(BaseModel):
     role: str = Field(
-        max_length=100, description="ISO CI_RoleCode, e.g. pointOfContact, author"
+        max_length=30, description="ISO CI_RoleCode, e.g. pointOfContact, author"
     )
     name: str | None = Field(default=None, max_length=500)
     email: EmailStr | None = None
@@ -26,7 +26,7 @@ class ContactCreate(BaseModel):
 
 
 class ContactUpdate(BaseModel):
-    role: str | None = Field(default=None, max_length=100)
+    role: str | None = Field(default=None, max_length=30)
     name: str | None = Field(default=None, max_length=500)
     email: EmailStr | None = None
     organization: str | None = Field(default=None, max_length=500)
@@ -64,7 +64,7 @@ class KeywordCreate(BaseModel):
     )
     keyword_type: str = Field(
         default="theme",
-        max_length=100,
+        max_length=20,
         description="ISO MD_KeywordTypeCode, e.g. theme, place, discipline",
     )
 
@@ -106,7 +106,7 @@ class DistributionCreate(BaseModel):
     )
     media_type: str | None = Field(
         default=None,
-        max_length=255,
+        max_length=100,
         description="IANA media type, e.g. application/geo+json",
     )
     is_primary: bool = Field(
@@ -121,7 +121,7 @@ class DistributionUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=500)
     description: str | None = Field(default=None, max_length=2000)
     protocol: str | None = Field(default=None, max_length=100)
-    media_type: str | None = Field(default=None, max_length=255)
+    media_type: str | None = Field(default=None, max_length=100)
     is_primary: bool | None = None
 
 
