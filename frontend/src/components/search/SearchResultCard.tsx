@@ -10,7 +10,6 @@ import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
-import { useAuthStore } from '@/stores/auth-store';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import type { OGCRecordResponse } from '@/types/api';
 
@@ -147,13 +146,14 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   const bbox = extractBbox(feature);
 
   // Quicklook: only render when the backend confirms a quicklook exists.
-  // Uses native <img loading="lazy"> with api_key query param instead of base64 fetch
-  // so the browser can cache the image (Cache-Control: public, max-age=3600) and
-  // the search page no longer fires 20+ parallel authenticated fetches.
-  const token = useAuthStore((s) => s.token);
+  // Uses native <img loading="lazy"> so the browser can cache the image
+  // (Cache-Control: public, max-age=3600) and the search page no longer
+  // fires 20+ parallel authenticated fetches.
+  // NOTE: <img> tags cannot send Authorization headers, so quicklooks for
+  // non-public datasets require a dedicated download-token endpoint (future).
   const quicklookId = !isCollection && !isTable && properties.has_quicklook ? (feature.id as string) : null;
   const quicklookUrl = quicklookId
-    ? `/api/datasets/${quicklookId}/quicklook?size=256${token ? `&api_key=${token}` : ''}`
+    ? `/api/datasets/${quicklookId}/quicklook?size=256`
     : null;
 
   // Provenance (for non-collection types)
