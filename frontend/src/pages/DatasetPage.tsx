@@ -18,6 +18,7 @@ import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
 import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
+import { MapErrorBoundary } from '@/components/error';
 import { DatasetDetailSkeleton } from '@/components/dataset/DatasetDetailSkeleton';
 import {
   DatasetDetailHeader,
@@ -572,24 +573,26 @@ export function DatasetPage() {
           {isRasterOrVrt && heroState === 'loading' && (
             <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
           )}
-          <DatasetMap
-            key={isRasterOrVrt ? mapKey : undefined}
-            bbox={bbox}
-            tableName={dataset.table_name}
-            geometryType={dataset.geometry_type}
-            datasetId={id}
-            columnInfo={dataset.column_info}
-            containerRef={mapContainerRef}
-            canEdit={isEditor && !isRaster && !isVrt && !isTable}
-            recordType={dataset.record_type}
-            rasterTileUrl={dataset.raster?.tile_url}
-            tileVersion={dataset.updated_at}
-            onFeatureClick={setReadOnlyFeatureGid}
-            {...(isRasterOrVrt ? {
-              onMapReady,
-              onTileError,
-            } : {})}
-          />
+          <MapErrorBoundary>
+            <DatasetMap
+              key={isRasterOrVrt ? mapKey : undefined}
+              bbox={bbox}
+              tableName={dataset.table_name}
+              geometryType={dataset.geometry_type}
+              datasetId={id}
+              columnInfo={dataset.column_info}
+              containerRef={mapContainerRef}
+              canEdit={isEditor && !isRaster && !isVrt && !isTable}
+              recordType={dataset.record_type}
+              rasterTileUrl={dataset.raster?.tile_url}
+              tileVersion={dataset.updated_at}
+              onFeatureClick={setReadOnlyFeatureGid}
+              {...(isRasterOrVrt ? {
+                onMapReady,
+                onTileError,
+              } : {})}
+            />
+          </MapErrorBoundary>
           {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
             <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
               {t('raster.noTiles')}
