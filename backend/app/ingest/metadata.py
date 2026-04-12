@@ -230,6 +230,70 @@ async def detect_3d_metadata(
     }
 
 
+async def promote_z_to_elev(
+    session: AsyncSession,
+    table_name: str,
+    geometry_type: str | None,
+) -> bool:
+    """For 3D point geometries, extract ST_Z(geom) into an 'elev' numeric column.
+
+    Only runs when:
+    1. The geometry is 3D (caller must verify with detect_3d_metadata first)
+    2. The geometry type is point-like (Point or MultiPoint)
+    3. An 'elev' column does not already exist
+
+    Returns True if the elev column was created, False otherwise.
+    """
+    _validate_table_name(table_name)
+
+    if geometry_type is None:
+        return False
+
+    # Only promote for point-like geometries
+    geom_upper = geometry_type.upper()
+    if geom_upper not in ("POINT", "MULTIPOINT"):
+        return False
+
+    # Check if elev column already exists
+    col_check = await session.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'data' AND table_name = :t "
+            "AND column_name = 'elev'"
+        ).bindparams(t=table_name)
+    )
+    if col_check.scalar_one_or_none() is not None:
+        return False
+
+    # Add elev column and populate from ST_Z
+    await session.execute(
+        text(
+            f"ALTER TABLE {_qtable(table_name)} "
+            f"ADD COLUMN elev double precision"
+        )
+    )
+
+    if geom_upper == "POINT":
+        await session.execute(
+            text(
+                f"UPDATE {_qtable(table_name)} "
+                f"SET elev = ST_Z(geom) "
+                f"WHERE geom IS NOT NULL AND ST_Is3D(geom)"
+            )
+        )
+    else:
+        # MultiPoint: extract Z from first point in the multi
+        await session.execute(
+            text(
+                f"UPDATE {_qtable(table_name)} "
+                f"SET elev = ST_Z(ST_GeometryN(geom, 1)) "
+                f"WHERE geom IS NOT NULL AND ST_Is3D(geom)"
+            )
+        )
+
+    return True
+
+
 async def get_column_info(session: AsyncSession, table_name: str) -> list[dict]:
     """Get column names, types, ordinal position, and nullability.
 
