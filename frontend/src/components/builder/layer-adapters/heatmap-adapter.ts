@@ -51,7 +51,7 @@ export const heatmapAdapter: LayerAdapter = {
         id: layerId,
         type: 'heatmap',
         source: sourceId,
-        'source-layer': sourceLayer,
+        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
         paint: {
           'heatmap-radius': heatmapRadius,
           'heatmap-weight': heatmapWeight,
