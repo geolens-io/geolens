@@ -229,7 +229,15 @@ Plans:
   3. The /features page has an OGC API compliance section that lists supported conformance classes by name
   4. The /quickstart page provides a complete step-by-step path from zero to a running GeoLens instance via docker compose, with individually copyable code blocks for each command
   5. The /quickstart page ends with an expected outcome section describing what the user sees after completing the guide
-**Plans**: TBD
+**Plans**: 7 plans
+Plans:
+- [ ] 216-01-PLAN.md — Install Playwright + tsx; scaffold capture-screenshots.ts script + scripts/README.md (infrastructure only, no captures)
+- [ ] 216-02-PLAN.md — Operator checkpoint (docker compose + seeder); run npm run capture; commit 7 screenshot PNGs
+- [ ] 216-03-PLAN.md — Retrofit Phase 214 previews (SearchPreview, MapBuilderPreview, DatasetDetailPreview) to render real screenshots via Astro <Picture>
+- [ ] 216-04-PLAN.md — Build 3 net-new previews (RasterVrtPreview, AiChatPreview, RbacPreview); expand preview-test.astro
+- [ ] 216-05-PLAN.md — Build /features page with 6 zig-zag capability stripes + OGC API compliance section (corrected Features + Records only)
+- [ ] 216-06-PLAN.md — Build /quickstart page with 8 D-05 sections and corrected port defaults (5434/8001/8080)
+- [ ] 216-07-PLAN.md — Amend Nav.astro with Features + Quickstart subnav and aria-current active-page detection (zero-JS)
 **UI hint**: yes
 
 ### Phase 217: Accessibility Audit and Launch Gate
