@@ -156,7 +156,7 @@ Plans:
 - [x] **Phase 212: Repo Bootstrap and Design System** — Initialize the getgeolens.com repo with Astro 6, Tailwind 4, GeoLens brand tokens, Cloudflare Pages deployment, and accessible layout shell (SITE-01, SITE-02, SITE-03, SITE-04, SITE-05, A11Y-01, A11Y-03) (completed 2026-04-05)
 - [x] **Phase 213: SEO Infrastructure** — Build BaseHead component, Satori OG image endpoint, sitemap/robots, and JSON-LD so every page gets correct SEO automatically (SEO-01, SEO-02, SEO-03, SEO-04) (completed 2026-04-05)
 - [x] **Phase 214: Product Preview Assets** — Create the three CSS-rendered browser-frame product previews (search UI, map builder, dataset detail) that make the product tangible to evaluators (ASSET-01, ASSET-02, ASSET-03) (completed 2026-04-05)
-- [ ] **Phase 215: Homepage** — Build the primary conversion surface with outcome-focused hero, trust bar, feature highlights, product preview, and quickstart teaser (HOME-01, HOME-02, HOME-03, HOME-04, HOME-05)
+- [x] **Phase 215: Homepage** — Build the primary conversion surface with outcome-focused hero, trust bar, feature highlights, product preview, and quickstart teaser (HOME-01, HOME-02, HOME-03, HOME-04, HOME-05) (completed 2026-04-11)
 - [ ] **Phase 216: Features and Quickstart Pages** — Build the /features capability breakdown and /quickstart docker-compose walkthrough (FEAT-01, FEAT-02, FEAT-03, QUICK-01, QUICK-02, QUICK-03)
 - [ ] **Phase 217: Accessibility Audit and Launch Gate** — Verify WCAG 2.1 AA compliance across all pages with Axe scan, keyboard navigation testing, and pre-launch checklist (A11Y-02, A11Y-04)
 
@@ -356,7 +356,7 @@ Plans:
 | 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 214. Product Preview Assets | v14.0 | 2/2 | Complete    | 2026-04-05 |
-| 215. Homepage | v14.0 | 3/4 | In Progress|  |
+| 215. Homepage | v14.0 | 4/4 | Complete    | 2026-04-12 |
 | 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
