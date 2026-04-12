@@ -166,6 +166,10 @@ async def create_dataset(
     source_filename: str | None = None,
     original_srid: int | None = None,
     source_url: str | None = None,
+    is_3d: bool | None = None,
+    n_dims: int | None = None,
+    z_min: float | None = None,
+    z_max: float | None = None,
     visibility: str = "private",
 ) -> Dataset:
     """Create a record + dataset pair from ingestion results.
@@ -204,6 +208,10 @@ async def create_dataset(
         source_filename=source_filename,
         original_srid=original_srid,
         source_url=source_url,
+        is_3d=is_3d,
+        n_dims=n_dims,
+        z_min=z_min,
+        z_max=z_max,
     )
     session.add(dataset)
     await session.flush()
