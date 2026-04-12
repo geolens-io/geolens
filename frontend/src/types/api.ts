@@ -698,7 +698,7 @@ export interface ColumnStatsResponse {
 }
 
 // Maps
-export type MapVisibility = 'private' | 'internal' | 'public';
+export type MapVisibility = 'private' | 'internal' | 'public' | 'unlisted';
 
 export interface MapLayerResponse {
   id: string;
