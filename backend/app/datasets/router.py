@@ -1,6 +1,7 @@
 """Dataset core CRUD endpoints: list, create, get, update, delete, quicklook, history."""
 
 import uuid
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -182,7 +183,7 @@ async def get_single_dataset(
 @router.get("/{dataset_id}/quicklook")
 async def get_quicklook(
     dataset_id: uuid.UUID,
-    size: int = Query(256, description="Quicklook size: 256 or 512"),
+    size: Literal[256, 512] = Query(256, description="Quicklook size: 256 or 512"),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
