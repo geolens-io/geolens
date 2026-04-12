@@ -18,6 +18,7 @@ from app.auth.models import User, UserRole
 from app.auth.visibility import apply_visibility_filter, get_user_roles
 from app.datasets.models import Dataset, DatasetGrant, Record
 from app.maps.models import Map, MapLayer, MapShareToken
+from app.raster.models import RasterAsset
 
 logger = logging.getLogger(__name__)
 
@@ -797,9 +798,13 @@ async def get_shared_map(
             Dataset.column_info,
             Record.visibility,
             Record.record_type,
+            Dataset.is_3d,
+            Dataset.feature_count,
+            RasterAsset.is_dem,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_obj.id)
         .order_by(MapLayer.sort_order)
     )
@@ -817,15 +822,19 @@ async def get_shared_map(
         ds_column_info,
         ds_visibility,
         ds_record_type,
+        ds_is_3d,
+        ds_feature_count,
+        ds_is_dem,
     ) in layer_rows:
         is_public = ds_visibility == "public"
         if not is_public:
             has_non_public = True
-        tile_url = (
-            f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
-            if is_public
-            else f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
-        )
+        if ds_record_type == "raster_dataset":
+            tile_url = f"/tiles/raster-proxy/{layer.dataset_id}/{{z}}/{{x}}/{{y}}.png"
+        elif is_public:
+            tile_url = f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+        else:
+            tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
         layers.append(
             {
                 "dataset_id": str(layer.dataset_id),
@@ -846,6 +855,9 @@ async def get_shared_map(
                 "style_config": layer.style_config,
                 "show_in_legend": layer.show_in_legend,
                 "tile_url": tile_url,
+                "is_dem": bool(ds_is_dem) if ds_is_dem else None,
+                "is_3d": bool(ds_is_3d) if ds_is_3d else None,
+                "feature_count": ds_feature_count,
             }
         )
 

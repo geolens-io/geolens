@@ -54,7 +54,6 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
-    include_z: bool = Query(False, description="Include Z coordinates in geometry output"),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
