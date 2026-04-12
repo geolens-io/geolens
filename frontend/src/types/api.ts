@@ -124,6 +124,10 @@ export interface DatasetResponse {
   stac_assets?: Record<string, unknown>;
   stac_extensions?: string[];
   language?: string;
+  is_3d?: boolean | null;
+  n_dims?: number | null;
+  z_min?: number | null;
+  z_max?: number | null;
 }
 
 export interface DatasetListResponse {
