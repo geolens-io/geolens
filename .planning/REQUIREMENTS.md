@@ -72,6 +72,32 @@ Requirements covering runtime validation at the persistent_config JSONB read bou
 - [ ] **CONFIG-T5-01**: `PersistentConfig[T]` runtime-validates JSONB-unwrapped values via `TypeAdapter[T]` at the DB read boundary. On `pydantic.ValidationError`: logs a structured warning including `key` + `errors` payload, returns `env_default`, does not write to cache, does not raise, does not audit. The same validation path applies to the batch loader (`get_all_registry_values`).
 - [ ] **CONFIG-T5-02**: All 30 `PersistentConfig[X]` / `_LogLevelConfig` instantiations in `backend/app/persistent_config.py` pass a runtime `type_=X` argument matching their static `[X]` subscript. The `_LogLevelConfig` subclass passes `type_=str` via `super().__init__`.
 
+### Backend Audit Remediation
+
+Requirements from post-impl audit (2026-04-11). Phase 224.
+
+- [x] **AUDIT-P0-1**: selectinload replaces joinedload at all 3 Cartesian sites (search FTS, RRF re-fetch, STAC raster query)
+- [x] **AUDIT-P0-2**: SearchResultCard uses native `<img loading="lazy">` instead of base64 fetch hook
+- [x] **AUDIT-P0-3**: Embedding rebuild failure returns 503 and rolls back embedding_dims config
+- [x] **AUDIT-P1-1**: LocalStorageProvider wraps all sync I/O in asyncio.to_thread
+- [x] **AUDIT-P1-2**: API key last_used_at deferred with 60s threshold
+- [x] **AUDIT-P1-3**: Presigned URL generation parallelized with asyncio.gather
+- [x] **AUDIT-P1-4**: get_maps_for_dataset paginated with skip/limit (default 50)
+- [x] **AUDIT-P1-5**: User roles deduplicated to canonical get_user_roles helper
+- [x] **AUDIT-P1-6**: DatasetMeta Pydantic max_length matches SQL column widths
+- [x] **AUDIT-P1-7**: Record* schema max_length matches SQL column widths (5 fields)
+- [x] **AUDIT-P1-8**: UserCreate.email max_length=255 matches User.email String(255)
+- [x] **AUDIT-P1-9**: MapVisibility enum includes 'unlisted' in Pydantic + TS (matches CHECK)
+- [x] **AUDIT-P1-10**: MapLayerInput.layer_type typed as Literal matching CHECK constraint
+- [x] **AUDIT-P1-11**: share_url is absolute via get_public_app_url (all 3 sites)
+- [x] **AUDIT-P1-12**: PersistentConfig uses parameterized generics for 4 config keys
+- [x] **AUDIT-P1-13**: Thumbnail upload uses temp-key pattern with rollback on failure
+- [x] **AUDIT-P1-14**: DatasetMap wrapped in MapErrorBoundary on DatasetPage
+- [x] **AUDIT-P1-15**: OAuth error uses stable error codes + correlation_id
+- [x] **AUDIT-P1-16**: Bulk delete commits per-item with rollback on failure
+- [x] **AUDIT-P1-17**: Chunked encoding body limit enforced via stream counting
+- [x] **AUDIT-P1-18**: Worker recovery uses advisory lock + heartbeat stale detection
+
 ## Future Requirements
 
 Deferred to future milestone. Tracked but not in current roadmap.
@@ -144,6 +170,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONFIG-T5-01 | Phase 222 | Pending |
 | CONFIG-T5-02 | Phase 222 | Pending |
 | RASTER-VRT-FIX-01 | Phase 223 | Pending |
+| AUDIT-P0-1 | Phase 224 | Complete |
+| AUDIT-P0-2 | Phase 224 | Complete |
+| AUDIT-P0-3 | Phase 224 | Complete |
+| AUDIT-P1-1 | Phase 224 | Complete |
+| AUDIT-P1-2 | Phase 224 | Complete |
+| AUDIT-P1-3 | Phase 224 | Complete |
+| AUDIT-P1-4 | Phase 224 | Complete |
+| AUDIT-P1-5 | Phase 224 | Complete |
+| AUDIT-P1-6 | Phase 224 | Complete |
+| AUDIT-P1-7 | Phase 224 | Complete |
+| AUDIT-P1-8 | Phase 224 | Complete |
+| AUDIT-P1-9 | Phase 224 | Complete |
+| AUDIT-P1-10 | Phase 224 | Complete |
+| AUDIT-P1-11 | Phase 224 | Complete |
+| AUDIT-P1-12 | Phase 224 | Complete |
+| AUDIT-P1-13 | Phase 224 | Complete |
+| AUDIT-P1-14 | Phase 224 | Complete |
+| AUDIT-P1-15 | Phase 224 | Complete |
+| AUDIT-P1-16 | Phase 224 | Complete |
+| AUDIT-P1-17 | Phase 224 | Complete |
+| AUDIT-P1-18 | Phase 224 | Complete |
 
 **Coverage:**
 - v14.0 requirements: 27 total
@@ -151,7 +198,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 - Unmapped: 0 ✓
 - Backend Ingest Quality: 5 total (INGEST-N6-01, INGEST-N6-02 — Phase 221; INGEST-K6-01, INGEST-K6-02 — Phase 220; RASTER-VRT-FIX-01 — Phase 223)
 - Backend Config Hardening: 2 total (CONFIG-T5-01, CONFIG-T5-02 — Phase 222)
+- Backend Audit Remediation: 21 total (AUDIT-P0-1 through AUDIT-P1-18 — Phase 224)
 
 ---
 *Requirements defined: 2026-04-04*
-*Last updated: 2026-04-04 — traceability populated after roadmap creation*
+*Last updated: 2026-04-12 — AUDIT-P0/P1 requirements added for Phase 224*

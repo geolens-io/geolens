@@ -11,7 +11,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import ApiKey, Role, User, UserRole
+from app.auth.models import ApiKey, User
+from app.auth.visibility import get_user_roles
 from app.config import settings
 from app.dependencies import get_db
 
@@ -167,12 +168,7 @@ def require_role(*roles: str):
         current_user: Annotated[User, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        result = await db.execute(
-            select(Role.name)
-            .join(UserRole, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == current_user.id)
-        )
-        user_roles = {row[0] for row in result.all()}
+        user_roles = await get_user_roles(db, current_user)
 
         if not user_roles.intersection(roles):
             raise HTTPException(
@@ -203,12 +199,7 @@ def require_permission(*capabilities: str):
         from app.auth.permissions import get_effective_permissions
 
         # Get user roles
-        result = await db.execute(
-            select(Role.name)
-            .join(UserRole, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == current_user.id)
-        )
-        user_roles = {row[0] for row in result.all()}
+        user_roles = await get_user_roles(db, current_user)
 
         # Get effective permission matrix
         matrix = await get_effective_permissions(db)

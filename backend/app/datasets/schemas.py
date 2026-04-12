@@ -322,13 +322,13 @@ class DatasetMeta(BaseModel):
         description="Free-text provenance / lineage statement",
     )
     update_frequency: str | None = Field(
-        default=None, max_length=1000, description="ISO maintenance frequency code"
+        default=None, max_length=30, description="ISO maintenance frequency code"
     )
     usage_constraints: str | None = Field(default=None, max_length=1000)
     access_constraints: str | None = Field(default=None, max_length=1000)
     sensitivity_classification: str | None = Field(
         default=None,
-        max_length=1000,
+        max_length=20,
         description="e.g. public, confidential, restricted",
     )
     theme_category: list[str] | None = Field(
@@ -336,7 +336,7 @@ class DatasetMeta(BaseModel):
     )
     record_status: str | None = Field(
         default=None,
-        max_length=1000,
+        max_length=20,
         description="Lifecycle status: draft, ready, published",
     )
     owner_org: str | None = Field(
@@ -350,7 +350,7 @@ class DatasetMeta(BaseModel):
     )
     language: str | None = Field(
         default=None,
-        max_length=1000,
+        max_length=10,
         description="ISO 639-1 language code, e.g. en, fr",
     )
 
