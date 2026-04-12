@@ -29,7 +29,7 @@ export const fillAdapter: LayerAdapter = {
         id: layerId,
         type: 'fill',
         source: sourceId,
-        'source-layer': sourceLayer,
+        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
         paint: effectiveFillPaint,
         layout,
       });
@@ -46,7 +46,7 @@ export const fillAdapter: LayerAdapter = {
         id: outlineId,
         type: 'line',
         source: sourceId,
-        'source-layer': sourceLayer,
+        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
         paint: {
           'line-color': (typeof outlineColor === 'string' ? outlineColor : null) ?? MAP_COLORS.default.stroke,
           'line-width': outlineWidth ?? 1,
@@ -65,7 +65,7 @@ export const fillAdapter: LayerAdapter = {
           id: extrusionId,
           type: 'fill-extrusion',
           source: sourceId,
-          'source-layer': sourceLayer,
+          ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
           minzoom: 14,
           paint: {
             'fill-extrusion-height': ['coalesce', ['to-number', ['get', heightColumn], 0], 0],
