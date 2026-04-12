@@ -17,6 +17,8 @@ from starlette.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
 from app.collections.models import Collection, CollectionDataset
 from app.config import settings
 from app.datasets.models import Dataset, Record, RecordKeyword
@@ -25,7 +27,7 @@ from app.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
 from app.utils.geo import make_bbox_filter
-from app.search.service import _build_assets, _eager_load_record_relations, dataset_to_ogc_record
+from app.search.service import _build_assets, dataset_to_ogc_record
 from app.stac.schemas import (
     StacCatalog,
     StacCollection,
@@ -214,9 +216,14 @@ async def _dataset_to_stac_item(
 
 def _base_published_raster_query():
     """Base select for published raster/VRT datasets with eager-loaded record."""
-    return _eager_load_record_relations(
+    return (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
+        .options(
+            joinedload(Dataset.record).joinedload(Record.keywords),
+            joinedload(Dataset.record).joinedload(Record.contacts),
+            joinedload(Dataset.record).joinedload(Record.distributions),
+        )
         .where(
             Record.record_type.in_(_STAC_RECORD_TYPES),
             Record.record_status == "published",

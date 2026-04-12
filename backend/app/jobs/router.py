@@ -10,8 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user, require_permission
-from app.auth.models import User
-from app.auth.visibility import get_user_roles
+from app.auth.models import Role, User, UserRole
 from app.dependencies import get_db
 from app.ingest.schemas import UploadResponse
 from app.ingest.service import queue_ingest_job
@@ -107,7 +106,12 @@ async def get_job_status(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        user_roles = await get_user_roles(db, user)
+        role_result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user.id)
+        )
+        user_roles = {row[0] for row in role_result.all()}
         if "admin" not in user_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -296,7 +300,12 @@ async def retry_job(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        user_roles = await get_user_roles(db, user)
+        role_result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user.id)
+        )
+        user_roles = {row[0] for row in role_result.all()}
         if "admin" not in user_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
