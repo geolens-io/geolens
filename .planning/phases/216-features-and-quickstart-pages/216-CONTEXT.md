@@ -186,28 +186,40 @@ raster tiles.         | • Styles
 **Notes:**
 - Same `<Picture>` + AVIF/WebP/PNG pipeline as the capability previews (D-12)
 - Same BrowserFrame wrapping as other previews (D-11) OR a simpler unframed treatment for visual differentiation from the capability sections above — planner's call
-- If the screenshot is reused from D-01, it goes in the same `public/screenshots/` path and is just referenced twice
+- If the screenshot is reused from D-01, it lives in `src/assets/screenshots/` (NOT `public/`, per D-13) and is just referenced twice via two separate TypeScript imports
 
-### D-07: Marketing subnav — Features + Quickstart + GitHub at sm+
+### D-07: Marketing subnav — Home + Features + Quickstart + GitHub at sm+
 
 **Decision:** Amend `Nav.astro` to add subnav links. Layout:
 
-- **Desktop (sm+, ≥640px):** Logo + `Features` link + `Quickstart` link + GitHub icon button
+- **Desktop (sm+, ≥640px):** Logo + `Home` link + `Features` link + `Quickstart` link + GitHub icon button
 - **Mobile (<640px):** Logo + GitHub icon only (current Phase 215 minimal state preserved)
 
 The active page's link is styled with a different color or underline (`aria-current="page"` for accessibility). No hamburger menu — mobile users navigate via homepage hero CTAs and footer links. Zero-JS constraint is preserved.
+
+**Why a literal "Home" text link (not just logo-as-home):** SITE-03 in REQUIREMENTS.md literally enumerates the page links as `(Home, Features, Quickstart)`. The logo does act as a home link implicitly, but the requirement calls out "Home" as an explicit page link. Adding a text link satisfies the requirement verbatim and is a small, zero-risk addition. When the user is on `/`, the Home link gets `aria-current="page"` and the standard active styling.
+
+**Link order in the DOM (left to right at desktop):** Logo → Home → Features → Quickstart → (right-aligned) GitHub icon button. The three text links cluster after the logo; GitHub stays right-aligned.
 
 **Active state styling:**
 - Default: `color: var(--muted-foreground)`
 - Hover: `color: var(--foreground)`
 - Active (`aria-current="page"`): `color: var(--primary-700)` + subtle bottom-border or slightly heavier weight
 
-**Rationale:** With two new pages existing as real content, the nav needs to surface them. Minimal was rejected because it forces users back to the homepage to navigate. The full nav with placeholders (Docs, Blog) was rejected because linking to content that doesn't exist creates 404 friction. Desktop-only subnav with mobile fallback is a documented pattern for zero-JS marketing sites.
+**Active-page matching:**
+- Home: `pathname === '/'` — exact match only (do NOT use `startsWith('/')` — that matches everything)
+- Features: `pathname === '/features' || pathname.startsWith('/features/')`
+- Quickstart: `pathname === '/quickstart' || pathname.startsWith('/quickstart/')`
+
+**Rationale:** With two new pages existing as real content plus the homepage, the nav needs to surface all three. Minimal (logo + github) was rejected because it forces users back to the homepage to navigate. The full nav with placeholders (Docs, Blog) was rejected because linking to content that doesn't exist creates 404 friction. Desktop-only subnav with mobile fallback is a documented pattern for zero-JS marketing sites. SITE-03's literal "Home" enumeration tipped the balance toward an explicit text link over logo-as-home convention.
 
 **Accessibility notes:**
 - `aria-label="Main navigation"` already present on the `<nav>` element
 - Each nav link needs proper semantic markup; the current page link gets `aria-current="page"`
 - Focus-visible outline per global `:focus-visible` rule in `global.css`
+- The Home text link is in addition to the logo anchor — both link to `/`. Screen reader users get two paths to home, which is fine (skip-to-content link is also present in the page body).
+
+**Closes:** SITE-03 ("Shared nav with logo, page links (Home, Features, Quickstart), and GitHub link"). Originally assigned to Phase 212 but deferred; this phase satisfies it in Plan 07.
 
 ### D-08: Shared previews live in `components/previews/`
 
@@ -232,7 +244,7 @@ The active page's link is styled with a different color or underline (`aria-curr
 
 1. Assumes a running GeoLens instance (either local `docker compose up` or a seeded fixture instance — researcher to propose)
 2. For each capability in D-01, navigates to the target route, waits for content to settle, and captures a screenshot
-3. Writes outputs to `getgeolens.com/public/screenshots/` as named PNG files (source of truth)
+3. Writes outputs to `getgeolens.com/src/assets/screenshots/` as named PNG files (source of truth — see D-13 for the critical `src/assets/` vs `public/` distinction; `public/` skips Astro optimization)
 4. Astro's `<Picture>` pipeline (D-12) handles AVIF/WebP derivation at build time
 
 **What the script requires:**
