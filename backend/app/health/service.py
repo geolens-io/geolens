@@ -82,7 +82,7 @@ async def check_health() -> dict[str, Any]:
 
 async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
     """Probe all enabled OIDC providers and return status dict keyed by slug."""
-    from app.config_ops.service import _check_oidc_endpoint
+    from app.config_ops.service import check_oidc_endpoint
 
     try:
         from app.auth.oauth import service as oauth_service
@@ -95,6 +95,6 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
         return {}
 
     probes = await asyncio.gather(
-        *[_probe(p.slug, _check_oidc_endpoint(p)) for p in providers]
+        *[_probe(p.slug, check_oidc_endpoint(p)) for p in providers]
     )
     return {p.slug: result for p, result in zip(providers, probes)}

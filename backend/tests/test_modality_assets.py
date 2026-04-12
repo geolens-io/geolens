@@ -1,4 +1,4 @@
-"""Unit tests for modality-aware _build_assets and unified assets dict.
+"""Unit tests for modality-aware build_assets and unified assets dict.
 
 These are pure unit tests -- no database or fixtures required.
 Uses SimpleNamespace mocks for Dataset and Record objects.
@@ -6,7 +6,7 @@ Uses SimpleNamespace mocks for Dataset and Record objects.
 
 from types import SimpleNamespace
 
-from app.search.service import _build_assets
+from app.search.service import build_assets
 
 
 def _make_dataset(
@@ -27,7 +27,7 @@ class TestModalityAssets:
     def test_vector_dataset_has_download_links(self):
         """Vector datasets should have download links, vector tiles, and OGC features."""
         ds = _make_dataset(record_type="vector_dataset", table_name="parcels")
-        assets = _build_assets(ds, API_URL)
+        assets = build_assets(ds, API_URL)
 
         assert "download_geojson" in assets
         assert "download_gpkg" in assets
@@ -41,7 +41,7 @@ class TestModalityAssets:
     def test_vector_dataset_no_table_name(self):
         """Vector dataset without table_name omits tile/feature assets."""
         ds = _make_dataset(record_type="vector_dataset", table_name=None)
-        assets = _build_assets(ds, API_URL)
+        assets = build_assets(ds, API_URL)
 
         assert "download_geojson" in assets
         assert "vector_tiles" not in assets
@@ -50,7 +50,7 @@ class TestModalityAssets:
     def test_raster_dataset_has_raster_tiles(self):
         """Raster datasets should have raster tiles and no vector assets."""
         ds = _make_dataset(record_type="raster_dataset")
-        assets = _build_assets(ds, API_URL)
+        assets = build_assets(ds, API_URL)
 
         assert "raster_tiles" in assets
         assert assets["raster_tiles"]["type"] == "image/png"
@@ -65,7 +65,7 @@ class TestModalityAssets:
     def test_vrt_dataset_has_raster_tiles(self):
         """VRT datasets should have raster tiles like raster datasets."""
         ds = _make_dataset(record_type="vrt_dataset")
-        assets = _build_assets(ds, API_URL)
+        assets = build_assets(ds, API_URL)
 
         assert "raster_tiles" in assets
         assert "download_geojson" not in assets
@@ -74,7 +74,7 @@ class TestModalityAssets:
     def test_collection_has_empty_assets(self):
         """Collection records should return empty assets dict."""
         ds = _make_dataset(record_type="collection")
-        assets = _build_assets(ds, API_URL)
+        assets = build_assets(ds, API_URL)
 
         assert assets == {}
 
@@ -91,7 +91,7 @@ class TestModalityAssets:
                 "description": None,
             },
         ]
-        assets = _build_assets(ds, API_URL, stac_asset_rows=stac_rows)
+        assets = build_assets(ds, API_URL, stac_asset_rows=stac_rows)
 
         # Should have both computed and merged assets
         assert "raster_tiles" in assets
@@ -115,7 +115,7 @@ class TestModalityAssets:
                 "description": None,
             },
         ]
-        assets = _build_assets(ds, API_URL, stac_asset_rows=stac_rows)
+        assets = build_assets(ds, API_URL, stac_asset_rows=stac_rows)
 
         # DatasetAsset row should override computed value
         assert (
@@ -132,7 +132,7 @@ class TestModalityAssets:
             table_name="test_table",
             record=record,
         )
-        assets = _build_assets(ds, API_URL)
+        assets = build_assets(ds, API_URL)
 
         assert "download_geojson" in assets
         assert "raster_tiles" not in assets

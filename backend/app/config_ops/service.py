@@ -385,7 +385,7 @@ async def import_config(
 OIDC_PROBE_TIMEOUT = 5.0
 
 
-async def _check_oidc_endpoint(provider: Any) -> None:
+async def check_oidc_endpoint(provider: Any) -> None:
     """Probe an OIDC provider's discovery or authorize endpoint.
 
     Raises on failure so the _probe wrapper captures the error.
@@ -426,7 +426,7 @@ async def validate_connectivity(db: AsyncSession) -> ConnectivityResult:
 
     if providers:
         oidc_probes = await asyncio.gather(
-            *[_probe(p.slug, _check_oidc_endpoint(p)) for p in providers]
+            *[_probe(p.slug, check_oidc_endpoint(p)) for p in providers]
         )
         for provider, result in zip(providers, oidc_probes):
             oidc_results[provider.slug] = ServiceProbeResult(

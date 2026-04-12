@@ -8,7 +8,6 @@ DB overrides are ignored and writes are blocked.
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
 from typing import Any, Generic, TypeVar, cast
@@ -23,7 +22,7 @@ from app.audit.service import log_action
 from app.cache import get_cache
 from app.cache.provider import CacheProvider
 from app.config import settings
-from app.public_urls import resolve_public_api_url, resolve_public_app_url
+from app.public_urls import _is_env_only, resolve_public_api_url, resolve_public_app_url
 from app.settings.models import AppSetting
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -34,14 +33,10 @@ _CACHE_TTL = 30  # seconds
 _CACHE_PREFIX = "config:"
 
 # ---------------------------------------------------------------------------
-# Module-level registry and ENV_ONLY helper
+# Module-level registry
 # ---------------------------------------------------------------------------
 
 _registry: list[PersistentConfig] = []
-
-
-def _is_env_only() -> bool:
-    return os.environ.get("ENV_ONLY_CONFIG", "").lower() in ("true", "1", "yes")
 
 
 def _get_cache_safe() -> CacheProvider | None:
@@ -271,10 +266,8 @@ class PersistentConfig(Generic[T]):
 
     def _update_sync_cache(self, value: Any) -> None:
         """Update sync cache for rate-limit accessor if applicable."""
-        if self.key == "login_rate_limit":
-            _sync_rate_limit_cache["login_rate_limit"] = (value, time.monotonic())
-        elif self.key == "global_rate_limit":
-            _sync_rate_limit_cache["global_rate_limit"] = (value, time.monotonic())
+        if self.key in ("login_rate_limit", "global_rate_limit"):
+            _sync_rate_limit_cache[self.key] = (value, time.monotonic())
 
 
 # ---------------------------------------------------------------------------
@@ -596,17 +589,19 @@ _DEFAULT_BASEMAPS = [
 
 _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 
-BASEMAPS = PersistentConfig[list](
+from app.settings.schemas import BasemapEntry, MapDefaultsResponse  # noqa: E402
+
+BASEMAPS = PersistentConfig[list[BasemapEntry]](
     key="basemaps",
-    type_=list,
+    type_=list[BasemapEntry],
     env_default=_DEFAULT_BASEMAPS,
     tab="map",
     label="Basemaps",
 )
 
-MAP_DEFAULTS = PersistentConfig[dict](
+MAP_DEFAULTS = PersistentConfig[MapDefaultsResponse](
     key="map_defaults",
-    type_=dict,
+    type_=MapDefaultsResponse,
     env_default=_DEFAULT_MAP_DEFAULTS,
     tab="map",
     label="Map Defaults",
@@ -614,9 +609,9 @@ MAP_DEFAULTS = PersistentConfig[dict](
 
 
 # -- Widgets --
-ENABLED_WIDGETS = PersistentConfig[list](
+ENABLED_WIDGETS = PersistentConfig[list[str] | None](
     key="enabled_widgets",
-    type_=list,
+    type_=list[str] | None,
     env_default=None,
     tab="map",
     label="Enabled Widgets",
@@ -631,9 +626,9 @@ def _default_role_permissions() -> dict:
     return DEFAULT_ROLE_PERMISSIONS
 
 
-ROLE_PERMISSIONS = PersistentConfig[dict](
+ROLE_PERMISSIONS = PersistentConfig[dict[str, list[str]]](
     key="role_permissions",
-    type_=dict,
+    type_=dict[str, list[str]],
     env_default_factory=_default_role_permissions,
     tab="permissions",
     label="Role Permissions",

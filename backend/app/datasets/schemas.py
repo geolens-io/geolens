@@ -60,7 +60,7 @@ class ColumnDefinition(BaseModel):
 
 
 class CreateEmptyDatasetRequest(BaseModel):
-    title: str
+    title: str = Field(max_length=500)
     columns: list[ColumnDefinition]
 
 

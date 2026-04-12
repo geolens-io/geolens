@@ -12,7 +12,7 @@ from app.auth.models import User
 from app.datasets.models import Dataset, Record
 from app.dependencies import get_db
 from app.ingest.ogr import IngestionError
-from app.ingest.tasks import _enrich_source_url, _resolve_service_type
+from app.ingest.tasks import enrich_source_url, resolve_service_type
 from app.jobs.models import IngestJob
 from app.services.arcgis import ArcGISTokenError, normalize_arcgis_url
 from app.services.preview import build_gdal_source, run_service_preview
@@ -246,10 +246,10 @@ async def preview_service_layer(
 
     # Step 1b: Duplicate source detection (ArcGIS and WFS only)
     # Detect if (source_url, source_format, created_by) already exists.
-    # The stored URL includes the layer suffix (via _enrich_source_url), so
+    # The stored URL includes the layer suffix (via enrich_source_url), so
     # we reconstruct the enriched form before querying.
     try:
-        _, source_format = _resolve_service_type(request.service_type)
+        _, source_format = resolve_service_type(request.service_type)
         # Normalize then re-enrich to match the stored URL form.
         # normalize_arcgis_url extracts the layer_id from the URL if already embedded.
         try:
@@ -259,7 +259,7 @@ async def preview_service_layer(
         effective_layer_id = (
             request.layer_id if request.layer_id is not None else url_layer_id
         )
-        enriched_url = _enrich_source_url(base_url, effective_layer_id)
+        enriched_url = enrich_source_url(base_url, effective_layer_id)
         existing_stmt = (
             select(Dataset.id, Record.title)
             .join(Record, Dataset.record_id == Record.id)
@@ -288,7 +288,7 @@ async def preview_service_layer(
     except HTTPException:
         raise
     except Exception:
-        # If service_type is not ArcGIS/WFS, _resolve_service_type raises —
+        # If service_type is not ArcGIS/WFS, resolve_service_type raises —
         # skip the duplicate check and let Step 2 handle validation.
         pass
 

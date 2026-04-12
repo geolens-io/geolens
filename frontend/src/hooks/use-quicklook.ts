@@ -1,3 +1,5 @@
+// DEPRECATED: P0-2 replaced with native <img> lazy loading in SearchResultCard.
+// This hook is no longer referenced by any component. Safe to delete once confirmed unused.
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { queryKeys } from '@/lib/query-keys';

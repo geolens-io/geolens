@@ -15,7 +15,7 @@ from pathlib import Path
 
 import structlog
 import uvicorn
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, text
 
 from app.config import settings
 from app.logging_config import setup_logging
@@ -27,14 +27,27 @@ structlog.contextvars.bind_contextvars(service="worker")
 log = structlog.get_logger()
 
 
+# Stable app-unique integer used for the PostgreSQL advisory lock that
+# prevents concurrent stale-job recovery across multiple worker processes.
+RECOVERY_LOCK_KEY = 224_001
+
+
 async def recover_stale_jobs() -> None:
-    """Mark any jobs left in 'running' or orphaned 'pending' state as failed.
+    """Mark stale jobs as failed using an advisory lock + heartbeat check.
 
     This handles two cases:
-    1. Worker was killed while processing a job (status='running')
+    1. Worker was killed while processing a job (status='running', no recent
+       heartbeat) — detected via last_heartbeat_at age threshold.
     2. Job was created but never queued — e.g., the HTTP request that
        would have called defer_async() got a 502 (status='pending'
        with no corresponding procrastinate task, older than 1 hour)
+
+    An advisory lock prevents multiple workers from running recovery
+    concurrently on startup (e.g., rolling restart). A worker that fails to
+    acquire the lock skips recovery — another worker already holds it.
+
+    Jobs with a recent heartbeat are NOT marked as stale, so an actively
+    running job on another worker instance survives a rolling restart.
 
     Each recovered job is logged individually with its job_id for
     traceability.
@@ -43,14 +56,37 @@ async def recover_stale_jobs() -> None:
     from app.jobs.models import IngestJob
 
     now = datetime.now(timezone.utc)
+    stale_cutoff = now - timedelta(minutes=5)
     pending_cutoff = now - timedelta(hours=1)
 
     async with async_session() as session:
-        # Recover running jobs (worker crash)
-        result = await session.execute(
-            select(IngestJob).where(IngestJob.status == "running")
+        # Advisory lock: only one worker runs recovery at a time.
+        # pg_try_advisory_xact_lock is released automatically when the
+        # transaction ends, so no explicit unlock is needed.
+        lock_result = await session.execute(
+            text("SELECT pg_try_advisory_xact_lock(:key)"),
+            {"key": RECOVERY_LOCK_KEY},
         )
-        stale_jobs = list(result.scalars())
+        if not lock_result.scalar():
+            log.info("Stale job recovery skipped — another worker holds the lock")
+            return
+
+        # Recover running jobs whose heartbeat is older than 5 minutes.
+        # Jobs with no heartbeat AND created more than 5 minutes ago are
+        # also considered stale (covers the pre-heartbeat code path).
+        stale_result = await session.execute(
+            select(IngestJob).where(
+                IngestJob.status == "running",
+                or_(
+                    IngestJob.last_heartbeat_at < stale_cutoff,
+                    and_(
+                        IngestJob.last_heartbeat_at.is_(None),
+                        IngestJob.created_at < stale_cutoff,
+                    ),
+                ),
+            )
+        )
+        stale_jobs = list(stale_result.scalars())
         for job in stale_jobs:
             job.status = "failed"
             job.error_message = "Stale: worker restarted while job was running"
@@ -58,16 +94,17 @@ async def recover_stale_jobs() -> None:
             log.warning(
                 "Recovered stale running job",
                 job_id=str(job.id),
+                last_heartbeat=str(job.last_heartbeat_at),
             )
 
         # Recover orphaned pending jobs (never queued)
-        result = await session.execute(
+        orphaned_result = await session.execute(
             select(IngestJob).where(
                 IngestJob.status == "pending",
                 IngestJob.created_at < pending_cutoff,
             )
         )
-        orphaned_jobs = list(result.scalars())
+        orphaned_jobs = list(orphaned_result.scalars())
         for job in orphaned_jobs:
             job.status = "failed"
             job.error_message = "Stale: job was pending for over 1 hour (never queued)"
