@@ -22,9 +22,6 @@ are required. This migration documents the Pydantic schema tightening:
 """
 from typing import Sequence, Union
 
-from alembic import op
-import sqlalchemy as sa
-
 
 # revision identifiers, used by Alembic.
 revision: str = '989ae68d7859'

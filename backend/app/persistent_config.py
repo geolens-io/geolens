@@ -25,6 +25,7 @@ from app.cache.provider import CacheProvider
 from app.config import settings
 from app.public_urls import resolve_public_api_url, resolve_public_app_url
 from app.settings.models import AppSetting
+from app.settings.schemas import BasemapEntry, MapDefaultsResponse
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -595,8 +596,6 @@ _DEFAULT_BASEMAPS = [
 ]
 
 _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
-
-from app.settings.schemas import BasemapEntry, MapDefaultsResponse
 
 BASEMAPS = PersistentConfig[list[BasemapEntry]](
     key="basemaps",
