@@ -6,7 +6,7 @@ function uses this column to distinguish between jobs that were killed
 mid-run (no recent heartbeat) and jobs that are actively running on
 another worker instance (recent heartbeat).
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a1b2c3d4e5f7
 Revises: f3a4b5c6d7e8
 Create Date: 2026-04-12
 """
@@ -16,7 +16,7 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "a1b2c3d4e5f7"
 down_revision: Union[str, None] = "f3a4b5c6d7e8"
 branch_labels = None
 depends_on = None
