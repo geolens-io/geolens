@@ -473,6 +473,8 @@ async def _bulk_check_dataset_access(
     for ds_id, visibility, created_by in rows:
         if visibility == "public":
             accessible.add(ds_id)
+        elif visibility == "internal":
+            accessible.add(ds_id)  # all authenticated users can see internal
         elif visibility == "private" and created_by == user.id:
             accessible.add(ds_id)
         elif visibility == "restricted":
