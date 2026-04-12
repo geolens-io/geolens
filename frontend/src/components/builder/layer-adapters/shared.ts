@@ -8,6 +8,7 @@ export const CUSTOM_PAINT_PROPS = new Set([
   '_fill-disabled', '_stroke-disabled',
   '_fill-opacity-saved', '_outline-width-saved',
   '_heatmap-ramp', '_heatmap-weight-column',
+  '_height_column',
 ]);
 
 export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {

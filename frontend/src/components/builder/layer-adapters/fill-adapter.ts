@@ -9,6 +9,7 @@ export const fillAdapter: LayerAdapter = {
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter } = input;
     const outlineId = `${input.layerId}-outline`;
+    const heightColumn = rawPaint['_height_column'] as string | undefined;
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
@@ -55,6 +56,29 @@ export const fillAdapter: LayerAdapter = {
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(outlineId, filter);
       }
+
+      // Companion fill-extrusion layer: only when _height_column is set
+      if (heightColumn) {
+        const extrusionId = `${layerId}-extrusion`;
+        const fillColor = (rawPaint['fill-color'] as string | undefined) ?? MAP_COLORS.default.fill;
+        map.addLayer({
+          id: extrusionId,
+          type: 'fill-extrusion',
+          source: sourceId,
+          'source-layer': sourceLayer,
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-height': ['coalesce', ['to-number', ['get', heightColumn], 0], 0],
+            'fill-extrusion-base': 0,
+            'fill-extrusion-color': fillColor,
+            'fill-extrusion-opacity': Math.min(opacity ?? 1, 0.85),
+            'fill-extrusion-vertical-gradient': true,
+          },
+        });
+        if (filter && Array.isArray(filter) && filter.length > 0) {
+          map.setFilter(extrusionId, filter);
+        }
+      }
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
     }
@@ -100,11 +124,33 @@ export const fillAdapter: LayerAdapter = {
         if (map.getFilter(outlineId) != null) map.setFilter(outlineId, null);
       }
     }
+    // Sync fill-extrusion companion layer
+    const extrusionId = `${layerId}-extrusion`;
+    if (map.getLayer(extrusionId)) {
+      const heightColumn = rawPaint['_height_column'] as string | undefined;
+      if (heightColumn) {
+        const fillColor = rawPaint['fill-color'] as string | undefined;
+        if (fillColor) {
+          try {
+            map.setPaintProperty(extrusionId, 'fill-extrusion-color', fillColor);
+          } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion color:`, e); }
+        }
+        map.setPaintProperty(extrusionId, 'fill-extrusion-opacity', Math.min(opacity ?? 1, 0.85));
+        if (filter && Array.isArray(filter) && filter.length > 0) {
+          map.setFilter(extrusionId, filter);
+        } else {
+          if (map.getFilter(extrusionId) != null) map.setFilter(extrusionId, null);
+        }
+        // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
+        try { map.triggerRepaint(); } catch { /* ok if not available */ }
+      }
+    }
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, visible } = input;
     const outlineId = `${input.layerId}-outline`;
+    const extrusionId = `${input.layerId}-extrusion`;
     const vis = visible ? 'visible' : 'none';
     if (map.getLayer(layerId)) {
       map.setLayoutProperty(layerId, 'visibility', vis);
@@ -112,10 +158,12 @@ export const fillAdapter: LayerAdapter = {
     if (map.getLayer(outlineId)) {
       map.setLayoutProperty(outlineId, 'visibility', vis);
     }
+    if (map.getLayer(extrusionId)) {
+      map.setLayoutProperty(extrusionId, 'visibility', vis);
+    }
   },
 
   getLayerIds(layerId: string): string[] {
-    // layerId is "layer-{id}", outline is "layer-{id}-outline"
-    return [layerId, `${layerId}-outline`];
+    return [layerId, `${layerId}-outline`, `${layerId}-extrusion`];
   },
 };
