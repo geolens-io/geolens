@@ -2,8 +2,6 @@ import uuid
 from enum import Enum
 from datetime import datetime, timezone
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -11,7 +9,6 @@ class MapVisibility(str, Enum):
     private = "private"
     internal = "internal"
     public = "public"
-    unlisted = "unlisted"
 
 
 class MapLayerInput(BaseModel):
@@ -44,9 +41,8 @@ class MapLayerInput(BaseModel):
     style_config: dict | None = Field(
         default=None, description="Data-driven style configuration"
     )
-    layer_type: Literal["vector_geolens", "raster_geolens", "geojson"] | None = Field(
-        default=None,
-        description="Auto-detected from record_type if omitted",
+    layer_type: str | None = Field(
+        default=None, description="Auto-detected from record_type if omitted"
     )
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"
@@ -71,7 +67,7 @@ class MapUpdate(BaseModel):
         default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
     )
     basemap_style: str | None = Field(
-        default=None, max_length=30, description="Basemap style ID or URL"
+        default=None, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = Field(
@@ -94,7 +90,6 @@ class MapLayerResponse(BaseModel):
     dataset_extent_bbox: list[float] | None
     dataset_column_info: list[dict] | None = None
     dataset_feature_count: int | None = None
-    is_3d: bool | None = None
     dataset_sample_values: dict | None = None
     display_name: str | None = None
     sort_order: int
@@ -172,8 +167,6 @@ class SharedLayerResponse(BaseModel):
     table_name: str
     geometry_type: str | None
     column_info: list[dict] | None = None
-    is_3d: bool | None = None
-    feature_count: int | None = None
     sort_order: int
     visible: bool
     opacity: float
@@ -186,7 +179,6 @@ class SharedLayerResponse(BaseModel):
     style_config: dict | None = None
     show_in_legend: bool = True
     tile_url: str
-    is_dem: bool = False
 
 
 class SharedMapResponse(BaseModel):

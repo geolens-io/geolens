@@ -1,6 +1,5 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
-import logging
 import uuid
 from typing import Literal
 
@@ -18,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
-from app.public_urls import get_public_app_url
 from app.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -63,8 +61,6 @@ from app.maps.service import (
     validate_public_visibility,
 )
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/maps", tags=["Maps"])
 
 
@@ -83,7 +79,6 @@ def _build_layer_response(
     feature_count: int | None = None,
     sample_values: dict | None = None,
     record_type: str | None = None,
-    is_3d: bool | None = None,
 ) -> MapLayerResponse:
     """Build a MapLayerResponse from a layer tuple."""
     return MapLayerResponse(
@@ -95,7 +90,6 @@ def _build_layer_response(
         dataset_extent_bbox=extent_to_bbox(extent),
         dataset_column_info=column_info,
         dataset_feature_count=feature_count,
-        is_3d=is_3d,
         dataset_sample_values=sample_values,
         display_name=layer.display_name,
         sort_order=layer.sort_order,
@@ -116,9 +110,9 @@ def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
     """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
     return [
         _build_layer_response(
-            layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type, is_3d
+            layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type
         )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type, is_3d in layer_tuples
+        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
     ]
 
 
@@ -356,13 +350,7 @@ async def update_map_endpoint(
     if "layers" in kwargs:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 
-    try:
-        await update_map(db, map_id, **kwargs)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
+    await update_map(db, map_id, **kwargs)
 
     await log_action(
         db,
@@ -404,13 +392,7 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    try:
-        map_name = await delete_map(db, map_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
+    map_name = await delete_map(db, map_id)
     await log_action(
         db,
         user_id=user.id,
@@ -480,7 +462,6 @@ async def duplicate_map_endpoint(
 @router.get("/{map_id}/share/", response_model=ShareTokenResponse | None)
 async def get_map_share_token_endpoint(
     map_id: uuid.UUID,
-    request: Request,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse | None:
@@ -495,10 +476,9 @@ async def get_map_share_token_endpoint(
     token_obj = await get_active_share_token(db, map_id)
     if token_obj is None:
         return None
-    public_url = await get_public_app_url(db, request=request)
     return ShareTokenResponse(
         token=token_obj.token,
-        share_url=f"{public_url}/m/{token_obj.token}",
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -538,10 +518,9 @@ async def share_map_endpoint(
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
-    public_url = await get_public_app_url(db, request=request)
     return ShareTokenResponse(
         token=token_obj.token,
-        share_url=f"{public_url}/m/{token_obj.token}",
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -579,10 +558,9 @@ async def update_map_share_token_endpoint(
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
-    public_url = await get_public_app_url(db, request=request)
     return ShareTokenResponse(
         token=token_obj.token,
-        share_url=f"{public_url}/m/{token_obj.token}",
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -667,7 +645,7 @@ async def upload_thumbnail(
     try:
         header, encoded = data_uri.split(",", 1)
         image_bytes = base64.b64decode(encoded)
-    except Exception:
+    except (ValueError, Exception):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid data URI or base64 encoding",
@@ -675,38 +653,13 @@ async def upload_thumbnail(
 
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
-
-    # Save old key so we can clean it up after a successful commit
-    old_thumbnail_uri = map_obj.thumbnail_uri
-
-    # Write to a temp key; only point the DB at it after a successful commit
-    temp_key = f"maps/thumbnails/{map_id}.{ext}.{uuid.uuid4().hex[:8]}"
+    storage_key = f"maps/thumbnails/{map_id}.{ext}"
 
     storage = get_storage()
-    try:
-        await storage.put(temp_key, image_bytes)
-        map_obj.thumbnail_uri = temp_key
-        await db.commit()
-    except Exception:
-        logger.warning("Thumbnail storage write failed", extra={"storage_key": temp_key, "map_id": str(map_id)}, exc_info=True)
-        # Roll back the temp storage object on any failure
-        try:
-            await storage.delete(temp_key)
-        except Exception:
-            pass
-        await db.rollback()
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to save thumbnail",
-        )
+    await storage.put(storage_key, image_bytes)
 
-    # Clean up the old storage object after successful commit
-    if old_thumbnail_uri and old_thumbnail_uri != temp_key:
-        try:
-            await storage.delete(old_thumbnail_uri)
-        except Exception:
-            pass  # Non-fatal: old thumbnail may already be gone
-
+    map_obj.thumbnail_uri = storage_key
+    await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
