@@ -6,8 +6,8 @@ Adds four nullable columns to the datasets table to store PostGIS-derived
 These columns are populated during ingest by calling detect_3d_metadata()
 which queries ST_NDims, ST_Is3D, ST_ZMin, ST_ZMax on the geom column.
 
-Revision ID: a1b2c3d4e5f7
-Revises: f3a4b5c6d7e8
+Revision ID: c3d4e5f6a7b8
+Revises: b2c3d4e5f6a7
 Create Date: 2026-04-12 15:00:00
 """
 
@@ -16,8 +16,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f7"
-down_revision: Union[str, None] = "f3a4b5c6d7e8"
+revision: str = "c3d4e5f6a7b8"
+down_revision: Union[str, None] = "b2c3d4e5f6a7"
 branch_labels = None
 depends_on = None
 
