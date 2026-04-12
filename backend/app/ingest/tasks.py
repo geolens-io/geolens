@@ -1609,6 +1609,7 @@ async def create_raster_dataset(
         cog_status=cog_status,
         band_info=meta.get("band_info"),
         is_rotated=meta.get("is_rotated", False),
+        is_dem=meta.get("is_dem_candidate", False),
     )
     session.add(raster_asset)
     await session.flush()

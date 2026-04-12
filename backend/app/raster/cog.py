@@ -81,6 +81,8 @@ def extract_raster_metadata(file_path: str) -> dict:
                 }
             )
 
+        is_dem_candidate = src.count == 1 and _is_float_dtype(src.dtypes[0])
+
         # Extract temporal metadata from TIFF tags
         temporal_start = None
         tags = src.tags() or {}
@@ -119,6 +121,7 @@ def extract_raster_metadata(file_path: str) -> dict:
             "driver": profile.get("driver"),
             "band_info": band_info,
             "is_rotated": is_rotated,
+            "is_dem_candidate": is_dem_candidate,
             "temporal_start": temporal_start,
         }
 
