@@ -482,10 +482,7 @@ class TestSparseColumnSampleValues:
         try:
             await test_db_session.execute(
                 text(
-                    f"CREATE TABLE data.{table} ("
-                    f"  id integer PRIMARY KEY,"
-                    f"  color text"
-                    f")"
+                    f"CREATE TABLE data.{table} (  id integer PRIMARY KEY,  color text)"
                 )
             )
             # 12 distinct values across 24 rows — every value appears twice.

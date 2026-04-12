@@ -1,3 +1,4 @@
+import fs from 'fs'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -10,6 +11,19 @@ const apiProxyTarget =
   process.env.API_PROXY_TARGET ||
   process.env.VITE_API_PROXY_TARGET ||
   'http://localhost:8000'
+
+function resolveExistingPath(target: string): string[] {
+  if (!fs.existsSync(target)) return []
+
+  const resolved = fs.realpathSync.native(target)
+  return resolved === target ? [target] : [target, resolved]
+}
+
+const fsAllow = Array.from(new Set([
+  path.resolve(__dirname),
+  ...resolveExistingPath(path.resolve(__dirname, 'node_modules')),
+  ...resolveExistingPath(path.resolve(__dirname, '../node_modules')),
+]))
 
 function manualChunks(id: string) {
   if (id.includes('/src/i18n/locales/')) {
@@ -55,6 +69,9 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    fs: {
+      allow: fsAllow,
+    },
     proxy: {
       '/health': {
         target: apiProxyTarget,
