@@ -379,20 +379,21 @@ Plans:
 - [x] 999.2-02-PLAN.md — Ingest integration, elev column promotion
 - [x] 999.2-03-PLAN.md — Frontend types and Z range UI
 
-### Phase 999.3: GeoJSON-Z Delivery Endpoint (BACKLOG)
+### Phase 999.3: GeoJSON-Z Delivery Endpoint
 
-**Goal:** Add a `/api/datasets/{id}/features.geojson?include_z=true` endpoint that streams RFC 7946 GeoJSON with three-coordinate positions. Full auth + RBAC parity with existing endpoints. Feature count cap (recommended: 5,000). Frontend decision logic: use GeoJSON source for small 3D datasets; fall back to MVT for large ones.
+**Goal:** Add `/api/datasets/{id}/features.geojson?include_z=true` endpoint returning RFC 7946 GeoJSON with Z coordinates. Hard cap at 5,000 features with truncation metadata. Full auth/RBAC parity. Frontend auto-switches MVT vs GeoJSON-Z for small 3D datasets with subtle "3D preview" indicator.
 
-**Source:** Promoted from quick task [260408-aa5](../quick/260408-aa5-3d-data-and-maps-support/260408-aa5-DESIGN.md) — this is the non-MVT delivery path needed to expose true PostGIS 3D geometry (not just attribute heights) to the client. Deferred until user demand justifies it.
+**Source:** Promoted from quick task [260408-aa5](../quick/260408-aa5-3d-data-and-maps-support/260408-aa5-DESIGN.md) — this is the non-MVT delivery path needed to expose true PostGIS 3D geometry (not just attribute heights) to the client.
 
-**Sizing:** LARGE (~10-15 tasks)
+**Sizing:** LARGE (7 tasks across 3 plans)
 **Dependencies:** Phase 999.2 must ship first (needs `is_3d` metadata)
-**Requirements:** TBD — draft from DESIGN.md §7 Phase C row + §5 Strategy 2
+**Requirements:** [D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08]
 
-**Key decisions locked from design doc:**
-- Feature count cap at 5,000 (preview path, not production tile path)
-- Frontend auto-decides MVT vs GeoJSON-Z based on dataset size and `is_3d` flag
-- Not recommended to ship unless Phases 999.1 and 999.2 reveal concrete user demand
+**Plans:** 3 plans
+Plans:
+- [ ] 999.3-01-PLAN.md — Backend endpoint: service function, router, auth/RBAC, tests
+- [ ] 999.3-02-PLAN.md — Schema propagation + adapter/sync GeoJSON branching
+- [ ] 999.3-03-PLAN.md — Frontend data fetch wiring, 3D preview indicator, visual verification
 
 ### Phase 999.4: Shared Vector Staging Pipeline (ingest_file ↔ reupload_file) (BACKLOG)
 
