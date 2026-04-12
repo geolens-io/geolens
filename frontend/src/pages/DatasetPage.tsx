@@ -370,6 +370,19 @@ export function DatasetPage() {
                 <span>EPSG:{dataset.srid}</span>
               </>
             )}
+            {dataset.is_3d && (
+              <>
+                <Sep />
+                <span className="inline-flex items-center gap-1">
+                  <span className="font-medium">3D</span>
+                  {dataset.z_min != null && dataset.z_max != null && (
+                    <span className="text-muted-foreground">
+                      Z: {dataset.z_min.toFixed(1)} to {dataset.z_max.toFixed(1)}
+                    </span>
+                  )}
+                </span>
+              </>
+            )}
           </>
         ) : dataset.record_type === 'raster_dataset' ? (
           <>
