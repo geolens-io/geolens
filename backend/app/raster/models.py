@@ -68,6 +68,7 @@ class RasterAsset(Base):
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     quicklook_512_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_rotated: Mapped[bool] = mapped_column(nullable=False, server_default="false")
+    is_dem: Mapped[bool] = mapped_column(nullable=False, server_default="false")
 
     # -- STAC-facing descriptive metadata --
     crs_wkt: Mapped[str | None] = mapped_column(Text, nullable=True)
