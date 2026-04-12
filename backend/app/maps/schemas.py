@@ -67,7 +67,7 @@ class MapUpdate(BaseModel):
         default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
     )
     basemap_style: str | None = Field(
-        default=None, description="Basemap style ID or URL"
+        default=None, max_length=30, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = Field(

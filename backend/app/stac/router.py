@@ -27,7 +27,7 @@ from app.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
 from app.utils.geo import make_bbox_filter
-from app.search.service import _build_assets, dataset_to_ogc_record
+from app.search.service import build_assets, dataset_to_ogc_record
 from app.stac.schemas import (
     StacCatalog,
     StacCollection,
@@ -187,7 +187,7 @@ async def _dataset_to_stac_item(
     except RuntimeError:
         storage = None
 
-    ogc_record["assets"] = _build_assets(
+    ogc_record["assets"] = build_assets(
         dataset,
         public_api_url,
         stac_asset_rows=stac_asset_rows,

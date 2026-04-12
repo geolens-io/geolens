@@ -8,7 +8,6 @@ DB overrides are ignored and writes are blocked.
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
 from typing import Any, Generic, TypeVar, cast
@@ -23,7 +22,7 @@ from app.audit.service import log_action
 from app.cache import get_cache
 from app.cache.provider import CacheProvider
 from app.config import settings
-from app.public_urls import resolve_public_api_url, resolve_public_app_url
+from app.public_urls import _is_env_only, resolve_public_api_url, resolve_public_app_url
 from app.settings.models import AppSetting
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -34,14 +33,10 @@ _CACHE_TTL = 30  # seconds
 _CACHE_PREFIX = "config:"
 
 # ---------------------------------------------------------------------------
-# Module-level registry and ENV_ONLY helper
+# Module-level registry
 # ---------------------------------------------------------------------------
 
 _registry: list[PersistentConfig] = []
-
-
-def _is_env_only() -> bool:
-    return os.environ.get("ENV_ONLY_CONFIG", "").lower() in ("true", "1", "yes")
 
 
 def _get_cache_safe() -> CacheProvider | None:
@@ -271,10 +266,8 @@ class PersistentConfig(Generic[T]):
 
     def _update_sync_cache(self, value: Any) -> None:
         """Update sync cache for rate-limit accessor if applicable."""
-        if self.key == "login_rate_limit":
-            _sync_rate_limit_cache["login_rate_limit"] = (value, time.monotonic())
-        elif self.key == "global_rate_limit":
-            _sync_rate_limit_cache["global_rate_limit"] = (value, time.monotonic())
+        if self.key in ("login_rate_limit", "global_rate_limit"):
+            _sync_rate_limit_cache[self.key] = (value, time.monotonic())
 
 
 # ---------------------------------------------------------------------------

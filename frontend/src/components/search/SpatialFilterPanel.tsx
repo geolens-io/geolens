@@ -38,6 +38,10 @@ interface SpatialFilterPanelProps {
   initialPredicate?: string;
 }
 
+function toStoreFeature(feature: GeoJSON.Feature<GeoJSON.Polygon>): GeoJSONStoreFeatures {
+  return feature as unknown as GeoJSONStoreFeatures;
+}
+
 function bboxToPolygon(bbox: string): GeoJSON.Feature<GeoJSON.Polygon> {
   const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
   return {
@@ -126,7 +130,7 @@ export function SpatialFilterPanel({
     // Restore from initialBbox if no drawn feature
     if (initialBbox && !drawnFeatureIdRef.current) {
       try {
-        const poly = bboxToPolygon(initialBbox) as unknown as GeoJSONStoreFeatures;
+        const poly = toStoreFeature(bboxToPolygon(initialBbox));
         const results = td.addFeatures([poly]);
         if (results.length > 0 && results[0].id != null) {
           drawnFeatureIdRef.current = results[0].id;
@@ -241,7 +245,7 @@ export function SpatialFilterPanel({
       // Restore initial bbox after Terra Draw is ready
       if (initialBbox) {
         try {
-          const poly = bboxToPolygon(initialBbox) as unknown as GeoJSONStoreFeatures;
+          const poly = toStoreFeature(bboxToPolygon(initialBbox));
           const results = td.addFeatures([poly]);
           if (results.length > 0 && results[0].id != null) {
             drawnFeatureIdRef.current = results[0].id;
@@ -391,7 +395,7 @@ export function SpatialFilterPanel({
                   drawnFeatureIdRef.current = null;
                 }
                 if (td) {
-                  const poly = bboxToPolygon(bboxStr) as unknown as GeoJSONStoreFeatures;
+                  const poly = toStoreFeature(bboxToPolygon(bboxStr));
                   const results = td.addFeatures([poly]);
                   if (results.length > 0 && results[0].id != null)
                     drawnFeatureIdRef.current = results[0].id;

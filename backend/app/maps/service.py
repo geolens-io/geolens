@@ -22,6 +22,23 @@ from app.maps.models import Map, MapLayer, MapShareToken
 logger = logging.getLogger(__name__)
 
 
+def _map_row_to_dict(map_obj, layer_count: int, created_by_username: str | None) -> dict:
+    """Convert a map ORM object plus query-computed fields into a response dict."""
+    return {
+        "id": map_obj.id,
+        "name": map_obj.name,
+        "description": map_obj.description,
+        "visibility": map_obj.visibility,
+        "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
+        if map_obj.thumbnail_uri
+        else None,
+        "layer_count": layer_count,
+        "created_by_username": created_by_username,
+        "created_at": map_obj.created_at,
+        "updated_at": map_obj.updated_at,
+    }
+
+
 async def check_map_ownership(map_obj, user: User, db: AsyncSession) -> None:
     """Verify user owns the map or is admin. Raises 403 if neither."""
     if map_obj.created_by == user.id:
@@ -261,22 +278,7 @@ async def list_maps(
 
     maps = []
     for row in rows:
-        map_obj = row[0]
-        maps.append(
-            {
-                "id": map_obj.id,
-                "name": map_obj.name,
-                "description": map_obj.description,
-                "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-                if map_obj.thumbnail_uri
-                else None,
-                "layer_count": row[1],
-                "created_by_username": row[2],
-                "created_at": map_obj.created_at,
-                "updated_at": map_obj.updated_at,
-            }
-        )
+        maps.append(_map_row_to_dict(row[0], row[1], row[2]))
 
     return maps, total
 
@@ -975,7 +977,9 @@ async def get_maps_for_dataset(
     dataset_id: uuid.UUID,
     user_id: uuid.UUID | None = None,
     user_roles: set[str] | None = None,
-) -> list[dict]:
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
     """Return maps containing a given dataset, filtered by RBAC visibility.
 
     - Admins see all maps.
@@ -1023,29 +1027,23 @@ async def get_maps_for_dataset(
         else:
             stmt = stmt.where(Map.visibility == "public")
 
+    # Count total before pagination
+    from sqlalchemy import func as sa_func
+
+    count_stmt = select(sa_func.count()).select_from(stmt.subquery())
+    total = (await session.execute(count_stmt)).scalar() or 0
+
+    # Apply pagination
+    stmt = stmt.offset(skip).limit(limit)
+
     result = await session.execute(stmt)
     rows = result.all()
 
     maps = []
     for row in rows:
-        map_obj = row[0]
-        maps.append(
-            {
-                "id": map_obj.id,
-                "name": map_obj.name,
-                "description": map_obj.description,
-                "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-                if map_obj.thumbnail_uri
-                else None,
-                "layer_count": row[1],
-                "created_by_username": row[2],
-                "created_at": map_obj.created_at,
-                "updated_at": map_obj.updated_at,
-            }
-        )
+        maps.append(_map_row_to_dict(row[0], row[1], row[2]))
 
-    return maps
+    return maps, total
 
 
 async def revoke_share_token_by_map(

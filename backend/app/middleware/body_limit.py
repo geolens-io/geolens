@@ -5,7 +5,7 @@ Rejects requests whose body exceeds the configured maximum, returning
 Transfer-Encoding requests via stream byte counting.
 """
 
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 
 
 class RequestBodyLimitMiddleware:

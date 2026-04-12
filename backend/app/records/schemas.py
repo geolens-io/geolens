@@ -89,11 +89,11 @@ class KeywordListResponse(BaseModel):
 
 class DistributionCreate(BaseModel):
     distribution_type: str = Field(
-        max_length=200, description="e.g. download, api, ogc_wms, ogc_wfs"
+        max_length=30, description="e.g. download, api, ogc_wms, ogc_wfs"
     )
     format: str | None = Field(
         default=None,
-        max_length=200,
+        max_length=50,
         description="File or service format, e.g. GeoJSON, SHP, WMS",
     )
     url: str = Field(max_length=2048, description="Access URL for this distribution")
@@ -115,8 +115,8 @@ class DistributionCreate(BaseModel):
 
 
 class DistributionUpdate(BaseModel):
-    distribution_type: str | None = Field(default=None, max_length=200)
-    format: str | None = Field(default=None, max_length=200)
+    distribution_type: str | None = Field(default=None, max_length=30)
+    format: str | None = Field(default=None, max_length=50)
     url: str | None = Field(default=None, max_length=2048)
     title: str | None = Field(default=None, max_length=500)
     description: str | None = Field(default=None, max_length=2000)
@@ -129,7 +129,7 @@ class DistributionResponse(BaseModel):
     id: uuid.UUID
     record_id: uuid.UUID
     distribution_type: str
-    format: str
+    format: str | None
     url: str
     title: str | None
     description: str | None

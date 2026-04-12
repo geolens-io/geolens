@@ -13,7 +13,7 @@ import pytest
 from app.ingest.metadata import _sql_quote_ident
 from app.ingest.ogr import (
     _extract_common_layer_metadata,
-    _extract_srid_from_json,
+    extract_srid_from_json,
     _parse_text_ogrinfo,
     _resolve_source_path,
     detect_geometry_columns,
@@ -98,8 +98,8 @@ class TestResolveSourcePath:
 
 class TestExtractSridFromJson:
     def test_returns_none_for_empty(self):
-        assert _extract_srid_from_json({}) is None
-        assert _extract_srid_from_json(None) is None
+        assert extract_srid_from_json({}) is None
+        assert extract_srid_from_json(None) is None
 
     def test_extracts_from_projjson_id(self):
         coord = {
@@ -107,7 +107,7 @@ class TestExtractSridFromJson:
                 "id": {"authority": "EPSG", "code": 4326},
             }
         }
-        assert _extract_srid_from_json(coord) == 4326
+        assert extract_srid_from_json(coord) == 4326
 
     def test_extracts_from_projjson_id_string_code(self):
         # Some GDAL versions emit the code as a string
@@ -116,7 +116,7 @@ class TestExtractSridFromJson:
                 "id": {"authority": "EPSG", "code": "3857"},
             }
         }
-        assert _extract_srid_from_json(coord) == 3857
+        assert extract_srid_from_json(coord) == 3857
 
     def test_ignores_non_epsg_authority(self):
         # IAU codes etc. should not be confused for EPSG
@@ -126,22 +126,22 @@ class TestExtractSridFromJson:
             }
         }
         # Falls through to WKT (which is missing) → None
-        assert _extract_srid_from_json(coord) is None
+        assert extract_srid_from_json(coord) is None
 
     def test_falls_back_to_wkt_authority(self):
         wkt = 'PROJCS["whatever", AUTHORITY["EPSG","26918"]]'
-        assert _extract_srid_from_json({"wkt": wkt}) == 26918
+        assert extract_srid_from_json({"wkt": wkt}) == 26918
 
     def test_no_wkt_authority_returns_none(self):
         wkt = 'PROJCS["whatever"]'
-        assert _extract_srid_from_json({"wkt": wkt}) is None
+        assert extract_srid_from_json({"wkt": wkt}) is None
 
     def test_prefers_projjson_over_wkt(self):
         coord = {
             "projjson": {"id": {"authority": "EPSG", "code": 4326}},
             "wkt": 'AUTHORITY["EPSG","3857"]',
         }
-        assert _extract_srid_from_json(coord) == 4326
+        assert extract_srid_from_json(coord) == 4326
 
 
 class TestParseTextOgrinfo:

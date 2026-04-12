@@ -117,7 +117,7 @@ export interface DatasetResponse {
     geometry_validity: number;
     attribute_completeness: number;
     crs_defined: number;
-    computed_at: string;
+    computed_at: string | null;
   } | null;
   record_type: string;
   raster: RasterMetadata | null;
@@ -243,6 +243,8 @@ export interface AttributeMetadataUpdate {
   title?: string | null;
   description?: string | null;
   units?: string | null;
+  semantic_role?: string | null;
+  domain_type?: string | null;
 }
 
 export interface AttributeMetadataListResponse {
@@ -307,7 +309,7 @@ export interface OGCRecordProperties {
     geometry_validity: number | null;
     attribute_completeness: number;
     crs_defined: number | null;
-    computed_at: string;
+    computed_at: string | null;
   } | null;
   record_status?: string | null;
   record_type?: string;

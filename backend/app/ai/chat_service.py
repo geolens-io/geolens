@@ -218,7 +218,7 @@ _LANGUAGE_NAMES: dict[str, str] = {
 }
 
 
-def _lang_name(code: str | None) -> str:
+def lang_name(code: str | None) -> str:
     """Map an ISO 639-1 code to a human-readable language name."""
     if not code:
         return "English"
@@ -350,7 +350,7 @@ When reporting query results back to the user:
 - If a user requests an unsupported operation on a raster layer, explain: "Raster layers only support opacity and visibility changes."
 
 ## Language
-Always respond in {_lang_name(language)}. Never switch to another language.
+Always respond in {lang_name(language)}. Never switch to another language.
 """
 
 

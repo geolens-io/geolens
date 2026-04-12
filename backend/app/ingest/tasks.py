@@ -741,6 +741,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "ingest_file"},
+            )
             raise
         finally:
             # Clean up local file on success always; on failure only if it was
@@ -753,7 +759,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 Path(file_path).unlink(missing_ok=True)
 
 
-def _resolve_service_type(raw: str) -> tuple[str, str]:
+def resolve_service_type(raw: str) -> tuple[str, str]:
     """Map raw service_type string to (service_type, source_format)."""
     from app.ingest.ogr import IngestionError
 
@@ -767,7 +773,7 @@ def _resolve_service_type(raw: str) -> tuple[str, str]:
     )
 
 
-def _enrich_source_url(base_url: str, layer_id: int | str | None) -> str:
+def enrich_source_url(base_url: str, layer_id: int | str | None) -> str:
     """Append layer_id to source_url for multi-layer service idempotency."""
     if layer_id is not None:
         return f"{base_url}/{layer_id}"
@@ -818,7 +824,7 @@ async def ingest_service(
             um = job.user_metadata or {}
             service_type_raw = um.get("service_type", "")
             layer_id = um.get("layer_id")
-            service_type, source_format = _resolve_service_type(service_type_raw)
+            service_type, source_format = resolve_service_type(service_type_raw)
 
             # Detect non-spatial tables from preview metadata stored at job creation.
             # When geometry_type is None/null/absent, the layer has no geometry —
@@ -897,7 +903,7 @@ async def ingest_service(
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 5-8. Shared post-ogr2ogr pipeline
-            dataset_source_url = _enrich_source_url(source_url, layer_id)
+            dataset_source_url = enrich_source_url(source_url, layer_id)
             await _finalize_ingest(
                 IngestContext(
                     session=session,
@@ -921,6 +927,12 @@ async def ingest_service(
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "ingest_service"},
+            )
             raise
 
 
@@ -1317,6 +1329,12 @@ async def reupload_file(
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "reupload_file"},
+            )
             raise
         finally:
             # Clean up local file on success always; on failure only if it was
@@ -1394,7 +1412,7 @@ async def reupload_service(
                     "Missing service source URL for re-upload commit job."
                 )
 
-            service_type, source_format = _resolve_service_type(service_type_raw)
+            service_type, source_format = resolve_service_type(service_type_raw)
 
             db_conn_str = build_pg_conn_str()
             reupload_oid_field = um.get("object_id_field") or None
@@ -1456,7 +1474,7 @@ async def reupload_service(
                 metadata.get("column_info", []),
             )
 
-            reupload_source_url = _enrich_source_url(source_url_value, layer_id)
+            reupload_source_url = enrich_source_url(source_url_value, layer_id)
             await _apply_reupload_swap(
                 session,
                 dataset=dataset,
@@ -1503,6 +1521,12 @@ async def reupload_service(
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "reupload_service"},
+            )
             raise
 
 
@@ -1899,6 +1923,12 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "ingest_raster"},
+            )
             raise
         finally:
             # Clean up temp COG dir
@@ -2008,7 +2038,7 @@ async def ingest_vrt(
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
-                logger_vrt.warning("Quicklook generation failed for VRT %s", job_id)
+                logger_vrt.warning("Quicklook generation failed for VRT %s", job_id, exc_info=True)
 
             # 9. Create DB records
             um = job.user_metadata or {}
@@ -2083,6 +2113,12 @@ async def ingest_vrt(
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "ingest_vrt"},
+            )
             raise
         finally:
             if tmp_dir:
@@ -2227,7 +2263,7 @@ async def regenerate_vrt(
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
                 logger_regen.warning(
-                    "Quicklook regeneration failed for VRT %s", vrt_dataset_id
+                    "Quicklook regeneration failed for VRT %s", vrt_dataset_id, exc_info=True
                 )
 
             # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
@@ -2317,6 +2353,12 @@ async def regenerate_vrt(
                     gen.error_message = str(exc)
 
             await session.commit()
+            import structlog
+
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                extra={"job_id": str(job.id), "task": "regenerate_vrt"},
+            )
             raise
         finally:
             if tmp_dir:
