@@ -222,6 +222,11 @@ async def update_settings(
     """Update one or more settings (admin only). Returns updated settings."""
     registry_map = _get_registry_map()
 
+    # Capture old embedding_dims before any changes (needed for rollback)
+    old_dims_value: int | None = None
+    if "embedding_dims" in body.settings:
+        old_dims_value = await EMBEDDING_DIMS.get(db)
+
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
@@ -258,8 +263,20 @@ async def update_settings(
         new_dims = int(body.settings["embedding_dims"])
         try:
             await rebuild_embedding_column(db, new_dims)
-        except Exception:
-            pass  # error already logged and rolled back inside helper
+        except Exception as exc:
+            # Roll back the persisted embedding_dims setting to the previous value
+            ip = get_client_ip(request)
+            await EMBEDDING_DIMS.set(db, old_dims_value, user_id=user.id, ip_address=ip)
+            await db.commit()
+            logger.exception(
+                "Embedding column rebuild failed, rolling back embedding_dims",
+                old_dims=old_dims_value,
+                new_dims=new_dims,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Embedding column rebuild failed. The embedding_dims setting has been reverted.",
+            ) from exc
 
     return await get_all_settings(request=request, _user=user, db=db)
 

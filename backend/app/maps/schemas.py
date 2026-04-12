@@ -1,7 +1,6 @@
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -10,7 +9,6 @@ class MapVisibility(str, Enum):
     private = "private"
     internal = "internal"
     public = "public"
-    unlisted = "unlisted"
 
 
 class MapLayerInput(BaseModel):
@@ -43,9 +41,8 @@ class MapLayerInput(BaseModel):
     style_config: dict | None = Field(
         default=None, description="Data-driven style configuration"
     )
-    layer_type: Literal["vector_geolens", "raster_geolens", "geojson"] | None = Field(
-        default=None,
-        description="Auto-detected from record_type if omitted",
+    layer_type: str | None = Field(
+        default=None, description="Auto-detected from record_type if omitted"
     )
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"

@@ -17,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
-from app.public_urls import get_public_app_url
 from app.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -463,7 +462,6 @@ async def duplicate_map_endpoint(
 @router.get("/{map_id}/share/", response_model=ShareTokenResponse | None)
 async def get_map_share_token_endpoint(
     map_id: uuid.UUID,
-    request: Request,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse | None:
@@ -478,10 +476,9 @@ async def get_map_share_token_endpoint(
     token_obj = await get_active_share_token(db, map_id)
     if token_obj is None:
         return None
-    public_url = await get_public_app_url(db, request=request)
     return ShareTokenResponse(
         token=token_obj.token,
-        share_url=f"{public_url}/m/{token_obj.token}",
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -521,10 +518,9 @@ async def share_map_endpoint(
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
-    public_url = await get_public_app_url(db, request=request)
     return ShareTokenResponse(
         token=token_obj.token,
-        share_url=f"{public_url}/m/{token_obj.token}",
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -562,10 +558,9 @@ async def update_map_share_token_endpoint(
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
-    public_url = await get_public_app_url(db, request=request)
     return ShareTokenResponse(
         token=token_obj.token,
-        share_url=f"{public_url}/m/{token_obj.token}",
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
