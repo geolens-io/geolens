@@ -104,10 +104,14 @@ def test_worker_module_is_importable():
 def _make_mock_session(*result_lists):
     """Create a mock async session that returns different results per execute call.
 
-    Each argument is a list of mock jobs for that query (running query first,
-    pending query second).
+    The first execute call is the advisory lock query (returns True to proceed).
+    Subsequent arguments are lists of mock jobs (running jobs first, pending second).
     """
-    results = []
+    # First result: advisory lock — scalar() returns True (lock acquired)
+    lock_result = MagicMock()
+    lock_result.scalar.return_value = True
+
+    results = [lock_result]
     for job_list in result_lists:
         mock_result = MagicMock()
         mock_result.scalars.return_value = job_list
