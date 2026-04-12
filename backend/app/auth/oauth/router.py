@@ -1,6 +1,6 @@
 """OAuth/OIDC flow endpoints: login redirect, callback, and public provider list."""
 
-from urllib.parse import quote
+import uuid
 
 import structlog
 from authlib.integrations.starlette_client import OAuth
@@ -136,9 +136,14 @@ async def oauth_callback(
 
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through
-    except Exception as e:
-        logger.warning("oauth_callback_error", provider=provider_slug, error=str(e))
-        error_url = f"{frontend_url}/oauth/callback#error={quote(str(e))}"
+    except Exception:
+        correlation_id = uuid.uuid4().hex[:12]
+        logger.exception(
+            "OAuth callback failed",
+            provider=provider_slug,
+            correlation_id=correlation_id,
+        )
+        error_url = f"{frontend_url}/oauth/callback#error=oauth_failed&correlation_id={correlation_id}"
         return RedirectResponse(url=error_url, status_code=302)
 
 
