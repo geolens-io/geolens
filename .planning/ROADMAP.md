@@ -233,8 +233,8 @@ Plans:
 Plans:
 - [x] 216-01-PLAN.md — Install Playwright + tsx; scaffold capture-screenshots.ts script + scripts/README.md (infrastructure only, no captures)
 - [x] 216-02-PLAN.md — Operator checkpoint (docker compose + seeder); run npm run capture; commit 7 screenshot PNGs
-- [ ] 216-03-PLAN.md — Retrofit Phase 214 previews (SearchPreview, MapBuilderPreview, DatasetDetailPreview) to render real screenshots via Astro <Picture>
-- [ ] 216-04-PLAN.md — Build 3 net-new previews (RasterVrtPreview, AiChatPreview, RbacPreview); expand preview-test.astro
+- [x] 216-03-PLAN.md — Retrofit Phase 214 previews (SearchPreview, MapBuilderPreview, DatasetDetailPreview) to render real screenshots via Astro <Picture>
+- [x] 216-04-PLAN.md — Build 3 net-new previews (RasterVrtPreview, AiChatPreview, RbacPreview); expand preview-test.astro
 - [ ] 216-05-PLAN.md — Build /features page with 6 zig-zag capability stripes + OGC API compliance section (corrected Features + Records only)
 - [ ] 216-06-PLAN.md — Build /quickstart page with 8 D-05 sections and corrected port defaults (5434/8001/8080)
 - [x] 216-07-PLAN.md — Amend Nav.astro with Features + Quickstart subnav and aria-current active-page detection (zero-JS)
@@ -365,7 +365,7 @@ Plans:
 | 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 214. Product Preview Assets | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 215. Homepage | v14.0 | 4/4 | Complete    | 2026-04-12 |
-| 216. Features and Quickstart Pages | v14.0 | 3/7 | In Progress|  |
+| 216. Features and Quickstart Pages | v14.0 | 5/7 | In Progress|  |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
 | 219. regenerate_vrt Phase Extraction | v14.0 | 1/1 | Complete   | 2026-04-11 |
