@@ -56,6 +56,8 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     filter: layer.filter,
     label_config: layer.label_config,
     style_config: layer.style_config,
+    is_3d: layer.is_3d,
+    feature_count: layer.dataset_feature_count,
   };
 }
 

@@ -129,6 +129,11 @@ export const fillAdapter: LayerAdapter = {
     if (map.getLayer(extrusionId)) {
       const heightColumn = rawPaint['_height_column'] as string | undefined;
       if (heightColumn) {
+        // Update height expression when column changes
+        try {
+          map.setPaintProperty(extrusionId, 'fill-extrusion-height',
+            ['coalesce', ['to-number', ['get', heightColumn], 0], 0]);
+        } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion height:`, e); }
         const fillColor = rawPaint['fill-color'] as string | undefined;
         if (fillColor) {
           try {

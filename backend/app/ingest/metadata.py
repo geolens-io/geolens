@@ -188,39 +188,26 @@ async def detect_3d_metadata(
     if not has_geom:
         return {"is_3d": None, "n_dims": None, "z_min": None, "z_max": None}
 
-    # Sample a single row to detect dimensionality, then aggregate Z range
+    # Aggregate across all rows to handle mixed-Z datasets correctly
     result = await session.execute(
         text(
             f"SELECT "
-            f"  ST_NDims(geom) AS n_dims, "
-            f"  ST_Is3D(geom) AS is_3d "
+            f"  MAX(ST_NDims(geom)) AS n_dims, "
+            f"  bool_or(ST_Is3D(geom)) AS is_3d, "
+            f"  MIN(ST_ZMin(geom)) AS z_min, "
+            f"  MAX(ST_ZMax(geom)) AS z_max "
             f"FROM {_qtable(table_name)} "
-            f"WHERE geom IS NOT NULL LIMIT 1"
+            f"WHERE geom IS NOT NULL"
         )
     )
     row = result.one_or_none()
     if row is None:
         return {"is_3d": False, "n_dims": 2, "z_min": None, "z_max": None}
 
-    n_dims = row.n_dims
-    is_3d = row.is_3d
-
-    z_min = None
-    z_max = None
-    if is_3d:
-        z_result = await session.execute(
-            text(
-                f"SELECT "
-                f"  MIN(ST_ZMin(geom)) AS z_min, "
-                f"  MAX(ST_ZMax(geom)) AS z_max "
-                f"FROM {_qtable(table_name)} "
-                f"WHERE geom IS NOT NULL"
-            )
-        )
-        z_row = z_result.one_or_none()
-        if z_row is not None:
-            z_min = float(z_row.z_min) if z_row.z_min is not None else None
-            z_max = float(z_row.z_max) if z_row.z_max is not None else None
+    n_dims = row.n_dims if row.n_dims is not None else 2
+    is_3d = bool(row.is_3d) if row.is_3d is not None else False
+    z_min = float(row.z_min) if row.z_min is not None else None
+    z_max = float(row.z_max) if row.z_max is not None else None
 
     return {
         "is_3d": bool(is_3d),
