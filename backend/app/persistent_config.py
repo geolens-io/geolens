@@ -63,9 +63,7 @@ _DEFAULT_GLOBAL_RATE_LIMIT = 60
 # ---------------------------------------------------------------------------
 
 
-def _validate_or_fallback(
-    cfg: PersistentConfig[T], raw: Any
-) -> tuple[T, bool]:
+def _validate_or_fallback(cfg: PersistentConfig[T], raw: Any) -> tuple[T, bool]:
     """Validate `raw` against cfg's TypeAdapter; return (value, validated_ok).
 
     Called by `PersistentConfig.get()` and `get_all_registry_values()` on the
@@ -535,9 +533,7 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
         raw = all_settings.get(cfg.key)
         if raw is not None:
             # AppSetting.value is JSONB — unwrap the stored scalar wrapper
-            unwrapped = (
-                raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
-            )
+            unwrapped = raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
             value, _ok = _validate_or_fallback(cfg, unwrapped)
             settings_dict[cfg.key] = value
         else:

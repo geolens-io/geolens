@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
-status: verifying
-stopped_at: Completed 219-01-PLAN.md
-last_updated: "2026-04-12T13:14:53.484Z"
-last_activity: 2026-04-12
+status: executing
+stopped_at: Phase 222 context gathered
+last_updated: "2026-04-11T17:28:34.817Z"
+last_activity: 2026-04-11
 progress:
-  total_phases: 17
-  completed_phases: 11
-  total_plans: 27
-  completed_plans: 27
+  total_phases: 15
+  completed_phases: 7
+  total_plans: 14
+  completed_plans: 14
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Users can find any dataset in the catalog in seconds -- search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 219 — regenerate-vrt-phase-extraction
+**Current focus:** Phase 222 — persistent_config.py Runtime Validation via TypeAdapter
 
 ## Current Position
 
-Phase: 218
+Phase: 999.1
 Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-04-12
+Status: Executing Phase 222
+Last activity: 2026-04-11
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -36,7 +36,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 **Velocity:**
 
-- Total plans completed: 26
+- Total plans completed: 14
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -51,9 +51,6 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 | 221 | 1 | - | - |
 | 220 | 1 | - | - |
 | 222 | 1 | - | - |
-| 223 | 1 | - | - |
-| 215 | 4 | - | - |
-| 216 | 7 | - | - |
 
 **Recent Trend:**
 
@@ -62,7 +59,6 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 *Updated after each plan completion*
 | Phase 212-repo-bootstrap-and-design-system P01 | 3 | 2 tasks | 10 files |
-| Phase 219 P01 | 11 min | 6 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,7 +73,6 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 - [Phase 212-01]: A11Y-01: primary-700 oklch(0.46 0.16 250) is minimum shade for text on white (4.5:1 AA); primary-500 is decorative only
 - [Phase 212-01]: Token sync strategy: geolens/frontend/src/index.css is source of truth; getgeolens.com/src/styles/global.css is manual copy-on-update
 - [v14.0 Roadmap]: Phase 218 (Demo Themed Collections) added 2026-04-08 — independent of 215/216/217 marketing site phases; source proposal 260408-lnq; A7 resolved in 260408-mgg (Option C fallback selected)
-- [Phase 219]: [Phase 219-01]: regenerate_vrt refactored into 3 private helpers (_build_vrt_to_temp, _validate_and_extract_vrt_metadata, _update_vrt_dataset_geometry) with byte-identical behavior; Phase 223 integration anchor passed unchanged
 
 ### Roadmap Evolution
 
@@ -85,7 +80,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 ### Pending Todos
 
-- ~~**Before v14.0 launch:** Capture real screenshots of the data catalog and map builder…~~ — **PULLED INTO Phase 216** per discuss-phase pivot (2026-04-12). Phase 216 CONTEXT.md D-01/D-10/D-11/D-12/D-13 cover the full screenshot workflow: Playwright capture script, BrowserFrame wrapper retention, Astro `<Picture>` with AVIF/WebP/PNG, `src/assets/screenshots/` storage. Todo closes out when Phase 216 ships.
+None yet.
 
 ### Blockers/Concerns
 
@@ -108,6 +103,6 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 ## Session Continuity
 
-Last session: 2026-04-11T22:23:28.386Z
-Stopped at: Completed 219-01-PLAN.md
-Resume file: None
+Last session: 2026-04-11T16:31:23.849Z
+Stopped at: Phase 222 context gathered
+Resume file: .planning/phases/222-persistent-config-cast-runtime-validation/222-CONTEXT.md

@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.datasets.models import Dataset
     from app.ingest.warnings import IngestJobWarning
     from app.jobs.models import IngestJob
 
@@ -2090,105 +2089,6 @@ async def ingest_vrt(
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _build_vrt_to_temp(
-    ordered_assets: list,
-    vrt_type: str,
-    resolution_strategy: str,
-    tmp_dir: str,
-) -> "Path":
-    """Resolve source paths and build a VRT file to a temp path.
-
-    Owns steps 4b-5 of regenerate_vrt. Synchronous -- the caller wraps this
-    in ``asyncio.to_thread(...)`` to preserve the existing thread-offload
-    pattern.
-
-    Args:
-        ordered_assets: Source RasterAsset rows in VRT position order.
-        vrt_type: 'mosaic' or 'stack' (from vrt_asset.vrt_type).
-        resolution_strategy: 'finest' | 'average' | ... (from
-            vrt_asset.resolution_strategy).
-        tmp_dir: Pre-created temp directory (owned by the caller's
-            finally block).
-
-    Returns:
-        Path to the written VRT file (``tmp_dir/source.vrt``).
-    """
-    import os
-    from pathlib import Path
-
-    source_paths = [resolve_vrt_source_path(a.asset_uri) for a in ordered_assets]
-    vrt_path = os.path.join(tmp_dir, "source.vrt")
-    build_vrt(vrt_type, source_paths, vrt_path, resolution_strategy)
-    return Path(vrt_path)
-
-
-def _validate_and_extract_vrt_metadata(vrt_path: "Path") -> dict:
-    """Extract metadata from a newly-built VRT, validate CRS, add hash + size.
-
-    Owns steps 6-8 of regenerate_vrt. Synchronous -- the caller wraps this
-    in ``asyncio.to_thread(...)``.
-
-    Args:
-        vrt_path: Path to the built VRT file (from _build_vrt_to_temp).
-
-    Returns:
-        The metadata dict from ``extract_raster_metadata``, enriched with
-        ``sha256`` (64-char hex digest) and ``size_bytes`` (int) keys.
-
-    Raises:
-        ValueError: If the extracted metadata has no ``crs_wkt`` -- meaning
-            the regenerated VRT has no coordinate reference system.
-    """
-    import os
-
-    meta = extract_raster_metadata(str(vrt_path))
-    if not meta.get("crs_wkt"):
-        raise ValueError("Regenerated VRT has no coordinate reference system.")
-
-    meta["sha256"] = sha256_file(str(vrt_path))
-    meta["size_bytes"] = os.path.getsize(str(vrt_path))
-    return meta
-
-
-async def _update_vrt_dataset_geometry(
-    session: "AsyncSession",
-    vrt_id: "uuid.UUID",
-    metadata: dict,
-) -> "Dataset | None":
-    """Load VRT Dataset and update record.spatial_extent from bbox_wkt.
-
-    Owns step 13 of regenerate_vrt. Async -- touches the session. Does NOT
-    commit: the caller batches this update with step 14's
-    ``await session.commit()``.
-
-    Returns the fetched Dataset so the caller can pass it to
-    ``defer_embedding`` at step 15. Returns None if the Dataset row cannot
-    be found (preserving the existing ``scalar_one_or_none`` +
-    ``if vrt_dataset is not None`` pattern).
-
-    Args:
-        session: The active AsyncSession (owned by regenerate_vrt).
-        vrt_id: UUID of the VRT dataset.
-        metadata: The metadata dict returned by
-            ``_validate_and_extract_vrt_metadata`` (expected to optionally
-            contain ``bbox_wkt``).
-
-    Returns:
-        The Dataset row, or None if not found.
-    """
-    from sqlalchemy import func, select
-
-    from app.datasets.models import Dataset
-
-    dataset_result = await session.execute(select(Dataset).where(Dataset.id == vrt_id))
-    vrt_dataset = dataset_result.scalar_one_or_none()
-    if vrt_dataset is not None and metadata.get("bbox_wkt"):
-        vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
-            metadata["bbox_wkt"], 4326
-        )
-    return vrt_dataset
-
-
 @task_app.task(queue="raster", retry=1)
 async def regenerate_vrt(
     job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
@@ -2203,16 +2103,16 @@ async def regenerate_vrt(
     1. Mark job running
     2. Load VRT RasterAsset
     3. Load vrt_source_links ordered by position -> source dataset IDs
-    4. Load source RasterAsset rows
-    5. Build new VRT to temp path (helper: _build_vrt_to_temp)
-    6-8. Extract metadata, validate CRS, compute hash + size
-         (helper: _validate_and_extract_vrt_metadata)
+    4. Load source RasterAsset rows, resolve paths
+    5. Build new VRT to temp path
+    6. Post-validate via rasterio
+    7. Extract metadata from new VRT
+    8. Hash and size new VRT
     9. Generate quicklooks (non-fatal)
     10. Overwrite existing storage key (atomic swap)
     11. Update RasterAsset metadata fields
     12. Set status='ready', last_regenerated_at, clear current_generation_id
     13. Update dataset footprint geometry
-        (helper: _update_vrt_dataset_geometry)
     14. Mark job complete
     15. Invalidate cache, defer embedding
     """
@@ -2224,13 +2124,14 @@ async def regenerate_vrt(
         vrt_dataset_id=vrt_dataset_id,
     )
     import io
+    import os
     import shutil
     import tempfile
 
     from app.datasets.models import Dataset
     from app.jobs.models import IngestJob
     from app.raster.models import RasterAsset, VrtGeneration
-    from sqlalchemy import select, text
+    from sqlalchemy import func, select, text
 
     logger_regen = __import__("logging").getLogger(__name__)
 
@@ -2287,7 +2188,7 @@ async def regenerate_vrt(
             vrt_asset.current_generation_id = generation.id
             await session.commit()
 
-            # 4. Load source RasterAsset rows
+            # 4. Load source RasterAsset rows and resolve paths
             source_assets_result = await session.execute(
                 select(RasterAsset)
                 .join(Dataset, RasterAsset.dataset_id == Dataset.id)
@@ -2295,28 +2196,28 @@ async def regenerate_vrt(
             )
             asset_map = {a.dataset_id: a for a in source_assets_result.scalars().all()}
             ordered_assets = [asset_map[sid] for sid in source_ids if sid in asset_map]
+            source_paths = [
+                resolve_vrt_source_path(a.asset_uri) for a in ordered_assets
+            ]
 
-            # 5. Build VRT to temp path (helper: _build_vrt_to_temp)
+            # 5. Build VRT to temp path
             tmp_dir = tempfile.mkdtemp()
+            vrt_path = os.path.join(tmp_dir, "source.vrt")
             vrt_type = vrt_asset.vrt_type or "mosaic"
             resolution_strategy = vrt_asset.resolution_strategy or "finest"
 
-            vrt_path_obj = await asyncio.to_thread(
-                _build_vrt_to_temp,
-                ordered_assets,
-                vrt_type,
-                resolution_strategy,
-                tmp_dir,
+            await asyncio.to_thread(
+                build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
             )
-            vrt_path = str(vrt_path_obj)
 
-            # 6-8. Extract metadata, validate CRS, compute hash + size
-            #      (helper: _validate_and_extract_vrt_metadata)
-            meta = await asyncio.to_thread(
-                _validate_and_extract_vrt_metadata, vrt_path_obj
-            )
-            new_sha256 = meta["sha256"]
-            new_size = meta["size_bytes"]
+            # 6 & 7. Extract metadata (also serves as post-validation)
+            meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+            if not meta.get("crs_wkt"):
+                raise ValueError("Regenerated VRT has no coordinate reference system.")
+
+            # 8. Hash and size
+            new_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
+            new_size = os.path.getsize(vrt_path)
 
             # 9. Generate quicklooks (non-fatal)
             ql256: bytes | None = None
@@ -2371,9 +2272,15 @@ async def regenerate_vrt(
                     generation.completed_at - generation.started_at
                 ).total_seconds()
 
-            # 13. Update dataset footprint geometry (helper:
-            #     _update_vrt_dataset_geometry)
-            vrt_dataset = await _update_vrt_dataset_geometry(session, vrt_id, meta)
+            # 13. Update dataset footprint geometry
+            dataset_result = await session.execute(
+                select(Dataset).where(Dataset.id == vrt_id)
+            )
+            vrt_dataset = dataset_result.scalar_one_or_none()
+            if vrt_dataset is not None and meta.get("bbox_wkt"):
+                vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
+                    meta["bbox_wkt"], 4326
+                )
 
             # 14. Finalize job
             job.status = "complete"

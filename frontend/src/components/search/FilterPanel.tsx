@@ -30,6 +30,7 @@ import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useCatalogSummary, useFacets } from '@/hooks/use-search';
 import { getGeometryTypeLabel, getSearchSortLabel } from '@/i18n/labels';
+import { cn } from '@/lib/utils';
 
 const GEOMETRY_TYPES = [
   'POINT',
@@ -51,6 +52,13 @@ const LazySpatialFilterPanel = lazy(async () => {
   const module = await import('./SpatialFilterPanel');
   return { default: module.SpatialFilterPanel };
 });
+
+interface FilterPanelProps {
+  totalResults: number | undefined;
+  showDesktop?: boolean;
+  showMobile?: boolean;
+  desktopLayout?: 'toolbar' | 'rail';
+}
 
 function MapPickerFallback() {
   const { t } = useTranslation('search');
@@ -110,7 +118,12 @@ function parseTemporalInterval(datetime: string): [string, string] {
  * introducing a new top-row control — the bar is already at its visual density
  * limit (see `feedback_filter_bar_density.md`).
  */
-export function FilterPanel({ totalResults }: { totalResults: number | undefined }) {
+export function FilterPanel({
+  totalResults,
+  showDesktop = true,
+  showMobile = true,
+  desktopLayout = 'toolbar',
+}: FilterPanelProps) {
   // ====================================================================
   // Section 1: Store subscriptions
   // ----
@@ -227,6 +240,19 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     return '';
   })();
 
+  const clearFilters = () => {
+    useSearchStore.getState().resetFilters();
+    setLocalDateFrom('');
+    setLocalDateTo('');
+  };
+
+  const totalResultsLabel =
+    totalResults !== undefined
+      ? bbox || geometry
+        ? t('filters.spatialResultCount', { count: totalResults, defaultValue: 'Showing {{count}} in selected area' })
+        : t('filters.datasetCount', { count: totalResults })
+      : null;
+
   // ====================================================================
   // Section 4: Render helpers (closures over local state)
   // ----
@@ -247,7 +273,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     </Suspense>
   );
 
-  const renderDesktopDateFilter = () => {
+  const renderDesktopDateFilter = (fullWidth = false) => {
     if (dateFrom || dateTo) {
       return (
         <FilterChip
@@ -271,7 +297,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
         }}
       >
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className={cn(fullWidth && 'w-full justify-start')}>
             <Calendar className="me-1 size-3.5" />
             {t('filters.dateRange')}
           </Button>
@@ -310,7 +336,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     );
   };
 
-  const renderDesktopLocationFilter = () => {
+  const renderDesktopLocationFilter = (fullWidth = false) => {
     if (bbox) {
       return (
         <div
@@ -339,12 +365,388 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
     }
 
     return (
-      <Button variant="outline" size="sm" onClick={() => setSpatialPanelOpen(true)}>
+      <Button
+        variant="outline"
+        size="sm"
+        className={cn(fullWidth && 'w-full justify-start')}
+        onClick={() => setSpatialPanelOpen(true)}
+      >
         <MapPin className="me-1 size-3.5" />
         {t('filters.location')}
       </Button>
     );
   };
+
+  const renderCollectionControl = () => {
+    if (!facets?.collections || facets.collections.length === 0) return null;
+
+    if (collectionId) {
+      return (
+        <FilterChip
+          label={facets.collections.find((c) => c.id === collectionId)?.name || t('filters.collection', { defaultValue: 'Collection' })}
+          onRemove={() => useSearchStore.getState().setFilter('collection_id', '')}
+        />
+      );
+    }
+
+    return (
+      <Select
+        value=""
+        onValueChange={(val) => useSearchStore.getState().setFilter('collection_id', val)}
+      >
+        <SelectTrigger size="sm" className="w-full data-[placeholder]:text-foreground" aria-label={t('filters.collection', { defaultValue: 'Collection' })} title={t('filters.collection', { defaultValue: 'Collection' })}>
+          <SelectValue placeholder={t('filters.collection', { defaultValue: 'Collection' })} />
+        </SelectTrigger>
+        <SelectContent>
+          {facets.collections.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name} ({c.dataset_count})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  const renderTemporalExtentControl = (fullWidth = false) => {
+    if (datetime) {
+      return (
+        <FilterChip
+          label={`${t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`}
+          onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
+        />
+      );
+    }
+
+    return (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className={cn(fullWidth && 'w-full justify-start')}>
+              <Calendar className="me-1 size-3.5" />
+              {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
+            </Button>
+          </PopoverTrigger>
+        <PopoverContent align="start" className="w-64">
+          <div className="grid gap-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('filters.dateFrom')}
+            </label>
+            <Input
+              type="date"
+              defaultValue={temporalStart}
+              onChange={(e) => handleTemporalChange(e.target.value, temporalEnd)}
+              className="h-8 text-sm"
+            />
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('filters.dateTo')}
+            </label>
+            <Input
+              type="date"
+              defaultValue={temporalEnd}
+              onChange={(e) => handleTemporalChange(temporalStart, e.target.value)}
+              className="h-8 text-sm"
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  };
+
+  const renderSortControl = (fullWidth = false, showLabel = true) => (
+    <div className={cn('flex items-center gap-2', fullWidth && 'w-full')}>
+      {showLabel ? (
+        <label className="whitespace-nowrap text-sm font-medium text-muted-foreground">
+          {t('filters.sort')}
+        </label>
+      ) : null}
+      <Select
+        value={sortBy}
+        onValueChange={(val) => useSearchStore.getState().setSortBy(val)}
+      >
+        <SelectTrigger
+          size="sm"
+          className={cn(fullWidth && 'w-full')}
+          aria-label={t('filters.sort')}
+          title={t('filters.sort')}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SORT_OPTIONS.map((option) => (
+            <SelectItem key={option} value={option}>
+              {getSearchSortLabel(t, option)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const renderGeometryControl = () => {
+    if (recordType !== 'vector_dataset') return null;
+
+    if (geometryType) {
+      return (
+        <FilterChip
+          label={activeGeomLabel || geometryType}
+          onRemove={() => useSearchStore.getState().setFilter('geometry_type', '')}
+        />
+      );
+    }
+
+    return (
+      <Select
+        value=""
+        onValueChange={(val) =>
+          useSearchStore.getState().setFilter('geometry_type', val)
+        }
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-full"
+          aria-label={t('filters.geometry')}
+          title={t('filters.geometry')}
+        >
+          <SelectValue placeholder={t('filters.geometry')} />
+        </SelectTrigger>
+        <SelectContent>
+          {GEOMETRY_TYPES.map((geometryOption) => (
+            <SelectItem key={geometryOption} value={geometryOption}>
+              {getGeometryTypeLabel(t, geometryOption)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  const renderOrganizationControl = () => {
+    if (organizations.length === 0) return null;
+
+    if (sourceOrganization) {
+      return (
+        <FilterChip
+          label={sourceOrganization}
+          onRemove={() => useSearchStore.getState().setFilter('source_organization', '')}
+        />
+      );
+    }
+
+    return (
+      <Select
+        value=""
+        onValueChange={(val) =>
+          useSearchStore.getState().setFilter('source_organization', val)
+        }
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-full"
+          aria-label={t('filters.organization')}
+          title={t('filters.organization')}
+        >
+          <SelectValue placeholder={t('filters.organization')} />
+        </SelectTrigger>
+        <SelectContent>
+          {organizations.map((org) => (
+            <SelectItem key={org} value={org}>{org}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  const renderSridControl = () => {
+    if (!showSridFilter) return null;
+
+    if (srid) {
+      return (
+        <FilterChip
+          label={`EPSG:${srid}`}
+          onRemove={() => useSearchStore.getState().setFilter('srid', '')}
+        />
+      );
+    }
+
+    return (
+      <Select
+        value=""
+        onValueChange={(val) =>
+          useSearchStore.getState().setFilter('srid', val)
+        }
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-full"
+          aria-label={t('filters.crs')}
+          title={t('filters.crs')}
+        >
+          <SelectValue placeholder={t('filters.crs')} />
+        </SelectTrigger>
+        <SelectContent>
+          {srids.map((s) => (
+            <SelectItem key={s} value={String(s)}>{`EPSG:${s}`}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  const renderDesktopRail = () => (
+    <div
+      className="space-y-4 rounded-[22px] border border-border/50 bg-background/95 p-4 shadow-sm"
+      data-testid="search-filter-rail"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            {t('filters.filtersButton', { defaultValue: 'Filters' })}
+          </p>
+          {totalResultsLabel ? (
+            <p className="text-sm text-muted-foreground">{totalResultsLabel}</p>
+          ) : null}
+        </div>
+        {hasToolbarChanges && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={clearFilters}
+          >
+            {t('filters.clearFilters')}
+          </Button>
+        )}
+      </div>
+
+      {token && hasSearchState ? (
+        <div className="flex justify-start">
+          <SaveSearchButton />
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('filters.type', { defaultValue: 'Type' })}
+        </p>
+        <ToggleGroup
+          type="single"
+          value={recordType || 'all'}
+          onValueChange={(val) =>
+            useSearchStore.getState().setFilter('record_type', val === 'all' ? '' : val)
+          }
+          className="grid grid-cols-1 gap-2"
+        >
+          <ToggleGroupItem value="all" className="h-8 justify-between px-3 text-xs">
+            {t('filters.allTypes', { defaultValue: 'All' })}
+            {Object.keys(counts).length > 0 && <span className="text-muted-foreground">{allTypeCount}</span>}
+          </ToggleGroupItem>
+          <ToggleGroupItem value="vector_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vector_dataset === 0}>
+            {t('filters.vector', { defaultValue: 'Vector' })}
+            {counts.vector_dataset !== undefined && <span className="text-muted-foreground">{counts.vector_dataset}</span>}
+          </ToggleGroupItem>
+          <ToggleGroupItem value="raster_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.raster_dataset === 0}>
+            {t('filters.raster', { defaultValue: 'Raster' })}
+            {counts.raster_dataset !== undefined && <span className="text-muted-foreground">{counts.raster_dataset}</span>}
+          </ToggleGroupItem>
+          <ToggleGroupItem value="vrt_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vrt_dataset === 0}>
+            {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
+            {counts.vrt_dataset !== undefined && <span className="text-muted-foreground">{counts.vrt_dataset}</span>}
+          </ToggleGroupItem>
+          {showsTableToggle && (
+            <ToggleGroupItem value="table" className="h-8 justify-between px-3 text-xs" disabled={counts.table === 0}>
+              {t('card.table', { defaultValue: 'Table' })}
+              {counts.table !== undefined && <span className="text-muted-foreground">{counts.table}</span>}
+            </ToggleGroupItem>
+          )}
+        </ToggleGroup>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('filters.keywords', { defaultValue: 'Keywords' })}
+        </p>
+        <KeywordFacetPicker facets={facets?.keywords} isLoading={!facets} />
+        {selectedKeywords.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {selectedKeywords.map((kw) => (
+              <FilterChip
+                key={kw}
+                label={kw}
+                onRemove={() => {
+                  const next = useSearchStore.getState().keywords.filter((k) => k !== kw);
+                  useSearchStore.getState().setFilter('keywords', next);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {facets?.collections && facets.collections.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('filters.collection', { defaultValue: 'Collection' })}
+          </p>
+          {renderCollectionControl()}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('filters.location')}
+        </p>
+        {renderDesktopLocationFilter(true)}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('filters.dateRange')}
+        </p>
+        {renderDesktopDateFilter(true)}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
+        </p>
+        {renderTemporalExtentControl(true)}
+      </div>
+
+      {recordType === 'vector_dataset' && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('filters.geometry')}
+          </p>
+          {renderGeometryControl()}
+        </div>
+      )}
+
+      {organizations.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('filters.organization')}
+          </p>
+          {renderOrganizationControl()}
+        </div>
+      )}
+
+      {showSridFilter && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('filters.crs')}
+          </p>
+          {renderSridControl()}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('filters.sort')}
+        </p>
+        {renderSortControl(true, false)}
+      </div>
+    </div>
+  );
 
   // ====================================================================
   // Section 5: JSX layout
@@ -362,420 +764,250 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
   return (
     <>
       {/* ---- Mobile bar + chip row ---- */}
-      <div className="space-y-4 md:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm text-muted-foreground">
-            {totalResults !== undefined ? (
-              <span>{t('filters.datasetCount', { count: totalResults })}</span>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant={activeFilterCount > 0 ? 'default' : 'outline'}
-              size="sm"
-              className="rounded-full border-border/60 shadow-sm"
-              onClick={() => {
-                syncLocalDates();
-                setMobileFiltersOpen(true);
-              }}
-            >
-              <SlidersHorizontal className="size-4" />
-              {t('filters.filtersButton', { defaultValue: 'Filters' })}
-              {activeFilterCount > 0 && (
-                <span className="rounded-full bg-background/20 px-1.5 py-0 text-[11px] font-semibold">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-            {token && hasSearchState && <SaveSearchButton />}
-          </div>
-        </div>
-
-        {hasActiveFilters && (
-          <div className="flex flex-wrap items-center gap-2">
-            {recordType && (
-              <FilterChip
-                label={getRecordTypeLabel(recordType)}
-                onRemove={() => useSearchStore.getState().setFilter('record_type', '')}
-              />
-            )}
-            {collectionId && facets?.collections && (
-              <FilterChip
-                label={facets.collections.find((c) => c.id === collectionId)?.name || t('filters.collection', { defaultValue: 'Collection' })}
-                onRemove={() => useSearchStore.getState().setFilter('collection_id', '')}
-              />
-            )}
-            {geometryType && (
-              <FilterChip
-                label={activeGeomLabel || geometryType}
-                onRemove={() => useSearchStore.getState().setFilter('geometry_type', '')}
-              />
-            )}
-            {sourceOrganization && (
-              <FilterChip
-                label={sourceOrganization}
-                onRemove={() => useSearchStore.getState().setFilter('source_organization', '')}
-              />
-            )}
-            {srid && (
-              <FilterChip
-                label={`EPSG:${srid}`}
-                onRemove={() => useSearchStore.getState().setFilter('srid', '')}
-              />
-            )}
-            {bbox && (
-              <FilterChip
-                label={t('filters.areaSelected', { defaultValue: 'Area selected' })}
-                onRemove={() => {
-                  const store = useSearchStore.getState();
-                  store.setFilter('bbox', '');
-                  store.setFilter('geometry', '');
-                  store.setFilter('spatial_predicate', 'intersects');
-                }}
-              />
-            )}
-            {(dateFrom || dateTo) && (
-              <FilterChip
-                label={dateChipLabel}
-                onRemove={() => {
-                  useSearchStore.getState().setFilter('date_from', '');
-                  useSearchStore.getState().setFilter('date_to', '');
-                  setLocalDateFrom('');
-                  setLocalDateTo('');
-                }}
-              />
-            )}
-            {datetime && (
-              <FilterChip
-                label={`${t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`}
-                onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
-              />
-            )}
-            {selectedKeywords.length > 0 && selectedKeywords.map((kw) => (
-              <FilterChip
-                key={kw}
-                label={kw}
-                onRemove={() => {
-                  const next = selectedKeywords.filter((k) => k !== kw);
-                  useSearchStore.getState().setFilter('keywords', next);
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ---- Desktop primary filter row ---- */}
-      <div className="hidden flex-wrap items-center gap-2.5 md:flex">
-        <div className="flex items-center gap-2">
-          <ToggleGroup
-            type="single"
-            value={recordType || 'all'}
-            onValueChange={(val) =>
-              useSearchStore.getState().setFilter('record_type', val === 'all' ? '' : val)
-            }
-            className="h-8"
-          >
-            <ToggleGroupItem value="all" className="text-xs px-2.5 h-7">
-              {t('filters.allTypes', { defaultValue: 'All' })}
-              {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="vector_dataset" className="text-xs px-2.5 h-7" disabled={counts.vector_dataset === 0}>
-              {t('filters.vector', { defaultValue: 'Vector' })}
-              {counts.vector_dataset !== undefined && ` (${counts.vector_dataset})`}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="raster_dataset" className="text-xs px-2.5 h-7" disabled={counts.raster_dataset === 0}>
-              {t('filters.raster', { defaultValue: 'Raster' })}
-              {counts.raster_dataset !== undefined && ` (${counts.raster_dataset})`}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="vrt_dataset" className="text-xs px-2.5 h-7" disabled={counts.vrt_dataset === 0}>
-              {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
-              {counts.vrt_dataset !== undefined && ` (${counts.vrt_dataset})`}
-            </ToggleGroupItem>
-            {showsTableToggle && (
-              <ToggleGroupItem value="table" className="text-xs px-2.5 h-7" disabled={counts.table === 0}>
-                {t('card.table', { defaultValue: 'Table' })}
-                {counts.table !== undefined && ` (${counts.table})`}
-              </ToggleGroupItem>
-            )}
-          </ToggleGroup>
-        </div>
-
-        <KeywordFacetPicker facets={facets?.keywords} isLoading={!facets} />
-        {selectedKeywords.length > 0 && selectedKeywords.length <= 2 && selectedKeywords.map((kw) => (
-          <FilterChip
-            key={kw}
-            label={kw}
-            onRemove={() => {
-              const next = useSearchStore.getState().keywords.filter((k) => k !== kw);
-              useSearchStore.getState().setFilter('keywords', next);
-            }}
-          />
-        ))}
-        {selectedKeywords.length > 2 && (
-          <FilterChip
-            label={t('filters.keywordsCount', { count: selectedKeywords.length, defaultValue: 'Keywords ({{count}})' })}
-            onRemove={() => useSearchStore.getState().setFilter('keywords', [])}
-          />
-        )}
-
-        {facets?.collections && facets.collections.length > 0 && (
-          <div className="flex items-center gap-2">
-            {collectionId ? (
-              <FilterChip
-                label={facets.collections.find((c) => c.id === collectionId)?.name || t('filters.collection', { defaultValue: 'Collection' })}
-                onRemove={() => useSearchStore.getState().setFilter('collection_id', '')}
-              />
-            ) : (
-              <Select
-                value=""
-                onValueChange={(val) => useSearchStore.getState().setFilter('collection_id', val)}
-              >
-                <SelectTrigger size="sm" className="data-[placeholder]:text-foreground" aria-label={t('filters.collection', { defaultValue: 'Collection' })} title={t('filters.collection', { defaultValue: 'Collection' })}>
-                  <SelectValue placeholder={t('filters.collection', { defaultValue: 'Collection' })} />
-                </SelectTrigger>
-                <SelectContent>
-                  {facets.collections.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} ({c.dataset_count})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">{renderDesktopLocationFilter()}</div>
-
-        <div className="flex items-center gap-2">{renderDesktopDateFilter()}</div>
-
-        {/* Temporal Extent filter */}
-        <div className="flex items-center gap-2">
-          {datetime ? (
-            <FilterChip
-              label={`${t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`}
-              onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
-            />
-          ) : (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Calendar className="me-1 size-3.5" />
-                  {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-64">
-                <div className="grid gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {t('filters.dateFrom')}
-                  </label>
-                  <Input
-                    type="date"
-                    defaultValue={temporalStart}
-                    onChange={(e) => handleTemporalChange(e.target.value, temporalEnd)}
-                    className="h-8 text-sm"
-                  />
-                  <label className="text-xs font-medium text-muted-foreground">
-                    {t('filters.dateTo')}
-                  </label>
-                  <Input
-                    type="date"
-                    defaultValue={temporalEnd}
-                    onChange={(e) => handleTemporalChange(temporalStart, e.target.value)}
-                    className="h-8 text-sm"
-                  />
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label className="whitespace-nowrap text-sm font-medium text-muted-foreground">
-            {t('filters.sort')}
-          </label>
-          <Select
-            value={sortBy}
-            onValueChange={(val) => useSearchStore.getState().setSortBy(val)}
-          >
-            <SelectTrigger
-              size="sm"
-              aria-label={t('filters.sort')}
-              title={t('filters.sort')}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {getSearchSortLabel(t, option)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {hasToolbarChanges && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              useSearchStore.getState().resetFilters();
-              setLocalDateFrom('');
-              setLocalDateTo('');
-            }}
-          >
-            {t('filters.clearFilters')}
-          </Button>
-        )}
-
-        <div className="ml-auto flex items-center gap-3 rounded-full border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
-          {totalResults !== undefined && (
-            <span>
-              {bbox || geometry
-                ? t('filters.spatialResultCount', { count: totalResults, defaultValue: 'Showing {{count}} in selected area' })
-                : t('filters.datasetCount', { count: totalResults })}
-            </span>
-          )}
-          {token && hasSearchState && <SaveSearchButton />}
-        </div>
-      </div>
-
-      {/* ---- Desktop secondary filter row (type-specific controls) ---- */}
-      {showSecondaryFilterRow && (
-        <div
-          className="hidden flex-wrap items-center gap-2.5 rounded-[18px] border border-border/40 bg-muted/15 px-3 py-1.5 md:flex"
-          data-testid="secondary-filter-row"
-        >
-          <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-            {recordType ? getRecordTypeLabel(recordType) : ''}{' '}
-            {t('filters.filtersLabel', { defaultValue: 'filters' })}
-          </span>
-
-          {recordType === 'vector_dataset' && (
+      {showMobile && (
+        <div className="space-y-4 md:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm text-muted-foreground">
+              {totalResultsLabel ? <span>{totalResultsLabel}</span> : null}
+            </div>
             <div className="flex items-center gap-2">
-              {geometryType ? (
+              <Button
+                type="button"
+                variant={activeFilterCount > 0 ? 'default' : 'outline'}
+                size="sm"
+                className="rounded-full border-border/60 shadow-sm"
+                onClick={() => {
+                  syncLocalDates();
+                  setMobileFiltersOpen(true);
+                }}
+              >
+                <SlidersHorizontal className="size-4" />
+                {t('filters.filtersButton', { defaultValue: 'Filters' })}
+                {activeFilterCount > 0 && (
+                  <span className="rounded-full bg-background/20 px-1.5 py-0 text-[11px] font-semibold">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </Button>
+              {token && hasSearchState && <SaveSearchButton />}
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-2">
+              {recordType && (
+                <FilterChip
+                  label={getRecordTypeLabel(recordType)}
+                  onRemove={() => useSearchStore.getState().setFilter('record_type', '')}
+                />
+              )}
+              {collectionId && facets?.collections && (
+                <FilterChip
+                  label={facets.collections.find((c) => c.id === collectionId)?.name || t('filters.collection', { defaultValue: 'Collection' })}
+                  onRemove={() => useSearchStore.getState().setFilter('collection_id', '')}
+                />
+              )}
+              {geometryType && (
                 <FilterChip
                   label={activeGeomLabel || geometryType}
                   onRemove={() => useSearchStore.getState().setFilter('geometry_type', '')}
                 />
-              ) : (
-                <Select
-                  value=""
-                  onValueChange={(val) =>
-                    useSearchStore.getState().setFilter('geometry_type', val)
-                  }
-                >
-                  <SelectTrigger
-                    size="sm"
-                    aria-label={t('filters.geometry')}
-                    title={t('filters.geometry')}
-                  >
-                    <SelectValue placeholder={t('filters.geometry')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {GEOMETRY_TYPES.map((geometry) => (
-                      <SelectItem key={geometry} value={geometry}>
-                        {getGeometryTypeLabel(t, geometry)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
-            </div>
-          )}
-
-          {organizations.length > 0 && (
-            <div className="flex items-center gap-2">
-              {sourceOrganization ? (
+              {sourceOrganization && (
                 <FilterChip
                   label={sourceOrganization}
                   onRemove={() => useSearchStore.getState().setFilter('source_organization', '')}
                 />
-              ) : (
-                <Select
-                  value=""
-                  onValueChange={(val) =>
-                    useSearchStore.getState().setFilter('source_organization', val)
-                  }
-                >
-                  <SelectTrigger
-                    size="sm"
-                    aria-label={t('filters.organization')}
-                    title={t('filters.organization')}
-                  >
-                    <SelectValue placeholder={t('filters.organization')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {organizations.map((org) => (
-                      <SelectItem key={org} value={org}>{org}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
-            </div>
-          )}
-
-          {showSridFilter && (
-            <div className="flex items-center gap-2">
-              {srid ? (
+              {srid && (
                 <FilterChip
                   label={`EPSG:${srid}`}
                   onRemove={() => useSearchStore.getState().setFilter('srid', '')}
                 />
-              ) : (
-                <Select
-                  value=""
-                  onValueChange={(val) =>
-                    useSearchStore.getState().setFilter('srid', val)
-                  }
-                >
-                  <SelectTrigger
-                    size="sm"
-                    aria-label={t('filters.crs')}
-                    title={t('filters.crs')}
-                  >
-                    <SelectValue placeholder={t('filters.crs')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {srids.map((s) => (
-                      <SelectItem key={s} value={String(s)}>{`EPSG:${s}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
+              {bbox && (
+                <FilterChip
+                  label={t('filters.areaSelected', { defaultValue: 'Area selected' })}
+                  onRemove={() => {
+                    const store = useSearchStore.getState();
+                    store.setFilter('bbox', '');
+                    store.setFilter('geometry', '');
+                    store.setFilter('spatial_predicate', 'intersects');
+                  }}
+                />
+              )}
+              {(dateFrom || dateTo) && (
+                <FilterChip
+                  label={dateChipLabel}
+                  onRemove={() => {
+                    useSearchStore.getState().setFilter('date_from', '');
+                    useSearchStore.getState().setFilter('date_to', '');
+                    setLocalDateFrom('');
+                    setLocalDateTo('');
+                  }}
+                />
+              )}
+              {datetime && (
+                <FilterChip
+                  label={`${t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}: ${temporalStart || '..'} - ${temporalEnd || '..'}`}
+                  onRemove={() => useSearchStore.getState().setFilter('datetime', '')}
+                />
+              )}
+              {selectedKeywords.length > 0 && selectedKeywords.map((kw) => (
+                <FilterChip
+                  key={kw}
+                  label={kw}
+                  onRemove={() => {
+                    const next = selectedKeywords.filter((k) => k !== kw);
+                    useSearchStore.getState().setFilter('keywords', next);
+                  }}
+                />
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* ---- Mobile filter sheet (full-screen overlay) ---- */}
-      <Sheet
-        open={mobileFiltersOpen}
-        onOpenChange={(open) => {
-          if (open) syncLocalDates();
-          if (!open) setBboxOpen(false);
-          setMobileFiltersOpen(open);
-        }}
-      >
-        <SheetContent
-          side="bottom"
-          className="max-h-[85vh] rounded-t-3xl border-x-0 border-b-0 px-0"
-        >
-          <SheetHeader className="px-4 pb-2">
-            <SheetTitle>
-              {t('filters.filtersButton', { defaultValue: 'Filters' })}
-            </SheetTitle>
-            <SheetDescription>
-              {t('filters.sheetDescription', {
-                defaultValue: 'Refine results without leaving the search page.',
-              })}
-            </SheetDescription>
-          </SheetHeader>
+      {/* ---- Desktop primary filter row ---- */}
+      {showDesktop && desktopLayout === 'rail' ? renderDesktopRail() : null}
 
-          <div className="space-y-5 overflow-y-auto px-4 pb-6">
+      {showDesktop && desktopLayout === 'toolbar' && (
+        <>
+          <div className="hidden flex-wrap items-center gap-2.5 md:flex">
+            <div className="flex items-center gap-2">
+              <ToggleGroup
+                type="single"
+                value={recordType || 'all'}
+                onValueChange={(val) =>
+                  useSearchStore.getState().setFilter('record_type', val === 'all' ? '' : val)
+                }
+                className="h-8"
+              >
+                <ToggleGroupItem value="all" className="text-xs px-2.5 h-7">
+                  {t('filters.allTypes', { defaultValue: 'All' })}
+                  {Object.keys(counts).length > 0 && ` (${allTypeCount})`}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="vector_dataset" className="text-xs px-2.5 h-7" disabled={counts.vector_dataset === 0}>
+                  {t('filters.vector', { defaultValue: 'Vector' })}
+                  {counts.vector_dataset !== undefined && ` (${counts.vector_dataset})`}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="raster_dataset" className="text-xs px-2.5 h-7" disabled={counts.raster_dataset === 0}>
+                  {t('filters.raster', { defaultValue: 'Raster' })}
+                  {counts.raster_dataset !== undefined && ` (${counts.raster_dataset})`}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="vrt_dataset" className="text-xs px-2.5 h-7" disabled={counts.vrt_dataset === 0}>
+                  {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
+                  {counts.vrt_dataset !== undefined && ` (${counts.vrt_dataset})`}
+                </ToggleGroupItem>
+                {showsTableToggle && (
+                  <ToggleGroupItem value="table" className="text-xs px-2.5 h-7" disabled={counts.table === 0}>
+                    {t('card.table', { defaultValue: 'Table' })}
+                    {counts.table !== undefined && ` (${counts.table})`}
+                  </ToggleGroupItem>
+                )}
+              </ToggleGroup>
+            </div>
+
+            <KeywordFacetPicker facets={facets?.keywords} isLoading={!facets} />
+            {selectedKeywords.length > 0 && selectedKeywords.length <= 2 && selectedKeywords.map((kw) => (
+              <FilterChip
+                key={kw}
+                label={kw}
+                onRemove={() => {
+                  const next = useSearchStore.getState().keywords.filter((k) => k !== kw);
+                  useSearchStore.getState().setFilter('keywords', next);
+                }}
+              />
+            ))}
+            {selectedKeywords.length > 2 && (
+              <FilterChip
+                label={t('filters.keywordsCount', { count: selectedKeywords.length, defaultValue: 'Keywords ({{count}})' })}
+                onRemove={() => useSearchStore.getState().setFilter('keywords', [])}
+              />
+            )}
+
+            {facets?.collections && facets.collections.length > 0 && (
+              <div className="flex items-center gap-2">{renderCollectionControl()}</div>
+            )}
+
+            <div className="flex items-center gap-2">{renderDesktopLocationFilter()}</div>
+
+            <div className="flex items-center gap-2">{renderDesktopDateFilter()}</div>
+
+            <div className="flex items-center gap-2">
+              {renderTemporalExtentControl()}
+            </div>
+
+            {renderSortControl()}
+
+            {hasToolbarChanges && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+              >
+                {t('filters.clearFilters')}
+              </Button>
+            )}
+
+            <div className="ml-auto flex items-center gap-3 rounded-full border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
+              {totalResultsLabel && <span>{totalResultsLabel}</span>}
+              {token && hasSearchState && <SaveSearchButton />}
+            </div>
+          </div>
+
+          {showSecondaryFilterRow && (
+            <div
+              className="hidden flex-wrap items-center gap-2.5 rounded-[18px] border border-border/40 bg-muted/15 px-3 py-1.5 md:flex"
+              data-testid="secondary-filter-row"
+            >
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                {recordType ? getRecordTypeLabel(recordType) : ''}{' '}
+                {t('filters.filtersLabel', { defaultValue: 'filters' })}
+              </span>
+
+              {recordType === 'vector_dataset' && (
+                <div className="flex items-center gap-2">{renderGeometryControl()}</div>
+              )}
+
+              {organizations.length > 0 && (
+                <div className="flex items-center gap-2">{renderOrganizationControl()}</div>
+              )}
+
+              {showSridFilter && (
+                <div className="flex items-center gap-2">{renderSridControl()}</div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ---- Mobile filter sheet (full-screen overlay) ---- */}
+      {showMobile && (
+        <Sheet
+          open={mobileFiltersOpen}
+          onOpenChange={(open) => {
+            if (open) syncLocalDates();
+            if (!open) setBboxOpen(false);
+            setMobileFiltersOpen(open);
+          }}
+        >
+          <SheetContent
+            side="bottom"
+            className="max-h-[85vh] rounded-t-3xl border-x-0 border-b-0 px-0"
+          >
+            <SheetHeader className="px-4 pb-2">
+              <SheetTitle>
+                {t('filters.filtersButton', { defaultValue: 'Filters' })}
+              </SheetTitle>
+              <SheetDescription>
+                {t('filters.sheetDescription', {
+                  defaultValue: 'Refine results without leaving the search page.',
+                })}
+              </SheetDescription>
+            </SheetHeader>
+
+            <div className="space-y-5 overflow-y-auto px-4 pb-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
                 {t('filters.type', { defaultValue: 'Type' })}
@@ -1058,9 +1290,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  useSearchStore.getState().resetFilters();
-                  setLocalDateFrom('');
-                  setLocalDateTo('');
+                  clearFilters();
                   setBboxOpen(false);
                 }}
               >
@@ -1070,6 +1300,7 @@ export function FilterPanel({ totalResults }: { totalResults: number | undefined
           </div>
         </SheetContent>
       </Sheet>
+      )}
 
       <Suspense fallback={null}>
         {spatialPanelOpen ? (

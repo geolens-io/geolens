@@ -11,6 +11,7 @@ test.describe('Upload Flow', () => {
     await expect(
       page.getByRole('heading', { name: 'Import Data' }),
     ).toBeVisible();
+    await expect(page.getByTestId('import-upload-sidebar')).toBeVisible();
 
     // Upload via hidden file input (react-dropzone renders a hidden input)
     const fileInput = page.locator('input[type="file"]');
@@ -37,5 +38,6 @@ test.describe('Upload Flow', () => {
       timeout: 30_000,
     });
     await expect(page.getByRole('link', { name: 'View Dataset' })).toHaveCount(0);
+    await expect(page.getByTestId('import-tracking-sidebar')).toBeVisible();
   });
 });

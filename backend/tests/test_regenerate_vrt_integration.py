@@ -332,10 +332,6 @@ async def test_regenerate_vrt_happy_path_end_to_end(
         select(Record).where(Record.id == vrt_db_state["vrt_record_id"])
     )
     vrt_record = record_result.scalar_one()
-    # refresh to pick up spatial_extent updated by regenerate_vrt's cross-session
-    # commit (test_db_session uses expire_on_commit=False — without this refresh,
-    # assertion [15] could silently see the stale None from the fixture setup)
-    await session.refresh(vrt_record)
 
     # --- ASSERTIONS (the 15 anchor mutations) ------------------------------
 
