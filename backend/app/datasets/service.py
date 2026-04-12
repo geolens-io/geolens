@@ -636,6 +636,18 @@ async def update_user_metadata(
         dataset.source_url = source_url
         metadata_mutated = True
 
+    # Raster-specific fields
+    if meta.is_dem is not None:
+        from app.raster.models import RasterAsset
+
+        ra_result = await session.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+        )
+        ra = ra_result.scalar_one_or_none()
+        if ra is not None:
+            ra.is_dem = meta.is_dem
+            metadata_mutated = True
+
     if actor_id is not None and metadata_mutated:
         record.updated_by = actor_id
 

@@ -140,7 +140,8 @@ async def _resolve_raster_access(
                 ra.asset_uri,
                 ra.storage_backend,
                 ra.band_count,
-                ra.dtype
+                ra.dtype,
+                ra.is_dem
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -269,6 +270,12 @@ async def raster_auth_check(
 
     cache_status = "public" if row["visibility"] == "public" else "private"
     render_params = _titiler_render_params(row["band_count"], row["dtype"])
+    if row.get("is_dem"):
+        render_params = (
+            f"algorithm=terrainrgb&{render_params}"
+            if render_params
+            else "algorithm=terrainrgb"
+        )
 
     return Response(
         status_code=status.HTTP_200_OK,
