@@ -23,7 +23,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.auth.models import User
 from app.config import settings
@@ -682,9 +682,9 @@ async def search_datasets(
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(
-            joinedload(Dataset.record).joinedload(Record.keywords),
-            joinedload(Dataset.record).joinedload(Record.contacts),
-            joinedload(Dataset.record).joinedload(Record.distributions),
+            selectinload(Dataset.record).selectinload(Record.keywords),
+            selectinload(Dataset.record).selectinload(Record.contacts),
+            selectinload(Dataset.record).selectinload(Record.distributions),
         )
     )
 
@@ -891,9 +891,9 @@ async def search_datasets(
                     select(Dataset)
                     .join(Record, Dataset.record_id == Record.id)
                     .options(
-                        joinedload(Dataset.record).joinedload(Record.keywords),
-                        joinedload(Dataset.record).joinedload(Record.contacts),
-                        joinedload(Dataset.record).joinedload(Record.distributions),
+                        selectinload(Dataset.record).selectinload(Record.keywords),
+                        selectinload(Dataset.record).selectinload(Record.contacts),
+                        selectinload(Dataset.record).selectinload(Record.distributions),
                     )
                     .where(Record.id.in_([uuid_mod.UUID(rid) for rid in page_ids]))
                 )

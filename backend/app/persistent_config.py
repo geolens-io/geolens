@@ -589,17 +589,19 @@ _DEFAULT_BASEMAPS = [
 
 _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 
-BASEMAPS = PersistentConfig[list](
+from app.settings.schemas import BasemapEntry, MapDefaultsResponse  # noqa: E402
+
+BASEMAPS = PersistentConfig[list[BasemapEntry]](
     key="basemaps",
-    type_=list,
+    type_=list[BasemapEntry],
     env_default=_DEFAULT_BASEMAPS,
     tab="map",
     label="Basemaps",
 )
 
-MAP_DEFAULTS = PersistentConfig[dict](
+MAP_DEFAULTS = PersistentConfig[MapDefaultsResponse](
     key="map_defaults",
-    type_=dict,
+    type_=MapDefaultsResponse,
     env_default=_DEFAULT_MAP_DEFAULTS,
     tab="map",
     label="Map Defaults",
@@ -607,9 +609,9 @@ MAP_DEFAULTS = PersistentConfig[dict](
 
 
 # -- Widgets --
-ENABLED_WIDGETS = PersistentConfig[list](
+ENABLED_WIDGETS = PersistentConfig[list[str] | None](
     key="enabled_widgets",
-    type_=list,
+    type_=list[str] | None,
     env_default=None,
     tab="map",
     label="Enabled Widgets",
@@ -624,9 +626,9 @@ def _default_role_permissions() -> dict:
     return DEFAULT_ROLE_PERMISSIONS
 
 
-ROLE_PERMISSIONS = PersistentConfig[dict](
+ROLE_PERMISSIONS = PersistentConfig[dict[str, list[str]]](
     key="role_permissions",
-    type_=dict,
+    type_=dict[str, list[str]],
     env_default_factory=_default_role_permissions,
     tab="permissions",
     label="Role Permissions",

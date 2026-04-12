@@ -2,12 +2,13 @@
 
 import hashlib
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import ApiKey, Role, User, UserRole
@@ -35,9 +36,11 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     user = api_key_obj.user
     if user is None or not user.is_active or user.status != "active":
         return None
-    # Update last_used_at
-    api_key_obj.last_used_at = func.now()
-    await db.commit()
+    # Only update last_used_at if it's been more than 60 seconds (reduce write amplification)
+    now = datetime.now(timezone.utc)
+    if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(seconds=60):
+        api_key_obj.last_used_at = now
+        await db.commit()
     return user
 
 
