@@ -25,7 +25,6 @@ from app.cache.provider import CacheProvider
 from app.config import settings
 from app.public_urls import resolve_public_api_url, resolve_public_app_url
 from app.settings.models import AppSetting
-from app.settings.schemas import BasemapEntry, MapDefaultsResponse
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -597,17 +596,17 @@ _DEFAULT_BASEMAPS = [
 
 _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 
-BASEMAPS = PersistentConfig[list[BasemapEntry]](
+BASEMAPS = PersistentConfig[list](
     key="basemaps",
-    type_=list[BasemapEntry],
+    type_=list,
     env_default=_DEFAULT_BASEMAPS,
     tab="map",
     label="Basemaps",
 )
 
-MAP_DEFAULTS = PersistentConfig[MapDefaultsResponse](
+MAP_DEFAULTS = PersistentConfig[dict](
     key="map_defaults",
-    type_=MapDefaultsResponse,
+    type_=dict,
     env_default=_DEFAULT_MAP_DEFAULTS,
     tab="map",
     label="Map Defaults",
@@ -615,9 +614,9 @@ MAP_DEFAULTS = PersistentConfig[MapDefaultsResponse](
 
 
 # -- Widgets --
-ENABLED_WIDGETS = PersistentConfig[list[str] | None](
+ENABLED_WIDGETS = PersistentConfig[list](
     key="enabled_widgets",
-    type_=list[str] | None,
+    type_=list,
     env_default=None,
     tab="map",
     label="Enabled Widgets",
@@ -632,9 +631,9 @@ def _default_role_permissions() -> dict:
     return DEFAULT_ROLE_PERMISSIONS
 
 
-ROLE_PERMISSIONS = PersistentConfig[dict[str, list[str]]](
+ROLE_PERMISSIONS = PersistentConfig[dict](
     key="role_permissions",
-    type_=dict[str, list[str]],
+    type_=dict,
     env_default_factory=_default_role_permissions,
     tab="permissions",
     label="Role Permissions",
