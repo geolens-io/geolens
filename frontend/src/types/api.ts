@@ -834,6 +834,8 @@ export interface SharedLayerResponse {
   show_in_legend?: boolean;
   layer_type?: string;
   dataset_record_type?: string;
+  is_dem?: boolean;
+  tile_url?: string;
 }
 
 export interface SharedMapResponse {
