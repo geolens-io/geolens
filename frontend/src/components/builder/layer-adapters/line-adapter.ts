@@ -25,7 +25,7 @@ export const lineAdapter: LayerAdapter = {
         id: layerId,
         type: 'line',
         source: sourceId,
-        'source-layer': sourceLayer,
+        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
         paint: linePaint,
         layout: {
           'line-cap': 'round',

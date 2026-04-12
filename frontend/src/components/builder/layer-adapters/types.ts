@@ -16,6 +16,8 @@ export interface AdapterLayerInput {
   sourceId: string;
   layerId: string;
   sourceLayer: string;
+  // Source type: 'vector' (MVT, default) or 'geojson' (GeoJSON-Z)
+  sourceType?: 'vector' | 'geojson';
   // Raster-specific (from TileToken)
   tileUrl: string;
   tileSize?: number;

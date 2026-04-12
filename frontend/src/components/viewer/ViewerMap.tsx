@@ -24,6 +24,7 @@ import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { resolveAdapterType, syncLayersToMap } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
+import { fetchGeoJsonZ } from '@/api/geojson-z';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -109,6 +110,8 @@ function toViewerSyncInput(
     filter: layer.filter ?? null,
     label_config: layer.label_config,
     style_config: layer.style_config,
+    is_3d: layer.is_3d,
+    feature_count: layer.feature_count,
   };
 }
 
@@ -165,6 +168,13 @@ export function ViewerMap({
   // Keep a stable ref to demTileUrl so style.load (registered once) sees latest value
   const demTileUrlRef = useRef(demTileUrl);
   demTileUrlRef.current = demTileUrl;
+  // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
+  const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
+  const geojsonZLayers = useMemo(
+    () => layers.filter((l) => l.is_3d && l.feature_count != null && l.feature_count <= 5000),
+    [layers],
+  );
+
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
   // container. The Playwright demo-smoke spec polls for this attribute to
   // avoid an arbitrary `waitForTimeout` delay after networkidle.
@@ -307,6 +317,37 @@ export function ViewerMap({
     map.on('terrain', onTerrain);
     return () => { map.off('terrain', onTerrain); };
   }, [mapReady]);
+
+  // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07)
+  useEffect(() => {
+    if (geojsonZLayers.length === 0) return;
+    let cancelled = false;
+    async function fetchAll() {
+      const newMap = new Map<string, GeoJSON.FeatureCollection>();
+      await Promise.all(
+        geojsonZLayers.map(async (layer) => {
+          try {
+            const data = await fetchGeoJsonZ(layer.dataset_id, { apiKey, embedToken });
+            if (!cancelled) {
+              newMap.set(String(layer.sort_order), data as GeoJSON.FeatureCollection);
+            }
+          } catch (e) {
+            console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
+          }
+        }),
+      );
+      if (!cancelled) {
+        geojsonDataRef.current = newMap;
+        const map = mapRef.current;
+        if (map && mapReady) {
+          // Trigger re-sync so map-sync picks up the GeoJSON data
+          map.triggerRepaint();
+        }
+      }
+    }
+    fetchAll();
+    return () => { cancelled = true; };
+  }, [geojsonZLayers, apiKey, embedToken, mapReady]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -460,7 +501,7 @@ export function ViewerMap({
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = ls.map((l) => toViewerSyncInput(l, vl));
     const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
-    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, syncOpts);
+    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, geojsonDataRef.current, syncOpts);
   }, []);
 
   // Sync layers to map (on data/visibility changes)
