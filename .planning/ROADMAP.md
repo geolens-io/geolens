@@ -364,17 +364,20 @@ Plans:
 
 **Source:** Promoted from quick task [260408-aa5](../quick/260408-aa5-3d-data-and-maps-support/260408-aa5-DESIGN.md) — the design doc's critical finding is that Z survives GeoLens ingestion but is invisible to MVT. This phase surfaces Z in metadata and makes it queryable.
 
-**Sizing:** MEDIUM (~6-10 tasks)
+**Sizing:** MEDIUM (6 tasks across 3 plans)
 **Dependencies:** None — can parallelize with Phase 999.1
-**Requirements:** TBD — draft from DESIGN.md §7 Phase B row + §5 Pillar 3
+**Requirements:** [D-01, D-02, D-03, D-04, D-05, D-06]
 
 **Key decisions locked from design doc:**
 - Alembic migration adds `is_3d`, `n_dims`, `z_min`, `z_max` to the dataset model
 - Attribute promotion for point geometries is in scope (new `elev` numeric column)
 - POLYHEDRALSURFACE / TIN handling: defer the UI-warning decision; add a STATE.md decision entry when this phase is promoted
 
+**Plans:** 3 plans
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] 999.2-01-PLAN.md — Migration, model, detection function, API schema
+- [ ] 999.2-02-PLAN.md — Ingest integration, elev column promotion
+- [ ] 999.2-03-PLAN.md — Frontend types and Z range UI
 
 ### Phase 999.3: GeoJSON-Z Delivery Endpoint (BACKLOG)
 
@@ -407,4 +410,3 @@ Plans:
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
-
