@@ -80,10 +80,6 @@ export interface DatasetResponse {
   summary: string | null;
   srid: number | null;
   geometry_type: string | null;
-  is_3d: boolean | null;
-  n_dims: number | null;
-  z_min: number | null;
-  z_max: number | null;
   feature_count: number | null;
   extent_bbox: number[] | null;
   column_info: { name: string; type: string }[] | null;
@@ -121,7 +117,7 @@ export interface DatasetResponse {
     geometry_validity: number;
     attribute_completeness: number;
     crs_defined: number;
-    computed_at: string | null;
+    computed_at: string;
   } | null;
   record_type: string;
   raster: RasterMetadata | null;
@@ -247,8 +243,6 @@ export interface AttributeMetadataUpdate {
   title?: string | null;
   description?: string | null;
   units?: string | null;
-  semantic_role?: string | null;
-  domain_type?: string | null;
 }
 
 export interface AttributeMetadataListResponse {
@@ -313,7 +307,7 @@ export interface OGCRecordProperties {
     geometry_validity: number | null;
     attribute_completeness: number;
     crs_defined: number | null;
-    computed_at: string | null;
+    computed_at: string;
   } | null;
   record_status?: string | null;
   record_type?: string;
@@ -704,7 +698,7 @@ export interface ColumnStatsResponse {
 }
 
 // Maps
-export type MapVisibility = 'private' | 'internal' | 'public' | 'unlisted';
+export type MapVisibility = 'private' | 'internal' | 'public';
 
 export interface MapLayerResponse {
   id: string;
@@ -838,8 +832,6 @@ export interface SharedLayerResponse {
   show_in_legend?: boolean;
   layer_type?: string;
   dataset_record_type?: string;
-  is_dem?: boolean;
-  tile_url?: string;
 }
 
 export interface SharedMapResponse {
