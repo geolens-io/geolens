@@ -373,10 +373,12 @@ async def _finalize_ingest(ctx: IngestContext):
         add_4326_column,
         clip_to_mercator_bounds,
         compute_quality_score,
+        detect_3d_metadata,
         ensure_geom_column,
         extract_metadata,
         get_sample_values,
         grant_reader_access,
+        promote_z_to_elev,
     )
 
     session = ctx.session
@@ -408,6 +410,19 @@ async def _finalize_ingest(ctx: IngestContext):
 
     # Extract metadata
     metadata = await extract_metadata(session, table_name)
+
+    # Detect 3D geometry properties (per Phase 999.2)
+    three_d = await detect_3d_metadata(session, table_name)
+
+    # Attribute promotion: extract ST_Z into elev column for 3D points
+    if three_d.get("is_3d"):
+        elev_promoted = await promote_z_to_elev(
+            session, table_name, metadata.get("geometry_type")
+        )
+        if elev_promoted:
+            # Re-extract column_info so elev appears in the column list
+            from app.ingest.metadata import get_column_info
+            metadata["column_info"] = await get_column_info(session, table_name)
 
     # ArcGIS column_info fallback: if the DB-based extraction returned empty
     # column_info (e.g., non-spatial table where ogr2ogr only created a gid column),
@@ -448,6 +463,10 @@ async def _finalize_ingest(ctx: IngestContext):
         original_srid=ctx.original_srid
         if ctx.original_srid is not None
         else metadata.get("srid"),
+        is_3d=three_d.get("is_3d"),
+        n_dims=three_d.get("n_dims"),
+        z_min=three_d.get("z_min"),
+        z_max=three_d.get("z_max"),
         visibility=user_metadata.get("visibility", "private"),
     )
     if ctx.source_url is not None:
@@ -1130,10 +1149,13 @@ async def reupload_file(
         _qtable,
         add_4326_column,
         clip_to_mercator_bounds,
+        detect_3d_metadata,
         ensure_geom_column,
         extract_metadata,
+        get_column_info,
         get_sample_values,
         grant_reader_access,
+        promote_z_to_elev,
     )
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.jobs.models import IngestJob
@@ -1259,6 +1281,17 @@ async def reupload_file(
                 session, staging_tn, metadata["column_info"]
             )
 
+            # Detect 3D geometry on re-uploaded data (same as _finalize_ingest)
+            three_d = await detect_3d_metadata(session, staging_tn)
+
+            # Attribute promotion for 3D points
+            if three_d.get("is_3d"):
+                elev_promoted = await promote_z_to_elev(
+                    session, staging_tn, metadata.get("geometry_type")
+                )
+                if elev_promoted:
+                    metadata["column_info"] = await get_column_info(session, staging_tn)
+
             # 7. Compute file hash + source format
             file_hash = await asyncio.to_thread(sha256_file, file_path)
             suffix = Path(file_path).suffix.lower().lstrip(".")
@@ -1277,6 +1310,12 @@ async def reupload_file(
                 original_srid=srid,
                 file_hash=file_hash,
             )
+
+            # Persist 3D fields on dataset record
+            dataset.is_3d = three_d.get("is_3d")
+            dataset.n_dims = three_d.get("n_dims")
+            dataset.z_min = three_d.get("z_min")
+            dataset.z_max = three_d.get("z_max")
 
             # 9. Archive original file to storage provider.
             # Best-effort: failure does NOT fail the reupload (data is already
