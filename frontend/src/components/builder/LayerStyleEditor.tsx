@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Code } from 'lucide-react';
+import { ChevronDown, ChevronRight, Code, AlertTriangle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -21,6 +21,12 @@ interface LayerStyleEditorProps {
   onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
   showAdvanced?: boolean;
 }
+
+const NUMERIC_COLUMN_TYPES = new Set([
+  'integer', 'bigint', 'smallint', 'numeric',
+  'real', 'double precision',
+  'float4', 'float8', 'int2', 'int4', 'int8',
+]);
 
 const LINE_DASH_PRESETS = [
   { key: 'solid', value: undefined },
@@ -74,6 +80,13 @@ export function LayerStyleEditor({
 
   const fillEnabled = !paint['_fill-disabled'];
   const strokeEnabled = !paint['_stroke-disabled'];
+
+  const isPolygon = (layer.dataset_geometry_type ?? '').toUpperCase().includes('POLYGON');
+  const numericColumns = useMemo(
+    () => (layer.dataset_column_info ?? []).filter((col) => NUMERIC_COLUMN_TYPES.has(col.type.toLowerCase())),
+    [layer.dataset_column_info],
+  );
+  const currentHeightCol = (layer.paint?.['_height_column'] as string) ?? '';
 
   function handlePaintProp(key: string, value: unknown) {
     onPaintChange(layer.id, { ...paint, [key]: value });
@@ -208,6 +221,43 @@ export function LayerStyleEditor({
                   onChange={(val) => handlePaintProp('_outline-width', val)}
                 />
               </>
+            )}
+            {isPolygon && numericColumns.length > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">Height column</span>
+                <Select
+                  value={currentHeightCol}
+                  onValueChange={(val) => {
+                    const newPaint = { ...layer.paint };
+                    if (val === '' || val === '__none__') {
+                      delete newPaint['_height_column'];
+                    } else {
+                      newPaint['_height_column'] = val;
+                    }
+                    onPaintChange(layer.id, newPaint);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs w-36">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {numericColumns.map((col) => (
+                      <SelectItem key={col.name} value={col.name}>
+                        {col.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {isPolygon && currentHeightCol && !(layer.dataset_column_info ?? []).some((col) => col.name === currentHeightCol) && (
+              <div className="flex items-start gap-2 rounded bg-warning/15 p-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-warning-foreground mt-0.5" />
+                <span className="text-xs text-warning-foreground">
+                  Height column &ldquo;{currentHeightCol}&rdquo; was removed during re-upload. Select a new column or clear this setting.
+                </span>
+              </div>
             )}
           </>
         )}
