@@ -353,6 +353,10 @@ class DatasetMeta(BaseModel):
         max_length=10,
         description="ISO 639-1 language code, e.g. en, fr",
     )
+    is_dem: bool | None = Field(
+        default=None,
+        description="Flag raster as a Digital Elevation Model for terrain rendering",
+    )
 
     @field_validator(
         "title",

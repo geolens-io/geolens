@@ -183,6 +183,7 @@ class SharedLayerResponse(BaseModel):
     style_config: dict | None = None
     show_in_legend: bool = True
     tile_url: str
+    is_dem: bool = False
 
 
 class SharedMapResponse(BaseModel):

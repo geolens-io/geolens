@@ -791,6 +791,8 @@ async def get_shared_map(
     if map_obj is None or map_obj.visibility != "public":
         return None
 
+    from app.raster.models import RasterAsset
+
     # Load layers with dataset info, applying visibility filter
     stmt = (
         select(
@@ -801,9 +803,11 @@ async def get_shared_map(
             Dataset.column_info,
             Record.visibility,
             Record.record_type,
+            RasterAsset.is_dem,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_obj.id)
         .order_by(MapLayer.sort_order)
     )
@@ -821,6 +825,7 @@ async def get_shared_map(
         ds_column_info,
         ds_visibility,
         ds_record_type,
+        ds_is_dem,
     ) in layer_rows:
         is_public = ds_visibility == "public"
         if not is_public:
@@ -850,6 +855,7 @@ async def get_shared_map(
                 "style_config": layer.style_config,
                 "show_in_legend": layer.show_in_legend,
                 "tile_url": tile_url,
+                "is_dem": bool(ds_is_dem),
             }
         )
 
