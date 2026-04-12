@@ -645,7 +645,7 @@ async def upload_thumbnail(
     try:
         header, encoded = data_uri.split(",", 1)
         image_bytes = base64.b64decode(encoded)
-    except (ValueError, Exception):
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid data URI or base64 encoding",
@@ -653,13 +653,37 @@ async def upload_thumbnail(
 
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
-    storage_key = f"maps/thumbnails/{map_id}.{ext}"
+
+    # Save old key so we can clean it up after a successful commit
+    old_thumbnail_uri = map_obj.thumbnail_uri
+
+    # Write to a temp key; only point the DB at it after a successful commit
+    temp_key = f"maps/thumbnails/{map_id}.{ext}.{uuid.uuid4().hex[:8]}"
 
     storage = get_storage()
-    await storage.put(storage_key, image_bytes)
+    try:
+        await storage.put(temp_key, image_bytes)
+        map_obj.thumbnail_uri = temp_key
+        await db.commit()
+    except Exception:
+        # Roll back the temp storage object on any failure
+        try:
+            await storage.delete(temp_key)
+        except Exception:
+            pass
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to save thumbnail",
+        )
 
-    map_obj.thumbnail_uri = storage_key
-    await db.commit()
+    # Clean up the old storage object after successful commit
+    if old_thumbnail_uri and old_thumbnail_uri != temp_key:
+        try:
+            await storage.delete(old_thumbnail_uri)
+        except Exception:
+            pass  # Non-fatal: old thumbnail may already be gone
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
