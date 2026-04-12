@@ -50,35 +50,45 @@ Already built in `getgeolens.com/src/components/previews/`:
 
 ## Decisions
 
-### D-01: Missing capability previews — build 3 new in BrowserFrame style
+### D-01: Product previews — REAL SCREENSHOTS (supersedes the SVG mock plan)
 
-**Decision:** Build 3 new full-fidelity preview components for the capabilities that have no Phase 214 asset. Each wraps `BrowserFrame` with `class="w-full"` to inherit the responsive sizing fix from Phase 215 Plan 04. Light internal content (~100-200 lines of SVG/Tailwind each). Data ingestion reuses the existing `DatasetDetailPreview.astro` — "post-ingest product evidence" is a valid interpretation of FEAT-02 "stylized product preview".
+**Status:** SUPERSEDES earlier draft of D-01 (SVG-mock approach). Updated 2026-04-12 after user feedback: *"I'm not a big fan of the SVG illustrations to represent any feature in the app — I think we should use real screenshots."*
 
-**New components (in `getgeolens.com/src/components/previews/`):**
+**Decision:** All capability previews on both the homepage AND the `/features` page use **real screenshots** captured from a running GeoLens instance via Playwright. This replaces:
 
-1. **`RasterVrtPreview.astro`** — chrome URL `app.geolens.io/raster/{dataset}` or similar
-   - High-level: raster tile viewer with a visible raster dataset rendered on a basemap
-   - Suggested elements: zoom controls, opacity slider (visual only, non-functional), colormap/legend swatch, metadata footer (CRS, bands, pixel size)
-   - Content-shape left to planner/researcher — specific color palette and layout to be designed during plan phase
+- Phase 214's `SearchPreview.astro` (SVG mock) → real screenshot of `/search` or the catalog page
+- Phase 214's `MapBuilderPreview.astro` (SVG mock, recently rebuilt as cartographic hero) → real screenshot of the map builder with layers loaded
+- Phase 214's `DatasetDetailPreview.astro` (SVG mock, currently unused) → real screenshot of a dataset detail page post-ingest (used for Data Ingestion capability)
+- All three net-new previews planned for Phase 216 (RasterVrt, AiChat, Rbac) → real screenshots from the start
 
-2. **`AiChatPreview.astro`** — chrome URL `app.geolens.io/chat`
-   - High-level: a chat thread showing 3-4 message exchanges between user and assistant, with the assistant answering a geospatial question (e.g., "Show me all aquifers in New York over 1000 sq miles")
-   - Suggested elements: user bubble + assistant bubble + a small inline "result" card (dataset card or mini map) that the assistant surfaced
-   - Should make it visually obvious this is GIS-aware AI, not a generic chatbot
+**Why this changed:** The rebuilt MapBuilderPreview demonstrated that stylized SVG mocks can be impressive, but they still read as "a representation of the product" rather than "the actual product". GeoLens shipped publicly at 1.0.0 and has a real running UI. Marketing a real product should show the real product. This also closes out the STATE.md Pending Todo for pre-launch screenshot work by pulling it forward into Phase 216 scope.
 
-3. **`RbacPreview.astro`** — chrome URL `app.geolens.io/admin/users` or `/admin/roles`
-   - High-level: a role/permission matrix or user list with role badges
-   - Suggested elements: 3-4 rows of user/role, permission checkboxes/badges for things like "read", "write", "admin", possibly a "scope" column (per-dataset vs. org-wide)
-   - Should communicate "enterprise-grade governance" without being a boring spreadsheet
+**The 6 capability screenshots to capture (FEAT-01/02 order):**
 
-**Rationale:** FEAT-02 is a hard requirement ("Each capability section includes … a stylized product preview"). All 6 capabilities need equal visual weight to make the evaluator feel the product depth is real. Reusing DatasetDetailPreview for ingestion is acceptable because that component shows the outcome of ingestion (metadata + extent) which is valid product evidence. Building simpler illustrations was rejected because it would create visual inconsistency with Phase 214's established BrowserFrame style.
+| # | Capability | Target route / state | URL chrome |
+|---|-----------|----------------------|------------|
+| 1 | Search | `/search` with seeded results visible (Natural Earth + sample datasets) | `app.geolens.io/search` |
+| 2 | Map Builder | Map builder page with 2-3 layers loaded and a visible map rendered | `app.geolens.io/builder/{id}` |
+| 3 | Data Ingestion | Dataset detail page post-ingest showing metadata + extent thumbnail | `app.geolens.io/datasets/{id}` |
+| 4 | Raster/VRT | Raster dataset detail OR map builder with a raster layer visible | `app.geolens.io/datasets/{raster-id}` |
+| 5 | AI Chat | Chat interface with a real geospatial conversation | `app.geolens.io/chat` |
+| 6 | RBAC | Admin users/roles page with a populated user list | `app.geolens.io/admin/users` |
+
+**Fallback logic** — if any capability is missing a usable UI state (e.g., AI chat might not have a shippable interface yet, RBAC admin page might not be built), the researcher should flag it in RESEARCH.md as a gap. Options when a gap is found:
+- (a) Defer that capability's section to a later phase and note on `/features` that it's coming
+- (b) Ship with a placeholder screenshot + "coming soon" badge
+- (c) Pull in the in-progress UI temporarily so we have something to capture
+
+The researcher should NOT make this call — surface the gap and let the user decide.
+
+**Implications for Phase 215 (shipped):**
+- The homepage's `<SearchPreview />` and `<MapBuilderPreview />` components will be **retrofitted** — they'll still be the same component names (callsite stability) but their internals will become `<Picture>` tags pointing to the captured screenshots, wrapped in `BrowserFrame` (per D-11). The public API of each component stays the same; the implementation changes.
+- Phase 215's stylized map builder hero work is NOT wasted — it taught us how to make BrowserFrame responsive (the `class="w-full"` pattern) and validated the cartographic-section rhythm, both of which carry forward.
 
 **Notes for downstream agents:**
-- Each new preview MUST use `BrowserFrame` with `class="w-full"` so it inherits the Phase 215 Plan 04 responsive fix.
-- Each new preview MUST follow Phase 214's zero-JS, pure-SVG-and-Tailwind approach.
-- Internal content density should match `SearchPreview`/`MapBuilderPreview` — not sparse, not overwhelming.
-- Use CSS custom properties for all brand colors. Absolute no hex except the macOS chrome dots already in BrowserFrame.
-- The `/preview-test` page already exists and can be used to visually review new previews before wiring into `/features`.
+- The Phase 214 SVG preview files are being **replaced in place** — same file names, different content. This ensures the homepage and `/preview-test` page continue to work without callsite changes.
+- The existing `BrowserFrame.astro` component is retained — screenshots render inside it (see D-11).
+- Full capture workflow details in D-10 (Playwright script), D-11 (BrowserFrame wrapping), D-12 (image format), D-13 (storage + naming).
 
 ### D-02: /features page layout — 6 zig-zag stripes + OGC section
 
@@ -163,13 +173,20 @@ raster tiles.         | • Styles
 - Minimal (core flow only) — too thin; evaluators would hit troubleshooting friction with no recourse
 - Comprehensive (with advanced config) — breaks the 10-minute promise and duplicates docs
 
-### D-06: QUICK-03 "What you'll see" outcome — prose + small inline SVG
+### D-06: QUICK-03 "What you'll see" outcome — prose + real screenshot (supersedes SVG plan)
 
-**Decision:** A single paragraph describing what's live after step 5 (catalog UI with first dataset visible, map preview working, OGC endpoints responding at `http://localhost:8000/`) plus a small inline SVG illustration showing a silhouetted landing-screen mockup.
+**Status:** SUPERSEDES earlier draft of D-06. Updated 2026-04-12 alongside D-01.
 
-**Rationale:** Prose alone was too thin for QUICK-03's "expected outcome" language. Reusing `SearchPreview` was rejected because it creates visual echo with the `/features` page that already uses it. A new small inline SVG (illustrative, not a full BrowserFrame preview) gives the user a visual anchor without redundant work. Real screenshots will replace this before launch per the STATE.md pre-launch todo — today's SVG is a placeholder by design.
+**Decision:** A single paragraph describing what's live after step 5 (catalog UI with first dataset visible, map preview working, OGC endpoints responding at `http://localhost:8000/`) plus a **real screenshot** of the GeoLens landing screen immediately after a fresh install. The screenshot is captured via the same Playwright workflow as the capability screenshots (D-10).
 
-**Notes:** The illustration should be distinct from the BrowserFrame previews — simpler, more diagrammatic (boxes + labels, no cartography). Something like a stylized browser window with three labeled regions: "Catalog sidebar", "Search results", "Map preview".
+**Which screenshot to use:** Either a dedicated "post-quickstart landing" screenshot (catalog UI right after the first dataset upload completes) OR reuse the Search screenshot from D-01 if a distinct post-quickstart state isn't meaningfully different. The researcher should propose which.
+
+**Rationale:** Prose alone was too thin for QUICK-03's "expected outcome" language. An SVG illustration was the earlier compromise but was superseded by the D-01 pivot to real screenshots across the board. Using a real screenshot here is consistent with /features and the homepage, and it's more convincing for evaluators — they see literally what they'll see after following the quickstart.
+
+**Notes:**
+- Same `<Picture>` + AVIF/WebP/PNG pipeline as the capability previews (D-12)
+- Same BrowserFrame wrapping as other previews (D-11) OR a simpler unframed treatment for visual differentiation from the capability sections above — planner's call
+- If the screenshot is reused from D-01, it goes in the same `public/screenshots/` path and is just referenced twice
 
 ### D-07: Marketing subnav — Features + Quickstart + GitHub at sm+
 
@@ -209,6 +226,122 @@ The active page's link is styled with a different color or underline (`aria-curr
 - Each code block should be visually distinct from surrounding prose (clear border or background contrast) so copy-scope is obvious.
 - Inline `<code>` within prose should use a lighter treatment.
 
+### D-10: Screenshot capture workflow — Playwright script in the repo
+
+**Decision:** Add a Playwright-powered capture script to `getgeolens.com/scripts/capture-screenshots.ts` (or similar) that is version-controlled, re-runnable, and produces the screenshots referenced by the preview components in D-01. The script owns the full workflow:
+
+1. Assumes a running GeoLens instance (either local `docker compose up` or a seeded fixture instance — researcher to propose)
+2. For each capability in D-01, navigates to the target route, waits for content to settle, and captures a screenshot
+3. Writes outputs to `getgeolens.com/public/screenshots/` as named PNG files (source of truth)
+4. Astro's `<Picture>` pipeline (D-12) handles AVIF/WebP derivation at build time
+
+**What the script requires:**
+- A running GeoLens instance accessible at a known URL (default `http://localhost:8080`)
+- Seeded data so captures have content (e.g., a small reference dataset set — researcher to propose which; ideally the Phase 218 demo themed collections, but that's a separate phase; fall back to Natural Earth or inline test data)
+- Playwright installed as a dev dependency in the getgeolens.com repo
+- An `npm run capture` (or similar) entry point
+
+**What the script is NOT:**
+- Not a CI visual-regression gate (rejected as scope creep — may be added later if drift becomes a problem)
+- Not a production dependency (dev-only)
+- Not a full e2e test suite (it's capture-only)
+
+**Viewport:** 1600×1000 for desktop captures (high enough for 2x Retina scaling without being gratuitously huge). Single viewport — no mobile-specific captures in v1 since the BrowserFrame on the marketing site is already narrow (~448px max) and showing a down-scaled desktop screenshot inside it reads correctly. Researcher can propose an alternate dimension if there's a better justification.
+
+**Staleness handling:** Screenshots are committed to the repo and become stale when the GeoLens UI changes. The capture script must be re-run on UI changes to refresh them. This is a manual trigger for now (no CI automation). Add a README note in `scripts/` explaining when to re-run.
+
+**Rationale:** Playwright is already used elsewhere in the project (we used it for Phase 215 visual verification). A re-runnable script is strictly better than manual one-off screenshots because (a) the author who captures them is decoupled from the author who updates them later, (b) diffs are reproducible, (c) the "how to re-capture" knowledge lives with the code instead of in someone's head. CI visual-regression was rejected as scope creep for v1 — if drift becomes a problem, it's a Phase 217+ polish item.
+
+**Notes for downstream agents:**
+- The capture script lives in getgeolens.com but depends on a running GeoLens monorepo instance. Document the cross-repo coupling clearly in the script README.
+- If a capability's target UI doesn't exist yet (see D-01 fallback logic), the script should skip that capture with a warning, not fail.
+- Screenshot filenames must be stable and match the references in the preview components (e.g., `search.png`, `map-builder.png`, etc. — see D-13 for naming).
+
+### D-11: Screenshots render inside existing BrowserFrame wrapper
+
+**Decision:** Screenshots are rendered inside the existing `BrowserFrame.astro` component. The BrowserFrame keeps its macOS traffic lights + URL pill chrome, its responsive `class="w-full"` sizing (from Phase 215 Plan 04), its perspective tilt at desktop/tablet, its mobile tilt reset, and its glow containment at narrow viewports. The only change: the **slot content** becomes an `<Image>` / `<Picture>` tag instead of the current SVG markup inside each SearchPreview/MapBuilderPreview/etc. file.
+
+**Component shape after this phase:**
+
+```astro
+---
+import BrowserFrame from './BrowserFrame.astro';
+import { Picture } from 'astro:assets';
+import searchScreenshot from '../../assets/screenshots/search.png';
+---
+
+<BrowserFrame url="app.geolens.io/search" class="w-full">
+  <Picture
+    src={searchScreenshot}
+    formats={['avif', 'webp']}
+    fallbackFormat="png"
+    alt="GeoLens catalog search page showing …"
+    widths={[448, 896]}
+    sizes="(max-width: 640px) 100vw, 448px"
+    loading="lazy"
+  />
+</BrowserFrame>
+```
+
+**Rationale:** The BrowserFrame chrome is proven marketing polish — it reads as "this is a web app", gives the screenshots a frame, and provides the glow/tilt hero effect that the user approved in Phase 215 Plan 04. Dropping it would throw away that work. Using it unchanged means no new component architecture is needed — existing consumers on the homepage and the new `/features` page continue calling `<SearchPreview />` without knowing whether the preview is SVG or image.
+
+**What changes internally:**
+- Each Phase 214 SVG preview file (`SearchPreview.astro`, `MapBuilderPreview.astro`, `DatasetDetailPreview.astro`) has its entire internal SVG markup deleted and replaced with a `<Picture>` tag
+- The `BrowserFrame class="w-full"` wrapper is preserved
+- The min-height styling inside the frame is removed (the image dictates the aspect ratio)
+- Alt text must be descriptive for accessibility (A11Y carry-forward from 212 and 217 launch gate)
+
+**What does NOT change:**
+- Component names (callsite stability — `<SearchPreview />` still works in index.astro and will work in features.astro)
+- BrowserFrame.astro itself — zero changes to the frame component
+- The zig-zag section layouts on homepage and /features
+
+### D-12: Image pipeline — Astro `<Picture>` with AVIF + WebP + PNG fallback
+
+**Decision:** Use Astro's built-in `astro:assets` `<Picture>` component for all screenshots. Serves AVIF first, WebP second, PNG fallback. Automatic `width`/`height` attribution to prevent layout shift. Native lazy-loading. Zero client-side JS required — Astro's image optimization runs at build time.
+
+**Configuration:**
+- Source format: PNG (what Playwright produces)
+- Output formats: `formats={['avif', 'webp']}` with `fallbackFormat="png"`
+- Responsive: `widths={[448, 896, 1344]}` — 1×, 2×, 3× of the 448px BrowserFrame desktop target
+- Sizes attribute: `sizes="(max-width: 640px) 100vw, 448px"` — full viewport on mobile, 448 fixed at sm+
+- Loading: `loading="lazy"` for all non-hero screenshots; `loading="eager"` for the first one above the fold (homepage hero) — picker's call
+- Alt text: mandatory, descriptive, written per screenshot (not a generic "screenshot")
+
+**Storage:**
+- Source PNGs live in `getgeolens.com/src/assets/screenshots/` (NOT `public/`) so Astro's image pipeline processes them at build time. If we use `public/`, Astro skips the optimization and we lose AVIF/WebP derivation.
+- Build output lands in `_astro/` with hashed filenames, served efficiently
+
+**Rationale:** Astro 6's `astro:assets` is the idiomatic zero-JS image optimization path. Ships modern formats automatically. The AVIF/WebP derivation happens at `astro build` time, no runtime overhead. Lighthouse loves this pattern — directly relevant to the Phase 217 a11y/performance gate. `<img>` alone was rejected because it loses format negotiation and PNG transfer sizes are painful (~300-500KB each × 6 screenshots = 1.5-3 MB for the /features page). WebP-only was rejected because it drops old-IE/old-Safari support, which matters for gov procurement.
+
+**Bundle size expectation:** With AVIF + WebP, each screenshot should ship at ~30-80KB (vs. 200-500KB PNG). Total image payload for `/features` page ~180-480KB — acceptable for a marketing site.
+
+**Notes for downstream agents:**
+- The `astro:assets` import pattern (`import screenshot from '../../assets/screenshots/search.png'`) is required for the build pipeline to pick up the image. Referencing via string path (`src="/screenshots/search.png"`) skips optimization.
+- Every screenshot needs a meaningful, descriptive `alt` attribute. Not "screenshot of search" — describe what's visible: "GeoLens catalog search showing 207 datasets, filter tabs, and preview cards".
+- Researcher should confirm Astro's `<Picture>` + `astro:assets` behavior matches expectations in this specific version (Astro 6.1.3 is installed per earlier build output).
+
+### D-13: Screenshot storage + naming
+
+**Decision:**
+
+- **Source PNGs:** `getgeolens.com/src/assets/screenshots/` (processed by Astro build)
+- **Not `public/screenshots/`** — that path skips Astro image optimization
+- **Filenames:** One per capability, kebab-case, no variants:
+  - `search.png` — Search capability
+  - `map-builder.png` — Map Builder capability
+  - `data-ingestion.png` — Data Ingestion (dataset detail post-ingest)
+  - `raster-vrt.png` — Raster/VRT capability
+  - `ai-chat.png` — AI Chat capability
+  - `rbac.png` — RBAC capability
+  - `quickstart-outcome.png` — QUICK-03 outcome section (may alias `search.png` — planner's call)
+- **Capture script writes to:** `getgeolens.com/src/assets/screenshots/` directly (not `public/`)
+- **Git tracking:** All screenshot PNGs are committed. They are not build artifacts — they're source-of-truth assets. Planner should add `src/assets/screenshots/*.png` to any LFS config if the repo uses LFS (probably not for Astro marketing site).
+
+**Rationale:** Kebab-case matches web conventions and is the Astro/Vite default for asset paths. One file per capability keeps the filename map simple. Splitting by viewport or format would be a maintenance burden (Astro handles those automatically via `<Picture>`). Putting sources in `src/assets/` (not `public/`) is a critical technical detail — get this wrong and the build pipeline silently skips optimization.
+
+**Notes:** The `capture-screenshots.ts` script in D-10 owns the write path. If it ever writes to `public/` by mistake, the previews will ship as unoptimized PNGs and someone will notice a Lighthouse regression — the researcher should flag this in RESEARCH.md as a known pitfall.
+
 ## Shared Components to Extract (planner's call)
 
 These may be extractable depending on how much they're reused:
@@ -222,7 +355,9 @@ The planner should decide based on whether extraction reduces duplication enough
 
 ## Deferred Ideas (NOT in this phase)
 
-- Real screenshots replacing stylized SVG mocks — tracked in STATE.md Pending Todos, slated pre-launch
+- ~~Real screenshots replacing stylized SVG mocks~~ — **PULLED FORWARD into this phase** per D-01 (2026-04-12 update). STATE.md Pending Todo closes out here.
+- CI visual regression gate on screenshots — rejected as scope creep per D-10; may add later if drift becomes a problem
+- Mobile-specific screenshot captures — rejected per D-10; single desktop viewport is sufficient for the BrowserFrame-wrapped marketing use case
 - Docs site (`/docs`) — out of scope, no REQUIREMENTS.md entry
 - Blog (`/blog`) — out of scope
 - Enterprise contact form — already deferred per STATE.md Blockers/Concerns
@@ -234,20 +369,44 @@ The planner should decide based on whether extraction reduces duplication enough
 
 These are for `gsd-phase-researcher` to investigate during the research step, NOT for the user to answer:
 
-1. **OGC conformance class list** — what does the GeoLens backend actually advertise? Check `backend/app/ogc/` or equivalent, the `/conformance` endpoint, and Phase 183 (OGC Records Part 1 conformance URIs) for the canonical list. The list in D-04 is preliminary.
-2. **Quickstart env var minimum set** — what's the actual minimum required env set for a working `docker compose up`? Check `.env.example` and `docker-compose.yml` in the main repo. D-05 Step 2 assumes admin creds are the only hard-required var.
-3. **Sample dataset for Step 5** — is there a canonical sample dataset in the repo for first-upload happy path? If not, the quickstart can link to a Natural Earth download or include one in the repo.
-4. **Astro syntax highlighting option** — does Astro's built-in Shiki support satisfy our zero-JS constraint? If yes, quickstart code blocks can have proper syntax highlighting for bash/shell commands without client-side JS.
-5. **Active-link detection in Astro** — cleanest way to compute `aria-current="page"` in the shared Nav component. Likely via `Astro.url.pathname` comparison; the researcher should confirm the idiomatic pattern.
+### Screenshot workflow (new, from D-01/D-10/D-11/D-12/D-13)
+
+1. **Running GeoLens for capture** — is there a seed/fixture instance we can point the capture script at, or does it assume the user runs `docker compose up` in the monorepo before running `npm run capture`? What data should be seeded for the 6 screenshots to have meaningful content? (If Phase 218 demo collections are already on main, use those. Otherwise fall back to Natural Earth + manual uploads.)
+2. **UI state availability per capability** — for each of the 6 capabilities in D-01, does a real UI exist in GeoLens 1.0.0 that is shippable as marketing evidence? Specifically investigate: (a) AI chat interface — is there a real chat UI, or is it an API-only feature? (b) RBAC admin page — does `/admin/users` or `/admin/roles` exist as a real page? (c) Raster/VRT — is there a dedicated raster detail page or is it the same dataset detail page with different content? Flag any gaps for the user per D-01 fallback logic.
+3. **Playwright setup in getgeolens.com** — installed as dev dependency? What's the cleanest install path given the repo's current package.json? Does it need its own Playwright browser download or can it share with the monorepo's Playwright install?
+4. **Astro `<Picture>` + `astro:assets` in Astro 6.1.3** — confirm the exact API (which props, which import path, which output formats are supported). Astro's image pipeline changed between v3/v4/v5/v6 — the researcher should verify the current v6.1.3 surface.
+5. **`src/assets/` vs `public/` decision path** — confirm that `src/assets/screenshots/` is the correct location for Astro 6.1.3 build-time optimization, and that `public/` would silently skip optimization. Document the difference in RESEARCH.md so the executor can't put them in the wrong place.
+6. **Screenshot viewport recommendation** — D-10 specifies 1600×1000 as a starting point. Researcher should confirm this works for all 6 capabilities (the map builder and chat screens might want taller captures to fit their content comfortably; RBAC might want a wider capture to show all columns).
+7. **Lighthouse impact projection** — given that each screenshot adds AVIF+WebP+PNG variants to the build, what's the projected total transfer size for the /features page? Ballpark estimate only — real numbers come during execution. Matters for Phase 217 launch gate.
+
+### Page content (unchanged from original CONTEXT)
+
+8. **OGC conformance class list** — what does the GeoLens backend actually advertise? Check `backend/app/ogc/` or equivalent, the `/conformance` endpoint, and Phase 183 (OGC Records Part 1 conformance URIs) for the canonical list. The list in D-04 is preliminary.
+9. **Quickstart env var minimum set** — what's the actual minimum required env set for a working `docker compose up`? Check `.env.example` and `docker-compose.yml` in the main repo. D-05 Step 2 assumes admin creds are the only hard-required var.
+10. **Sample dataset for Step 5** — is there a canonical sample dataset in the repo for first-upload happy path? If not, the quickstart can link to a Natural Earth download or include one in the repo.
+11. **Astro syntax highlighting option** — does Astro's built-in Shiki support satisfy our zero-JS constraint? If yes, quickstart code blocks can have proper syntax highlighting for bash/shell commands without client-side JS.
+12. **Active-link detection in Astro** — cleanest way to compute `aria-current="page"` in the shared Nav component. Likely via `Astro.url.pathname` comparison; the researcher should confirm the idiomatic pattern.
 
 ## Next Steps
 
 1. Run `/gsd-plan-phase 216` to generate plan files.
-   - Researcher will investigate the open questions above.
-   - Planner will decompose into concrete tasks — likely 3-4 plans:
-     - Plan 01: Build 3 new preview components (RasterVrtPreview, AiChatPreview, RbacPreview) — parallelizable
-     - Plan 02: Build `/features` page with 6 sections + OGC section + capability wiring
-     - Plan 03: Build `/quickstart` page with prereqs + core flow + troubleshooting + outcome
-     - Plan 04: Amend `Nav.astro` subnav and wire active-page styling
-   - Plan order may differ; planner decides dependencies.
+   - Researcher will investigate the 12 open questions above.
+   - Planner will decompose into concrete tasks — likely 5-6 plans given the screenshot pivot:
+     - **Plan 01**: Install Playwright + build `capture-screenshots.ts` script + document the workflow (D-10)
+     - **Plan 02**: Run the capture script, commit 6 screenshots, validate with `astro build`
+     - **Plan 03**: Retrofit Phase 214 preview components (`SearchPreview`, `MapBuilderPreview`, `DatasetDetailPreview`) to render `<Picture>` instead of SVG, keeping BrowserFrame wrapper and callsite compatibility (D-11/D-12)
+     - **Plan 04**: Build 3 net-new preview components (RasterVrt, AiChat, Rbac) using the same `<Picture>` + `BrowserFrame` pattern — parallelizable with Plan 03 once screenshots exist
+     - **Plan 05**: Build `/features` page with 6 zig-zag stripes + OGC section (consumes all 6 preview components)
+     - **Plan 06**: Build `/quickstart` page with prereqs + core flow + troubleshooting + outcome screenshot
+     - **Plan 07**: Amend `Nav.astro` subnav with active-page styling — can run in parallel with 05/06
+   - Plan order may differ; planner decides dependencies. Capturing screenshots (01/02) MUST complete before the retrofit/new-preview plans can build.
 2. Run `/gsd-execute-phase 216` after planning.
+
+## Cross-phase impact
+
+This phase touches files that Phase 215 shipped. Specifically:
+- `getgeolens.com/src/components/previews/SearchPreview.astro` — retrofit to use `<Picture>` (Phase 215 consumer on the homepage)
+- `getgeolens.com/src/components/previews/MapBuilderPreview.astro` — retrofit to use `<Picture>` (replaces the cartographic hero rebuilt at the end of Phase 215)
+- `getgeolens.com/src/components/previews/DatasetDetailPreview.astro` — retrofit to use `<Picture>`
+
+The homepage will inherit the changes automatically since it imports these components. The cartographic hero SVG work from Phase 215 is sunset but the BrowserFrame responsive fix (`class="w-full"`) carries forward — it's exactly what we need for responsive image rendering. No Phase 215 PLAN or SUMMARY files are modified; the changes are additive in history.
