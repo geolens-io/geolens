@@ -30,6 +30,8 @@ export interface SyncLayerInput {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
+  is_3d?: boolean | null;
+  feature_count?: number | null;
 }
 
 /** Options that vary between Builder and Viewer contexts. */
@@ -119,6 +121,7 @@ export function syncLayersToMap(
   tileBaseUrl: string | undefined,
   managedSourcesRef: { current: Set<string> },
   lastOrderKeyRef: { current: string },
+  geojsonDataMap?: Map<string, GeoJSON.FeatureCollection>,
   options?: SyncOptions,
 ) {
   const prefix = options?.idPrefix;
@@ -171,6 +174,23 @@ export function syncLayersToMap(
 
     const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
     const adapter = getAdapter(type);
+
+    // --- GeoJSON-Z branch: 3D small datasets use GeoJSON source instead of MVT ---
+    const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
+    if (isGeoJsonZ && geojsonDataMap?.has(layer.id)) {
+      const geojsonData = geojsonDataMap.get(layer.id)!;
+      adapterInput.sourceType = 'geojson';
+      if (!map.getSource(sourceId)) {
+        map.addSource(sourceId, { type: 'geojson', data: geojsonData });
+        adapter.addLayers(map, adapterInput);
+      } else {
+        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojsonData as GeoJSON.GeoJSON);
+        adapter.syncPaint(map, adapterInput);
+      }
+      desiredSources.add(sourceId);
+      adapter.syncVisibility(map, adapterInput);
+      continue;
+    }
 
     if (!map.getSource(sourceId)) {
       map.addSource(sourceId, {

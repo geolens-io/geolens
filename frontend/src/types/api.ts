@@ -124,6 +124,10 @@ export interface DatasetResponse {
   stac_assets?: Record<string, unknown>;
   stac_extensions?: string[];
   language?: string;
+  is_3d?: boolean | null;
+  n_dims?: number | null;
+  z_min?: number | null;
+  z_max?: number | null;
 }
 
 export interface DatasetListResponse {
@@ -722,6 +726,7 @@ export interface MapLayerResponse {
   layer_type?: string | null;
   dataset_record_type?: string | null;
   show_in_legend?: boolean;
+  is_3d?: boolean | null;
 }
 
 export interface MapResponse {
@@ -832,6 +837,10 @@ export interface SharedLayerResponse {
   show_in_legend?: boolean;
   layer_type?: string;
   dataset_record_type?: string;
+  is_dem?: boolean;
+  is_3d?: boolean | null;
+  tile_url?: string;
+  feature_count?: number | null;
 }
 
 export interface SharedMapResponse {
