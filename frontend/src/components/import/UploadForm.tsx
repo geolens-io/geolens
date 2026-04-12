@@ -1,9 +1,11 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { CheckCircle2, CircleDashed, HardDriveUpload } from 'lucide-react';
 import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/ingest';
 import { useUploadConfig } from '@/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileDropzone } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
 import { inferImportedKind, stripExtension } from './utils';
@@ -28,6 +30,133 @@ function getErrorHint(errorMsg: string, t: (key: string) => string): string | nu
     return t('upload.hintEmpty');
   }
   return null;
+}
+
+function UploadWorkspaceSidebar({
+  phase,
+  entries,
+  allowedExtensions,
+  maxSizeMb,
+}: {
+  phase: Extract<BatchPhase, 'idle' | 'reviewing'>;
+  entries: FileEntry[];
+  allowedExtensions?: string[];
+  maxSizeMb?: number;
+}) {
+  const { t } = useTranslation('import');
+
+  const readyCount = entries.filter((entry) => entry.status === 'preview').length;
+  const failedCount = entries.filter((entry) => entry.status === 'upload-failed' || entry.status === 'commit-failed').length;
+  const extensionPreview = allowedExtensions?.slice(0, 8).join(', ');
+
+  return (
+    <div className="space-y-4" data-testid="import-upload-sidebar">
+      <Card className="border-border/50 bg-background/95 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">
+            {t('upload.workspaceTitle', { defaultValue: 'Ingest workflow' })}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="flex items-start gap-3">
+            <HardDriveUpload className="mt-0.5 size-4 text-primary" />
+            <div>
+              <p className="font-medium">{t('tabs.upload')}</p>
+              <p className="text-muted-foreground">
+                {t('upload.workflowUpload', { defaultValue: 'Drop one or more files to create a batch.' })}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <CircleDashed className="mt-0.5 size-4 text-muted-foreground" />
+            <div>
+              <p className="font-medium">{t('upload.reviewTitle', { defaultValue: 'Review detection' })}</p>
+              <p className="text-muted-foreground">
+                {t('upload.workflowReview', { defaultValue: 'Confirm geometry, sheets, and import defaults before the jobs begin.' })}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 size-4 text-success" />
+            <div>
+              <p className="font-medium">{t('bulk.importProgress')}</p>
+              <p className="text-muted-foreground">
+                {t('upload.workflowTrack', { defaultValue: 'Track ingest completion and open datasets as soon as they are ready.' })}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/50 bg-muted/10 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">
+            {phase === 'idle'
+              ? t('upload.beforeYouUpload', { defaultValue: 'Before you upload' })
+              : t('upload.batchSummary', { defaultValue: 'Batch summary' })}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          {phase === 'idle' ? (
+            <>
+              <p>
+                {t('upload.idleHint', {
+                  defaultValue: 'Use Upload File for local datasets GeoLens should ingest and manage directly.',
+                })}
+              </p>
+              {extensionPreview ? (
+                <p>
+                  {t('upload.supportedFormats', {
+                    defaultValue: 'Supported formats: {{formats}}',
+                    formats: extensionPreview,
+                  })}
+                </p>
+              ) : null}
+              {maxSizeMb ? (
+                <p>
+                  {t('upload.maxFileSize', {
+                    defaultValue: 'Maximum file size: {{size}} MB',
+                    size: maxSizeMb,
+                  })}
+                </p>
+              ) : null}
+              <p>
+                {t('upload.idleSecondaryHint', {
+                  defaultValue: 'Use Register Table for existing database tables, or Service URL for remote services you do not want to upload.',
+                })}
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                {t('upload.batchFiles', {
+                  defaultValue: '{{count}} files currently in this batch.',
+                  count: entries.length,
+                })}
+              </p>
+              <p>
+                {t('upload.batchReady', {
+                  defaultValue: '{{count}} files are ready to import.',
+                  count: readyCount,
+                })}
+              </p>
+              <p>
+                {t('upload.batchNeedsAttention', {
+                  defaultValue: '{{count}} files need attention before they can continue.',
+                  count: failedCount,
+                })}
+              </p>
+              <p>
+                {t('upload.reviewHint', {
+                  defaultValue: 'Use the batch actions to apply defaults quickly, then start the ingest jobs once the previews look correct.',
+                })}
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export function UploadForm() {
@@ -235,19 +364,27 @@ export function UploadForm() {
 
   if (phase === 'reviewing') {
     return (
-      <div className="space-y-4">
-        <BulkReviewList
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="space-y-4 min-w-0">
+          <BulkReviewList
+            entries={entries}
+            onCommitSingle={handleCommitSingle}
+            onCommitAll={handleCommitAll}
+            onCommitAllAsVrt={handleCommitAllAsVrt}
+            onRemove={removeEntry}
+            onSheetChange={handleSheetChange}
+            isCommitting={entries.some((e) => e.status === 'committing')}
+          />
+          <Button variant="outline" onClick={reset}>
+            {t('upload.startOver')}
+          </Button>
+        </div>
+        <UploadWorkspaceSidebar
+          phase="reviewing"
           entries={entries}
-          onCommitSingle={handleCommitSingle}
-          onCommitAll={handleCommitAll}
-          onCommitAllAsVrt={handleCommitAllAsVrt}
-          onRemove={removeEntry}
-          onSheetChange={handleSheetChange}
-          isCommitting={entries.some((e) => e.status === 'committing')}
+          allowedExtensions={allowedExtensions}
+          maxSizeMb={maxSizeMb}
         />
-        <Button variant="outline" onClick={reset}>
-          {t('upload.startOver')}
-        </Button>
       </div>
     );
   }
@@ -258,8 +395,16 @@ export function UploadForm() {
 
   // idle
   return (
-    <div className="space-y-4">
-      <FileDropzone onFilesAccepted={handleFilesAccepted} allowedExtensions={allowedExtensions} maxSizeMb={maxSizeMb} />
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="space-y-4 min-w-0">
+        <FileDropzone onFilesAccepted={handleFilesAccepted} allowedExtensions={allowedExtensions} maxSizeMb={maxSizeMb} />
+      </div>
+      <UploadWorkspaceSidebar
+        phase="idle"
+        entries={entries}
+        allowedExtensions={allowedExtensions}
+        maxSizeMb={maxSizeMb}
+      />
     </div>
   );
 }

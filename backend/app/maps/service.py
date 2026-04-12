@@ -975,6 +975,8 @@ async def get_maps_for_dataset(
     dataset_id: uuid.UUID,
     user_id: uuid.UUID | None = None,
     user_roles: set[str] | None = None,
+    skip: int = 0,
+    limit: int = 50,
 ) -> list[dict]:
     """Return maps containing a given dataset, filtered by RBAC visibility.
 
@@ -1023,6 +1025,7 @@ async def get_maps_for_dataset(
         else:
             stmt = stmt.where(Map.visibility == "public")
 
+    stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
 

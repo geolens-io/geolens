@@ -171,6 +171,8 @@ async def validate_dataset(
 @router.get("/{dataset_id}/maps/", response_model=MapListResponse)
 async def dataset_maps(
     dataset_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ) -> MapListResponse:
@@ -181,7 +183,7 @@ async def dataset_maps(
     user_roles = await get_user_roles(db, user) if user else set()
 
     maps = await get_maps_for_dataset(
-        db, dataset_id, user_id=user_id, user_roles=user_roles
+        db, dataset_id, user_id=user_id, user_roles=user_roles, skip=skip, limit=limit
     )
     return MapListResponse(maps=maps, total=len(maps))
 

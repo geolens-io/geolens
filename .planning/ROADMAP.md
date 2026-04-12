@@ -156,8 +156,8 @@ Plans:
 - [x] **Phase 212: Repo Bootstrap and Design System** — Initialize the getgeolens.com repo with Astro 6, Tailwind 4, GeoLens brand tokens, Cloudflare Pages deployment, and accessible layout shell (SITE-01, SITE-02, SITE-03, SITE-04, SITE-05, A11Y-01, A11Y-03) (completed 2026-04-05)
 - [x] **Phase 213: SEO Infrastructure** — Build BaseHead component, Satori OG image endpoint, sitemap/robots, and JSON-LD so every page gets correct SEO automatically (SEO-01, SEO-02, SEO-03, SEO-04) (completed 2026-04-05)
 - [x] **Phase 214: Product Preview Assets** — Create the three CSS-rendered browser-frame product previews (search UI, map builder, dataset detail) that make the product tangible to evaluators (ASSET-01, ASSET-02, ASSET-03) (completed 2026-04-05)
-- [x] **Phase 215: Homepage** — Build the primary conversion surface with outcome-focused hero, trust bar, feature highlights, product preview, and quickstart teaser (HOME-01, HOME-02, HOME-03, HOME-04, HOME-05) (completed 2026-04-11)
-- [x] **Phase 216: Features and Quickstart Pages** — Build the /features capability breakdown and /quickstart docker-compose walkthrough (FEAT-01, FEAT-02, FEAT-03, QUICK-01, QUICK-02, QUICK-03) (completed 2026-04-12)
+- [ ] **Phase 215: Homepage** — Build the primary conversion surface with outcome-focused hero, trust bar, feature highlights, product preview, and quickstart teaser (HOME-01, HOME-02, HOME-03, HOME-04, HOME-05)
+- [ ] **Phase 216: Features and Quickstart Pages** — Build the /features capability breakdown and /quickstart docker-compose walkthrough (FEAT-01, FEAT-02, FEAT-03, QUICK-01, QUICK-02, QUICK-03)
 - [ ] **Phase 217: Accessibility Audit and Launch Gate** — Verify WCAG 2.1 AA compliance across all pages with Axe scan, keyboard navigation testing, and pre-launch checklist (A11Y-02, A11Y-04)
 
 ## Phase Details
@@ -216,10 +216,7 @@ Plans:
   3. A feature highlights section below the fold shows 3-4 key capabilities with icons and short descriptions
   4. The search UI product preview (from Phase 214) is embedded in a browser frame on the homepage with no layout shift or missing content
   5. A quickstart teaser section with a link to the /quickstart page is present and reachable via normal scrolling
-**Plans**: 2 plans
-Plans:
-- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
-- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
+**Plans**: TBD
 **UI hint**: yes
 
 ### Phase 216: Features and Quickstart Pages
@@ -232,15 +229,7 @@ Plans:
   3. The /features page has an OGC API compliance section that lists supported conformance classes by name
   4. The /quickstart page provides a complete step-by-step path from zero to a running GeoLens instance via docker compose, with individually copyable code blocks for each command
   5. The /quickstart page ends with an expected outcome section describing what the user sees after completing the guide
-**Plans**: 7 plans
-Plans:
-- [x] 216-01-PLAN.md — Install Playwright + tsx; scaffold capture-screenshots.ts script + scripts/README.md (infrastructure only, no captures)
-- [x] 216-02-PLAN.md — Operator checkpoint (docker compose + seeder); run npm run capture; commit 7 screenshot PNGs
-- [x] 216-03-PLAN.md — Retrofit Phase 214 previews (SearchPreview, MapBuilderPreview, DatasetDetailPreview) to render real screenshots via Astro <Picture>
-- [x] 216-04-PLAN.md — Build 3 net-new previews (RasterVrtPreview, AiChatPreview, RbacPreview); expand preview-test.astro
-- [x] 216-05-PLAN.md — Build /features page with 6 zig-zag capability stripes + OGC API compliance section (corrected Features + Records only)
-- [x] 216-06-PLAN.md — Build /quickstart page with 8 D-05 sections and corrected port defaults (5434/8001/8080)
-- [x] 216-07-PLAN.md — Amend Nav.astro with Features + Quickstart subnav and aria-current active-page detection (zero-JS)
+**Plans**: TBD
 **UI hint**: yes
 
 ### Phase 217: Accessibility Audit and Launch Gate
@@ -251,19 +240,13 @@ Plans:
   1. Running Axe against every page returns zero critical or serious violations
   2. A user navigating with only the keyboard (Tab, Enter, Space, Arrow keys) can reach and activate every interactive element on every page: nav links, CTAs, and code copy buttons
   3. Lighthouse accessibility score is 95 or above on desktop and mobile for every page
-**Plans**: 2 plans
-Plans:
-- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
-- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
+**Plans**: TBD
 
 ### Phase 218: Demo Themed Collections
 **Goal**: Replace the current foundation-only Natural Earth demo with three themed collections (Planet Earth — Physical Systems; Global Development & People; Borders, Boundaries & Contested Space) and nine signature maps, seeded deterministically at `docker compose up`, so a prospect landing on the self-hosted demo sees a decisive value story in under 60 seconds instead of a flat reference catalog
 **Depends on**: none (independent of 215/216/217 marketing site phases — can run in parallel)
 **Requirements**: TBD (draft from 260408-lnq-PROPOSAL.md)
-**Plans**: 2 plans
-Plans:
-- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
-- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
+**Plans**: TBD
 
 **Key decisions locked from proposal (260408-lnq) and A7 spike (260408-mgg):**
 - Three themes, one collection each — no single monolithic story, no smorgasbord
@@ -272,6 +255,17 @@ Plans:
 - Automation posture: automate data ingest + collection assignment; hand-curate the 9 signature maps in the UI and export as JSON fixtures
 - A7 resolved (UNSUPPORTED): `csv_to_choropleth.py` helper pre-joins indicator CSVs to ADM0 polygons at seeder build time before ingest (Option C)
 - Signature map: "One Territory, Multiple Official Maps" (Kashmir toggle across 3 NE country-specific shapefiles) is the conversation-starter
+
+### Phase 219: regenerate_vrt Phase Extraction
+**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `_update_vrt_dataset_geometry(session, vrt_asset, metadata)` — so the 15 documented steps stay readable without changing behavior
+**Depends on**: Integration fixture coverage against a real tiny VRT (mock-free tests) must exist before this phase can start — pair with K3-PRE-style follow-up work
+**Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §K4)
+**Plans**: TBD
+
+**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
+- Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
+- Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT)
+- Raster VRT has historical flakiness — test coverage is non-negotiable
 
 ### Phase 220: CommitRequest Discriminated Union
 **Goal**: Split the flat `CommitRequest` (`backend/app/ingest/schemas.py:97`, 1 required + 13 optional fields) into a shared `BaseCommitRequest` + three discriminated subclasses (`VectorCommitRequest`, `RasterCommitRequest`, `ServiceCommitRequest`), and refactor `commit_import` at `backend/app/ingest/router.py:495-540` to validate the request body against a server-dispatched subclass chosen by `_pick_commit_subclass(job)` (mirroring the three-way branch in `service.py:477-506`). Zero wire format change, zero OpenAPI drift, zero frontend coordination — field-applicability rules move from prose descriptions into the type system.
@@ -307,65 +301,13 @@ Plans:
 **Goal**: Replace the 3 `cast(T, ...)` sites at `backend/app/persistent_config.py:84, 88, 113` with `TypeAdapter[T].validate_python(unwrapped)` for runtime shape validation at the JSONB unwrap boundary, accepting the breaking change to `PersistentConfig`'s constructor that this requires
 **Depends on**: None, but carries breaking changes to every call site that constructs a `PersistentConfig` instance
 **Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §Type-5)
-**Plans**: 2 plans
-Plans:
-- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
-- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
+**Plans**: TBD
 
 **Key decisions locked from 2026-04-11 research (validated via quick task 260411-a62):**
 - `PersistentConfig` is declared `Generic[T]` with `T = TypeVar("T")` — `TypeAdapter[T].validate_python()` cannot work as a drop-in replacement because `T` is unbound at method-resolution time
 - Implementation path requires EITHER reifying `T` by storing the type at `__init__` time OR accepting an explicit `adapter: TypeAdapter[T]` parameter on the constructor — pick one when planning
 - The existing `cast(T, ...)` pattern matches the rest of the codebase's approach at generic boundaries — this phase consciously diverges from that convention for runtime safety at the config boundary
 - The SecretStr migration (commits `a6371f9f`, `56c59cfd`) touched `app/config.py` and consumers, NOT `app/persistent_config.py` — these 3 cast sites are byte-for-byte unchanged since snapshot `f6a7f96a`
-
-### Phase 223: Raster VRT Integration Fixtures
-**Goal**: Build integration test infrastructure for raster VRT — generate a real tiny GeoTIFF at test time (via GDAL/rasterio, no committed binary), build a 2-source VRT from it in a temp dir, and write an integration test that calls the current `regenerate_vrt` at `backend/app/ingest/tasks.py:2093` end-to-end and asserts on the real output (CRS, bounds, footprint, metadata). This fixture becomes the behavioral anchor for Phase 219 — any drift from the future refactor will show as a test failure.
-**Depends on**: None (prerequisite for Phase 219; inserted after Phase 222 to unblock the regenerate_vrt refactor)
-**Requirements**: RASTER-VRT-FIX-01 (Backend Ingest Quality)
-**Plans**: 1 plan
-- [x] 223-01-PLAN.md — Build integration-anchor test (backend/tests/test_regenerate_vrt_integration.py) that generates 2 real GeoTIFFs, creates the full DB row graph (source + VRT Records/Datasets/RasterAssets, vrt_source_links, IngestJob), wires a LocalStorageProvider to tmp_path, invokes `await regenerate_vrt.func(...)` directly, and asserts on 15 state mutations. Backfills RASTER-VRT-FIX-01 into REQUIREMENTS.md.
-
-**Key decisions (locked 2026-04-11 via discuss-phase, see 223-CONTEXT.md):**
-- D-01: Reuse `_write_tmp_tif` from `test_raster_ingest.py` via direct import (no promotion to conftest)
-- D-02: Real `LocalStorageProvider(base_dir=tmp_path / "storage")`; monkey-patch `app.ingest.tasks.get_storage` (verified top-level import)
-- D-03: 15-assertion coverage of the full pipeline (storage write + 11 RasterAsset fields + job state + VrtGeneration + spatial_extent)
-- D-04: New file `test_regenerate_vrt_integration.py` — additive; existing `test_vrt_source_management_174.py::TestRegenerateVrtTask` stays as-is
-- D-05: Stub `generate_quicklook` at `app.ingest.tasks.generate_quicklook` boundary to avoid PIL/matplotlib surprises
-- D-06: Single requirement ID `RASTER-VRT-FIX-01` under Backend Ingest Quality section
-
-### Phase 219: regenerate_vrt Phase Extraction
-**Goal**: Split `regenerate_vrt` (`backend/app/ingest/tasks.py:2093`, 231 lines, ~7 nesting levels) into three helpers — `_build_vrt_to_temp(ordered_assets, vrt_type, resolution_strategy, tmp_dir) -> Path`, `_validate_and_extract_vrt_metadata(vrt_path) -> dict`, and `async _update_vrt_dataset_geometry(session, vrt_id, metadata) -> Dataset | None` — so the 15 documented steps stay readable without changing behavior. Byte-identical behavior verified against Phase 223 integration test.
-**Depends on**: Phase 223 (raster VRT integration fixture — provides the behavioral anchor that this refactor needs to verify parity)
-**Requirements**: INGEST-K4-01
-**Plans**: 1 plan
-Plans:
-- [x] 219-01-PLAN.md — 3 helper extractions + regenerate_vrt body refactor + Phase 223 regression gate + REQUIREMENTS.md backfill
-
-**Key decisions locked from handoff (post-impl-20260410, validated 2026-04-11 via quick task 260411-a62):**
-- Raster VRT tests currently use heavy mocking (`tests/test_vrt_source_management_174.py::TestRegenerateVrtTask`) — extracting phases without behavior parity is hard to verify by mock alone
-- Do not attempt until integration fixture coverage exists (mock-free tests against a real tiny VRT) — **UNBLOCKED by Phase 223 on 2026-04-11**
-- Raster VRT has historical flakiness — test coverage is non-negotiable
-
-### Phase 224: Post-Impl Audit Remediation (2026-04-11)
-**Goal**: Resolve all 24 must-fix items (3 P0 + 21 P1) surfaced by the 2026-04-11 post-impl audit pair (`post-impl-20260411.md` + backend delta `post-impl-20260411-b.md`). Focus: user-felt search performance, systemic Pydantic/SQL column-width drift, backend resilience gaps (storage event-loop blocking, middleware chunked-encoding bypass, worker rolling-restart race), and response_model coverage on OGC `/collections/datasets/*` endpoints.
-**Depends on**: None (can run in parallel with Phase 215 marketing work — touches backend + limited frontend; no overlap with the getgeolens.com repo)
-**Requirements**: AUDIT-P0-1, AUDIT-P0-2, AUDIT-P0-3, AUDIT-P1-1 through AUDIT-P1-18
-**Plans**: 5 plans
-Plans:
-- [ ] 224-01-PLAN.md — Backend Performance (P0-1 selectinload, P1-1 LocalStorage to_thread, P1-2 API key 60s, P1-3 presigned gather, P1-4 maps pagination, P1-5 roles dedup)
-- [ ] 224-02-PLAN.md — Backend Type Safety (P1-6/7/8 column-width migration, P1-9 MapVisibility unlisted, P1-10 layer_type Literal, P1-11 share_url absolute, P1-12 PersistentConfig generics)
-- [ ] 224-03-PLAN.md — Backend Resilience (P0-3 embedding rollback, P1-13 thumbnail temp-key, P1-15 OAuth stable codes, P1-16 bulk delete per-item, P1-17 chunked body limit, P1-18 worker advisory lock)
-- [ ] 224-04-PLAN.md — Frontend (P0-2 quicklook img lazy, P1-14 DatasetMap error boundary, P1-9 MapVisibility TS type)
-- [ ] 224-05-PLAN.md — Verification + REQUIREMENTS.md update + audit closeout
-
-**Key decisions locked from the audit chain:**
-- Combined parent + delta = 86 backend findings; remediation scope is P0 + P1 only (24 items). P2/P3 items stay tracked in the audit reports for future cleanup phases.
-- **The P0 search Cartesian joinedload exists at 3 sites, not 1** — fix must touch `search/service.py:676`, `search/service.py:885` (RRF re-fetch), AND `stac/router.py:217-231` in a single patch to avoid leaving STAC/RRF broken
-- **Pydantic/SQL column-width drift is systemic** — 6 must-fix mismatches span `DatasetMeta`, `RecordContact`, `RecordKeyword`, `RecordDistribution` (3 fields), and `UserCreate.email`. Fix in one migration + matching schema changes.
-- **Phase 222's `PersistentConfig[list]`/`[dict]` bare generics regression** — fresh phase-222 work shipped with hollow runtime validation for `BASEMAPS`, `MAP_DEFAULTS`, `ENABLED_WIDGETS`, `ROLE_PERMISSIONS`. Parameterized types are required to make phase 222's promise real.
-- **`LocalStorageProvider` blocks the event loop** — biggest operational risk in the delta. Every `async def` method has a sync body; needs `asyncio.to_thread` wrapping to match `S3StorageProvider`.
-- Plan structure should match audit dimensions: recommended split into ~5 plans (Backend Perf, Backend Type Safety, Backend Resilience, Frontend, Simplification dead-code cleanup). Wave 1 runs backend plans in parallel; Wave 2 runs frontend after backend `share_url` lands; Wave 3 is verification.
-- **Do NOT touch the marketing site path** (phases 215/216/217) or the `getgeolens.com` repo — this phase is scoped strictly to remediation in this repo.
 
 ## Progress
 
@@ -382,16 +324,14 @@ Plans:
 | 212. Repo Bootstrap and Design System | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 214. Product Preview Assets | v14.0 | 2/2 | Complete    | 2026-04-05 |
-| 215. Homepage | v14.0 | 4/4 | Complete    | 2026-04-12 |
-| 216. Features and Quickstart Pages | v14.0 | 7/7 | Complete    | 2026-04-12 |
+| 215. Homepage | v14.0 | 0/? | Not started | - |
+| 216. Features and Quickstart Pages | v14.0 | 0/? | Not started | - |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
-| 219. regenerate_vrt Phase Extraction | v14.0 | 1/1 | Complete   | 2026-04-11 |
+| 219. regenerate_vrt Phase Extraction | v14.0 | 0/? | Not started | - |
 | 220. CommitRequest Discriminated Union | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
-| 223. Raster VRT Integration Fixtures | v14.0 | 1/1 | Complete    | 2026-04-11 |
-| 224. Post-Impl Audit Remediation | v14.0 | 0/5 | Not started | - |
 
 ## Backlog
 
