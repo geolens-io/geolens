@@ -16,7 +16,7 @@ export const circleAdapter: LayerAdapter = {
         id: layerId,
         type: 'circle',
         source: sourceId,
-        ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
+        'source-layer': sourceLayer,
         paint: Object.keys(circlePaint).length ? circlePaint : {
           'circle-radius': 5,
           'circle-color': MAP_COLORS.default.fill,

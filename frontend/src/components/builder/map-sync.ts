@@ -1,4 +1,4 @@
-import type { Map as MaplibreMap, GeoJSONSource } from 'maplibre-gl';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
@@ -30,8 +30,6 @@ export interface SyncLayerInput {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
-  is_3d?: boolean | null;
-  feature_count?: number | null;
 }
 
 /** Options that vary between Builder and Viewer contexts. */
@@ -56,8 +54,6 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     filter: layer.filter,
     label_config: layer.label_config,
     style_config: layer.style_config,
-    is_3d: layer.is_3d,
-    feature_count: layer.dataset_feature_count,
   };
 }
 
@@ -124,7 +120,6 @@ export function syncLayersToMap(
   managedSourcesRef: { current: Set<string> },
   lastOrderKeyRef: { current: string },
   options?: SyncOptions,
-  geojsonDataMap?: Map<string, GeoJSON.FeatureCollection>,
 ) {
   const prefix = options?.idPrefix;
   const sourcePrefix = prefix ? `${prefix}source-` : 'source-';
@@ -176,49 +171,6 @@ export function syncLayersToMap(
 
     const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
     const adapter = getAdapter(type);
-
-    // --- GeoJSON-Z branch (3D small datasets) ---
-    const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
-    if (isGeoJsonZ && geojsonDataMap?.has(layer.id)) {
-      const geojsonData = geojsonDataMap.get(layer.id)!;
-      adapterInput.sourceType = 'geojson';
-      if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, { type: 'geojson', data: geojsonData });
-        adapter.addLayers(map, adapterInput);
-      } else {
-        // Source exists — update data and sync paint
-        (map.getSource(sourceId) as GeoJSONSource).setData(geojsonData as GeoJSON.GeoJSON);
-        adapter.syncPaint(map, adapterInput);
-      }
-      desiredSources.add(sourceId);
-      // Apply zoom range and labels (same as vector branch below)
-      const layerLayout = layer.layout ?? {};
-      const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
-      const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
-      if (map.getLayer(layerId)) {
-        map.setLayerZoomRange(layerId, layerMinzoom, layerMaxzoom);
-      }
-      // Labels for GeoJSON layers — sourceLayer must be empty string for GeoJSON sources
-      const labelId = prefixedLabelLayerId(layer.id, prefix);
-      const isHeatmap = type === 'heatmap';
-      if (map.getSource(sourceId) && layer.label_config?.column && !isHeatmap) {
-        const lc = layer.label_config;
-        const geomType = getLayerType(layer.dataset_geometry_type);
-        const vis = layer.visible ? 'visible' : 'none';
-        if (!map.getLayer(labelId)) {
-          map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer: '', lc, geomType, visibility: vis }));
-          if (layer.filter) map.setFilter(labelId, layer.filter);
-        } else {
-          syncLabelLayer(map, labelId, lc, geomType);
-          map.setFilter(labelId, layer.filter ?? null);
-        }
-      }
-      adapter.syncVisibility(map, adapterInput);
-      if (map.getLayer(labelId) && !isHeatmap) {
-        map.setLayoutProperty(labelId, 'visibility', layer.visible ? 'visible' : 'none');
-      }
-      continue;
-    }
 
     if (!map.getSource(sourceId)) {
       map.addSource(sourceId, {

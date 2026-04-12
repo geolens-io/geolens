@@ -22,23 +22,6 @@ from app.maps.models import Map, MapLayer, MapShareToken
 logger = logging.getLogger(__name__)
 
 
-def _map_row_to_dict(map_obj, layer_count: int, created_by_username: str | None) -> dict:
-    """Convert a map ORM object plus query-computed fields into a response dict."""
-    return {
-        "id": map_obj.id,
-        "name": map_obj.name,
-        "description": map_obj.description,
-        "visibility": map_obj.visibility,
-        "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-        if map_obj.thumbnail_uri
-        else None,
-        "layer_count": layer_count,
-        "created_by_username": created_by_username,
-        "created_at": map_obj.created_at,
-        "updated_at": map_obj.updated_at,
-    }
-
-
 async def check_map_ownership(map_obj, user: User, db: AsyncSession) -> None:
     """Verify user owns the map or is admin. Raises 403 if neither."""
     if map_obj.created_by == user.id:
@@ -163,7 +146,6 @@ async def get_map_with_layers(
             Dataset.feature_count,
             Dataset.sample_values,
             Record.record_type,
-            Dataset.is_3d,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -279,7 +261,22 @@ async def list_maps(
 
     maps = []
     for row in rows:
-        maps.append(_map_row_to_dict(row[0], row[1], row[2]))
+        map_obj = row[0]
+        maps.append(
+            {
+                "id": map_obj.id,
+                "name": map_obj.name,
+                "description": map_obj.description,
+                "visibility": map_obj.visibility,
+                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
+                if map_obj.thumbnail_uri
+                else None,
+                "layer_count": row[1],
+                "created_by_username": row[2],
+                "created_at": map_obj.created_at,
+                "updated_at": map_obj.updated_at,
+            }
+        )
 
     return maps, total
 
@@ -474,8 +471,6 @@ async def _bulk_check_dataset_access(
     for ds_id, visibility, created_by in rows:
         if visibility == "public":
             accessible.add(ds_id)
-        elif visibility == "internal":
-            accessible.add(ds_id)  # all authenticated users can see internal
         elif visibility == "private" and created_by == user.id:
             accessible.add(ds_id)
         elif visibility == "restricted":
@@ -792,8 +787,6 @@ async def get_shared_map(
     if map_obj is None or map_obj.visibility != "public":
         return None
 
-    from app.raster.models import RasterAsset
-
     # Load layers with dataset info, applying visibility filter
     stmt = (
         select(
@@ -804,13 +797,9 @@ async def get_shared_map(
             Dataset.column_info,
             Record.visibility,
             Record.record_type,
-            RasterAsset.is_dem,
-            Dataset.is_3d,
-            Dataset.feature_count,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
-        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_obj.id)
         .order_by(MapLayer.sort_order)
     )
@@ -828,19 +817,15 @@ async def get_shared_map(
         ds_column_info,
         ds_visibility,
         ds_record_type,
-        ds_is_dem,
-        ds_is_3d,
-        ds_feature_count,
     ) in layer_rows:
         is_public = ds_visibility == "public"
         if not is_public:
             has_non_public = True
-        if ds_record_type == "raster_dataset":
-            tile_url = f"/tiles/raster-proxy/{layer.dataset_id}/{{z}}/{{x}}/{{y}}.png"
-        elif is_public:
-            tile_url = f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
-        else:
-            tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+        tile_url = (
+            f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+            if is_public
+            else f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+        )
         layers.append(
             {
                 "dataset_id": str(layer.dataset_id),
@@ -861,9 +846,6 @@ async def get_shared_map(
                 "style_config": layer.style_config,
                 "show_in_legend": layer.show_in_legend,
                 "tile_url": tile_url,
-                "is_dem": bool(ds_is_dem),
-                "is_3d": bool(ds_is_3d) if ds_is_3d is not None else None,
-                "feature_count": ds_feature_count,
             }
         )
 
@@ -993,9 +975,7 @@ async def get_maps_for_dataset(
     dataset_id: uuid.UUID,
     user_id: uuid.UUID | None = None,
     user_roles: set[str] | None = None,
-    skip: int = 0,
-    limit: int = 50,
-) -> tuple[list[dict], int]:
+) -> list[dict]:
     """Return maps containing a given dataset, filtered by RBAC visibility.
 
     - Admins see all maps.
@@ -1043,23 +1023,29 @@ async def get_maps_for_dataset(
         else:
             stmt = stmt.where(Map.visibility == "public")
 
-    # Count total before pagination
-    from sqlalchemy import func as sa_func
-
-    count_stmt = select(sa_func.count()).select_from(stmt.subquery())
-    total = (await session.execute(count_stmt)).scalar() or 0
-
-    # Apply pagination
-    stmt = stmt.offset(skip).limit(limit)
-
     result = await session.execute(stmt)
     rows = result.all()
 
     maps = []
     for row in rows:
-        maps.append(_map_row_to_dict(row[0], row[1], row[2]))
+        map_obj = row[0]
+        maps.append(
+            {
+                "id": map_obj.id,
+                "name": map_obj.name,
+                "description": map_obj.description,
+                "visibility": map_obj.visibility,
+                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
+                if map_obj.thumbnail_uri
+                else None,
+                "layer_count": row[1],
+                "created_by_username": row[2],
+                "created_at": map_obj.created_at,
+                "updated_at": map_obj.updated_at,
+            }
+        )
 
-    return maps, total
+    return maps
 
 
 async def revoke_share_token_by_map(
