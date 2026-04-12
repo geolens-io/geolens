@@ -80,6 +80,10 @@ export interface DatasetResponse {
   summary: string | null;
   srid: number | null;
   geometry_type: string | null;
+  is_3d: boolean | null;
+  n_dims: number | null;
+  z_min: number | null;
+  z_max: number | null;
   feature_count: number | null;
   extent_bbox: number[] | null;
   column_info: { name: string; type: string }[] | null;
