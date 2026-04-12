@@ -2,7 +2,7 @@
 
 Covers:
 - TestRasterMetadataVrtFields: _build_raster_metadata returns vrt_type, source_count, resolution_strategy for VRT assets
-- TestDatasetToResponseVrt: _dataset_to_response populates raster sub-object for vrt_dataset record_type
+- TestDatasetToResponseVrt: dataset_to_response populates raster sub-object for vrt_dataset record_type
 - TestQuicklookVrt: quicklook guard accepts vrt_dataset (200), rejects vector_dataset (400)
 - TestVrtSourcesEndpoint: list_vrt_sources returns ordered source list; 404 for non-VRT/non-existent datasets
 - TestTileTokenVrt: raster_auth_check accepts vrt_dataset record_type (CAT-04 regression)
@@ -190,16 +190,16 @@ class TestRasterMetadataVrtFields:
 
 
 class TestDatasetToResponseVrt:
-    """_dataset_to_response populates raster sub-object for vrt_dataset; None for vector_dataset."""
+    """dataset_to_response populates raster sub-object for vrt_dataset; None for vector_dataset."""
 
     def test_vrt_dataset_response_has_raster_object(self):
         """vrt_dataset record_type produces a DatasetResponse with non-None raster field."""
-        from app.datasets.helpers import _dataset_to_response
+        from app.datasets.helpers import dataset_to_response
 
         dataset = _make_mock_dataset("vrt_dataset", "VRT Mosaic")
         asset = _make_mock_raster_asset(vrt_type="mosaic", resolution_strategy="finest")
 
-        response = _dataset_to_response(dataset, raster_asset=asset, source_count=4)
+        response = dataset_to_response(dataset, raster_asset=asset, source_count=4)
 
         assert response.raster is not None
         assert response.raster.vrt_type == "mosaic"
@@ -209,23 +209,23 @@ class TestDatasetToResponseVrt:
 
     def test_vector_dataset_response_has_no_raster(self):
         """vector_dataset record_type produces a DatasetResponse with raster=None."""
-        from app.datasets.helpers import _dataset_to_response
+        from app.datasets.helpers import dataset_to_response
 
         dataset = _make_mock_dataset("vector_dataset", "Vector Layer")
 
-        response = _dataset_to_response(dataset, raster_asset=None)
+        response = dataset_to_response(dataset, raster_asset=None)
 
         assert response.raster is None
         assert response.record_type == "vector_dataset"
 
     def test_raster_dataset_response_has_raster_object(self):
         """raster_dataset (COG) produces DatasetResponse with raster field (no VRT fields)."""
-        from app.datasets.helpers import _dataset_to_response
+        from app.datasets.helpers import dataset_to_response
 
         dataset = _make_mock_dataset("raster_dataset", "COG Layer")
         asset = _make_mock_raster_asset(vrt_type=None, resolution_strategy=None)
 
-        response = _dataset_to_response(dataset, raster_asset=asset, source_count=None)
+        response = dataset_to_response(dataset, raster_asset=asset, source_count=None)
 
         assert response.raster is not None
         assert response.raster.vrt_type is None
@@ -234,11 +234,11 @@ class TestDatasetToResponseVrt:
 
     def test_vrt_dataset_with_no_asset_returns_none_raster(self):
         """vrt_dataset without a RasterAsset (edge case) does not crash; raster is None."""
-        from app.datasets.helpers import _dataset_to_response
+        from app.datasets.helpers import dataset_to_response
 
         dataset = _make_mock_dataset("vrt_dataset", "VRT No Asset Yet")
 
-        response = _dataset_to_response(dataset, raster_asset=None)
+        response = dataset_to_response(dataset, raster_asset=None)
 
         assert response.raster is None
         assert response.record_type == "vrt_dataset"

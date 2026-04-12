@@ -34,7 +34,7 @@ from app.collections.service import (
     remove_dataset_from_collection,
     update_collection,
 )
-from app.datasets.helpers import _dataset_to_response
+from app.datasets.helpers import dataset_to_response
 from app.datasets.schemas import DatasetListResponse
 from app.dependencies import get_db
 
@@ -351,6 +351,6 @@ async def get_collection_datasets_endpoint(
         actor_map = {u.id: u for u in rows.scalars()}
 
     return DatasetListResponse(
-        datasets=[_dataset_to_response(d, actors_by_id=actor_map) for d in datasets],
+        datasets=[dataset_to_response(d, actors_by_id=actor_map) for d in datasets],
         total=total,
     )

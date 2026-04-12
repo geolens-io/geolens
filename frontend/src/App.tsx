@@ -50,16 +50,16 @@ export const appRoutes = (
     <Route path="/m/:token" element={<PublicViewerPage />} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
-      <Route index element={<SearchPage />} />
+      <Route index element={<SearchPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="search" element={<Navigate to="/" replace />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} errorElement={<RouteErrorBoundary />} />
-      <Route path="maps" element={<MapsPage />} />
+      <Route path="maps" element={<MapsPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="maps/:id" element={<MapViewerGate />} errorElement={<RouteErrorBoundary />} />
 
       {/* Protected routes — auth required */}
-      <Route element={<ProtectedRoute />}>
+      <Route element={<ProtectedRoute />} errorElement={<RouteErrorBoundary />}>
         <Route path="settings" element={<SettingsPage />} errorElement={<RouteErrorBoundary />} />
         <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} />

@@ -1,5 +1,6 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
+import logging
 import uuid
 from typing import Literal
 
@@ -60,6 +61,8 @@ from app.maps.service import (
     update_share_token,
     validate_public_visibility,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/maps", tags=["Maps"])
 
@@ -350,7 +353,13 @@ async def update_map_endpoint(
     if "layers" in kwargs:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 
-    await update_map(db, map_id, **kwargs)
+    try:
+        await update_map(db, map_id, **kwargs)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
 
     await log_action(
         db,
@@ -392,7 +401,13 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    map_name = await delete_map(db, map_id)
+    try:
+        map_name = await delete_map(db, map_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
     await log_action(
         db,
         user_id=user.id,
@@ -666,6 +681,7 @@ async def upload_thumbnail(
         map_obj.thumbnail_uri = temp_key
         await db.commit()
     except Exception:
+        logger.warning("Thumbnail storage write failed", extra={"storage_key": temp_key, "map_id": str(map_id)}, exc_info=True)
         # Roll back the temp storage object on any failure
         try:
             await storage.delete(temp_key)
