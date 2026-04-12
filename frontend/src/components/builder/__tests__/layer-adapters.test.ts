@@ -226,7 +226,7 @@ describe('fillAdapter', () => {
     map = createMockMap();
   });
 
-  it('addLayers creates both fill layer and outline companion layer (2 addLayer calls)', () => {
+  it('addLayers creates both fill layer and outline companion layer (2 addLayer calls, no _height_column)', () => {
     const input = makeInput({ id: 'f1', layerId: 'layer-f1', sourceId: 'source-f1', sourceLayer: 'data.test_table' });
     fillAdapter.addLayers(map, input);
     expect(map.addLayer).toHaveBeenCalledTimes(2);
@@ -268,11 +268,12 @@ describe('fillAdapter', () => {
     expect(fillPaint['fill-outline-color']).toBe('transparent');
   });
 
-  it('getLayerIds returns [layerId, outlineId] (two layers)', () => {
+  it('getLayerIds returns [layerId, outlineId] (two layers without _height_column)', () => {
     const ids = fillAdapter.getLayerIds('layer-f1');
-    expect(ids).toHaveLength(2);
+    expect(ids).toHaveLength(3);
     expect(ids[0]).toBe('layer-f1');
     expect(ids[1]).toBe('layer-f1-outline');
+    expect(ids[2]).toBe('layer-f1-extrusion');
   });
 
   it('syncVisibility sets visibility on both main and outline layers', () => {
@@ -304,6 +305,105 @@ describe('fillAdapter', () => {
     fillAdapter.syncPaint(map, input);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f5-outline', 'line-color', '#112233');
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f5-outline', 'line-width', 4);
+  });
+
+  // fill-extrusion companion layer tests
+  it('addLayers adds fill-extrusion companion layer when _height_column is present (3 addLayer calls)', () => {
+    const input = makeInput({
+      id: 'fe1',
+      layerId: 'layer-fe1',
+      sourceId: 'source-fe1',
+      sourceLayer: 'data.test_table',
+      paint: { 'fill-color': '#3b82f6', '_height_column': 'bldg_ht' },
+    });
+    fillAdapter.addLayers(map, input);
+    expect(map.addLayer).toHaveBeenCalledTimes(3);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[0][0].type).toBe('fill');
+    expect(calls[1][0].type).toBe('line');
+    expect(calls[2][0].type).toBe('fill-extrusion');
+    expect(calls[2][0].id).toBe('layer-fe1-extrusion');
+  });
+
+  it('addLayers does NOT add fill-extrusion when _height_column is absent (2 addLayer calls)', () => {
+    const input = makeInput({
+      id: 'fe2',
+      layerId: 'layer-fe2',
+      sourceId: 'source-fe2',
+      sourceLayer: 'data.test_table',
+      paint: { 'fill-color': '#3b82f6' },
+    });
+    fillAdapter.addLayers(map, input);
+    expect(map.addLayer).toHaveBeenCalledTimes(2);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.every((c: unknown[]) => (c[0] as { type: string }).type !== 'fill-extrusion')).toBe(true);
+  });
+
+  it('fill-extrusion paint uses coalesce+to-number expression for fill-extrusion-height', () => {
+    const input = makeInput({
+      id: 'fe3',
+      layerId: 'layer-fe3',
+      sourceId: 'source-fe3',
+      sourceLayer: 'data.test_table',
+      paint: { '_height_column': 'bldg_ht' },
+    });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+    expect(extrusionCall).toBeDefined();
+    const extrusionPaint = (extrusionCall![0] as { paint: Record<string, unknown> }).paint;
+    expect(extrusionPaint['fill-extrusion-height']).toEqual(
+      ['coalesce', ['to-number', ['get', 'bldg_ht'], 0], 0],
+    );
+  });
+
+  it('fill-extrusion layer has minzoom 14', () => {
+    const input = makeInput({
+      id: 'fe4',
+      layerId: 'layer-fe4',
+      sourceId: 'source-fe4',
+      sourceLayer: 'data.test_table',
+      paint: { '_height_column': 'height' },
+    });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+    expect(extrusionCall).toBeDefined();
+    expect((extrusionCall![0] as { minzoom: number }).minzoom).toBe(14);
+  });
+
+  it('syncVisibility toggles extrusion layer visibility when it exists', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-fe5' || id === 'layer-fe5-outline' || id === 'layer-fe5-extrusion') return { id };
+      return null;
+    });
+    const input = makeInput({ id: 'fe5', layerId: 'layer-fe5', visible: false });
+    fillAdapter.syncVisibility(map, input);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-fe5-extrusion', 'visibility', 'none');
+  });
+
+  it('_height_column is NOT passed through to MapLibre fill paint (stripped by CUSTOM_PAINT_PROPS)', () => {
+    const input = makeInput({
+      id: 'fe6',
+      layerId: 'layer-fe6',
+      sourceId: 'source-fe6',
+      sourceLayer: 'data.test_table',
+      paint: { 'fill-color': '#ff0000', '_height_column': 'height' },
+    });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const fillCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill');
+    expect(fillCall).toBeDefined();
+    const fillPaint = (fillCall![0] as { paint: Record<string, unknown> }).paint;
+    expect(fillPaint).not.toHaveProperty('_height_column');
+  });
+
+  it('getLayerIds returns [layerId, outlineId, extrusionId] (three layers)', () => {
+    const ids = fillAdapter.getLayerIds('layer-fe1');
+    expect(ids).toHaveLength(3);
+    expect(ids[0]).toBe('layer-fe1');
+    expect(ids[1]).toBe('layer-fe1-outline');
+    expect(ids[2]).toBe('layer-fe1-extrusion');
   });
 
 });
