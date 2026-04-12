@@ -150,6 +150,54 @@ async def get_features(
     return rows, total
 
 
+async def get_features_geojson_z(
+    db: AsyncSession,
+    table_name: str,
+    *,
+    cap: int = 5000,
+    cached_feature_count: int | None = None,
+) -> tuple[list[dict], bool, int]:
+    """Fetch up to `cap` features with Z coordinates preserved.
+
+    Returns (rows, truncated, total_count).
+
+    Uses LIMIT cap+1 to detect truncation without a separate COUNT query.
+    ST_AsGeoJSON natively preserves Z when the geometry has Z.
+    total_count: actual row count when not truncated, COUNT(*) when truncated.
+    cached_feature_count is ignored — always uses authoritative count.
+    """
+    _validate_table_name(table_name)
+
+    select_cols = (
+        "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
+        "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
+    )
+    # Fetch cap+1 to detect truncation without a separate COUNT query
+    data_sql = (
+        f"SELECT {select_cols} FROM data.{table_name} t "
+        f"ORDER BY gid LIMIT :limit"
+    )
+    result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
+    rows = [dict(row._mapping) for row in result.all()]
+
+    truncated = len(rows) > cap
+    if truncated:
+        rows = rows[:cap]
+
+    if not truncated:
+        # All features returned — row count is authoritative
+        total_count = len(rows)
+    elif cached_feature_count is not None:
+        # Use caller-supplied cached count to avoid extra query
+        total_count = cached_feature_count
+    else:
+        count_sql = f"SELECT COUNT(*) FROM data.{table_name}"
+        count_result = await db.execute(text(count_sql))
+        total_count = count_result.scalar_one()
+
+    return rows, truncated, total_count
+
+
 async def get_feature_by_id(
     db: AsyncSession,
     table_name: str,
