@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -223,6 +224,10 @@ class Dataset(Base):
     )
     quality_statement: Mapped[str | None] = mapped_column(Text, nullable=True)
     quality_score_numeric: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_3d: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    n_dims: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    z_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    z_max: Mapped[float | None] = mapped_column(Float, nullable=True)
     quicklook_256_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Source info
