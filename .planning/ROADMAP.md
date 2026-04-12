@@ -389,11 +389,11 @@ Plans:
 **Dependencies:** Phase 999.2 must ship first (needs `is_3d` metadata)
 **Requirements:** [D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08]
 
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 Plans:
-- [ ] 999.3-01-PLAN.md — Backend endpoint: service function, router, auth/RBAC, tests
-- [ ] 999.3-02-PLAN.md — Schema propagation + adapter/sync GeoJSON branching
-- [ ] 999.3-03-PLAN.md — Frontend data fetch wiring, 3D preview indicator, visual verification
+- [x] 999.3-01-PLAN.md — Backend endpoint: service function, router, auth/RBAC, tests
+- [x] 999.3-02-PLAN.md — Schema propagation + adapter/sync GeoJSON branching
+- [x] 999.3-03-PLAN.md — Frontend data fetch wiring, 3D preview indicator, visual verification
 
 ### Phase 999.4: Shared Vector Staging Pipeline (ingest_file ↔ reupload_file) (BACKLOG)
 
