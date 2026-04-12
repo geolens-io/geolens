@@ -83,6 +83,7 @@ def _build_layer_response(
     feature_count: int | None = None,
     sample_values: dict | None = None,
     record_type: str | None = None,
+    is_3d: bool | None = None,
 ) -> MapLayerResponse:
     """Build a MapLayerResponse from a layer tuple."""
     return MapLayerResponse(
@@ -94,6 +95,7 @@ def _build_layer_response(
         dataset_extent_bbox=extent_to_bbox(extent),
         dataset_column_info=column_info,
         dataset_feature_count=feature_count,
+        is_3d=is_3d,
         dataset_sample_values=sample_values,
         display_name=layer.display_name,
         sort_order=layer.sort_order,
@@ -114,9 +116,9 @@ def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
     """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
     return [
         _build_layer_response(
-            layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type
+            layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type, is_3d
         )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
+        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type, is_3d in layer_tuples
     ]
 
 
