@@ -353,6 +353,41 @@ These may be extractable depending on how much they're reused:
 
 The planner should decide based on whether extraction reduces duplication enough to justify the indirection.
 
+### D-14: AI Chat capture — Map Builder with real conversation
+
+**Status:** Added 2026-04-12 after research revealed AI chat has no standalone route.
+
+**Decision:** AI Chat capability is captured by opening a Phase 218-seeded map in the Map Builder (`/maps/:id`), opening the built-in ChatPanel slide-out, typing a real geospatial query (e.g., *"Show only aquifers in California"* or *"What datasets cover New York State?"*), waiting for the AI response to render, and screenshotting the panel with a visible conversation. BrowserFrame URL shows `app.geolens.io/maps/{id}` (matches the real route).
+
+**Rationale:** The researcher verified that GeoLens has no `/chat` route. ChatPanel.tsx is a component inside the Map Builder, gated by admin settings + API key presence. It IS the real chat UI — not a placeholder. Capturing it in its real location preserves marketing honesty. Taking an empty-panel screenshot was rejected because a real conversation is dramatically more compelling for the features page.
+
+**Alt text must describe the conversation content** — A11Y consideration: alt text like "AI chat panel inside the Map Builder responding to a query about aquifer datasets with a dataset card and map context".
+
+### D-15: AI chat capture fallback — detect API key, gracefully degrade to empty panel
+
+**Status:** Added 2026-04-12 alongside D-14.
+
+**Decision:** The capture script (D-10) checks whether AI is enabled and an LLM API key is configured BEFORE attempting the AI chat screenshot. Detection approach:
+1. Call `/api/v1/settings/ai-enabled` (or equivalent admin settings endpoint the researcher identifies) OR
+2. Attempt a probe query and check for error response (secondary approach if no settings endpoint exists)
+
+**If AI is available:** Capture the full conversation variant per D-14.
+
+**If AI is unavailable (missing API key, disabled in admin settings, or probe fails):**
+- Capture the **empty-panel variant** automatically (Map Builder with chat panel open but no conversation, placeholder "Ask anything about your map data..." text visible)
+- Log a warning: `⚠ AI unavailable — captured empty panel variant. Set ANTHROPIC_API_KEY or OPENAI_API_KEY for full conversation capture.`
+- Continue the rest of the capture run (do NOT fail the script)
+- The committed `ai-chat.png` is valid either way — the component renders the same file
+
+**Rationale:** Contributors may not have LLM API keys locally, and we don't want that to block them from regenerating other screenshots. Graceful fallback keeps the capture workflow runnable by anyone with a running GeoLens. Script failure was rejected because it creates onboarding friction; stale-skip was rejected because it silently desyncs the screenshot from the current UI.
+
+**For this phase's initial capture run:** If the person running the first capture has an API key configured, we get the premium "full conversation" screenshot. If not, we ship with the empty-panel variant and can re-run later when a key is available. Either is acceptable for launch.
+
+**Notes for downstream agents:**
+- The researcher identified that ChatPanel availability is controlled by `SettingsAITab.tsx` in the admin settings. The capture script should call the admin settings API (after login) rather than guessing.
+- Empty-panel variant still renders inside the Map Builder, so the screenshot always shows real product UI, just with a quieter conversation state.
+- Document the detection logic in `scripts/README.md` so operators know what to expect.
+
 ## Deferred Ideas (NOT in this phase)
 
 - ~~Real screenshots replacing stylized SVG mocks~~ — **PULLED FORWARD into this phase** per D-01 (2026-04-12 update). STATE.md Pending Todo closes out here.
