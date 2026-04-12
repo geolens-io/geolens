@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl } from '@vis.gl/react-maplibre';
+import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useTileConfig } from '@/hooks/use-settings';
 import {
@@ -72,6 +72,26 @@ function getViewerLabelLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}-label`;
 }
 
+/** Pre-seed the raster-dem terrain source if it doesn't already exist. */
+function seedTerrainSource(map: MaplibreMap, tileUrl: string) {
+  if (!map.getSource('terrain-dem')) {
+    map.addSource('terrain-dem', {
+      type: 'raster-dem',
+      tiles: [`${window.location.origin}${tileUrl}`],
+      tileSize: 256,
+      encoding: 'mapbox',
+    });
+  }
+}
+
+/** Remove the terrain source (and disable terrain first). */
+function removeTerrainSource(map: MaplibreMap) {
+  map.setTerrain(null);
+  if (map.getSource('terrain-dem')) {
+    map.removeSource('terrain-dem');
+  }
+}
+
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
 function toViewerSyncInput(
   layer: SharedLayerResponse,
@@ -130,6 +150,21 @@ export function ViewerMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  const [terrainReady, setTerrainReady] = useState(false);
+  const terrainActiveRef = useRef(false);
+
+  // Find the first DEM raster layer in the shared map composition
+  const demLayer = useMemo(
+    () => layers.find((l) => l.is_dem && l.dataset_record_type === 'raster'),
+    [layers],
+  );
+
+  // Tile URL for the DEM source — used to seed the raster-dem terrain source
+  const demTileUrl = useMemo(() => demLayer?.tile_url ?? null, [demLayer]);
+
+  // Keep a stable ref to demTileUrl so style.load (registered once) sees latest value
+  const demTileUrlRef = useRef(demTileUrl);
+  demTileUrlRef.current = demTileUrl;
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
   // container. The Playwright demo-smoke spec polls for this attribute to
   // avoid an arbitrary `waitForTimeout` delay after networkidle.
@@ -241,6 +276,37 @@ export function ViewerMap({
       });
     }
   }, [tokenError, t]);
+
+  // Pre-seed the raster-dem terrain source when the map is ready and a DEM layer is present.
+  // The source exists but terrain is NOT enabled until the user clicks TerrainControl.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !demTileUrl) {
+      setTerrainReady(false);
+      return;
+    }
+    seedTerrainSource(map, demTileUrl);
+    setTerrainReady(true);
+  }, [mapReady, demTileUrl]);
+
+  // Listen for the 'terrain' event to drive pitch animation when TerrainControl toggles.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const onTerrain = () => {
+      const active = map.getTerrain() != null;
+      terrainActiveRef.current = active;
+      if (active) {
+        map.easeTo({ pitch: 45, duration: 300, easing: (t: number) => t * (2 - t) });
+      } else {
+        map.easeTo({ pitch: 0, bearing: 0, duration: 300, easing: (t: number) => t * (2 - t) });
+      }
+    };
+
+    map.on('terrain', onTerrain);
+    return () => { map.off('terrain', onTerrain); };
+  }, [mapReady]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -483,6 +549,21 @@ export function ViewerMap({
       if (syncInputsRef.current.layers.length > 0) {
         runSync(map);
       }
+      // style.load wipes all custom sources; re-seed terrain source if a DEM is present.
+      // Use a short timeout to let the new style settle before adding sources.
+      const currentDemTileUrl = demTileUrlRef.current;
+      if (currentDemTileUrl) {
+        setTimeout(() => {
+          const m = mapRef.current;
+          if (!m) return;
+          seedTerrainSource(m, currentDemTileUrl);
+          setTerrainReady(true);
+          // Re-enable terrain if it was active before the basemap swap
+          if (terrainActiveRef.current) {
+            m.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
+          }
+        }, 50);
+      }
     };
 
     map.on('style.load', onStyleLoad);
@@ -525,6 +606,9 @@ export function ViewerMap({
       >
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />
+        {terrainReady && (
+          <TerrainControl source="terrain-dem" exaggeration={1.5} position="top-right" />
+        )}
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         <AttributionControl position="bottom-right" compact={true} />
         {popupInfo && (
