@@ -172,6 +172,64 @@ async def get_extent(session: AsyncSession, table_name: str) -> str | None:
     return result.scalar_one_or_none()
 
 
+async def detect_3d_metadata(
+    session: AsyncSession, table_name: str
+) -> dict:
+    """Detect 3D geometry properties from a PostGIS table.
+
+    Queries ST_NDims, ST_Is3D, ST_ZMin, ST_ZMax on the geom column.
+    Returns dict with keys: is_3d, n_dims, z_min, z_max.
+    All values are None if the table has no geometry or no rows.
+    """
+    _validate_table_name(table_name)
+
+    # Check if table has geometry first
+    has_geom = await _table_has_geometry(session, table_name)
+    if not has_geom:
+        return {"is_3d": None, "n_dims": None, "z_min": None, "z_max": None}
+
+    # Sample a single row to detect dimensionality, then aggregate Z range
+    result = await session.execute(
+        text(
+            f"SELECT "
+            f"  ST_NDims(geom) AS n_dims, "
+            f"  ST_Is3D(geom) AS is_3d "
+            f"FROM {_qtable(table_name)} "
+            f"WHERE geom IS NOT NULL LIMIT 1"
+        )
+    )
+    row = result.one_or_none()
+    if row is None:
+        return {"is_3d": False, "n_dims": 2, "z_min": None, "z_max": None}
+
+    n_dims = row.n_dims
+    is_3d = row.is_3d
+
+    z_min = None
+    z_max = None
+    if is_3d:
+        z_result = await session.execute(
+            text(
+                f"SELECT "
+                f"  MIN(ST_ZMin(geom)) AS z_min, "
+                f"  MAX(ST_ZMax(geom)) AS z_max "
+                f"FROM {_qtable(table_name)} "
+                f"WHERE geom IS NOT NULL"
+            )
+        )
+        z_row = z_result.one_or_none()
+        if z_row is not None:
+            z_min = float(z_row.z_min) if z_row.z_min is not None else None
+            z_max = float(z_row.z_max) if z_row.z_max is not None else None
+
+    return {
+        "is_3d": bool(is_3d),
+        "n_dims": int(n_dims) if n_dims is not None else None,
+        "z_min": z_min,
+        "z_max": z_max,
+    }
+
+
 async def get_column_info(session: AsyncSession, table_name: str) -> list[dict]:
     """Get column names, types, ordinal position, and nullability.
 
