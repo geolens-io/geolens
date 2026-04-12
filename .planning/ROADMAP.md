@@ -216,7 +216,10 @@ Plans:
   3. A feature highlights section below the fold shows 3-4 key capabilities with icons and short descriptions
   4. The search UI product preview (from Phase 214) is embedded in a browser frame on the homepage with no layout shift or missing content
   5. A quickstart teaser section with a link to the /quickstart page is present and reachable via normal scrolling
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
+- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
 **UI hint**: yes
 
 ### Phase 216: Features and Quickstart Pages
@@ -248,13 +251,19 @@ Plans:
   1. Running Axe against every page returns zero critical or serious violations
   2. A user navigating with only the keyboard (Tab, Enter, Space, Arrow keys) can reach and activate every interactive element on every page: nav links, CTAs, and code copy buttons
   3. Lighthouse accessibility score is 95 or above on desktop and mobile for every page
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
+- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
 
 ### Phase 218: Demo Themed Collections
 **Goal**: Replace the current foundation-only Natural Earth demo with three themed collections (Planet Earth — Physical Systems; Global Development & People; Borders, Boundaries & Contested Space) and nine signature maps, seeded deterministically at `docker compose up`, so a prospect landing on the self-hosted demo sees a decisive value story in under 60 seconds instead of a flat reference catalog
 **Depends on**: none (independent of 215/216/217 marketing site phases — can run in parallel)
 **Requirements**: TBD (draft from 260408-lnq-PROPOSAL.md)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
+- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
 
 **Key decisions locked from proposal (260408-lnq) and A7 spike (260408-mgg):**
 - Three themes, one collection each — no single monolithic story, no smorgasbord
@@ -298,7 +307,10 @@ Plans:
 **Goal**: Replace the 3 `cast(T, ...)` sites at `backend/app/persistent_config.py:84, 88, 113` with `TypeAdapter[T].validate_python(unwrapped)` for runtime shape validation at the JSONB unwrap boundary, accepting the breaking change to `PersistentConfig`'s constructor that this requires
 **Depends on**: None, but carries breaking changes to every call site that constructs a `PersistentConfig` instance
 **Requirements**: TBD (draft from post-impl-20260410-HANDOFF-REMAINING.md §Type-5)
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 217-01-PLAN.md — Fix WCAG gaps (skip-nav, focus indicators) + create Axe scan script
+- [ ] 217-02-PLAN.md — Lighthouse audit, CI gate, human verification
 
 **Key decisions locked from 2026-04-11 research (validated via quick task 260411-a62):**
 - `PersistentConfig` is declared `Generic[T]` with `T = TypeVar("T")` — `TypeAdapter[T].validate_python()` cannot work as a drop-in replacement because `T` is unbound at method-resolution time
@@ -337,8 +349,14 @@ Plans:
 ### Phase 224: Post-Impl Audit Remediation (2026-04-11)
 **Goal**: Resolve all 24 must-fix items (3 P0 + 21 P1) surfaced by the 2026-04-11 post-impl audit pair (`post-impl-20260411.md` + backend delta `post-impl-20260411-b.md`). Focus: user-felt search performance, systemic Pydantic/SQL column-width drift, backend resilience gaps (storage event-loop blocking, middleware chunked-encoding bypass, worker rolling-restart race), and response_model coverage on OGC `/collections/datasets/*` endpoints.
 **Depends on**: None (can run in parallel with Phase 215 marketing work — touches backend + limited frontend; no overlap with the getgeolens.com repo)
-**Requirements**: TBD (draft from 224-CONTEXT.md references to parent audit findings)
-**Plans**: TBD (fresh session will run `/gsd-plan-phase 224` to decompose into wave-structured execution plans)
+**Requirements**: AUDIT-P0-1, AUDIT-P0-2, AUDIT-P0-3, AUDIT-P1-1 through AUDIT-P1-18
+**Plans**: 5 plans
+Plans:
+- [ ] 224-01-PLAN.md — Backend Performance (P0-1 selectinload, P1-1 LocalStorage to_thread, P1-2 API key 60s, P1-3 presigned gather, P1-4 maps pagination, P1-5 roles dedup)
+- [ ] 224-02-PLAN.md — Backend Type Safety (P1-6/7/8 column-width migration, P1-9 MapVisibility unlisted, P1-10 layer_type Literal, P1-11 share_url absolute, P1-12 PersistentConfig generics)
+- [ ] 224-03-PLAN.md — Backend Resilience (P0-3 embedding rollback, P1-13 thumbnail temp-key, P1-15 OAuth stable codes, P1-16 bulk delete per-item, P1-17 chunked body limit, P1-18 worker advisory lock)
+- [ ] 224-04-PLAN.md — Frontend (P0-2 quicklook img lazy, P1-14 DatasetMap error boundary, P1-9 MapVisibility TS type)
+- [ ] 224-05-PLAN.md — Verification + REQUIREMENTS.md update + audit closeout
 
 **Key decisions locked from the audit chain:**
 - Combined parent + delta = 86 backend findings; remediation scope is P0 + P1 only (24 items). P2/P3 items stay tracked in the audit reports for future cleanup phases.
@@ -373,7 +391,7 @@ Plans:
 | 221. get_sample_values Sparse-Column Default Bump | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 222. persistent_config.py Runtime Validation via TypeAdapter | v14.0 | 1/1 | Complete    | 2026-04-11 |
 | 223. Raster VRT Integration Fixtures | v14.0 | 1/1 | Complete    | 2026-04-11 |
-| 224. Post-Impl Audit Remediation | v14.0 | 0/? | Not started | - |
+| 224. Post-Impl Audit Remediation | v14.0 | 0/5 | Not started | - |
 
 ## Backlog
 
