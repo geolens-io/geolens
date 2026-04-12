@@ -299,7 +299,7 @@ async def get_datasets_list(
 
     Returns (dataset_response_list, total_count) ready for the API response.
     """
-    from app.datasets.helpers import _dataset_to_response, _load_actor_identities
+    from app.datasets.helpers import dataset_to_response, _load_actor_identities
     from app.raster.models import RasterAsset
 
     is_admin = "admin" in user_roles
@@ -346,7 +346,7 @@ async def get_datasets_list(
             source_counts[row.vrt_dataset_id] = row.cnt
 
     response_list = [
-        _dataset_to_response(
+        dataset_to_response(
             d,
             actors_by_id=actors_by_id,
             raster_asset=raster_assets_by_dataset_id.get(d.id),
@@ -373,7 +373,7 @@ async def get_dataset_detail(
     Returns a DatasetResponse or None if not found.
     The caller is responsible for visibility checks and audit logging.
     """
-    from app.datasets.helpers import _dataset_to_response, _load_actor_identities
+    from app.datasets.helpers import dataset_to_response, _load_actor_identities
     from app.datasets.schemas import StacAsset
     from app.raster.models import DatasetAsset, RasterAsset
 
@@ -428,7 +428,7 @@ async def get_dataset_detail(
     user_roles = await get_user_roles(db, user) if user is not None else set()
     is_admin = "admin" in user_roles
 
-    return _dataset_to_response(
+    return dataset_to_response(
         dataset,
         collections=collections_data,
         actors_by_id=actors_by_id,

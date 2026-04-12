@@ -6,7 +6,7 @@ import os
 
 import structlog
 
-from app.ingest.ogr import IngestionError, _extract_srid_from_json
+from app.ingest.ogr import IngestionError, extract_srid_from_json
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -147,7 +147,7 @@ async def run_service_preview(
         if not coord_system:
             coord_system = geom_fields[0].get("coordinateSystem", {})
 
-    srid = _extract_srid_from_json(coord_system or {})
+    srid = extract_srid_from_json(coord_system or {})
 
     result = {
         "srid": srid,

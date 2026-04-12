@@ -111,7 +111,7 @@ def _build_raster_metadata(
     )
 
 
-def _dataset_to_response(
+def dataset_to_response(
     dataset,
     *,
     collections=None,

@@ -17,7 +17,7 @@ from starlette.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import selectinload
 
 from app.collections.models import Collection, CollectionDataset
 from app.config import settings
@@ -27,7 +27,7 @@ from app.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.public_urls import get_public_api_url
 from app.raster.models import DatasetAsset, RasterAsset
 from app.utils.geo import make_bbox_filter
-from app.search.service import _build_assets, dataset_to_ogc_record
+from app.search.service import build_assets, dataset_to_ogc_record
 from app.stac.schemas import (
     StacCatalog,
     StacCollection,
@@ -187,7 +187,7 @@ async def _dataset_to_stac_item(
     except RuntimeError:
         storage = None
 
-    ogc_record["assets"] = _build_assets(
+    ogc_record["assets"] = build_assets(
         dataset,
         public_api_url,
         stac_asset_rows=stac_asset_rows,
@@ -220,9 +220,9 @@ def _base_published_raster_query():
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(
-            joinedload(Dataset.record).joinedload(Record.keywords),
-            joinedload(Dataset.record).joinedload(Record.contacts),
-            joinedload(Dataset.record).joinedload(Record.distributions),
+            selectinload(Dataset.record).selectinload(Record.keywords),
+            selectinload(Dataset.record).selectinload(Record.contacts),
+            selectinload(Dataset.record).selectinload(Record.distributions),
         )
         .where(
             Record.record_type.in_(_STAC_RECORD_TYPES),

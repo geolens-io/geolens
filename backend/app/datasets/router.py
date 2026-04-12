@@ -29,7 +29,7 @@ from app.auth.visibility import (
     get_user_roles,
 )
 from app.datasets.helpers import (
-    _dataset_to_response,
+    dataset_to_response,
     _load_actor_identities,
 )
 from app.datasets.schemas import (
@@ -126,7 +126,7 @@ async def create_empty_dataset_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     actors_by_id = await _load_actor_identities(db, [dataset.record.created_by])
-    return _dataset_to_response(
+    return dataset_to_response(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
@@ -286,7 +286,7 @@ async def update_dataset_metadata(
         db,
         [dataset.record.created_by, dataset.record.updated_by],
     )
-    return _dataset_to_response(
+    return dataset_to_response(
         dataset,
         actors_by_id=actors_by_id,
         base_url=await get_dataset_service_url(db, request=request),
@@ -316,11 +316,15 @@ async def bulk_delete_datasets_endpoint(
                 details={"title": item.confirm_title, "table_name": table_name},
                 ip_address=request.client.host if request.client else None,
             )
+            # Commit per-item so a later failure cannot orphan storage objects
+            # that were already deleted for successfully-committed datasets.
+            await db.commit()
             results.append(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
         except DependentVrtError as exc:
+            await db.rollback()
             results.append(
                 BulkDeleteResultItem(
                     dataset_id=item.dataset_id,
@@ -329,6 +333,7 @@ async def bulk_delete_datasets_endpoint(
                 )
             )
         except ValueError as exc:
+            await db.rollback()
             results.append(
                 BulkDeleteResultItem(
                     dataset_id=item.dataset_id,
@@ -336,8 +341,15 @@ async def bulk_delete_datasets_endpoint(
                     detail=str(exc),
                 )
             )
-
-    await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            results.append(
+                BulkDeleteResultItem(
+                    dataset_id=item.dataset_id,
+                    status="error",
+                    detail=str(exc),
+                )
+            )
 
     if deleted > 0:
         await invalidate_catalog_cache()

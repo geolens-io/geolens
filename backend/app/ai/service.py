@@ -178,6 +178,7 @@ async def _should_send_sample_values(session: AsyncSession) -> bool:
 
         return await AI_SEND_SAMPLE_VALUES.get(session)
     except Exception:
+        logger.warning("Failed to read AI_SEND_SAMPLE_VALUES, defaulting to True", exc_info=True)
         return True
 
 
@@ -201,12 +202,12 @@ def _build_map_system_prompt(
     basemap_ids: list[str] | None = None,
 ) -> str:
     """Build map generation system prompt with language directive and dynamic basemaps."""
-    from app.ai.chat_service import _lang_name
+    from app.ai.chat_service import lang_name
 
     basemap_instruction = _build_basemap_instruction(basemap_ids)
     prompt = SYSTEM_PROMPT.format(basemap_instruction=basemap_instruction)
 
-    lang = _lang_name(language)
+    lang = lang_name(language)
     prompt += f"""
 ## Language
 Always respond in {lang}. The explanation field and any text must be in {lang}. Never switch to another language.

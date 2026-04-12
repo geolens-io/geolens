@@ -370,12 +370,12 @@ async def generate_summary_draft(
     session: AsyncSession, dataset_id: str, *, language: str | None = None
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
-    from app.ai.chat_service import _lang_name
+    from app.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id)
     system = SUMMARY_SYSTEM
     if language:
-        system += f"\n\nRespond in {_lang_name(language)}."
+        system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(system, context, SummaryDraftResponse, db=session)
 
 
@@ -383,7 +383,7 @@ async def generate_keyword_suggestions(
     session: AsyncSession, dataset_id: str, *, language: str | None = None
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
-    from app.ai.chat_service import _lang_name
+    from app.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id)
     vocab = await _get_catalog_vocabulary(session)
@@ -397,7 +397,7 @@ async def generate_keyword_suggestions(
 
     system = KEYWORD_SYSTEM
     if language:
-        system += f"\n\nRespond in {_lang_name(language)}."
+        system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(
         system, prompt, KeywordSuggestionsResponse, db=session
     )
@@ -407,12 +407,12 @@ async def generate_lineage_draft(
     session: AsyncSession, dataset_id: str, *, language: str | None = None
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
-    from app.ai.chat_service import _lang_name
+    from app.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id)
     system = LINEAGE_SYSTEM
     if language:
-        system += f"\n\nRespond in {_lang_name(language)}."
+        system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(system, context, LineageDraftResponse, db=session)
 
 
@@ -420,12 +420,12 @@ async def generate_quality_statement_draft(
     session: AsyncSession, dataset_id: str, *, language: str | None = None
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
-    from app.ai.chat_service import _lang_name
+    from app.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id)
     system = QUALITY_STATEMENT_SYSTEM
     if language:
-        system += f"\n\nRespond in {_lang_name(language)}."
+        system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(
         system, context, QualityStatementDraftResponse, db=session
     )

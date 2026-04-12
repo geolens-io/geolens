@@ -142,6 +142,7 @@ export function ViewerMap({
 
   // Tile tokens fetched via API key auth
   const [tokenMap, setTokenMap] = useState<Map<string, TileToken>>(new Map());
+  const [tokenError, setTokenError] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { resolvedTheme } = useTheme();
@@ -216,7 +217,8 @@ export function ViewerMap({
           }, refreshMs);
         }
       } catch (err) {
-        if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
+        console.error('ViewerMap: failed to fetch tile tokens', err);
+        setTokenError(true);
       }
     }
 
@@ -230,6 +232,15 @@ export function ViewerMap({
       }
     };
   }, [embedToken, apiKey, layerDatasetIds]);
+
+  // Surface tile token fetch failures as a user-visible toast
+  useEffect(() => {
+    if (tokenError) {
+      toast.error(t('viewer.tokenError', { defaultValue: 'Failed to load map layer tokens — some layers may not display.' }), {
+        id: 'viewer-token-error',
+      });
+    }
+  }, [tokenError, t]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {

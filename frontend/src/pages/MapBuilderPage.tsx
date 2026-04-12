@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, Globe, Users, Lock, MoreHorizontal, GripVertical } from 'lucide-react';
+import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, MoreHorizontal, GripVertical } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { BuilderMap } from '@/components/builder/BuilderMap';
 import { LayerPanel } from '@/components/builder/LayerPanel';
@@ -49,16 +50,11 @@ import { useBuilderSave } from '@/hooks/use-builder-save';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
 import { WidgetHost, WidgetToolbar, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
+import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 600;
-
-function VisibilityIcon({ visibility }: { visibility: string }) {
-  if (visibility === 'public') return <Globe className="h-3 w-3 text-success" />;
-  if (visibility === 'internal') return <Users className="h-3 w-3 text-warning" />;
-  return <Lock className="h-3 w-3 text-muted-foreground" />;
-}
 
 function ChatPanelContent({
   mapId,
@@ -278,10 +274,17 @@ export function MapBuilderPage() {
   }
 
   if (error || !mapData) {
+    const msg = error instanceof ApiError && error.status === 403
+      ? t('common:errors.accessDenied', { defaultValue: 'Access denied' })
+      : error instanceof ApiError && error.status === 404
+        ? t('common:errors.mapNotFound')
+        : error
+          ? t('common:errors.loadFailed', { defaultValue: 'Failed to load map' })
+          : t('common:errors.mapNotFound');
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
         <div className="text-center space-y-4">
-          <ErrorState message={t('common:errors.mapNotFound')} />
+          <ErrorState message={msg} />
           <Link to="/maps" className="text-sm text-primary hover:underline">
             {t('backToMaps')}
           </Link>

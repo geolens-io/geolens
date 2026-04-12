@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid as uuid_mod
 from datetime import date
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
     from app.storage.provider import StorageProvider
@@ -23,7 +23,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.auth.models import User
 from app.config import settings
@@ -46,6 +46,15 @@ from app.services.provenance import derive_last_edited
 from app.utils.geo import make_bbox_filter
 
 logger = logging.getLogger(__name__)
+
+
+class FacetCounts(TypedDict):
+    record_type: dict
+    keywords: list[dict]
+    source_organization: list[dict]
+    srid: list[dict]
+    collections: list[dict]
+
 
 # Media types for each download format
 _FORMAT_MEDIA = {
@@ -109,7 +118,7 @@ async def _get_vector_ranks(
     try:
         query_vector = await generate_embedding(query_text.strip(), session)
     except EmbeddingUnavailableError:
-        logger.info("Embedding unavailable for semantic search, falling back to FTS")
+        logger.warning("Embedding unavailable for semantic search, falling back to FTS")
         return {}
     except Exception:
         logger.warning(
@@ -202,7 +211,7 @@ async def get_facet_counts(
     spatial_predicate: Literal["intersects", "within"] = "intersects",
     geometry_geojson: str | None = None,
     collection_id: uuid_mod.UUID | None = None,
-) -> dict:
+) -> FacetCounts:
     """Return multi-group facet counts for datasets matching the given filters.
 
     Returns dict with keys: record_type, keywords, source_organization, srid.
@@ -673,9 +682,9 @@ async def search_datasets(
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(
-            joinedload(Dataset.record).joinedload(Record.keywords),
-            joinedload(Dataset.record).joinedload(Record.contacts),
-            joinedload(Dataset.record).joinedload(Record.distributions),
+            selectinload(Dataset.record).selectinload(Record.keywords),
+            selectinload(Dataset.record).selectinload(Record.contacts),
+            selectinload(Dataset.record).selectinload(Record.distributions),
         )
     )
 
@@ -882,9 +891,9 @@ async def search_datasets(
                     select(Dataset)
                     .join(Record, Dataset.record_id == Record.id)
                     .options(
-                        joinedload(Dataset.record).joinedload(Record.keywords),
-                        joinedload(Dataset.record).joinedload(Record.contacts),
-                        joinedload(Dataset.record).joinedload(Record.distributions),
+                        selectinload(Dataset.record).selectinload(Record.keywords),
+                        selectinload(Dataset.record).selectinload(Record.contacts),
+                        selectinload(Dataset.record).selectinload(Record.distributions),
                     )
                     .where(Record.id.in_([uuid_mod.UUID(rid) for rid in page_ids]))
                 )
@@ -965,7 +974,7 @@ async def search_datasets(
     return datasets, total
 
 
-def _build_assets(
+def build_assets(
     dataset: Dataset,
     public_api_url: str,
     *,
@@ -1294,7 +1303,7 @@ def dataset_to_ogc_record(
                 "type": "application/json",
             },
         ],
-        "assets": _build_assets(
+        "assets": build_assets(
             dataset,
             public_api_url,
             stac_asset_rows=stac_asset_rows,

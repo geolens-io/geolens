@@ -103,7 +103,7 @@ def _resolve_source_path(file_path: str) -> str:
     return file_path
 
 
-def _extract_srid_from_json(coord_system: dict) -> int | None:
+def extract_srid_from_json(coord_system: dict) -> int | None:
     """Extract EPSG SRID from ogrinfo JSON coordinateSystem field."""
     if not coord_system:
         return None
@@ -164,7 +164,7 @@ def _extract_common_layer_metadata(
         # coordinateSystem may be nested inside geometryFields
         if not coord_system:
             coord_system = geom_fields[0].get("coordinateSystem", {})
-    srid = _extract_srid_from_json(coord_system or {})
+    srid = extract_srid_from_json(coord_system or {})
 
     columns = [
         {"name": f.get("name", ""), "type": f.get("type", "")}
