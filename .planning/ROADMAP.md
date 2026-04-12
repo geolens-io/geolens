@@ -365,7 +365,7 @@ Plans:
 | 213. SEO Infrastructure | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 214. Product Preview Assets | v14.0 | 2/2 | Complete    | 2026-04-05 |
 | 215. Homepage | v14.0 | 4/4 | Complete    | 2026-04-12 |
-| 216. Features and Quickstart Pages | v14.0 | 7/7 | Complete   | 2026-04-12 |
+| 216. Features and Quickstart Pages | v14.0 | 7/7 | Complete    | 2026-04-12 |
 | 217. Accessibility Audit and Launch Gate | v14.0 | 0/? | Not started | - |
 | 218. Demo Themed Collections | v14.0 | 5/5 | Complete    | 2026-04-09 |
 | 219. regenerate_vrt Phase Extraction | v14.0 | 1/1 | Complete   | 2026-04-11 |
