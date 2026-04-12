@@ -373,11 +373,11 @@ Plans:
 - Attribute promotion for point geometries is in scope (new `elev` numeric column)
 - POLYHEDRALSURFACE / TIN handling: defer the UI-warning decision; add a STATE.md decision entry when this phase is promoted
 
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 Plans:
-- [ ] 999.2-01-PLAN.md — Migration, model, detection function, API schema
-- [ ] 999.2-02-PLAN.md — Ingest integration, elev column promotion
-- [ ] 999.2-03-PLAN.md — Frontend types and Z range UI
+- [x] 999.2-01-PLAN.md — Migration, model, detection function, API schema
+- [x] 999.2-02-PLAN.md — Ingest integration, elev column promotion
+- [x] 999.2-03-PLAN.md — Frontend types and Z range UI
 
 ### Phase 999.3: GeoJSON-Z Delivery Endpoint (BACKLOG)
 
