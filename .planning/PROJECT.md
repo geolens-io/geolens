@@ -8,7 +8,7 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-41 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Phase 215 complete — homepage composed in the getgeolens.com marketing site repo: HeroSection (outcome-focused headline + dual CTA), TrustSignalBar (Apache 2.0 / OGC / Self-Hosted badges), ProductPreviewSection embedding Phase 214's SearchPreview, FeatureHighlightsSection (3 cards), QuickstartTeaser. All static Astro, zero JS runtime, visually verified at 1280/768/375px via Playwright audit, code-reviewed (1W + 4I, all addressed), SEO metadata + JSON-LD wired to production build.
+41 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Phase 216 complete — /features page (6 zig-zag capability stripes + OGC compliance section) and /quickstart page (8-section docker-compose walkthrough) built in getgeolens.com. Real screenshots captured via Playwright from live instance (7 PNGs, AVIF+WebP derivatives). Nav subnav with active-page detection. All preview components retrofitted from SVG to real screenshots via Astro's Picture pipeline.
 
 ## Current Milestone: v14.0 getgeolens.com Marketing Site
 
@@ -538,4 +538,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 207 Branding Toggle complete*
+*Last updated: 2026-04-12 after Phase 216 Features and Quickstart Pages complete*
