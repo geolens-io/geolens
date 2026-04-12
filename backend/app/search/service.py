@@ -23,7 +23,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import aliased, joinedload
 
 from app.auth.models import User
 from app.config import settings
@@ -46,19 +46,6 @@ from app.services.provenance import derive_last_edited
 from app.utils.geo import make_bbox_filter
 
 logger = logging.getLogger(__name__)
-
-
-def _eager_load_record_relations(stmt):
-    """Apply selectinload for Record one-to-many relations (keywords, contacts, distributions).
-
-    Replaces joinedload which caused Cartesian row explosion on multi-dataset result sets.
-    """
-    return stmt.options(
-        selectinload(Dataset.record).selectinload(Record.keywords),
-        selectinload(Dataset.record).selectinload(Record.contacts),
-        selectinload(Dataset.record).selectinload(Record.distributions),
-    )
-
 
 # Media types for each download format
 _FORMAT_MEDIA = {
@@ -682,9 +669,14 @@ async def search_datasets(
     rank_col = None
 
     # Base query always joins Record with eager-loaded keywords/contacts/distributions
-    base_join = _eager_load_record_relations(
+    base_join = (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
+        .options(
+            joinedload(Dataset.record).joinedload(Record.keywords),
+            joinedload(Dataset.record).joinedload(Record.contacts),
+            joinedload(Dataset.record).joinedload(Record.distributions),
+        )
     )
 
     # 1. Full-text search (search_vector now on Record + child-table EXISTS)
@@ -886,9 +878,14 @@ async def search_datasets(
 
             if page_ids:
                 # Fetch full Dataset objects for the final page
-                fetch_stmt = _eager_load_record_relations(
+                fetch_stmt = (
                     select(Dataset)
                     .join(Record, Dataset.record_id == Record.id)
+                    .options(
+                        joinedload(Dataset.record).joinedload(Record.keywords),
+                        joinedload(Dataset.record).joinedload(Record.contacts),
+                        joinedload(Dataset.record).joinedload(Record.distributions),
+                    )
                     .where(Record.id.in_([uuid_mod.UUID(rid) for rid in page_ids]))
                 )
                 fetch_result = await session.execute(fetch_stmt)

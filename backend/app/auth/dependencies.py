@@ -2,17 +2,15 @@
 
 import hashlib
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import ApiKey, User
-from app.auth.visibility import get_user_roles
+from app.auth.models import ApiKey, Role, User, UserRole
 from app.config import settings
 from app.dependencies import get_db
 
@@ -37,11 +35,9 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     user = api_key_obj.user
     if user is None or not user.is_active or user.status != "active":
         return None
-    # Only update last_used_at if it's been more than 60 seconds (reduce write amplification)
-    now = datetime.now(timezone.utc)
-    if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(seconds=60):
-        api_key_obj.last_used_at = now
-        await db.commit()
+    # Update last_used_at
+    api_key_obj.last_used_at = func.now()
+    await db.commit()
     return user
 
 
@@ -168,7 +164,12 @@ def require_role(*roles: str):
         current_user: Annotated[User, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        user_roles = await get_user_roles(db, current_user)
+        result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == current_user.id)
+        )
+        user_roles = {row[0] for row in result.all()}
 
         if not user_roles.intersection(roles):
             raise HTTPException(
@@ -199,7 +200,12 @@ def require_permission(*capabilities: str):
         from app.auth.permissions import get_effective_permissions
 
         # Get user roles
-        user_roles = await get_user_roles(db, current_user)
+        result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == current_user.id)
+        )
+        user_roles = {row[0] for row in result.all()}
 
         # Get effective permission matrix
         matrix = await get_effective_permissions(db)

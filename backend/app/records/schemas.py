@@ -1,7 +1,7 @@
 """Pydantic schemas for record sub-resources: contacts, keywords, distributions."""
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -9,9 +9,51 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 # --- Contacts ---
 
 
+ContactRole = Literal[
+    "resourceProvider",
+    "custodian",
+    "owner",
+    "user",
+    "distributor",
+    "originator",
+    "pointOfContact",
+    "principalInvestigator",
+    "processor",
+    "publisher",
+    "author",
+    "sponsor",
+    "coAuthor",
+    "collaborator",
+    "editor",
+    "mediator",
+    "rightsHolder",
+    "contributor",
+    "funder",
+    "stakeholder",
+]
+
+KeywordType = Literal[
+    "discipline",
+    "place",
+    "stratum",
+    "temporal",
+    "theme",
+    "dataCentre",
+    "featureType",
+    "instrument",
+    "platform",
+    "process",
+    "product",
+    "project",
+    "service",
+    "subTopicCategory",
+    "taxon",
+]
+
+
 class ContactCreate(BaseModel):
-    role: str = Field(
-        max_length=100, description="ISO CI_RoleCode, e.g. pointOfContact, author"
+    role: ContactRole = Field(
+        description="ISO CI_RoleCode, e.g. pointOfContact, author"
     )
     name: str | None = Field(default=None, max_length=500)
     email: EmailStr | None = None
@@ -26,7 +68,7 @@ class ContactCreate(BaseModel):
 
 
 class ContactUpdate(BaseModel):
-    role: str | None = Field(default=None, max_length=100)
+    role: ContactRole | None = Field(default=None)
     name: str | None = Field(default=None, max_length=500)
     email: EmailStr | None = None
     organization: str | None = Field(default=None, max_length=500)
@@ -62,9 +104,8 @@ class KeywordCreate(BaseModel):
     vocabulary_uri: str | None = Field(
         default=None, max_length=2048, description="URI of the controlled vocabulary"
     )
-    keyword_type: str = Field(
+    keyword_type: KeywordType = Field(
         default="theme",
-        max_length=100,
         description="ISO MD_KeywordTypeCode, e.g. theme, place, discipline",
     )
 
@@ -89,11 +130,11 @@ class KeywordListResponse(BaseModel):
 
 class DistributionCreate(BaseModel):
     distribution_type: str = Field(
-        max_length=200, description="e.g. download, api, ogc_wms, ogc_wfs"
+        max_length=30, description="e.g. download, api, ogc_wms, ogc_wfs"
     )
     format: str | None = Field(
         default=None,
-        max_length=200,
+        max_length=50,
         description="File or service format, e.g. GeoJSON, SHP, WMS",
     )
     url: str = Field(max_length=2048, description="Access URL for this distribution")
@@ -106,7 +147,7 @@ class DistributionCreate(BaseModel):
     )
     media_type: str | None = Field(
         default=None,
-        max_length=255,
+        max_length=100,
         description="IANA media type, e.g. application/geo+json",
     )
     is_primary: bool = Field(
@@ -115,13 +156,13 @@ class DistributionCreate(BaseModel):
 
 
 class DistributionUpdate(BaseModel):
-    distribution_type: str | None = Field(default=None, max_length=200)
-    format: str | None = Field(default=None, max_length=200)
+    distribution_type: str | None = Field(default=None, max_length=30)
+    format: str | None = Field(default=None, max_length=50)
     url: str | None = Field(default=None, max_length=2048)
     title: str | None = Field(default=None, max_length=500)
     description: str | None = Field(default=None, max_length=2000)
     protocol: str | None = Field(default=None, max_length=100)
-    media_type: str | None = Field(default=None, max_length=255)
+    media_type: str | None = Field(default=None, max_length=100)
     is_primary: bool | None = None
 
 

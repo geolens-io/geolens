@@ -14,8 +14,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
-from app.auth.visibility import get_user_roles
+from app.auth.models import Role, User, UserRole
 from app.config import settings
 from app.datasets.models import Dataset
 from app.datasets.service import create_dataset
@@ -94,7 +93,12 @@ async def get_job_or_404(db: AsyncSession, job_id: uuid.UUID, user: User) -> Ing
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        user_roles = await get_user_roles(db, user)
+        role_result = await db.execute(
+            select(Role.name)
+            .join(UserRole, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user.id)
+        )
+        user_roles = {row[0] for row in role_result.all()}
         if "admin" not in user_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
