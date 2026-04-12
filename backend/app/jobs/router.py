@@ -106,12 +106,9 @@ async def get_job_status(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        role_result = await db.execute(
-            select(Role.name)
-            .join(UserRole, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == user.id)
-        )
-        user_roles = {row[0] for row in role_result.all()}
+        from app.auth.visibility import get_user_roles
+
+        user_roles = await get_user_roles(db, user)
         if "admin" not in user_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -300,12 +297,9 @@ async def retry_job(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        role_result = await db.execute(
-            select(Role.name)
-            .join(UserRole, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == user.id)
-        )
-        user_roles = {row[0] for row in role_result.all()}
+        from app.auth.visibility import get_user_roles
+
+        user_roles = await get_user_roles(db, user)
         if "admin" not in user_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
