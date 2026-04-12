@@ -84,7 +84,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 ### Pending Todos
 
-None yet.
+- **Before v14.0 launch:** Capture real screenshots of the data catalog and map builder (running against live GeoLens) and swap them into `getgeolens.com/src/components/previews/` to replace the stylized SVG mocks (SearchPreview, MapBuilderPreview). Current mocks are hero-quality placeholders but aren't the real product UI. Related: Phase 215 `/quickstart` dead link (closed by Phase 216) and Phase 217 a11y launch gate.
 
 ### Blockers/Concerns
 
