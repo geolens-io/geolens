@@ -94,6 +94,7 @@ class MapLayerResponse(BaseModel):
     dataset_extent_bbox: list[float] | None
     dataset_column_info: list[dict] | None = None
     dataset_feature_count: int | None = None
+    is_3d: bool | None = None
     dataset_sample_values: dict | None = None
     display_name: str | None = None
     sort_order: int
@@ -171,6 +172,8 @@ class SharedLayerResponse(BaseModel):
     table_name: str
     geometry_type: str | None
     column_info: list[dict] | None = None
+    is_3d: bool | None = None
+    feature_count: int | None = None
     sort_order: int
     visible: bool
     opacity: float

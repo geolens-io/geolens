@@ -163,6 +163,7 @@ async def get_map_with_layers(
             Dataset.feature_count,
             Dataset.sample_values,
             Record.record_type,
+            Dataset.is_3d,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -804,6 +805,8 @@ async def get_shared_map(
             Record.visibility,
             Record.record_type,
             RasterAsset.is_dem,
+            Dataset.is_3d,
+            Dataset.feature_count,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -826,6 +829,8 @@ async def get_shared_map(
         ds_visibility,
         ds_record_type,
         ds_is_dem,
+        ds_is_3d,
+        ds_feature_count,
     ) in layer_rows:
         is_public = ds_visibility == "public"
         if not is_public:
@@ -857,6 +862,8 @@ async def get_shared_map(
                 "show_in_legend": layer.show_in_legend,
                 "tile_url": tile_url,
                 "is_dem": bool(ds_is_dem),
+                "is_3d": bool(ds_is_3d) if ds_is_3d is not None else None,
+                "feature_count": ds_feature_count,
             }
         )
 

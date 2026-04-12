@@ -713,6 +713,7 @@ export interface MapLayerResponse {
   dataset_extent_bbox: number[] | null;
   dataset_column_info: { name: string; type: string }[] | null;
   dataset_feature_count: number | null;
+  is_3d?: boolean | null;
   dataset_sample_values: Record<string, unknown[]> | null;
   display_name: string | null;
   sort_order: number;
@@ -825,6 +826,8 @@ export interface SharedLayerResponse {
   table_name: string;
   geometry_type: string | null;
   column_info: { name: string; type: string }[] | null;
+  is_3d?: boolean | null;
+  feature_count?: number | null;
   sort_order: number;
   visible: boolean;
   opacity: number;
