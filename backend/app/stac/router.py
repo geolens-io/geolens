@@ -17,7 +17,7 @@ from starlette.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import selectinload
 
 from app.collections.models import Collection, CollectionDataset
 from app.config import settings
@@ -220,9 +220,9 @@ def _base_published_raster_query():
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(
-            joinedload(Dataset.record).joinedload(Record.keywords),
-            joinedload(Dataset.record).joinedload(Record.contacts),
-            joinedload(Dataset.record).joinedload(Record.distributions),
+            selectinload(Dataset.record).selectinload(Record.keywords),
+            selectinload(Dataset.record).selectinload(Record.contacts),
+            selectinload(Dataset.record).selectinload(Record.distributions),
         )
         .where(
             Record.record_type.in_(_STAC_RECORD_TYPES),
