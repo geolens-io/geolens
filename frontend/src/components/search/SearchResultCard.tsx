@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Combine, FolderOpen, Globe, Hash, Layers, Loader2, Ruler, Shapes, Table2, type LucideIcon } from 'lucide-react';
+import { Combine, FolderOpen, Globe, Hash, Layers, Ruler, Shapes, Table2, type LucideIcon } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
@@ -10,7 +10,7 @@ import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
-import { useQuicklook } from '@/hooks/use-quicklook';
+import { useAuthStore } from '@/stores/auth-store';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import type { OGCRecordResponse } from '@/types/api';
 
@@ -146,9 +146,15 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
-  // Quicklook: only fetch when the backend confirms a quicklook exists.
+  // Quicklook: only render when the backend confirms a quicklook exists.
+  // Uses native <img loading="lazy"> with api_key query param instead of base64 fetch
+  // so the browser can cache the image (Cache-Control: public, max-age=3600) and
+  // the search page no longer fires 20+ parallel authenticated fetches.
+  const token = useAuthStore((s) => s.token);
   const quicklookId = !isCollection && !isTable && properties.has_quicklook ? (feature.id as string) : null;
-  const { src: quicklookSrc, isLoading: qlLoading } = useQuicklook(quicklookId);
+  const quicklookUrl = quicklookId
+    ? `/api/datasets/${quicklookId}/quicklook?size=256${token ? `&api_key=${token}` : ''}`
+    : null;
 
   // Provenance (for non-collection types)
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });
@@ -329,16 +335,13 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           {properties.column_count ? ` · ${properties.column_count} cols` : ''}
                         </span>
                       </div>
-                    ) : quicklookSrc ? (
+                    ) : quicklookUrl ? (
                       <img
-                        src={quicklookSrc}
+                        src={quicklookUrl}
+                        loading="lazy"
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
                         className="size-[132px] object-cover xl:size-[148px]"
                       />
-                    ) : qlLoading ? (
-                      <div className="flex size-[132px] items-center justify-center bg-muted/25 xl:size-[148px]">
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      </div>
                     ) : (
                       <BBoxPreview bbox={bbox} className="size-[132px] rounded-md bg-muted xl:size-[148px]" />
                     )}
