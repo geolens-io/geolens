@@ -223,8 +223,13 @@ def require_permission(*capabilities: str):
         # Get user roles (cached per-request)
         user_roles = await get_cached_user_roles(request, db, current_user)
 
-        # Get effective permission matrix
-        matrix = await get_effective_permissions(db)
+        # Get effective permission matrix (cached per-request)
+        cached = getattr(request.state, "_effective_permissions", None)
+        if cached is not None:
+            matrix = cached
+        else:
+            matrix = await get_effective_permissions(db)
+            request.state._effective_permissions = matrix
 
         # Check each requested capability
         for cap in capabilities:
