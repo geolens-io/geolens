@@ -152,6 +152,26 @@ async def get_current_active_user(
     return current_user
 
 
+async def get_cached_user_roles(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
+) -> set[str]:
+    """Return user roles, cached for the lifetime of this request.
+
+    Prevents repeated DB hits when require_role/require_permission are
+    called multiple times on the same request path.
+    """
+    if user is None:
+        return set()
+    cached = getattr(request.state, "_user_roles", None)
+    if cached is not None:
+        return cached
+    roles = await get_user_roles(db, user)
+    request.state._user_roles = roles
+    return roles
+
+
 def require_role(*roles: str):
     """Factory that returns a dependency enforcing role-based access.
 
@@ -165,10 +185,11 @@ def require_role(*roles: str):
     """
 
     async def _role_checker(
+        request: Request,
         current_user: Annotated[User, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        user_roles = await get_user_roles(db, current_user)
+        user_roles = await get_cached_user_roles(request, db, current_user)
 
         if not user_roles.intersection(roles):
             raise HTTPException(
@@ -193,13 +214,14 @@ def require_permission(*capabilities: str):
     """
 
     async def _permission_checker(
+        request: Request,
         current_user: Annotated[User, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
     ) -> User:
         from app.auth.permissions import get_effective_permissions
 
-        # Get user roles
-        user_roles = await get_user_roles(db, current_user)
+        # Get user roles (cached per-request)
+        user_roles = await get_cached_user_roles(request, db, current_user)
 
         # Get effective permission matrix
         matrix = await get_effective_permissions(db)

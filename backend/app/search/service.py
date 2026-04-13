@@ -491,6 +491,10 @@ async def get_facet_counts(
                 )
         return fstmt
 
+    # Facet queries are intentionally sequential — SQLAlchemy AsyncSession
+    # is not safe for concurrent execute() on a shared connection.
+    # Each query is a lightweight indexed aggregation (<10ms typical).
+
     # --- Keyword facets (top 20) ---
     kw_stmt = (
         select(RecordKeyword.keyword, func.count().label("count"))
