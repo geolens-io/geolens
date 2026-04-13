@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, EyeOff, Minimize2, Maximize2, Database } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, EyeOff, Minimize2, Maximize2, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -17,7 +17,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
 import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
-import { DatasetMap } from '@/components/dataset/DatasetMap';
+import { DatasetHeroMap } from '@/pages/components/DatasetHeroMap';
 import { DatasetDetailSkeleton } from '@/components/dataset/DatasetDetailSkeleton';
 import {
   DatasetDetailHeader,
@@ -45,8 +45,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import type { DatasetResponse } from '@/types/api';
 import { DatasetStatsLine } from '@/pages/components/DatasetStatsLine';
 import { downloadCog } from '@/api/datasets';
@@ -469,53 +467,22 @@ export function DatasetPage() {
 
       {/* Hero Map -- visible for all spatial dataset types */}
       {!isDataTabExpanded && !isTable && (
-        <div
-          ref={mapContainerRef}
-          data-field-anchor="dataset_map"
-          tabIndex={-1}
-          className={cn(
-            'rounded-lg border shadow-sm overflow-hidden relative',
-            isDrawing ? 'h-[60vh]' : 'h-64 lg:h-80'
-          )}
-        >
-          {isRasterOrVrt && heroState === 'loading' && (
-            <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
-          )}
-          <DatasetMap
-            key={isRasterOrVrt ? mapKey : undefined}
-            bbox={bbox}
-            tableName={dataset.table_name}
-            geometryType={dataset.geometry_type}
-            datasetId={id}
-            columnInfo={dataset.column_info}
-            containerRef={mapContainerRef}
-            canEdit={isEditor && !isRaster && !isVrt && !isTable}
-            recordType={dataset.record_type}
-            rasterTileUrl={dataset.raster?.tile_url}
-            tileVersion={dataset.updated_at}
-            onFeatureClick={setReadOnlyFeatureGid}
-            {...(isRasterOrVrt ? {
-              onMapReady,
-              onTileError,
-            } : {})}
-          />
-          {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
-            <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
-              {t('raster.noTiles')}
-            </div>
-          )}
-          {isRasterOrVrt && heroState === 'error' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
-              <AlertTriangle className="size-8 text-destructive mb-2" />
-              <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>
-              {retryCount < 3 ? (
-                <Button size="sm" onClick={handleRetry}>{t('raster.retry')}</Button>
-              ) : (
-                <p className="text-xs text-muted-foreground">{t('raster.tilesProcessing')}</p>
-              )}
-            </div>
-          )}
-        </div>
+        <DatasetHeroMap
+          dataset={dataset}
+          datasetId={id}
+          bbox={bbox}
+          isEditor={isEditor}
+          isDrawing={isDrawing}
+          mapContainerRef={mapContainerRef}
+          onFeatureClick={setReadOnlyFeatureGid}
+          isRasterOrVrt={isRasterOrVrt}
+          heroState={heroState}
+          retryCount={retryCount}
+          mapKey={mapKey}
+          handleRetry={handleRetry}
+          onMapReady={onMapReady}
+          onTileError={onTileError}
+        />
       )}
 
       {/* Raster Quick Facts Strip */}
