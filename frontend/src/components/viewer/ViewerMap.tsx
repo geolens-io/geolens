@@ -14,8 +14,7 @@ import {
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
-import { getTileTokenWithApiKey, getTileTokensBatch } from '@/api/tiles';
-import type { TileToken, VectorTileToken } from '@/api/tiles';
+import type { TileToken } from '@/api/tiles';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -24,7 +23,8 @@ import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { resolveAdapterType, syncLayersToMap } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
-import { fetchGeoJsonZ } from '@/api/geojson-z';
+import { useTileTokens } from '@/components/viewer/hooks/use-tile-tokens';
+import { useGeoJsonZ } from '@/components/viewer/hooks/use-geojson-z';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -170,11 +170,7 @@ export function ViewerMap({
   const demTileUrlRef = useRef(demTileUrl);
   demTileUrlRef.current = demTileUrl;
   // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
-  const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
-  const geojsonZLayers = useMemo(
-    () => layers.filter((l) => l.is_3d && l.feature_count != null && l.feature_count <= 5000),
-    [layers],
-  );
+  const { geojsonDataRef } = useGeoJsonZ(layers, mapRef, mapReady, { apiKey, embedToken });
 
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
   // container. The Playwright demo-smoke spec polls for this attribute to
@@ -186,106 +182,23 @@ export function ViewerMap({
     features: { properties: Record<string, unknown>; layerName: string; columnInfo: { name: string; type: string }[] | null }[];
   } | null>(null);
 
-  // Tile tokens fetched via API key auth — stored in ref to avoid full re-renders on refresh
-  const tokenMapRef = useRef<Map<string, TileToken>>(new Map());
-  const [tokenVersion, setTokenVersion] = useState(0);
-  const [tokenError, setTokenError] = useState(false);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tokenRetryRef = useRef(5000);
+  // Fetch tile tokens for all layers
+  const layerDatasetIds = useMemo(
+    () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
+    [layers],
+  );
+  const { tokenMapRef, tokenVersion, tokenError } = useTileTokens(layerDatasetIds, { apiKey, embedToken });
 
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
   const resolvedId = resolveBasemapId(basemapStyle);
-  // For default basemaps (positron/dark-matter), auto-switch with theme —
-  // but only when the basemap comes from the saved map data, not a user override.
   const isDefaultBasemap = !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
   const effectiveBasemap = isDefaultBasemap
     ? getThemeBasemap(basemaps ?? [], resolvedTheme)
     : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
   const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
-
-  // Fetch tile tokens for all layers using API key auth
-  const layerDatasetIds = useMemo(
-    () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
-    [layers],
-  );
-  useEffect(() => {
-    if (embedToken || layerDatasetIds.length === 0) return;
-
-    let cancelled = false;
-
-    async function fetchTokens() {
-      try {
-        let newMap: Map<string, TileToken>;
-
-        if (apiKey) {
-          // API-key path (per-dataset) — used by embedded/API-key viewers.
-          const results = await Promise.all(
-            layerDatasetIds.map((id) => getTileTokenWithApiKey(id, apiKey!)),
-          );
-          newMap = new Map<string, TileToken>();
-          for (let i = 0; i < layerDatasetIds.length; i++) {
-            newMap.set(layerDatasetIds[i], results[i]);
-          }
-        } else {
-          // Anonymous / JWT path — single batch request. Required for the
-          // public PublicMapViewerPage → ViewerMap path, which has no
-          // apiKey and no embedToken. Without this branch, tokenMap stays
-          // empty and the first sync treats every layer as vector data,
-          // producing `.pbf` tile URLs for rasters and breaking anonymous
-          // raster rendering.
-          const response = await getTileTokensBatch(layerDatasetIds);
-          newMap = new Map<string, TileToken>();
-          for (const [datasetId, entry] of Object.entries(response.tokens)) {
-            if ('kind' in entry) {
-              newMap.set(datasetId, entry);
-            }
-          }
-        }
-
-        if (cancelled) return;
-        tokenMapRef.current = newMap;
-        tokenRetryRef.current = 5000;
-        setTokenVersion((v) => v + 1);
-
-        // Refresh at 80% of the minimum vector-token TTL. Raster tokens
-        // have no expires_in (the tile_url is stable), so if there are no
-        // vector tokens in the map, skip the refresh cycle entirely.
-        const vectorTtls = [...newMap.values()]
-          .filter((t): t is VectorTileToken => t.kind === 'vector')
-          .map((t) => t.expires_in);
-        if (vectorTtls.length > 0) {
-          const minTtl = Math.min(...vectorTtls);
-          const refreshMs = Math.max(minTtl * 800, 30_000);
-          if (refreshTimerRef.current) {
-            clearTimeout(refreshTimerRef.current);
-          }
-          refreshTimerRef.current = setTimeout(() => {
-            if (!cancelled) fetchTokens();
-          }, refreshMs);
-        }
-      } catch (err) {
-        console.error('[ViewerMap] Failed to fetch tile tokens:', err);
-        setTokenError(true);
-        refreshTimerRef.current = setTimeout(() => {
-          if (!cancelled) fetchTokens();
-        }, tokenRetryRef.current);
-        tokenRetryRef.current = Math.min(tokenRetryRef.current * 2, 60_000);
-      }
-    }
-
-    fetchTokens();
-
-    return () => {
-      cancelled = true;
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-    };
-  }, [embedToken, apiKey, layerDatasetIds]);
 
   // Surface tile token fetch failures as a user-visible toast
   useEffect(() => {
@@ -326,40 +239,6 @@ export function ViewerMap({
     map.on('terrain', onTerrain);
     return () => { map.off('terrain', onTerrain); };
   }, [mapReady]);
-
-  // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07)
-  useEffect(() => {
-    if (geojsonZLayers.length === 0) return;
-    let cancelled = false;
-    async function fetchAll() {
-      const newMap = new Map<string, GeoJSON.FeatureCollection>();
-      await Promise.all(
-        geojsonZLayers.map(async (layer) => {
-          try {
-            const data = await fetchGeoJsonZ(layer.dataset_id, { apiKey, embedToken });
-            if (!cancelled) {
-              newMap.set(String(layer.sort_order), data as GeoJSON.FeatureCollection);
-            }
-          } catch (e) {
-            if (import.meta.env.DEV) console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
-          }
-        }),
-      );
-      if (!cancelled) {
-        if (newMap.size === 0 && geojsonZLayers.length > 0) {
-          if (import.meta.env.DEV) console.warn('[ViewerMap] All GeoJSON-Z fetches failed — layers will render as 2D MVT');
-        }
-        geojsonDataRef.current = newMap;
-        const map = mapRef.current;
-        if (map && mapReady) {
-          // Trigger re-sync so map-sync picks up the GeoJSON data
-          map.triggerRepaint();
-        }
-      }
-    }
-    fetchAll();
-    return () => { cancelled = true; };
-  }, [geojsonZLayers, apiKey, embedToken, mapReady]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
