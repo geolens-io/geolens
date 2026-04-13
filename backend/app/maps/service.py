@@ -987,7 +987,9 @@ async def get_maps_for_dataset(
     dataset_id: uuid.UUID,
     user_id: uuid.UUID | None = None,
     user_roles: set[str] | None = None,
-) -> list[dict]:
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
     """Return maps containing a given dataset, filtered by RBAC visibility.
 
     - Admins see all maps.
@@ -1035,6 +1037,12 @@ async def get_maps_for_dataset(
         else:
             stmt = stmt.where(Map.visibility == "public")
 
+    # Total count before pagination
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await session.execute(count_stmt)).scalar() or 0
+
+    # Apply pagination
+    stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
 
@@ -1057,7 +1065,7 @@ async def get_maps_for_dataset(
             }
         )
 
-    return maps
+    return maps, total
 
 
 async def revoke_share_token_by_map(
