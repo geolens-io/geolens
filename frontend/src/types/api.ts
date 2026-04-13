@@ -42,7 +42,6 @@ export interface RasterMetadata {
   width: number | null;
   height: number | null;
   size_bytes: number | null;
-  quicklook_url: string | null;
   tile_url: string | null;
   bands: RasterBandInfo[];
   connect: RasterConnect | null;

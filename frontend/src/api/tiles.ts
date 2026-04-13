@@ -1,5 +1,5 @@
 import { apiFetch } from '@/api/client';
-import { getEnvConfig } from '@/lib/env';
+import { API_BASE } from '@/lib/constants';
 
 export type VectorTileToken = {
   kind: 'vector';
@@ -56,8 +56,7 @@ export async function getTileTokenWithApiKey(
   datasetId: string,
   apiKey: string,
 ): Promise<TileToken> {
-  const base = getEnvConfig().API_BASE_URL || '/api';
-  const res = await fetch(`${base}/tiles/token/${datasetId}/`, {
+  const res = await fetch(`${API_BASE}/tiles/token/${datasetId}/`, {
     headers: { 'X-Api-Key': apiKey },
   });
   if (!res.ok) {

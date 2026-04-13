@@ -63,7 +63,6 @@ const mockDataset: DatasetResponse = {
     width: 1000,
     height: 1000,
     size_bytes: null,
-    quicklook_url: null,
     tile_url: null,
     bands: [],
     connect: null,
