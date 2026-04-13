@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, EyeOff, Minimize2, Maximize2, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -31,10 +31,8 @@ import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
-import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
-import { formatRelativeDate, formatNumber } from '@/lib/format';
-import { getRecordStatusLabel, getGeometryTypeLabel } from '@/i18n/labels';
+import { formatNumber } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -47,16 +45,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { visibilityColors } from '@/lib/status-colors';
 import type { DatasetResponse } from '@/types/api';
+import { DatasetStatsLine } from '@/pages/components/DatasetStatsLine';
 import { downloadCog } from '@/api/datasets';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
-
-const Sep = () => <span className="text-muted-foreground/50">·</span>;
 
 function normalizeLegacyTabHash(hash: string): string | null {
   if (hash === 'source-quality' || hash === 'coverage' || hash === 'source-coverage') {
@@ -345,104 +340,7 @@ export function DatasetPage() {
     }
   };
 
-  const statsLine = (
-    <>
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <RecordTypeBadge recordType={dataset.record_type} />
-        {dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type ? (
-          <>
-            {dataset.geometry_type && (
-              <>
-                <Sep />
-                <span>{getGeometryTypeLabel(t, dataset.geometry_type)}</span>
-              </>
-            )}
-            {dataset.feature_count != null && (
-              <>
-                <Sep />
-                <span>{formatNumber(dataset.feature_count)} {isTable ? 'rows' : 'features'}</span>
-              </>
-            )}
-            {dataset.srid && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.srid}</span>
-              </>
-            )}
-            {dataset.is_3d && (
-              <>
-                <Sep />
-                <span className="font-medium">3D</span>
-                {dataset.z_min != null && dataset.z_max != null && (
-                  <span className="ml-1 text-muted-foreground">
-                    Z: {dataset.z_min.toFixed(1)} to {dataset.z_max.toFixed(1)}
-                  </span>
-                )}
-              </>
-            )}
-          </>
-        ) : dataset.record_type === 'raster_dataset' ? (
-          <>
-            {dataset.raster?.band_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.band_count} {t('raster.bands').toLowerCase()}</span>
-              </>
-            )}
-            {rasterGsd != null && (
-              <>
-                <Sep />
-                <span>{rasterGsd} m</span>
-              </>
-            )}
-            {dataset.raster?.epsg && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.raster.epsg}</span>
-              </>
-            )}
-          </>
-        ) : dataset.record_type === 'vrt_dataset' ? (
-          <>
-            {dataset.raster?.vrt_type && (
-              <>
-                <Sep />
-                <span>{dataset.raster.vrt_type === 'band_stack' ? t('raster.bandStack') : t('raster.mosaic')}</span>
-              </>
-            )}
-            {dataset.raster?.source_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.source_count} sources</span>
-              </>
-            )}
-            {dataset.raster?.band_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.band_count} bands</span>
-              </>
-            )}
-            {dataset.raster?.epsg && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.raster.epsg}</span>
-              </>
-            )}
-          </>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
-        <Sep />
-        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
-          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
-          {dataset.visibility}
-        </Badge>
-        <Sep />
-        <span>Updated {formatRelativeDate(dataset.updated_at)}</span>
-      </div>
-    </>
-  );
+  const statsLine = <DatasetStatsLine dataset={dataset} rasterGsd={rasterGsd} />;
 
   const headerActions: DatasetDetailHeaderAction[] = [
     {
