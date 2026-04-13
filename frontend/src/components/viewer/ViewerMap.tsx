@@ -331,7 +331,7 @@ export function ViewerMap({
               newMap.set(String(layer.sort_order), data as GeoJSON.FeatureCollection);
             }
           } catch (e) {
-            console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
+            if (import.meta.env.DEV) console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
           }
         }),
       );

@@ -195,6 +195,7 @@ class AuthService:
     # Role queries
     # ------------------------------------------------------------------
 
+    # Note: duplicates visibility.get_user_roles — consider delegating
     async def get_user_roles(self, user_id: uuid.UUID) -> set[str]:
         """Return the set of role names for a given user."""
         result = await self.db.execute(

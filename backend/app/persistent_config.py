@@ -298,17 +298,6 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
     label="Registration Enabled",
 )
 
-PUBLIC_BASE_URL = PersistentConfig[str](
-    key="public_base_url",
-    type_=str,
-    env_default_factory=lambda: resolve_public_api_url(
-        settings.public_app_url,
-        settings.public_api_url,
-        settings.public_base_url,
-    ),
-    tab="general",
-    label="Public API URL (Legacy)",
-)
 
 PUBLIC_APP_URL = PersistentConfig[str](
     key="public_app_url",
