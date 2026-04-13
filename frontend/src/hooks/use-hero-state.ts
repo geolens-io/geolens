@@ -39,7 +39,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
 
   // Raster with no tile_url: skip to 'loaded' immediately (no tiles to wait for)
   useEffect(() => {
-    if (recordType === 'raster_dataset' && !hasTileUrl) {
+    if (isRasterOrVrt && !hasTileUrl) {
       setHeroState('loaded');
     }
   }, [datasetId, recordType, hasTileUrl]);
