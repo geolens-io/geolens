@@ -219,7 +219,7 @@ export interface DistributionResponse {
   id: string;
   record_id: string;
   distribution_type: string;
-  format: string;
+  format: string | null;
   url: string;
   title: string | null;
   description: string | null;
@@ -255,6 +255,8 @@ export interface AttributeMetadataUpdate {
   title?: string | null;
   description?: string | null;
   units?: string | null;
+  semantic_role?: string | null;
+  domain_type?: string | null;
 }
 
 export interface AttributeMetadataListResponse {
