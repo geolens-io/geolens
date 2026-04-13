@@ -114,6 +114,28 @@ def _arcgis_type_to_column_type(esri_type: str) -> str:
     return _ARCGIS_TYPE_MAP.get(esri_type, "text")
 
 
+def _resolve_arcgis_column_info(
+    column_info: list | None,
+    user_metadata: dict | None,
+) -> list | None:
+    """Fall back to ArcGIS source_columns if column_info is empty."""
+    if column_info:
+        return column_info
+    if not user_metadata or not user_metadata.get("source_columns"):
+        return column_info
+    source_columns = user_metadata["source_columns"]
+    return [
+        {
+            "name": col["name"],
+            "type": _arcgis_type_to_column_type(col.get("type", "string")),
+            "ordinal_position": idx + 1,
+            "is_nullable": True,
+        }
+        for idx, col in enumerate(source_columns)
+        if col.get("name")
+    ]
+
+
 def _append_job_warning(job: "IngestJob", warning: "IngestJobWarning") -> None:
     """Append a structured warning to ``job.user_metadata['warnings']``.
 
@@ -627,21 +649,10 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
 
                 metadata["column_info"] = await get_column_info(session, table_name)
 
-        # ArcGIS column_info fallback: if the DB-based extraction returned empty
-        # column_info (e.g., non-spatial table where ogr2ogr only created a gid column),
-        # fall back to the ArcGIS fields captured at preview time and stored in user_metadata.
-        if not metadata.get("column_info") and user_metadata.get("source_columns"):
-            source_columns = user_metadata["source_columns"]
-            metadata["column_info"] = [
-                {
-                    "name": col["name"],
-                    "type": _arcgis_type_to_column_type(col.get("type", "string")),
-                    "ordinal_position": idx + 1,
-                    "is_nullable": True,
-                }
-                for idx, col in enumerate(source_columns)
-                if col.get("name")  # skip columns without a name
-            ]
+        # ArcGIS column_info fallback
+        metadata["column_info"] = _resolve_arcgis_column_info(
+            metadata.get("column_info"), user_metadata
+        )
 
         # Extract sample values for attribute search
         sample_values = await get_sample_values(
@@ -654,20 +665,10 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
         three_d = staging.three_d
         has_geometry = staging.has_geometry
 
-        # ArcGIS column_info fallback still applies: service-ingested data
-        # may have been pre-staged with empty column_info.
-        if not metadata.get("column_info") and user_metadata.get("source_columns"):
-            source_columns = user_metadata["source_columns"]
-            metadata["column_info"] = [
-                {
-                    "name": col["name"],
-                    "type": _arcgis_type_to_column_type(col.get("type", "string")),
-                    "ordinal_position": idx + 1,
-                    "is_nullable": True,
-                }
-                for idx, col in enumerate(source_columns)
-                if col.get("name")
-            ]
+        # ArcGIS column_info fallback
+        metadata["column_info"] = _resolve_arcgis_column_info(
+            metadata.get("column_info"), user_metadata
+        )
 
     # Create Dataset record
     dataset_name = user_metadata.get("title") or source_filename or table_name
