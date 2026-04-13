@@ -1,4 +1,10 @@
-"""Procrastinate task definitions for async file ingestion."""
+"""Procrastinate task definitions for async file ingestion.
+
+Note: Job failure handling is intentionally inline at each call site rather than
+extracted into a helper. Each failure path has distinct error_message formatting
+and may set additional fields (e.g. job.completed_at). A generic helper would
+either be too minimal to be useful or too complex to be readable.
+"""
 
 import uuid
 from dataclasses import dataclass

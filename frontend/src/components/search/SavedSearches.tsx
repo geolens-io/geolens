@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Bookmark, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogClose,
@@ -103,11 +104,17 @@ export function SaveSearchButton() {
 export function SavedSearches({ className }: { className?: string }) {
   const { t } = useTranslation('search');
 
-  const { data, isLoading } = useSavedSearches();
+  const { data, isLoading, isError } = useSavedSearches();
   const deleteSearch = useDeleteSavedSearch();
   const restoreParams = useSearchStore((s) => s.restoreParams);
 
   const searches = data?.searches ?? [];
+
+  useEffect(() => {
+    if (isError) {
+      toast.error(t('savedSearches.loadError', { defaultValue: 'Failed to load saved searches' }));
+    }
+  }, [isError, t]);
 
   const handleLoad = (params: Record<string, string>) => {
     restoreParams(params);

@@ -9,8 +9,9 @@ from typing import Any
 
 import httpx
 import structlog
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config_ops.exceptions import ConfigLockedError, ConfigValidationError
 
 from app.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
 from app.auth.permissions import validate_permission_matrix
@@ -222,9 +223,8 @@ async def _apply_oauth_providers(
 
         for imp in import_providers:
             if not imp.get("client_secret"):
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"client_secret required for provider '{imp.get('slug', '?')}' in overwrite mode",
+                raise ConfigValidationError(
+                    f"client_secret required for provider '{imp.get('slug', '?')}' in overwrite mode"
                 )
             await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
             created += 1
@@ -239,9 +239,8 @@ async def _apply_oauth_providers(
             existing = existing_by_slug.get(slug)
             if existing is None:
                 if not imp.get("client_secret"):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"client_secret required for new provider '{slug}'",
+                    raise ConfigValidationError(
+                        f"client_secret required for new provider '{slug}'"
                     )
                 await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
                 created += 1
@@ -275,7 +274,7 @@ async def import_config(
     In merge mode: upserts settings, matches OAuth by slug (update or create).
     In overwrite mode: resets all settings then applies, deletes all OAuth then recreates.
 
-    Raises HTTPException(403) if ENV_ONLY_CONFIG is true.
+    Raises ConfigLockedError if ENV_ONLY_CONFIG is true.
     Validates role_permissions to prevent admin lockout.
     Skips unknown setting keys for forward compatibility.
     """
@@ -283,9 +282,7 @@ async def import_config(
     from app.audit.service import log_action
 
     if _is_env_only():
-        raise HTTPException(
-            status_code=403, detail="Configuration locked to environment variables"
-        )
+        raise ConfigLockedError("Configuration locked to environment variables")
 
     registry_map = {cfg.key: cfg for cfg in _registry}
     import_settings = data.get("settings") or {}
@@ -302,9 +299,7 @@ async def import_config(
         try:
             validate_permission_matrix(import_settings["role_permissions"])
         except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
-            )
+            raise ConfigValidationError(str(e))
 
     # --- Settings ---
     if mode == "overwrite":
@@ -326,10 +321,7 @@ async def import_config(
             try:
                 value = validator(value)
             except (ValueError, TypeError) as e:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Validation failed for '{key}': {e}",
-                )
+                raise ConfigValidationError(f"Validation failed for '{key}': {e}")
 
         await cfg.set(db, value, user_id=user_id, ip_address=ip_address)
         settings_applied += 1
