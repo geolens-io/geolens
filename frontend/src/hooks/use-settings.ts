@@ -82,7 +82,7 @@ export function useApiKeyStatus() {
 // "save failed" copy so the user can distinguish validation errors from
 // network / auth errors. ApiError carries a translated message already;
 // fallback to String(err) for unexpected error shapes.
-function _formatMutationError(fallbackKey: string, err: unknown): string {
+function formatMutationError(fallbackKey: string, err: unknown): string {
   // i18next ``.t()`` returns ``unknown`` under the newer generic; narrow
   // at the boundary so the string concatenation below type-checks.
   const base = i18n.t(fallbackKey) as string;
@@ -104,7 +104,7 @@ export function useUpdateSettings() {
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: (err) => {
-      toast.error(_formatMutationError('settingsToasts.saveFailed', err));
+      toast.error(formatMutationError('settingsToasts.saveFailed', err));
     },
   });
 }
@@ -126,7 +126,7 @@ export function useUpdateBranding() {
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: (err) => {
-      toast.error(_formatMutationError('settingsToasts.saveFailed', err));
+      toast.error(formatMutationError('settingsToasts.saveFailed', err));
     },
   });
 }
@@ -140,7 +140,7 @@ export function useResetSettings() {
       toast.success(i18n.t('settingsToasts.resetSuccess'));
     },
     onError: (err) => {
-      toast.error(_formatMutationError('settingsToasts.resetFailed', err));
+      toast.error(formatMutationError('settingsToasts.resetFailed', err));
     },
   });
 }

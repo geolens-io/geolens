@@ -5,7 +5,7 @@ import { getTileToken, getTileTokensBatch } from '@/api/tiles';
 import type { TileToken, TileTokenError } from '@/api/tiles';
 
 /** Narrow a batch entry to a successful TileToken. */
-function _isToken(v: TileToken | TileTokenError | undefined): v is TileToken {
+function isToken(v: TileToken | TileTokenError | undefined): v is TileToken {
   return !!v && 'kind' in v;
 }
 
@@ -62,7 +62,7 @@ export function useTileTokens(datasetIds: string[]) {
       if (!data) return false;
       let minVectorExpiry = Infinity;
       for (const entry of Object.values(data)) {
-        if (_isToken(entry) && entry.kind === 'vector') {
+        if (isToken(entry) && entry.kind === 'vector') {
           minVectorExpiry = Math.min(minVectorExpiry, entry.expires_in);
         }
       }
@@ -76,7 +76,7 @@ export function useTileTokens(datasetIds: string[]) {
   return useMemo(() => {
     return uniqueIds.map((id) => {
       const entry = batchQuery.data?.tokens?.[id];
-      const isTokenEntry = _isToken(entry);
+      const isTokenEntry = isToken(entry);
       return {
         data: isTokenEntry ? (entry as TileToken) : undefined,
         isLoading: batchQuery.isLoading,
