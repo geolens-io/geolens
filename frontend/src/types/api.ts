@@ -726,7 +726,10 @@ export interface MapLayerResponse {
   layer_type?: string | null;
   dataset_record_type?: string | null;
   show_in_legend?: boolean;
+  tile_url?: string | null;
+  is_dem?: boolean | null;
   is_3d?: boolean | null;
+  dataset_feature_count_total?: number | null;
 }
 
 export interface MapResponse {

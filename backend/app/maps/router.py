@@ -25,6 +25,7 @@ from app.auth.dependencies import (
 from app.auth.models import User
 from app.auth.visibility import get_user_roles
 from app.datasets.models import Dataset, Record
+from app.raster.models import RasterAsset
 from app.dependencies import get_db
 from app.utils.geo import extent_to_bbox
 from app.maps.schemas import (
@@ -79,8 +80,17 @@ def _build_layer_response(
     feature_count: int | None = None,
     sample_values: dict | None = None,
     record_type: str | None = None,
+    visibility: str | None = None,
+    is_3d: bool | None = None,
+    is_dem: bool | None = None,
 ) -> MapLayerResponse:
     """Build a MapLayerResponse from a layer tuple."""
+    if record_type in ("raster_dataset", "vrt_dataset"):
+        tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+    elif visibility == "public":
+        tile_url = f"/tiles/public/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf"
+    else:
+        tile_url = f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf"
     return MapLayerResponse(
         id=layer.id,
         dataset_id=layer.dataset_id,
@@ -103,6 +113,10 @@ def _build_layer_response(
         label_config=layer.label_config,
         style_config=layer.style_config,
         show_in_legend=layer.show_in_legend,
+        tile_url=tile_url,
+        is_dem=bool(is_dem) if is_dem else None,
+        is_3d=bool(is_3d) if is_3d else None,
+        dataset_feature_count_total=feature_count,
     )
 
 
@@ -110,9 +124,11 @@ def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
     """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
     return [
         _build_layer_response(
-            layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type
+            layer, name, gt, tn, ext, col_info, feat_count, samples,
+            rec_type, vis, is_3d, is_dem,
         )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
+        for layer, name, gt, tn, ext, col_info, feat_count, samples,
+            rec_type, vis, is_3d, is_dem in layer_tuples
     ]
 
 
@@ -752,8 +768,12 @@ async def add_layer_endpoint(
             Dataset.feature_count,
             Dataset.sample_values,
             Record.record_type,
+            Record.visibility,
+            Dataset.is_3d,
+            RasterAsset.is_dem,
         )
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(Dataset.id == body.dataset_id)
     )
     ds_row = ds_result.one_or_none()
@@ -765,6 +785,9 @@ async def add_layer_endpoint(
     feat_count = ds_row[5] if ds_row else None
     samples = ds_row[6] if ds_row else None
     rec_type = ds_row[7] if ds_row else None
+    vis = ds_row[8] if ds_row else None
+    ds_is_3d = ds_row[9] if ds_row else None
+    ds_is_dem = ds_row[10] if ds_row else None
 
     return _build_layer_response(
         layer,
@@ -776,6 +799,9 @@ async def add_layer_endpoint(
         feat_count,
         samples,
         rec_type,
+        vis,
+        ds_is_3d,
+        ds_is_dem,
     )
 
 

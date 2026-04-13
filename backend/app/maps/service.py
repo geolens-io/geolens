@@ -115,7 +115,7 @@ async def get_map_with_layers(
 ) -> tuple[Map | None, list[tuple], str | None, str | None]:
     """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
 
-    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values), ...], forked_from_name, owner_username)
+    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, visibility, is_3d, is_dem), ...], forked_from_name, owner_username)
     or (None, [], None, None).
     """
     ForkedMap = aliased(Map)
@@ -147,9 +147,13 @@ async def get_map_with_layers(
             Dataset.feature_count,
             Dataset.sample_values,
             Record.record_type,
+            Record.visibility,
+            Dataset.is_3d,
+            RasterAsset.is_dem,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
         .order_by(MapLayer.sort_order)
     )

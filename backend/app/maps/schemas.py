@@ -103,6 +103,10 @@ class MapLayerResponse(BaseModel):
     label_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
+    tile_url: str | None = None
+    is_dem: bool | None = None
+    is_3d: bool | None = None
+    dataset_feature_count_total: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
