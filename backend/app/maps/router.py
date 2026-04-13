@@ -44,6 +44,7 @@ from app.maps.schemas import (
     VisibilityCheckResponse,
 )
 from app.maps.service import (
+    MapLayerRow,
     add_layer,
     check_map_ownership,
     create_map,
@@ -120,15 +121,15 @@ def _build_layer_response(
     )
 
 
-def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
-    """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
+def _layers_from_tuples(layer_tuples: list[MapLayerRow]) -> list[MapLayerResponse]:
+    """Build a list of MapLayerResponse from the rows returned by get_map_with_layers."""
     return [
         _build_layer_response(
-            layer, name, gt, tn, ext, col_info, feat_count, samples,
-            rec_type, vis, is_3d, is_dem,
+            row.layer, row.dataset_name, row.geometry_type, row.table_name,
+            row.extent, row.column_info, row.feature_count, row.sample_values,
+            row.record_type, row.visibility, row.is_3d, row.is_dem,
         )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples,
-            rec_type, vis, is_3d, is_dem in layer_tuples
+        for row in layer_tuples
     ]
 
 
