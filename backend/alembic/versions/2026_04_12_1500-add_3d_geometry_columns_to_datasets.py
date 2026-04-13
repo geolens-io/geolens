@@ -4,7 +4,7 @@ Adds four nullable columns to the datasets table to store PostGIS-derived
 3D geometry metadata: is_3d, n_dims, z_min, z_max.
 
 These columns are populated during ingest by calling detect_3d_metadata()
-which queries ST_NDims, ST_Is3D, ST_ZMin, ST_ZMax on the geom column.
+which queries ST_NDims and ST_3DExtent on the geom column.
 
 Revision ID: c3d4e5f6a7b8
 Revises: b2c3d4e5f6a7

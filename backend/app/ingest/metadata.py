@@ -20,6 +20,12 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+_BOX3D_RE = re.compile(
+    r"^BOX3D\("
+    r"[-+0-9.eE]+\s+[-+0-9.eE]+\s+([-+0-9.eE]+),"
+    r"[-+0-9.eE]+\s+[-+0-9.eE]+\s+([-+0-9.eE]+)"
+    r"\)$"
+)
 
 
 def _validate_table_name(table_name: str) -> None:
@@ -45,6 +51,23 @@ def _sql_quote_ident(name: str) -> str:
     previously lived inline at every call site (PERF-6, KISS).
     """
     return '"' + name.replace('"', '""') + '"'
+
+
+def _parse_box3d_z_bounds(box3d_text: str | None) -> tuple[float | None, float | None]:
+    """Extract z_min/z_max from a ``BOX3D(...)`` string.
+
+    ``ST_3DExtent`` is widely available in PostGIS stacks where ``ST_Is3D`` may
+    not be. Parsing the aggregate output keeps the ingest pipeline compatible
+    with older extensions while still surfacing useful z-range metadata.
+    """
+    if not box3d_text:
+        return None, None
+
+    match = _BOX3D_RE.match(box3d_text)
+    if match is None:
+        return None, None
+
+    return float(match.group(1)), float(match.group(2))
 
 
 async def construct_point_geometry(
@@ -172,45 +195,55 @@ async def get_extent(session: AsyncSession, table_name: str) -> str | None:
     return result.scalar_one_or_none()
 
 
-async def detect_3d_metadata(
-    session: AsyncSession, table_name: str
-) -> dict:
+async def detect_3d_metadata(session: AsyncSession, table_name: str) -> dict:
     """Detect 3D geometry properties from a PostGIS table.
 
-    Queries ST_NDims, ST_Is3D, ST_ZMin, ST_ZMax on the geom column.
+    Uses ``ST_NDims`` to determine whether any geometry is 3D and
+    ``ST_3DExtent`` to derive z-range metadata.
     Returns dict with keys: is_3d, n_dims, z_min, z_max.
     All values are None if the table has no geometry or no rows.
     """
     _validate_table_name(table_name)
 
+    _NO_3D = {"is_3d": None, "n_dims": None, "z_min": None, "z_max": None}
+
     # Check if table has geometry first
     has_geom = await _table_has_geometry(session, table_name)
     if not has_geom:
-        return {"is_3d": None, "n_dims": None, "z_min": None, "z_max": None}
+        return _NO_3D
 
-    # Aggregate across all rows to handle mixed-Z datasets correctly
-    result = await session.execute(
-        text(
-            f"SELECT "
-            f"  MAX(ST_NDims(geom)) AS n_dims, "
-            f"  bool_or(ST_Is3D(geom)) AS is_3d, "
-            f"  MIN(ST_ZMin(geom)) AS z_min, "
-            f"  MAX(ST_ZMax(geom)) AS z_max "
-            f"FROM {_qtable(table_name)} "
-            f"WHERE geom IS NOT NULL"
+    try:
+        # Aggregate across all rows to handle mixed-Z datasets correctly
+        result = await session.execute(
+            text(
+                f"SELECT "
+                f"  MAX(ST_NDims(geom)) AS n_dims, "
+                f"  CASE "
+                f"    WHEN MAX(ST_NDims(geom)) > 2 THEN ST_3DExtent(geom)::text "
+                f"    ELSE NULL "
+                f"  END AS extent_3d "
+                f"FROM {_qtable(table_name)} "
+                f"WHERE geom IS NOT NULL"
+            )
         )
-    )
+    except Exception:
+        logger.warning(
+            "3d_metadata_detection_failed",
+            table=table_name,
+            hint="ST_NDims or ST_3DExtent may not be available in this PostGIS version",
+        )
+        return _NO_3D
+
     row = result.one_or_none()
     if row is None:
         return {"is_3d": False, "n_dims": 2, "z_min": None, "z_max": None}
 
     n_dims = row.n_dims if row.n_dims is not None else 2
-    is_3d = bool(row.is_3d) if row.is_3d is not None else False
-    z_min = float(row.z_min) if row.z_min is not None else None
-    z_max = float(row.z_max) if row.z_max is not None else None
+    is_3d = bool(n_dims and n_dims > 2)
+    z_min, z_max = _parse_box3d_z_bounds(row.extent_3d if is_3d else None)
 
     return {
-        "is_3d": bool(is_3d),
+        "is_3d": is_3d,
         "n_dims": int(n_dims) if n_dims is not None else None,
         "z_min": z_min,
         "z_max": z_max,
@@ -253,30 +286,35 @@ async def promote_z_to_elev(
         return False
 
     # Add elev column and populate from ST_Z
-    await session.execute(
-        text(
-            f"ALTER TABLE {_qtable(table_name)} "
-            f"ADD COLUMN elev double precision"
+    try:
+        await session.execute(
+            text(f"ALTER TABLE {_qtable(table_name)} ADD COLUMN elev double precision")
         )
-    )
 
-    if geom_upper == "POINT":
-        await session.execute(
-            text(
-                f"UPDATE {_qtable(table_name)} "
-                f"SET elev = ST_Z(geom) "
-                f"WHERE geom IS NOT NULL AND ST_Is3D(geom)"
+        if geom_upper == "POINT":
+            await session.execute(
+                text(
+                    f"UPDATE {_qtable(table_name)} "
+                    f"SET elev = ST_Z(geom) "
+                    f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
+                )
             )
-        )
-    else:
-        # MultiPoint: extract Z from first point in the multi
-        await session.execute(
-            text(
-                f"UPDATE {_qtable(table_name)} "
-                f"SET elev = ST_Z(ST_GeometryN(geom, 1)) "
-                f"WHERE geom IS NOT NULL AND ST_Is3D(geom)"
+        else:
+            # MultiPoint: extract Z from first point in the multi
+            await session.execute(
+                text(
+                    f"UPDATE {_qtable(table_name)} "
+                    f"SET elev = ST_Z(ST_GeometryN(geom, 1)) "
+                    f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
+                )
             )
+    except Exception:
+        logger.warning(
+            "promote_z_to_elev_failed",
+            table=table_name,
+            hint="ST_Z, ST_NDims, or ST_GeometryN may not be available",
         )
+        return False
 
     return True
 

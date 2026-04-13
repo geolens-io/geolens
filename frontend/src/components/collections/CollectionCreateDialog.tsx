@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCreateCollection } from '@/hooks/use-collections';
-import { queryKeys } from '@/lib/query-keys';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';

@@ -183,8 +183,12 @@ async def dataset_maps(
     user_roles = await get_user_roles(db, user) if user else set()
 
     maps, total = await get_maps_for_dataset(
-        db, dataset_id, user_id=user_id, user_roles=user_roles,
-        skip=skip, limit=limit,
+        db,
+        dataset_id,
+        user_id=user_id,
+        user_roles=user_roles,
+        skip=skip,
+        limit=limit,
     )
     return MapListResponse(maps=maps, total=total)
 

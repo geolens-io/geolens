@@ -14,16 +14,19 @@ Note: Tests in this file skip cleanly if Titiler is unreachable.
 """
 
 import os
-import subprocess
 import uuid
 
+import numpy as np
 import pytest
+import rasterio
 from sqlalchemy import select
+from rasterio.transform import from_origin
 
 from app.auth.models import User
 from app.config import settings
 from app.datasets.models import Dataset, Record
 from app.raster.models import RasterAsset
+from app.raster.vrt import build_vrt
 
 
 # ---------------------------------------------------------------------------
@@ -68,46 +71,28 @@ async def _get_admin_id(session) -> uuid.UUID:
 
 
 def _create_test_cog(cog_path: str) -> None:
-    """Create a minimal 64x64 3-band GeoTIFF (COG-compatible) using gdal_create."""
+    """Create a minimal 64x64 3-band GeoTIFF using rasterio."""
     os.makedirs(os.path.dirname(cog_path), exist_ok=True)
-    subprocess.run(
-        [
-            "gdal_create",
-            "-ot",
-            "Byte",
-            "-outsize",
-            "64",
-            "64",
-            "-bands",
-            "3",
-            "-burn",
-            "128",
-            "-of",
-            "GTiff",
-            "-co",
-            "TILED=YES",
-            "-a_srs",
-            "EPSG:4326",
-            "-a_ullr",
-            "-10",
-            "10",
-            "10",
-            "-10",
-            cog_path,
-        ],
-        check=True,
-        capture_output=True,
-    )
+    data = np.full((3, 64, 64), 128, dtype="uint8")
+    with rasterio.open(
+        cog_path,
+        "w",
+        driver="GTiff",
+        width=64,
+        height=64,
+        count=3,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_origin(-10, 10, 20 / 64, 20 / 64),
+        tiled=True,
+    ) as dataset:
+        dataset.write(data)
 
 
 def _build_vrt(vrt_path: str, cog_path: str) -> None:
-    """Build a VRT from a COG using gdalbuildvrt."""
+    """Build a VRT from a COG using the app fallback path when CLI tools are absent."""
     os.makedirs(os.path.dirname(vrt_path), exist_ok=True)
-    subprocess.run(
-        ["gdalbuildvrt", vrt_path, cog_path],
-        check=True,
-        capture_output=True,
-    )
+    build_vrt("mosaic", [cog_path], vrt_path, "finest")
 
 
 # ---------------------------------------------------------------------------

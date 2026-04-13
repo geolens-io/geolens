@@ -40,8 +40,26 @@ test.describe('Admin Panel', () => {
     await expect(page.locator('label').filter({ hasText: 'User' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Created At' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Filename' })).toBeVisible();
-    const detailsToggle = page.getByTestId('job-details-toggle').first();
+    const detailsToggles = page.getByTestId('job-details-toggle');
+    const detailsToggle = detailsToggles.first();
     await expect(detailsToggle).toBeVisible();
+
+    await page.getByRole('button', { name: 'Clear' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(detailsToggle).toBeFocused();
+
+    const jobToggleCount = await detailsToggles.count();
+    if (jobToggleCount > 1) {
+      await page.keyboard.press('ArrowDown');
+      await expect(detailsToggles.nth(1)).toBeFocused();
+    }
+
+    await page.keyboard.press('Tab');
+    await expect(detailsToggle).not.toBeFocused();
+    if (jobToggleCount > 1) {
+      await expect(detailsToggles.nth(1)).not.toBeFocused();
+    }
+
     await detailsToggle.click();
     await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
   });
@@ -58,8 +76,27 @@ test.describe('Admin Panel', () => {
     await expect(page.getByRole('button', { name: 'Clear' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Timestamp' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'IP Address' })).toBeVisible();
-    await expect(page.getByTestId('audit-details-toggle').first()).toBeVisible();
-    await page.getByTestId('audit-details-toggle').first().click();
+    const detailsToggles = page.getByTestId('audit-details-toggle');
+    const firstToggle = detailsToggles.first();
+    await expect(firstToggle).toBeVisible();
+
+    await page.getByRole('button', { name: 'Clear' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(firstToggle).toBeFocused();
+
+    const auditToggleCount = await detailsToggles.count();
+    if (auditToggleCount > 1) {
+      await page.keyboard.press('ArrowDown');
+      await expect(detailsToggles.nth(1)).toBeFocused();
+    }
+
+    await page.keyboard.press('Tab');
+    await expect(firstToggle).not.toBeFocused();
+    if (auditToggleCount > 1) {
+      await expect(detailsToggles.nth(1)).not.toBeFocused();
+    }
+
+    await firstToggle.click();
     await expect(page.getByText('Expanded log details')).toBeVisible();
   });
 

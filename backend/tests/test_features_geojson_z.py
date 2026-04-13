@@ -226,7 +226,9 @@ class TestGetFeaturesGeoJSONZService:
         )
         await test_db_session.commit()
 
-    async def test_returns_z_coordinates_not_truncated(self, z_dataset, test_db_session):
+    async def test_returns_z_coordinates_not_truncated(
+        self, z_dataset, test_db_session
+    ):
         """3 Point Z rows → 3 rows returned, truncated=False."""
         from app.features.service import get_features_geojson_z
 
@@ -317,9 +319,7 @@ class TestGetFeaturesGeoJSONZEndpoint:
     @pytest.fixture
     async def tabular_dataset(self, client, test_db_session, admin_auth_header):
         admin_id = await get_user_id(test_db_session, "admin")
-        dataset = await _create_tabular_dataset(
-            test_db_session, created_by=admin_id
-        )
+        dataset = await _create_tabular_dataset(test_db_session, created_by=admin_id)
         tbl = dataset.table_name
         rec_id = dataset.record_id
         yield dataset
@@ -431,9 +431,7 @@ class TestGetFeaturesGeoJSONZEndpoint:
         assert resp.status_code == 400
         assert "geometry" in resp.json()["detail"].lower()
 
-    async def test_truncation_at_5000(
-        self, client, large_dataset, admin_auth_header
-    ):
+    async def test_truncation_at_5000(self, client, large_dataset, admin_auth_header):
         """Dataset with >5000 features returns exactly 5000 features, truncated=true."""
         resp = await client.get(
             f"/datasets/{large_dataset.id}/features.geojson?include_z=true",

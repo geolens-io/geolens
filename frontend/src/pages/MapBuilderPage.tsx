@@ -212,7 +212,7 @@ export function MapBuilderPage() {
   }, []);
 
   // Composed hooks
-  const dialogs = useBuilderDialogs(aiAvailable);
+  const dialogs = useBuilderDialogs(aiAvailable, isMobile);
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
@@ -308,7 +308,7 @@ export function MapBuilderPage() {
       {/* Mobile sidebar as Sheet */}
       {isMobile && (
         <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
-          <SheetContent side="left" className="w-80 max-w-[calc(100vw-3rem)] p-0 flex flex-col" showCloseButton={false}>
+          <SheetContent side="left" className="w-80 max-w-[calc(100vw-3rem)] p-0 flex flex-col">
             <SheetHeader className="sr-only">
               <SheetTitle>{localName || t('mapBuilder')}</SheetTitle>
               <SheetDescription>{t('descriptionLabel')}</SheetDescription>

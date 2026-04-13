@@ -85,14 +85,6 @@ function seedTerrainSource(map: MaplibreMap, tileUrl: string) {
   }
 }
 
-/** Remove the terrain source (and disable terrain first). */
-function removeTerrainSource(map: MaplibreMap) {
-  map.setTerrain(null);
-  if (map.getSource('terrain-dem')) {
-    map.removeSource('terrain-dem');
-  }
-}
-
 /** Fetch tile tokens per-dataset using API key auth. */
 async function fetchTokensWithApiKey(
   datasetIds: string[],

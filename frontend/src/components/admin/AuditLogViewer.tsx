@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuditLogs } from '@/hooks/use-admin';
@@ -37,6 +37,7 @@ export function AuditLogViewer() {
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const toggleRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const skip = page * PAGE_SIZE;
 
@@ -50,6 +51,16 @@ export function AuditLogViewer() {
   });
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
+  const visibleLogIds = data?.logs?.map((log) => log.id) ?? [];
+  const [focusedToggleId, setFocusedToggleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextVisibleLogIds = data?.logs?.map((log) => log.id) ?? [];
+    setFocusedToggleId((current) => {
+      if (nextVisibleLogIds.length === 0) return null;
+      return current && nextVisibleLogIds.includes(current) ? current : nextVisibleLogIds[0];
+    });
+  }, [data?.logs]);
 
   function clearFilters() {
     setAction('');
@@ -57,6 +68,45 @@ export function AuditLogViewer() {
     setDateTo('');
     setPage(0);
     setSearchQuery('');
+  }
+
+  function moveDisclosureFocus(currentId: string, key: 'ArrowDown' | 'ArrowUp' | 'Home' | 'End') {
+    if (visibleLogIds.length === 0) return;
+
+    const currentIndex = visibleLogIds.indexOf(currentId);
+    if (currentIndex === -1) return;
+
+    let nextIndex = currentIndex;
+    if (key === 'ArrowDown') {
+      nextIndex = Math.min(currentIndex + 1, visibleLogIds.length - 1);
+    } else if (key === 'ArrowUp') {
+      nextIndex = Math.max(currentIndex - 1, 0);
+    } else if (key === 'Home') {
+      nextIndex = 0;
+    } else if (key === 'End') {
+      nextIndex = visibleLogIds.length - 1;
+    }
+
+    const nextId = visibleLogIds[nextIndex];
+    setFocusedToggleId(nextId);
+    toggleRefs.current[nextId]?.focus();
+  }
+
+  function handleDisclosureKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    logId: string,
+  ) {
+    if (
+      event.key !== 'ArrowDown' &&
+      event.key !== 'ArrowUp' &&
+      event.key !== 'Home' &&
+      event.key !== 'End'
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    moveDisclosureFocus(event.currentTarget.dataset.logId ?? logId, event.key);
   }
 
   return (
@@ -165,7 +215,13 @@ export function AuditLogViewer() {
                 {t('audit.noLogs')}
               </p>
             ) : (
-              <Table>
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {t('audit.table.keyboardHint', {
+                    defaultValue: 'Tab to the details control, then use Up and Down arrows to move between rows.',
+                  })}
+                </p>
+                <Table containerFocusable={false}>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">
@@ -191,6 +247,7 @@ export function AuditLogViewer() {
                             variant="ghost"
                             size="icon-sm"
                             data-testid="audit-details-toggle"
+                            data-log-id={log.id}
                             aria-expanded={expandedId === log.id}
                             aria-label={
                               expandedId === log.id
@@ -206,6 +263,12 @@ export function AuditLogViewer() {
                             onClick={() =>
                               setExpandedId(expandedId === log.id ? null : log.id)
                             }
+                            onFocus={() => setFocusedToggleId(log.id)}
+                            onKeyDown={(event) => handleDisclosureKeyDown(event, log.id)}
+                            tabIndex={focusedToggleId === log.id ? 0 : -1}
+                            ref={(node) => {
+                              toggleRefs.current[log.id] = node;
+                            }}
                           >
                             {expandedId === log.id ? (
                               <ChevronDown className="size-4" />
@@ -252,7 +315,8 @@ export function AuditLogViewer() {
                     </Fragment>
                   ))}
                 </TableBody>
-              </Table>
+                </Table>
+              </>
             )}
 
             <DataTablePagination

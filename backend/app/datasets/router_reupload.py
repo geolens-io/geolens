@@ -42,6 +42,7 @@ from app.ingest.schemas import (
 )
 from app.ingest.service import (
     create_ingest_job,
+    resolve_file_path,
     save_upload_file,
     validate_file_extension,
 )
@@ -93,16 +94,31 @@ async def reupload_dataset(
     job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
 
     saved_path = await save_upload_file(file, str(job.id))
+    validation_path = str(saved_path)
+    downloaded_validation_path: Path | None = None
+
+    if not isinstance(saved_path, Path):
+        validation_path = await resolve_file_path(saved_path, str(job.id))
+        downloaded_validation_path = Path(validation_path)
 
     # Inline content validation for immediate feedback
     try:
-        validate_file_content(str(saved_path), file.filename)
+        validate_file_content(validation_path, file.filename)
     except ValueError as exc:
-        saved_path.unlink(missing_ok=True)
+        if isinstance(saved_path, Path):
+            saved_path.unlink(missing_ok=True)
+        else:
+            storage = get_storage()
+            await storage.delete(saved_path)
+        if downloaded_validation_path is not None:
+            downloaded_validation_path.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
+    finally:
+        if downloaded_validation_path is not None:
+            downloaded_validation_path.unlink(missing_ok=True)
 
     job.file_path = str(saved_path)
     await db.commit()
@@ -463,15 +479,19 @@ async def request_presigned_reupload(
             request.content_type,
         )
         num_parts = math.ceil(request.file_size / PART_SIZE)
-        urls = list(await asyncio.gather(*[
-            asyncio.to_thread(
-                storage.generate_presigned_part_url,
-                s3_key,
-                upload_id,
-                part_num,
+        urls = list(
+            await asyncio.gather(
+                *[
+                    asyncio.to_thread(
+                        storage.generate_presigned_part_url,
+                        s3_key,
+                        upload_id,
+                        part_num,
+                    )
+                    for part_num in range(1, num_parts + 1)
+                ]
             )
-            for part_num in range(1, num_parts + 1)
-        ]))
+        )
         job.user_metadata = {
             "presigned": True,
             "s3_key": s3_key,

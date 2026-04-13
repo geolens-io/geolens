@@ -30,7 +30,7 @@ dependencies = [
     "redis>=5.0.0",
     "puremagic>=2.0.0",
     "rasterio>=1.4.0",
-    "Pillow>=12.1.1",
+    "Pillow>=12.2.0",
     "numpy>=2.0.0",
     "prometheus-fastapi-instrumentator>=7.1.0",
     "authlib>=1.6.9",
@@ -45,7 +45,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest",
+    "pytest>=9.0.3",
     "pytest-asyncio",
     "httpx",
     "ruff",

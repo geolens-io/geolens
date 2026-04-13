@@ -259,7 +259,11 @@ async def preview_service_layer(
         effective_layer_id = (
             request.layer_id if request.layer_id is not None else url_layer_id
         )
-        enriched_url = f"{base_url}/{effective_layer_id}" if effective_layer_id is not None else base_url
+        enriched_url = (
+            f"{base_url}/{effective_layer_id}"
+            if effective_layer_id is not None
+            else base_url
+        )
         existing_stmt = (
             select(Dataset.id, Record.title)
             .join(Record, Dataset.record_id == Record.id)

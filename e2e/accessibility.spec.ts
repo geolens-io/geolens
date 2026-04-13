@@ -1,24 +1,9 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import fs from 'fs';
-import path from 'path';
+import { getAuthToken, getSearchSeed } from './helpers/catalog';
 
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
-const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
-
-function getAuthToken(): string {
-  const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
-  const state = JSON.parse(raw);
-  for (const origin of state.origins ?? []) {
-    for (const entry of origin.localStorage ?? []) {
-      if (entry.name === 'geolens-auth') {
-        return JSON.parse(entry.value).state?.token ?? '';
-      }
-    }
-  }
-  throw new Error('Could not extract auth token from storage state');
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatViolations(violations: any[]): string {
@@ -90,16 +75,14 @@ test.describe('Accessibility - WCAG 2AA', () => {
   });
 
   test('dataset detail page has no accessibility violations', async ({ page }) => {
-    // Navigate with query param to bypass hero→sticky SearchBar transition
-    await page.goto('/?q=Reefs');
+    const seed = await getSearchSeed();
+
+    await page.goto(`/datasets/${seed.id}`);
     await page.waitForLoadState('networkidle');
-    const link = page.getByRole('link', { name: /Reefs \(10m\)/ }).first();
-    await expect(link).toBeVisible({ timeout: 15_000 });
-    await link.click();
 
     // Wait for dataset detail to load
     await expect(
-      page.getByRole('heading', { name: /Reefs/ }),
+      page.getByRole('heading', { name: seed.title, exact: true }),
     ).toBeVisible();
     await page.waitForLoadState('networkidle');
 

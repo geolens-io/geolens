@@ -772,14 +772,16 @@ async def add_layer_endpoint(
 
     return _build_layer_response(
         layer,
-        dataset_name,
-        geometry_type,
-        table_name,
-        extent,
-        col_info,
-        feat_count,
-        samples,
-        rec_type,
+        DatasetMetaKwargs(
+            dataset_name=dataset_name,
+            geometry_type=geometry_type,
+            table_name=table_name,
+            extent=extent,
+            column_info=col_info,
+            feature_count=feat_count,
+            sample_values=samples,
+            record_type=rec_type,
+        ),
     )
 
 
