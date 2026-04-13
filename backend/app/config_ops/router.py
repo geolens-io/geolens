@@ -3,12 +3,13 @@
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_permission
 from app.auth.models import User
+from app.config_ops.exceptions import ConfigLockedError, ConfigValidationError
 from app.config_ops.schemas import (
     ConfigImportRequest,
     ConnectivityResult,
@@ -74,13 +75,24 @@ async def import_configuration(
     Overwrite mode: replaces all settings and OAuth providers.
     """
     ip_address = request.client.host if request.client else None
-    result = await import_config(
-        db,
-        data.model_dump(),
-        mode,
-        user.id,
-        ip_address,
-    )
+    try:
+        result = await import_config(
+            db,
+            data.model_dump(),
+            mode,
+            user.id,
+            ip_address,
+        )
+    except ConfigLockedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Configuration locked to environment variables",
+        )
+    except ConfigValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
     return result
 
 

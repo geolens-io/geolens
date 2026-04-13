@@ -195,6 +195,14 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     }
   }, [multiSourceQueries, initialSourceIds, initialSourceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Surface multi-source load errors so they aren't silently swallowed
+  const multiSourceErrorCount = multiSourceQueries.filter((q) => q.isError).length;
+  useEffect(() => {
+    if (multiSourceErrorCount > 0) {
+      toast.error(`Failed to load ${multiSourceErrorCount} raster source(s)`);
+    }
+  }, [multiSourceErrorCount]);
+
   // Debounce search query
   useEffect(() => {
     const timer = setTimeout(() => {
