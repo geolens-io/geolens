@@ -104,10 +104,6 @@ export function getLayerId(layerId: string) {
   return `layer-${layerId}`;
 }
 
-export function getLabelLayerId(layerId: string) {
-  return `layer-${layerId}-label`;
-}
-
 /** Imperatively add/sync all data layers to the map. Safe to call repeatedly.
  *  Works with both Builder (MapLayerResponse) and Viewer (SharedLayerResponse)
  *  contexts via the normalized SyncLayerInput interface. */

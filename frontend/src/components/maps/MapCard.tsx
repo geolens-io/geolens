@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Map as MapIcon, User, Layers, Calendar } from 'lucide-react';
@@ -21,7 +21,7 @@ export interface MapCardProps {
   onDelete?: (id: string) => void;
 }
 
-export function MapCard({ map, onDelete }: MapCardProps) {
+export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
   const thumbnailSrc = useMapThumbnail(map.thumbnail_url);
@@ -113,4 +113,4 @@ export function MapCard({ map, onDelete }: MapCardProps) {
       </div>
     </Card>
   );
-}
+});

@@ -102,6 +102,63 @@ function ChatPanelContent({
   );
 }
 
+function SidebarHeader({
+  localName,
+  setLocalName,
+  localDescription,
+  setLocalDescription,
+  visibility,
+  markDirty,
+  showDescription,
+  children,
+}: {
+  localName: string;
+  setLocalName: (v: string) => void;
+  localDescription?: string;
+  setLocalDescription?: (v: string) => void;
+  visibility: string | undefined;
+  markDirty: () => void;
+  showDescription?: boolean;
+  children?: React.ReactNode;
+}) {
+  const { t } = useTranslation('builder');
+  return (
+    <div className="p-3 border-b space-y-2">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={localName}
+          onChange={(e) => { setLocalName(e.target.value); markDirty(); }}
+          aria-label={t('mapNameLabel')}
+          className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
+          title={localName}
+        />
+        {visibility && (
+          <Badge variant="outline" className="flex items-center gap-1 text-[10px] px-1.5 py-0 shrink-0">
+            <VisibilityIcon visibility={visibility} />
+            {getVisibilityLabel(t, visibility)}
+          </Badge>
+        )}
+      </div>
+      {showDescription && setLocalDescription != null && (
+        <input
+          type="text"
+          value={localDescription ?? ''}
+          onChange={(e) => {
+            setLocalDescription(e.target.value);
+            markDirty();
+          }}
+          placeholder={t('descriptionPlaceholder')}
+          aria-label={t('descriptionLabel')}
+          title={localDescription}
+          className="text-xs text-muted-foreground bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-6 w-full placeholder:text-muted-foreground/50 hover:bg-accent/30 transition-colors"
+        />
+      )}
+      {children}
+    </div>
+  );
+}
+
 function SidebarContent({
   layers,
   inspectorMode,
@@ -220,32 +277,19 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
   );
-  const [localName, setLocalName] = useState('');
-  const [localDescription, setLocalDescription] = useState('');
-
   // Open all defaultVisible widgets on mount
   useEffect(() => {
     const store = useWidgetStore.getState();
     getWidgets().filter((w) => w.defaultVisible).forEach((w) => store.open(w.id));
   }, []);
 
-  // Initialize name/description from API data (once)
-  const nameInitRef = useRef(false);
-  useEffect(() => {
-    if (mapData && !nameInitRef.current) {
-      setLocalName(mapData.name);
-      setLocalDescription(mapData.description ?? '');
-      nameInitRef.current = true;
-    }
-  }, [mapData]);
-
   const save = useBuilderSave({
     mapId: id,
     localLayers: layers.localLayers,
     localBasemap: layers.localBasemap,
     showBasemapLabels: layers.showBasemapLabels,
-    localName,
-    localDescription,
+    localName: layers.localName,
+    localDescription: layers.localDescription,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
@@ -310,33 +354,22 @@ export function MapBuilderPage() {
         <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
           <SheetContent side="left" className="w-80 max-w-[calc(100vw-3rem)] p-0 flex flex-col">
             <SheetHeader className="sr-only">
-              <SheetTitle>{localName || t('mapBuilder')}</SheetTitle>
+              <SheetTitle>{layers.localName || t('mapBuilder')}</SheetTitle>
               <SheetDescription>{t('descriptionLabel')}</SheetDescription>
             </SheetHeader>
-            <div className="p-3 border-b space-y-2">
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  value={localName}
-                  onChange={(e) => { setLocalName(e.target.value); layers.markDirty(); }}
-                  aria-label={t('mapNameLabel')}
-                  className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
-                  title={localName}
-                />
-                {mapData && (
-                  <Badge variant="outline" className="flex items-center gap-1 text-[10px] px-1.5 py-0 shrink-0">
-                    <VisibilityIcon visibility={mapData.visibility} />
-                    {getVisibilityLabel(t, mapData.visibility)}
-                  </Badge>
-                )}
-              </div>
+            <SidebarHeader
+              localName={layers.localName}
+              setLocalName={layers.setLocalName}
+              visibility={mapData?.visibility}
+              markDirty={layers.markDirty}
+            >
               <div className="flex items-center gap-1 justify-end">
                 <Button variant={layers.hasUnsavedChanges ? 'default' : 'outline'} size="sm" className="h-7 text-xs gap-1" onClick={save.handleSave} disabled={save.isSaving}>
                   {save.isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                   {t('actions.save')}
                 </Button>
               </div>
-            </div>
+            </SidebarHeader>
             <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={() => dialogs.setShowAddData(true)} />
           </SheetContent>
         </Sheet>
@@ -386,39 +419,16 @@ export function MapBuilderPage() {
         )}
 
         {/* Header */}
-        <div className="p-3 border-b space-y-2">
-          <h1 className="sr-only">{localName || t('mapBuilder')}</h1>
-          <div className="flex items-center gap-1.5">
-            <input
-              type="text"
-              value={localName}
-              onChange={(e) => {
-                setLocalName(e.target.value);
-                layers.markDirty();
-              }}
-              aria-label={t('mapNameLabel')}
-              className="text-sm font-semibold truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-7 w-full hover:bg-accent/30 transition-colors"
-              title={localName}
-            />
-            {mapData && (
-              <Badge variant="outline" className="flex items-center gap-1 text-[10px] px-1.5 py-0 shrink-0">
-                <VisibilityIcon visibility={mapData.visibility} />
-                {getVisibilityLabel(t, mapData.visibility)}
-              </Badge>
-            )}
-          </div>
-          <input
-            type="text"
-            value={localDescription}
-            onChange={(e) => {
-              setLocalDescription(e.target.value);
-              layers.markDirty();
-            }}
-            placeholder={t('descriptionPlaceholder')}
-            aria-label={t('descriptionLabel')}
-            title={localDescription}
-            className="text-xs text-muted-foreground bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -ms-1 min-h-6 w-full placeholder:text-muted-foreground/50 hover:bg-accent/30 transition-colors"
-          />
+        <h1 className="sr-only">{layers.localName || t('mapBuilder')}</h1>
+        <SidebarHeader
+          localName={layers.localName}
+          setLocalName={layers.setLocalName}
+          localDescription={layers.localDescription}
+          setLocalDescription={layers.setLocalDescription}
+          visibility={mapData?.visibility}
+          markDirty={layers.markDirty}
+          showDescription
+        >
           {/* Button tray */}
           <TooltipProvider delayDuration={300}>
             <div className="flex items-center justify-between pt-1.5">
@@ -523,7 +533,7 @@ export function MapBuilderPage() {
               </div>
             </div>
           </TooltipProvider>
-        </div>
+        </SidebarHeader>
 
         {/* Scrollable content */}
         <SidebarContent layers={layers} inspectorMode={useInspector} onAddDataClick={() => dialogs.setShowAddData(true)} />

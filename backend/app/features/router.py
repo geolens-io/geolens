@@ -178,7 +178,6 @@ async def list_features(
 
     # Build pagination links
     base_path = f"/datasets/{dataset_id}/features/"
-    # TODO: cache via PersistentConfig — fires uncached DB query per request
     public_api_url = await get_public_api_url(db, request=request)
 
     # Collect active query params for pagination link continuity

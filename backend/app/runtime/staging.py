@@ -21,7 +21,7 @@ class StagingRuntimeError(RuntimeError):
         )
 
 
-def probe_writable_dir(directory: str | Path) -> None:
+def _probe_writable_dir(directory: str | Path) -> None:
     """Perform a real write/delete probe in the target directory."""
     target_dir = Path(directory)
     probe_file = target_dir / f".geolens-write-probe-{uuid4().hex}"
@@ -45,7 +45,7 @@ def ensure_staging_ready(directory: str | Path) -> Path:
         ) from exc
 
     try:
-        probe_writable_dir(target_dir)
+        _probe_writable_dir(target_dir)
     except OSError as exc:
         raise StagingRuntimeError(target_dir, "directory is not writable", exc) from exc
 

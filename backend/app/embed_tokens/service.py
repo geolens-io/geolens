@@ -137,6 +137,7 @@ async def list_embed_tokens(
         select(EmbedToken)
         .where(EmbedToken.map_id == map_id)
         .order_by(EmbedToken.created_at.desc())
+        .limit(100)
     )
     return list(result.scalars().all())
 

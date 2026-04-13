@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, Plus, Search } from 'lucide-react';
 import { PageShell } from '@/components/layout/PageShell';
@@ -25,6 +25,7 @@ export function CollectionsPage() {
   const { t } = useTranslation('collections');
   const { data, isLoading, error } = useCollections(0, 200);
   const isEditor = useAuthStore((s) => s.isEditor());
+  const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
   useDocumentTitle(t('common:pageTitle.collections'));
 
   const filtered = data?.collections.filter((c) =>
@@ -118,7 +119,7 @@ export function CollectionsPage() {
           total={totalFiltered}
           offset={skip}
           limit={PAGE_SIZE}
-          onPageChange={(newOffset) => setSkip(newOffset)}
+          onPageChange={handlePageChange}
         />
       )}
 

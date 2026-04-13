@@ -1,39 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { apiFetchBlob } from '@/api/client';
 
 export function useMapThumbnail(thumbnailUrl: string | null | undefined): string | null {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!thumbnailUrl) {
-      setSrc(null);
-      return;
-    }
-
-    let cancelled = false;
-    let objectUrl: string | null = null;
-
-    apiFetchBlob(thumbnailUrl)
-      .then((blob) => {
-        if (!cancelled) {
-          objectUrl = URL.createObjectURL(blob);
-          setSrc(objectUrl);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSrc(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-        objectUrl = null;
-      }
-    };
-  }, [thumbnailUrl]);
+  const { data: src = null } = useQuery({
+    queryKey: ['map-thumbnail', thumbnailUrl],
+    queryFn: async () => {
+      const blob = await apiFetchBlob(thumbnailUrl!);
+      return URL.createObjectURL(blob);
+    },
+    enabled: !!thumbnailUrl,
+    staleTime: Infinity,
+    gcTime: 10 * 60_000,
+  });
 
   return src;
 }

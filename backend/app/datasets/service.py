@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import logging
 
 if TYPE_CHECKING:
-    from app.datasets.schemas import DatasetMeta, DatasetResponse
+    from app.datasets.schemas import CreateEmptyDatasetRequest, DatasetMeta, DatasetResponse
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,7 +65,7 @@ _TYPE_MAP = {
 
 async def create_empty_dataset(
     session: AsyncSession,
-    request,
+    request: "CreateEmptyDatasetRequest",
     user: User,
 ) -> Dataset:
     """Create an empty PostGIS table with user-defined columns and a catalog record.
@@ -302,7 +302,7 @@ async def get_datasets_list(
     skip: int = 0,
     limit: int = 50,
     base_url: str | None = None,
-) -> tuple[list, int]:
+) -> tuple[list[dict], int]:
     """Fetch paginated dataset list with raster assets, VRT source counts, and actor info.
 
     Returns (dataset_response_list, total_count) ready for the API response.
@@ -875,7 +875,7 @@ async def get_dataset_versions(
     dataset_id: uuid.UUID,
     skip: int = 0,
     limit: int = 50,
-) -> tuple[list, int]:
+) -> tuple[list[dict], int]:
     """List version history for a dataset, ordered by version_number desc.
 
     Returns a tuple of (versions, total_count).

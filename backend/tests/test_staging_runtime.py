@@ -30,7 +30,7 @@ def test_ensure_staging_ready_raises_with_failing_path_on_probe_error(
         raise PermissionError("permission denied")
 
     monkeypatch.setattr(
-        "app.runtime.staging.probe_writable_dir", _raise_permission_error
+        "app.runtime.staging._probe_writable_dir", _raise_permission_error
     )
 
     with pytest.raises(StagingRuntimeError) as exc_info:

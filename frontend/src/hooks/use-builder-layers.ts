@@ -34,6 +34,8 @@ export function useBuilderLayers(
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
+  const [localName, setLocalName] = useState('');
+  const [localDescription, setLocalDescription] = useState('');
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
   // without invalidating on every layer mutation. Without this, each layer
@@ -67,6 +69,8 @@ export function useBuilderLayers(
       setLocalLayers(mapData.layers);
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
+      setLocalName(mapData.name);
+      setLocalDescription(mapData.description ?? '');
       initializedRef.current = true;
     }
   }, [mapData]);
@@ -91,7 +95,7 @@ export function useBuilderLayers(
       return prev;
     }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initializedRef.current, searchParams]);
+  }, [searchParams]);
 
   // Compute initial view state only once
   const initialViewState = useMemo(() => {
@@ -312,7 +316,7 @@ export function useBuilderLayers(
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as unknown as typeof l.style_config }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
             : l,
         ),
       );
@@ -339,7 +343,7 @@ export function useBuilderLayers(
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as unknown as typeof l.style_config }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
             : l,
         ),
       );
@@ -353,6 +357,8 @@ export function useBuilderLayers(
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
   return {
+    localName, setLocalName,
+    localDescription, setLocalDescription,
     localLayers,
     localBasemap, setLocalBasemap,
     hasUnsavedChanges, setHasUnsavedChanges,
