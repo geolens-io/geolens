@@ -94,11 +94,6 @@ function prefixed(kind: 'source' | 'layer' | 'outline' | 'label', id: string, pr
   }
 }
 
-// Thin wrappers kept for callsite readability
-function prefixedSourceId(id: string, prefix?: string)      { return prefixed('source', id, prefix); }
-function prefixedLayerId(id: string, prefix?: string)       { return prefixed('layer', id, prefix); }
-function prefixedOutlineLayerId(id: string, prefix?: string){ return prefixed('outline', id, prefix); }
-function prefixedLabelLayerId(id: string, prefix?: string)  { return prefixed('label', id, prefix); }
 
 // Keep the original non-prefixed exports for backward compatibility
 export function getSourceId(layerId: string) {
@@ -133,8 +128,8 @@ export function syncLayersToMap(
   const desiredSources = new Set<string>();
 
   for (const layer of layers) {
-    const sourceId = prefixedSourceId(layer.id, prefix);
-    const layerId = prefixedLayerId(layer.id, prefix);
+    const sourceId = prefixed('source',layer.id, prefix);
+    const layerId = prefixed('layer',layer.id, prefix);
     const sourceLayer = `data.${layer.dataset_table_name}`;
     const token = tokenMap.get(layer.dataset_id) ?? null;
 
@@ -213,14 +208,14 @@ export function syncLayersToMap(
     if (map.getLayer(layerId)) {
       map.setLayerZoomRange(layerId, layerMinzoom, layerMaxzoom);
     }
-    const outlineLayerId = prefixedOutlineLayerId(layer.id, prefix);
+    const outlineLayerId = prefixed('outline',layer.id, prefix);
     if (map.getLayer(outlineLayerId)) {
       map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
     }
 
     // Sync label layer for existing sources (add/update/remove)
     // Heatmap layers don't support labels — hide any existing label layer
-    const labelId = prefixedLabelLayerId(layer.id, prefix);
+    const labelId = prefixed('label',layer.id, prefix);
     const isHeatmap = type === 'heatmap';
     if (map.getSource(sourceId)) {
       if (layer.label_config?.column && !isHeatmap) {
@@ -266,9 +261,9 @@ export function syncLayersToMap(
     if (!desiredSources.has(sourceId)) {
       // Derive layer IDs from source ID
       const id = sourceId.replace(sourcePrefix, '');
-      const layerId = prefixedLayerId(id, prefix);
-      const outlineId = prefixedOutlineLayerId(id, prefix);
-      const labelId = prefixedLabelLayerId(id, prefix);
+      const layerId = prefixed('layer',id, prefix);
+      const outlineId = prefixed('outline',id, prefix);
+      const labelId = prefixed('label',id, prefix);
       if (map.getLayer(labelId)) map.removeLayer(labelId);
       if (map.getLayer(outlineId)) map.removeLayer(outlineId);
       if (map.getLayer(layerId)) map.removeLayer(layerId);
@@ -300,13 +295,13 @@ export function reorderDataLayers(
   idPrefix?: string,
 ) {
   for (let i = layers.length - 1; i >= 0; i--) {
-    const lid = prefixedLayerId(layers[i].id, idPrefix);
-    const oid = prefixedOutlineLayerId(layers[i].id, idPrefix);
+    const lid = prefixed('layer',layers[i].id, idPrefix);
+    const oid = prefixed('outline',layers[i].id, idPrefix);
     if (map.getLayer(lid)) map.moveLayer(lid);
     if (map.getLayer(oid)) map.moveLayer(oid);
   }
   for (let i = layers.length - 1; i >= 0; i--) {
-    const labelId = prefixedLabelLayerId(layers[i].id, idPrefix);
+    const labelId = prefixed('label',layers[i].id, idPrefix);
     if (map.getLayer(labelId)) map.moveLayer(labelId);
   }
 }

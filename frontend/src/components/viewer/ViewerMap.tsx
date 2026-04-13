@@ -93,6 +93,35 @@ function removeTerrainSource(map: MaplibreMap) {
   }
 }
 
+/** Fetch tile tokens per-dataset using API key auth. */
+async function fetchTokensWithApiKey(
+  datasetIds: string[],
+  apiKey: string,
+): Promise<Map<string, TileToken>> {
+  const results = await Promise.all(
+    datasetIds.map((id) => getTileTokenWithApiKey(id, apiKey)),
+  );
+  const map = new Map<string, TileToken>();
+  for (let i = 0; i < datasetIds.length; i++) {
+    map.set(datasetIds[i], results[i]);
+  }
+  return map;
+}
+
+/** Fetch tile tokens in a single batch (anonymous / JWT auth). */
+async function fetchTokensBatch(
+  datasetIds: string[],
+): Promise<Map<string, TileToken>> {
+  const response = await getTileTokensBatch(datasetIds);
+  const map = new Map<string, TileToken>();
+  for (const [datasetId, entry] of Object.entries(response.tokens)) {
+    if ('kind' in entry) {
+      map.set(datasetId, entry);
+    }
+  }
+  return map;
+}
+
 /** Shared field mapping common to both SyncLayerInput and AdapterLayerInput. */
 function sharedLayerFields(layer: SharedLayerResponse, visibleLayers: Set<number>) {
   return {
@@ -214,32 +243,9 @@ export function ViewerMap({
 
     async function fetchTokens() {
       try {
-        let newMap: Map<string, TileToken>;
-
-        if (apiKey) {
-          // API-key path (per-dataset) — used by embedded/API-key viewers.
-          const results = await Promise.all(
-            layerDatasetIds.map((id) => getTileTokenWithApiKey(id, apiKey!)),
-          );
-          newMap = new Map<string, TileToken>();
-          for (let i = 0; i < layerDatasetIds.length; i++) {
-            newMap.set(layerDatasetIds[i], results[i]);
-          }
-        } else {
-          // Anonymous / JWT path — single batch request. Required for the
-          // public PublicMapViewerPage → ViewerMap path, which has no
-          // apiKey and no embedToken. Without this branch, tokenMap stays
-          // empty and the first sync treats every layer as vector data,
-          // producing `.pbf` tile URLs for rasters and breaking anonymous
-          // raster rendering.
-          const response = await getTileTokensBatch(layerDatasetIds);
-          newMap = new Map<string, TileToken>();
-          for (const [datasetId, entry] of Object.entries(response.tokens)) {
-            if ('kind' in entry) {
-              newMap.set(datasetId, entry);
-            }
-          }
-        }
+        const newMap = apiKey
+          ? await fetchTokensWithApiKey(layerDatasetIds, apiKey)
+          : await fetchTokensBatch(layerDatasetIds);
 
         if (cancelled) return;
         setTokenMap(newMap);
@@ -553,7 +559,10 @@ export function ViewerMap({
     }
   }, [tokenMap, layers, mapReady, cdnBaseUrl, embedToken]);
 
-  // Toggle visibility when visibleLayers set changes
+  // Toggle visibility when visibleLayers set changes.
+  // Note: runSync also calls syncVisibility via syncLayersToMap, but this
+  // dedicated effect is needed for *visibility-only* changes where other
+  // sync inputs (layers, tokenMap) haven't changed.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
