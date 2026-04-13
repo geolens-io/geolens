@@ -129,9 +129,6 @@ class RasterMetadata(BaseModel):
     size_bytes: int | None = Field(
         default=None, description="File size on disk in bytes"
     )
-    quicklook_url: str | None = Field(
-        default=None, description="URL to a preview thumbnail image"
-    )
     tile_url: str | None = Field(default=None, description="Titiler XYZ tile endpoint")
     bands: list[RasterBandInfo] = []
     connect: RasterConnect | None = None

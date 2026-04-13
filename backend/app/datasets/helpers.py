@@ -67,7 +67,6 @@ def _build_raster_metadata(
     # connect URLs are absolute with api_key placeholder (for external GIS tools)
     tile_url_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
     tile_url_meta = tile_url_path
-    quicklook_url = f"/api/datasets/{dataset.id}/quicklook?size=256"
 
     if base_url:
         tile_url_connect = f"{base_url}{tile_url_path}?api_key={{your_key}}"
@@ -100,7 +99,6 @@ def _build_raster_metadata(
         width=raster_asset.width,
         height=raster_asset.height,
         size_bytes=raster_asset.size_bytes,
-        quicklook_url=quicklook_url,
         tile_url=tile_url_meta,
         bands=bands,
         connect=connect,

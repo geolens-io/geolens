@@ -293,6 +293,8 @@ export function useInfrastructure() {
   return useQuery({
     queryKey: queryKeys.admin.infrastructure,
     queryFn: getInfrastructure,
+    // 30s polling is intentional — infrastructure status is advisory, not time-critical.
+    // Shorter intervals increase backend load with no UX benefit for admin dashboards.
     refetchInterval: 30_000,
   });
 }
