@@ -409,13 +409,13 @@ class ReuploadPreviewResponse(BaseModel):
 
 
 class ReuploadServicePreviewRequest(BaseModel):
-    url: str
-    service_type: str
-    layer_name: str
-    layer_title: str | None = None
+    url: str = Field(max_length=2048)
+    service_type: str = Field(max_length=50)
+    layer_name: str = Field(max_length=500)
+    layer_title: str | None = Field(default=None, max_length=500)
     layer_id: int | str | None = None
-    token: str | None = None
-    object_id_field: str | None = None
+    token: str | None = Field(default=None, max_length=1000)
+    object_id_field: str | None = Field(default=None, max_length=200)
 
 
 class ReuploadCommitRequest(BaseModel):
@@ -592,12 +592,12 @@ class AttributeMetadataListResponse(BaseModel):
 
 class DatasetRelationshipCreate(BaseModel):
     target_dataset_id: uuid.UUID = Field(description="UUID of the dataset to link to")
-    source_column: str = Field(description="Join column in the source dataset")
+    source_column: str = Field(max_length=63, description="Join column in the source dataset")
     target_column: str = Field(
-        default="gid", description="Join column in the target dataset"
+        default="gid", max_length=63, description="Join column in the target dataset"
     )
     label: str | None = Field(
-        default=None, description="Optional display label for this relationship"
+        default=None, max_length=500, description="Optional display label for this relationship"
     )
 
 

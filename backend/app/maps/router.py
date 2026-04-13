@@ -667,7 +667,7 @@ async def upload_thumbnail(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{map_id}/thumbnail/")
+@router.get("/{map_id}/thumbnail/", response_class=Response)
 async def get_thumbnail(
     map_id: uuid.UUID,
     user: User | None = Depends(get_optional_user),
