@@ -21,7 +21,7 @@ from app.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
 )
-from app.auth.models import User
+from app.auth.models import Role, User, UserRole
 from app.config import settings
 from app.auth.visibility import (
     apply_visibility_filter,

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, EyeOff, Minimize2, Maximize2, Database } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -17,7 +17,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
 import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
-import { DatasetHeroMap } from '@/pages/components/DatasetHeroMap';
+import { DatasetMap } from '@/components/dataset/DatasetMap';
 import { DatasetDetailSkeleton } from '@/components/dataset/DatasetDetailSkeleton';
 import {
   DatasetDetailHeader,
@@ -31,9 +31,10 @@ import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
-import { MapErrorBoundary } from '@/components/error';
+import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
-import { formatNumber } from '@/lib/format';
+import { formatRelativeDate, formatNumber } from '@/lib/format';
+import { getRecordStatusLabel, getGeometryTypeLabel } from '@/i18n/labels';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -46,11 +47,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
+import { visibilityColors } from '@/lib/status-colors';
 import type { DatasetResponse } from '@/types/api';
-import { DatasetStatsLine } from '@/pages/components/DatasetStatsLine';
 import { downloadCog } from '@/api/datasets';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
+
+const Sep = () => <span className="text-muted-foreground/50">·</span>;
 
 function normalizeLegacyTabHash(hash: string): string | null {
   if (hash === 'source-quality' || hash === 'coverage' || hash === 'source-coverage') {
@@ -68,6 +74,41 @@ function getInitialTab(): string {
   return VALID_TABS.includes(hash as (typeof VALID_TABS)[number]) ? hash : 'overview';
 }
 
+const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Scroll the element identified by `anchor` into view and focus it.
+ * Retries once via setTimeout(120ms) if the element isn't mounted yet.
+ * Calls `onDone(null)` when finished, or `onDone(timerId)` when a retry is scheduled.
+ */
+function scrollAndFocus(
+  anchor: string,
+  onDone: (v: null) => void,
+  onRetryScheduled: (timerId: ReturnType<typeof setTimeout>) => void,
+) {
+  const target = document.querySelector<HTMLElement>(`[data-field-anchor="${anchor}"]`);
+
+  const focusEl = (el: HTMLElement) => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const focusable = el.matches(FOCUSABLE_SELECTOR)
+      ? el
+      : el.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    focusable?.focus({ preventScroll: true });
+    onDone(null);
+  };
+
+  if (!target) {
+    const timerId = setTimeout(() => {
+      const retryTarget = document.querySelector<HTMLElement>(`[data-field-anchor="${anchor}"]`);
+      if (!retryTarget) { onDone(null); return; }
+      focusEl(retryTarget);
+    }, 120);
+    onRetryScheduled(timerId);
+    return;
+  }
+
+  focusEl(target);
+}
 
 export function DatasetPage() {
   const { t } = useTranslation('dataset');
@@ -196,49 +237,11 @@ export function DatasetPage() {
     if (!pendingNavigationAnchor) return;
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let frameId = 0;
 
-    const focusAnchor = () => {
-      const target = document.querySelector<HTMLElement>(
-        `[data-field-anchor="${pendingNavigationAnchor}"]`,
-      );
-
-      if (!target) {
-        timeoutId = setTimeout(() => {
-          const retryTarget = document.querySelector<HTMLElement>(
-            `[data-field-anchor="${pendingNavigationAnchor}"]`,
-          );
-          if (!retryTarget) {
-            setPendingNavigationAnchor(null);
-            return;
-          }
-
-          retryTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          const focusable =
-            retryTarget.matches('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-              ? retryTarget
-              : retryTarget.querySelector<HTMLElement>(
-                  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-                );
-          focusable?.focus({ preventScroll: true });
-          setPendingNavigationAnchor(null);
-        }, 120);
-        return;
-      }
-
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusable =
-        target.matches('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-          ? target
-          : target.querySelector<HTMLElement>(
-              'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-            );
-      focusable?.focus({ preventScroll: true });
-      setPendingNavigationAnchor(null);
-    };
-
-    frameId = requestAnimationFrame(() => {
-      focusAnchor();
+    const frameId = requestAnimationFrame(() => {
+      scrollAndFocus(pendingNavigationAnchor, setPendingNavigationAnchor, (id) => {
+        timeoutId = id;
+      });
     });
 
     return () => {
@@ -297,6 +300,27 @@ export function DatasetPage() {
   const PUBLISH_CHAIN = ['ready', 'internal', 'published'] as const;
   const UNPUBLISH_CHAIN = ['internal', 'ready', 'draft'] as const;
 
+  const executeStatusChain = async (
+    chain: readonly string[],
+    currentStatus: string,
+    successMsg: string,
+    opts?: { onFinally?: () => void },
+  ) => {
+    if (!id) return;
+    const startIdx = chain.indexOf(currentStatus);
+    const steps = startIdx === -1 ? chain : chain.slice(startIdx + 1);
+    try {
+      for (const step of steps) {
+        await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
+      }
+      toast.success(successMsg);
+    } catch {
+      toast.error(t('publish.failed'));
+    } finally {
+      opts?.onFinally?.();
+    }
+  };
+
   const handlePublishToggle = async () => {
     if (!id) return;
     if (isPublished) {
@@ -307,39 +331,113 @@ export function DatasetPage() {
       toast.error(t('publish.validationBlocker', { defaultValue: 'Resolve validation issues before publishing' }));
       return;
     }
-    // Only transition the steps not yet completed based on current status
-    const currentStatus = dataset.record_status;
-    const startIdx = PUBLISH_CHAIN.indexOf(currentStatus as typeof PUBLISH_CHAIN[number]);
-    const steps = startIdx === -1 ? PUBLISH_CHAIN : PUBLISH_CHAIN.slice(startIdx + 1);
-    try {
-      for (const step of steps) {
-        await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
-      }
-      toast.success(t('publish.success'));
-    } catch {
-      toast.error(t('publish.failed'));
-    }
+    await executeStatusChain(PUBLISH_CHAIN, dataset.record_status, t('publish.success'));
   };
 
   const handleUnpublish = async () => {
-    if (!id) return;
-    // Only transition the steps not yet completed based on current status
-    const currentStatus = dataset.record_status;
-    const startIdx = UNPUBLISH_CHAIN.indexOf(currentStatus as typeof UNPUBLISH_CHAIN[number]);
-    const steps = startIdx === -1 ? UNPUBLISH_CHAIN : UNPUBLISH_CHAIN.slice(startIdx + 1);
-    try {
-      for (const step of steps) {
-        await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
-      }
-      toast.success(t('publish.unpublished'));
-    } catch {
-      toast.error(t('publish.failed'));
-    } finally {
-      setActiveDialog(null);
-    }
+    await executeStatusChain(UNPUBLISH_CHAIN, dataset.record_status, t('publish.unpublished'), {
+      onFinally: () => setActiveDialog(null),
+    });
   };
 
-  const statsLine = <DatasetStatsLine dataset={dataset} rasterGsd={rasterGsd} />;
+  const statsLine = (
+    <>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <RecordTypeBadge recordType={dataset.record_type} />
+        {dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type ? (
+          <>
+            {dataset.geometry_type && (
+              <>
+                <Sep />
+                <span>{getGeometryTypeLabel(t, dataset.geometry_type)}</span>
+              </>
+            )}
+            {dataset.feature_count != null && (
+              <>
+                <Sep />
+                <span>{formatNumber(dataset.feature_count)} {isTable ? 'rows' : 'features'}</span>
+              </>
+            )}
+            {dataset.srid && (
+              <>
+                <Sep />
+                <span>EPSG:{dataset.srid}</span>
+              </>
+            )}
+            {dataset.is_3d && (
+              <>
+                <Sep />
+                <span className="font-medium">3D</span>
+                {dataset.z_min != null && dataset.z_max != null && (
+                  <span className="ml-1 text-muted-foreground">
+                    Z: {dataset.z_min.toFixed(1)} to {dataset.z_max.toFixed(1)}
+                  </span>
+                )}
+              </>
+            )}
+          </>
+        ) : dataset.record_type === 'raster_dataset' ? (
+          <>
+            {dataset.raster?.band_count != null && (
+              <>
+                <Sep />
+                <span>{dataset.raster.band_count} {t('raster.bands').toLowerCase()}</span>
+              </>
+            )}
+            {rasterGsd != null && (
+              <>
+                <Sep />
+                <span>{rasterGsd} m</span>
+              </>
+            )}
+            {dataset.raster?.epsg && (
+              <>
+                <Sep />
+                <span>EPSG:{dataset.raster.epsg}</span>
+              </>
+            )}
+          </>
+        ) : dataset.record_type === 'vrt_dataset' ? (
+          <>
+            {dataset.raster?.vrt_type && (
+              <>
+                <Sep />
+                <span>{dataset.raster.vrt_type === 'band_stack' ? t('raster.bandStack') : t('raster.mosaic')}</span>
+              </>
+            )}
+            {dataset.raster?.source_count != null && (
+              <>
+                <Sep />
+                <span>{dataset.raster.source_count} sources</span>
+              </>
+            )}
+            {dataset.raster?.band_count != null && (
+              <>
+                <Sep />
+                <span>{dataset.raster.band_count} bands</span>
+              </>
+            )}
+            {dataset.raster?.epsg && (
+              <>
+                <Sep />
+                <span>EPSG:{dataset.raster.epsg}</span>
+              </>
+            )}
+          </>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
+        <Sep />
+        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
+          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
+          {dataset.visibility}
+        </Badge>
+        <Sep />
+        <span>Updated {formatRelativeDate(dataset.updated_at)}</span>
+      </div>
+    </>
+  );
 
   const headerActions: DatasetDetailHeaderAction[] = [
     {
@@ -468,24 +566,53 @@ export function DatasetPage() {
 
       {/* Hero Map -- visible for all spatial dataset types */}
       {!isDataTabExpanded && !isTable && (
-        <MapErrorBoundary>
-          <DatasetHeroMap
-            dataset={dataset}
-            datasetId={id}
+        <div
+          ref={mapContainerRef}
+          data-field-anchor="dataset_map"
+          tabIndex={-1}
+          className={cn(
+            'rounded-lg border shadow-sm overflow-hidden relative',
+            isDrawing ? 'h-[60vh]' : 'h-64 lg:h-80'
+          )}
+        >
+          {isRasterOrVrt && heroState === 'loading' && (
+            <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
+          )}
+          <DatasetMap
+            key={isRasterOrVrt ? mapKey : undefined}
             bbox={bbox}
-            isEditor={isEditor}
-            isDrawing={isDrawing}
-            mapContainerRef={mapContainerRef}
+            tableName={dataset.table_name}
+            geometryType={dataset.geometry_type}
+            datasetId={id}
+            columnInfo={dataset.column_info}
+            containerRef={mapContainerRef}
+            canEdit={isEditor && !isRaster && !isVrt && !isTable}
+            recordType={dataset.record_type}
+            rasterTileUrl={dataset.raster?.tile_url}
+            tileVersion={dataset.updated_at}
             onFeatureClick={setReadOnlyFeatureGid}
-            isRasterOrVrt={isRasterOrVrt}
-            heroState={heroState}
-            retryCount={retryCount}
-            mapKey={mapKey}
-            handleRetry={handleRetry}
-            onMapReady={onMapReady}
-            onTileError={onTileError}
+            {...(isRasterOrVrt ? {
+              onMapReady,
+              onTileError,
+            } : {})}
           />
-        </MapErrorBoundary>
+          {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
+            <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
+              {t('raster.noTiles')}
+            </div>
+          )}
+          {isRasterOrVrt && heroState === 'error' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
+              <AlertTriangle className="size-8 text-destructive mb-2" />
+              <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>
+              {retryCount < 3 ? (
+                <Button size="sm" onClick={handleRetry}>{t('raster.retry')}</Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">{t('raster.tilesProcessing')}</p>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Raster Quick Facts Strip */}

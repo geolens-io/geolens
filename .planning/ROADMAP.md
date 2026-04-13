@@ -409,7 +409,5 @@ Plans:
 - Shared helper covers steps 1-7; `ingest_file` then calls `_finalize_ingest` / `create_dataset`, while `reupload_file` calls `_apply_reupload_swap`
 - Needs a dedicated plan, not a drive-by refactor — effort estimate 4-6h holds
 
-**Plans:** 2/2 plans complete
 Plans:
-- [x] 999.4-01-PLAN.md — StagingResult dataclass + _ingest_vector_into_staging helper extraction + caller rewiring + unit tests
-- [x] 999.4-02-PLAN.md — Integration tests with real ogr2ogr through both ingest and reupload paths
+- [ ] TBD (promote with /gsd-review-backlog when ready)

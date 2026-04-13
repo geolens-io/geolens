@@ -4,10 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
 from procrastinate import App, PsycopgConnector
 from sqlalchemy import select
@@ -20,9 +17,6 @@ from app.raster.cog import check_and_prepare_cog, extract_raster_metadata, sha25
 from app.raster.quicklook import generate_quicklook
 from app.raster.vrt import build_vrt, resolve_vrt_source_path
 from app.storage import get_storage
-
-_STAGING_SUFFIX = "_staging"
-_STAGING_BASE_MAX = 63 - len(_STAGING_SUFFIX)  # 55
 
 if TYPE_CHECKING:
     from datetime import date
@@ -54,31 +48,6 @@ class IngestContext:
     original_srid: int | None
     user_metadata: dict
     source_url: str | None = None
-
-
-@dataclass
-class StagingResult:
-    """Return value from ``_ingest_vector_into_staging``.
-
-    Bundles the post-ogr2ogr metadata so each caller can feed it into
-    its divergent downstream step (``_finalize_ingest`` vs
-    ``_apply_reupload_swap``).
-    """
-
-    metadata: dict[str, Any]  # from extract_metadata()
-    sample_values: dict[str, Any]  # from get_sample_values()
-    three_d: dict[str, Any]  # from detect_3d_metadata()
-    has_geometry: bool  # resolved (may differ from input if geometry override applied)
-    geometry_type: str | None  # resolved geometry type string
-
-
-def _safe_error_message(exc: Exception) -> str:
-    """Return a user-safe error message, hiding internal details."""
-    from app.ingest.ogr import IngestionError
-
-    if isinstance(exc, (ValueError, IngestionError)):
-        return str(exc)
-    return "Internal error during ingestion. Check server logs for details."
 
 
 _connector_kwargs: dict = {"min_size": 1, "max_size": 3}
@@ -114,29 +83,7 @@ def _arcgis_type_to_column_type(esri_type: str) -> str:
     return _ARCGIS_TYPE_MAP.get(esri_type, "text")
 
 
-def _resolve_arcgis_column_info(
-    column_info: list | None,
-    user_metadata: dict | None,
-) -> list | None:
-    """Fall back to ArcGIS source_columns if column_info is empty."""
-    if column_info:
-        return column_info
-    if not user_metadata or not user_metadata.get("source_columns"):
-        return column_info
-    source_columns = user_metadata["source_columns"]
-    return [
-        {
-            "name": col["name"],
-            "type": _arcgis_type_to_column_type(col.get("type", "string")),
-            "ordinal_position": idx + 1,
-            "is_nullable": True,
-        }
-        for idx, col in enumerate(source_columns)
-        if col.get("name")
-    ]
-
-
-def _append_job_warning(job: "IngestJob", warning: "IngestJobWarning") -> None:
+def _append_job_warning(job, warning: "IngestJobWarning") -> None:
     """Append a structured warning to ``job.user_metadata['warnings']``.
 
     Consolidates the 6× duplicated pattern from the ingest entry points
@@ -230,7 +177,7 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
 
 
 async def _validate_upload_file_safety(
-    session: "AsyncSession",
+    session,
     *,
     file_path: str,
     source_filename: str | None,
@@ -284,10 +231,10 @@ def _resolve_effective_srid(
 
 
 async def _detect_and_override_geometry(
-    session: "AsyncSession",
+    session,
     *,
     table_name: str,
-    user_metadata: dict[str, Any],
+    user_metadata: dict,
 ) -> str | None:
     """Apply user x/y or WKT geometry overrides to a freshly-loaded table.
 
@@ -322,14 +269,14 @@ async def _detect_and_override_geometry(
     if geom_column:
         from sqlalchemy import text as _text
 
-        from app.ingest.metadata import _qtable, construct_wkt_geometry
+        from app.ingest.metadata import construct_wkt_geometry
 
         await construct_wkt_geometry(session, table_name, geom_column)
         # Re-detect geometry type from the constructed column so downstream
         # metadata reflects what was actually built (lines/polygons/etc).
         result = await session.execute(
             _text(
-                f"SELECT GeometryType(geom) FROM {_qtable(table_name)} "
+                f"SELECT GeometryType(geom) FROM data.{table_name} "
                 f"WHERE geom IS NOT NULL LIMIT 1"
             )
         )
@@ -337,166 +284,6 @@ async def _detect_and_override_geometry(
         return geometry_type
 
     return None
-
-
-async def _ingest_vector_into_staging(
-    session: "AsyncSession",
-    *,
-    job: "IngestJob",
-    file_path: str,
-    target_table: str,
-    source_srid: int | None,
-    ogr_geometry_type: str | None,
-    has_geometry: bool,
-    effective_srid: int,
-    layer_name: str | None = None,
-    user_wants_geom: bool = False,
-    user_metadata: dict[str, Any] | None = None,
-    ogrinfo_columns: list[dict[str, Any]] | None = None,
-) -> "StagingResult":
-    """Shared vector staging pipeline: ogr2ogr → post-process → metadata.
-
-    Covers the duplicated steps between ``ingest_file`` and ``reupload_file``:
-    - ogr2ogr load into target_table
-    - Reserved column rename + DBF truncation detection
-    - Optional geometry override (ingest only, when user_wants_geom=True)
-    - Geometry normalization (ensure_geom, clip, add_4326)
-    - grant_reader_access
-    - extract_metadata + get_sample_values + detect_3d + promote_z_to_elev
-
-    Per D-09: raises on failure — callers own cleanup.
-    Per D-10: does not commit session — callers own transaction boundaries.
-
-    Args:
-        session: AsyncSession (not committed by this function).
-        job: IngestJob (warnings appended via _append_job_warning).
-        file_path: Local path to the uploaded file (for ogr2ogr + DBF detection).
-        target_table: The PostGIS table name to load into (caller-determined per D-02).
-        source_srid: Detected SRID from ogrinfo (may be None).
-        ogr_geometry_type: Geometry type value passed directly to run_ogr2ogr.
-            None when user_wants_geom=True (import as non-spatial for override).
-        has_geometry: Whether the file has geometry (resolved by caller).
-        effective_srid: Resolved SRID for add_4326_column (caller resolves per D-05).
-        layer_name: Optional ogrinfo layer name.
-        user_wants_geom: When True, run _detect_and_override_geometry after ogr2ogr
-            (ingest-only per D-04). Reupload always passes False.
-        user_metadata: Required when user_wants_geom=True (for x/y/geom column keys).
-        ogrinfo_columns: Column list from ogrinfo for DBF truncation detection.
-            When absent and file is .zip, the helper re-runs ogrinfo_preview.
-
-    Returns:
-        StagingResult with metadata, sample_values, three_d, resolved has_geometry,
-        and geometry_type.
-    """
-    if user_wants_geom and not user_metadata:
-        raise ValueError(
-            "_ingest_vector_into_staging: user_metadata is required when user_wants_geom=True"
-        )
-
-    import structlog
-
-    from app.ingest.metadata import (
-        add_4326_column,
-        clip_to_mercator_bounds,
-        detect_3d_metadata,
-        ensure_geom_column,
-        extract_metadata,
-        get_column_info,
-        get_sample_values,
-        grant_reader_access,
-        promote_z_to_elev,
-        rename_reserved_columns,
-    )
-    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr
-
-    logger = structlog.get_logger().bind(
-        job_id=str(job.id),
-        file=file_path,
-        table=target_table,
-    )
-
-    # --- Step 1: ogr2ogr load ---
-    db_conn_str = build_pg_conn_str()
-    await run_ogr2ogr(
-        file_path,
-        target_table,
-        db_conn_str,
-        source_srid=source_srid,
-        geometry_type=ogr_geometry_type,
-        layer_name=layer_name,
-    )
-
-    # --- Step 2: Reserved column rename ---
-    reserved_renames = await rename_reserved_columns(session, target_table)
-    if reserved_renames:
-        from app.ingest.warnings import make_reserved_rename_warning
-
-        _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
-
-    # --- Step 3: DBF truncation detection (shapefile .zip only) ---
-    if file_path.lower().endswith(".zip"):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
-        from app.ingest.ogr import run_ogrinfo_preview
-        from app.ingest.warnings import make_dbf_truncation_warning
-
-        preview_cols = list(ogrinfo_columns) if ogrinfo_columns else []
-        if not preview_cols:
-            preview_info = await run_ogrinfo_preview(
-                file_path, sample_limit=0, layer_name=layer_name
-            )
-            preview_cols = preview_info.get("columns") or []
-        dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
-        if dbf_collisions:
-            _append_job_warning(job, make_dbf_truncation_warning(dbf_collisions))
-            logger.warning(
-                "Shapefile DBF 10-char truncation collision detected",
-                table=target_table,
-                collisions=dbf_collisions,
-            )
-
-    # --- Step 4: Geometry override (ingest-only, per D-04) ---
-    geometry_type: str | None = ogr_geometry_type
-    if user_wants_geom:
-        override_geom_type = await _detect_and_override_geometry(
-            session,
-            table_name=target_table,
-            user_metadata=user_metadata or {},
-        )
-        if override_geom_type is not None:
-            has_geometry = True
-            geometry_type = override_geom_type
-
-    # --- Step 5: Geometry post-processing ---
-    if has_geometry:
-        await ensure_geom_column(session, target_table)
-        await clip_to_mercator_bounds(session, target_table)
-        await add_4326_column(session, target_table, effective_srid)
-    await grant_reader_access(session, target_table)
-
-    # --- Step 6: Metadata extraction ---
-    metadata = await extract_metadata(session, target_table)
-
-    # --- Step 7: 3D detection + Z→elev promotion ---
-    three_d = await detect_3d_metadata(session, target_table)
-    if three_d.get("is_3d"):
-        elev_promoted = await promote_z_to_elev(
-            session, target_table, metadata.get("geometry_type")
-        )
-        if elev_promoted:
-            metadata["column_info"] = await get_column_info(session, target_table)
-
-    # --- Step 8: Sample values ---
-    sample_values = await get_sample_values(
-        session, target_table, metadata.get("column_info", [])
-    )
-
-    return StagingResult(
-        metadata=metadata,
-        sample_values=sample_values,
-        three_d=three_d,
-        has_geometry=has_geometry,
-        geometry_type=geometry_type,
-    )
 
 
 async def _archive_original_file(
@@ -561,10 +348,10 @@ async def _archive_original_file(
             )
 
 
-async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" = None):
+async def _finalize_ingest(ctx: IngestContext):
     """Shared post-ogr2ogr pipeline for both file and service ingestion.
 
-    Steps (service ingestion path — staging is None):
+    Steps:
     - Normalize geometry column, clip to valid bounds, add 4326 column
     - Grant reader access
     - Extract column info and sample values
@@ -574,23 +361,24 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
     - Generate quicklook thumbnail (non-fatal)
     - Invalidate caches and backfill embedding
 
-    When ``staging`` is provided (vector file ingestion path), the
-    post-processing and metadata-extraction steps are skipped because
-    ``_ingest_vector_into_staging`` has already performed them. This
-    avoids redundant DB work on the vector file path.
-
     Args:
         ctx: IngestContext bundle of finalize parameters. See the dataclass
             docstring for field descriptions (K7 refactor).
-        staging: Pre-computed StagingResult from _ingest_vector_into_staging,
-            or None for service ingestion paths that do their own processing.
 
     Returns:
         The created Dataset ORM instance.
     """
     from app.datasets.service import create_dataset
     from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
         compute_quality_score,
+        detect_3d_metadata,
+        ensure_geom_column,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+        promote_z_to_elev,
     )
 
     session = ctx.session
@@ -599,76 +387,63 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
     user_metadata = ctx.user_metadata
     source_filename = ctx.source_filename
 
-    if staging is None:
-        # --- Service ingestion path: do post-processing inline ---
-        from app.ingest.metadata import (
-            add_4326_column,
-            clip_to_mercator_bounds,
-            detect_3d_metadata,
-            ensure_geom_column,
-            extract_metadata,
-            get_sample_values,
-            grant_reader_access,
-            promote_z_to_elev,
+    # Normalize geometry column name to 'geom'
+    has_geometry = ctx.has_geometry
+    if has_geometry is None:
+        has_geometry = await ensure_geom_column(session, table_name)
+    elif has_geometry:
+        await ensure_geom_column(session, table_name)
+
+    # Clip geometries to Web Mercator bounds and add 4326 column.
+    # When has_geometry is truthy, callers always supply a non-null
+    # effective_srid — guard for mypy since the two params are independent
+    # at the signature level.
+    if has_geometry:
+        assert ctx.effective_srid is not None, (
+            "effective_srid must be set when has_geometry is True"
         )
+        await clip_to_mercator_bounds(session, table_name)
+        await add_4326_column(session, table_name, ctx.effective_srid)
 
-        # Normalize geometry column name to 'geom'
-        has_geometry = ctx.has_geometry
-        if has_geometry is None:
-            has_geometry = await ensure_geom_column(session, table_name)
-        elif has_geometry:
-            await ensure_geom_column(session, table_name)
+    # Grant reader access
+    await grant_reader_access(session, table_name)
 
-        # Clip geometries to Web Mercator bounds and add 4326 column.
-        # When has_geometry is truthy, callers always supply a non-null
-        # effective_srid — guard for mypy since the two params are independent
-        # at the signature level.
-        if has_geometry:
-            if ctx.effective_srid is None:
-                raise ValueError("effective_srid must be set when has_geometry is True")
-            await clip_to_mercator_bounds(session, table_name)
-            await add_4326_column(session, table_name, ctx.effective_srid)
+    # Extract metadata
+    metadata = await extract_metadata(session, table_name)
 
-        # Grant reader access
-        await grant_reader_access(session, table_name)
+    # Detect 3D geometry properties (per Phase 999.2)
+    three_d = await detect_3d_metadata(session, table_name)
 
-        # Extract metadata
-        metadata = await extract_metadata(session, table_name)
-
-        # Detect 3D geometry properties (per Phase 999.2)
-        three_d = await detect_3d_metadata(session, table_name)
-
-        # Attribute promotion: extract ST_Z into elev column for 3D points
-        if three_d.get("is_3d"):
-            elev_promoted = await promote_z_to_elev(
-                session, table_name, metadata.get("geometry_type")
-            )
-            if elev_promoted:
-                # Re-extract column_info so elev appears in the column list
-                from app.ingest.metadata import get_column_info
-
-                metadata["column_info"] = await get_column_info(session, table_name)
-
-        # ArcGIS column_info fallback
-        metadata["column_info"] = _resolve_arcgis_column_info(
-            metadata.get("column_info"), user_metadata
+    # Attribute promotion: extract ST_Z into elev column for 3D points
+    if three_d.get("is_3d"):
+        elev_promoted = await promote_z_to_elev(
+            session, table_name, metadata.get("geometry_type")
         )
+        if elev_promoted:
+            # Re-extract column_info so elev appears in the column list
+            from app.ingest.metadata import get_column_info
+            metadata["column_info"] = await get_column_info(session, table_name)
 
-        # Extract sample values for attribute search
-        sample_values = await get_sample_values(
-            session, table_name, metadata.get("column_info", [])
-        )
-    else:
-        # --- Vector file path: use pre-computed results from helper ---
-        metadata = staging.metadata
-        sample_values = staging.sample_values
-        three_d = staging.three_d
-        has_geometry = staging.has_geometry
+    # ArcGIS column_info fallback: if the DB-based extraction returned empty
+    # column_info (e.g., non-spatial table where ogr2ogr only created a gid column),
+    # fall back to the ArcGIS fields captured at preview time and stored in user_metadata.
+    if not metadata.get("column_info") and user_metadata.get("source_columns"):
+        source_columns = user_metadata["source_columns"]
+        metadata["column_info"] = [
+            {
+                "name": col["name"],
+                "type": _arcgis_type_to_column_type(col.get("type", "string")),
+                "ordinal_position": idx + 1,
+                "is_nullable": True,
+            }
+            for idx, col in enumerate(source_columns)
+            if col.get("name")  # skip columns without a name
+        ]
 
-        # ArcGIS column_info fallback
-        metadata["column_info"] = _resolve_arcgis_column_info(
-            metadata.get("column_info"), user_metadata
-        )
+    # Extract sample values for attribute search
+    sample_values = await get_sample_values(
+        session, table_name, metadata.get("column_info", [])
+    )
 
     # Create Dataset record
     dataset_name = user_metadata.get("title") or source_filename or table_name
@@ -756,6 +531,8 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
     await invalidate_catalog_cache()
 
     # Generate embedding (non-fatal)
+    from app.embeddings.helpers import defer_embedding
+
     await defer_embedding(dataset)
 
     return dataset
@@ -765,16 +542,20 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
 
-    Pipeline:
-    1. Update job status to running, validate file safety
-    2. Run ogrinfo to detect CRS and geometry type
-    3-6. Shared vector staging pipeline via ``_ingest_vector_into_staging``
-         (ogr2ogr → rename → DBF detect → geometry override → post-process → metadata)
-    7-9. Finalize via ``_finalize_ingest`` (create Dataset, quality score, commit, quicklook)
-    10. Archive original file, clean up local copy
+    Full pipeline:
+    1. Update job status to running
+    2. Run ogrinfo to detect CRS
+    3. Run ogr2ogr to load file into PostGIS
+    4. Add geom_4326 column via ST_Transform
+    5. Grant geolens_reader SELECT access
+    6. Extract metadata (extent, columns, row count, geometry type)
+    7. Create Dataset record in catalog
+    8. Update job status to complete
+    9. Clean up staging file
     """
     _bind_task_log_context(task_name="ingest_file", job_id=job_id)
-    from app.ingest.ogr import run_ogrinfo
+    from app.database import async_session
+    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
 
@@ -785,7 +566,6 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         )
         job = result.scalar_one()
 
-        table_name: str | None = None
         try:
             # 1. Update job to running
             job.status = "running"
@@ -807,7 +587,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 )
             except ValueError as exc:
                 job.status = "failed"
-                job.error_message = _safe_error_message(exc)
+                job.error_message = str(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 # N2: do NOT unlink here. The finally block keeps local
@@ -830,13 +610,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
             # Non-spatial files don't need CRS at all
             lower_path = file_path.lower()
-            assumes_4326 = (
-                lower_path.endswith(".csv")
-                or lower_path.endswith(".geojson")
-                or lower_path.endswith(".json")
-                or lower_path.endswith(".xlsx")
-                or lower_path.endswith(".xls")
-            )
+            assumes_4326 = any(lower_path.endswith(ext) for ext in (".csv", ".geojson", ".json", ".xlsx", ".xls"))
             if (
                 has_geometry
                 and srid is None
@@ -863,6 +637,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     **(job.user_metadata or {}),
                     "collision_warning": collision_warning,
                 }
+            db_conn_str = build_pg_conn_str()
 
             # Check for user-specified geometry columns (override)
             # Lowercase column names: ogr2ogr lowercases them in PostGIS.
@@ -878,28 +653,67 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # then construct geometry post-import. This ensures the override
             # works even for CSVs where GDAL would auto-detect geometry.
             ogr_geometry_type = None if user_wants_geom else geometry_type
+            await run_ogr2ogr(
+                file_path,
+                table_name,
+                db_conn_str,
+                source_srid=srid,
+                geometry_type=ogr_geometry_type,
+                layer_name=layer_name,
+            )
+
+            # 3a. Rename any source column that collides with a GeoLens-internal
+            #     name (gid, geom, geometry, geom_4326, fid, ogc_fid). Runs BEFORE
+            #     the user-geometry-override and _finalize_ingest steps so that
+            #     construct_point_geometry / add_4326_column cannot clash with a
+            #     source attribute of the same name.
+            from app.ingest.metadata import rename_reserved_columns
+
+            reserved_renames = await rename_reserved_columns(session, table_name)
+            if reserved_renames:
+                from app.ingest.warnings import make_reserved_rename_warning
+
+                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+            # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
+            #     the source column list from ogrinfo (stored in info["columns"]).
+            if file_path.lower().endswith(".zip"):
+                import structlog
+                from app.ingest.metadata import detect_dbf_truncation_collisions
+                from app.ingest.ogr import run_ogrinfo_preview
+                from app.ingest.warnings import make_dbf_truncation_warning
+
+                preview_cols = info.get("columns") or []
+                if not preview_cols:
+                    preview_info = await run_ogrinfo_preview(
+                        file_path, sample_limit=0, layer_name=layer_name
+                    )
+                    preview_cols = preview_info.get("columns") or []
+                dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+                if dbf_collisions:
+                    _append_job_warning(
+                        job, make_dbf_truncation_warning(dbf_collisions)
+                    )
+                    structlog.get_logger().warning(
+                        "Shapefile DBF 10-char truncation collision detected",
+                        table=table_name,
+                        collisions=dbf_collisions,
+                    )
+
+            if user_wants_geom:
+                override_geom_type = await _detect_and_override_geometry(
+                    session,
+                    table_name=table_name,
+                    user_metadata=um,
+                )
+                if override_geom_type is not None:
+                    has_geometry = True
+                    geometry_type = override_geom_type
 
             # Use srid_override if provided
             effective_srid = _resolve_effective_srid(
                 detected_srid=srid,
                 srid_override=srid_override,
-            )
-
-            # 3-6. Shared vector staging pipeline (ogr2ogr → rename → DBF →
-            #      geometry override → post-process → metadata extraction)
-            staging = await _ingest_vector_into_staging(
-                session,
-                job=job,
-                file_path=file_path,
-                target_table=table_name,
-                source_srid=srid,
-                ogr_geometry_type=ogr_geometry_type,
-                has_geometry=has_geometry,
-                effective_srid=effective_srid,
-                layer_name=layer_name,
-                user_wants_geom=user_wants_geom,
-                user_metadata=um,
-                ogrinfo_columns=info.get("columns") or [],
             )
 
             # 4. Determine source format from file extension
@@ -909,21 +723,20 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             if source_format == "zip":
                 source_format = "shapefile"
 
-            # 5-9. Finalize: create dataset record, quality score, commit, quicklook
+            # 5-9. Shared post-ogr2ogr pipeline
             dataset = await _finalize_ingest(
                 IngestContext(
                     session=session,
                     job=job,
                     table_name=table_name,
                     user_id=user_id,
-                    has_geometry=staging.has_geometry,
+                    has_geometry=has_geometry,
                     effective_srid=effective_srid,
                     source_format=source_format,
                     source_filename=job.source_filename,
                     original_srid=srid,
                     user_metadata=um,
-                ),
-                staging=staging,
+                )
             )
 
             # 9c. Archive original file to storage provider (R-2).
@@ -935,30 +748,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             )
 
         except Exception as exc:
-            # Clean up orphaned table on failure (matches reupload_file pattern)
+            # On any failure, mark job as failed
             await session.rollback()
-            try:
-                if table_name:
-                    from app.ingest.metadata import _qtable
-                    from sqlalchemy import text as _text
-
-                    await session.execute(
-                        _text(f"DROP TABLE IF EXISTS {_qtable(table_name)}")
-                    )
-                    await session.commit()
-            except Exception as cleanup_exc:
-                import structlog
-
-                structlog.get_logger().warning(
-                    "Table cleanup failed during ingest_file failure",
-                    table=table_name,
-                    cleanup_error=str(cleanup_exc),
-                    original_error=str(exc),
-                )
-
-            # Mark job as failed
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -993,12 +786,6 @@ def resolve_service_type(raw: str) -> tuple[str, str]:
     )
 
 
-def enrich_source_url(base_url: str, layer_id: int | str | None) -> str:
-    """Append layer_id to source_url for multi-layer service idempotency."""
-    if layer_id is not None:
-        return f"{base_url}/{layer_id}"
-    return base_url
-
 
 @task_app.task(queue="ingest", retry=2)
 async def ingest_service(
@@ -1021,6 +808,7 @@ async def ingest_service(
     7. Update job status to complete
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
+    from app.database import async_session
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
@@ -1122,7 +910,7 @@ async def ingest_service(
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 5-8. Shared post-ogr2ogr pipeline
-            dataset_source_url = enrich_source_url(source_url, layer_id)
+            dataset_source_url = f"{source_url}/{layer_id}" if layer_id is not None else source_url
             await _finalize_ingest(
                 IngestContext(
                     session=session,
@@ -1140,20 +928,10 @@ async def ingest_service(
             )
 
         except Exception as exc:
+            # On any failure, mark job as failed (no staging file to clean up)
             await session.rollback()
-            try:
-                if table_name:
-                    from app.ingest.metadata import _qtable
-                    from sqlalchemy import text as _text
-
-                    await session.execute(
-                        _text(f"DROP TABLE IF EXISTS {_qtable(table_name)}")
-                    )
-                    await session.commit()
-            except Exception:
-                pass
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1338,10 +1116,6 @@ async def _apply_reupload_swap(
     )
 
 
-async def _post_reupload_success() -> None:
-    """Run shared post-commit cache invalidation."""
-    await invalidate_catalog_cache()
-
 
 @task_app.task(queue="ingest", retry=1)
 async def reupload_file(
@@ -1353,9 +1127,21 @@ async def reupload_file(
     )
     import asyncio
 
+    from app.database import async_session
     from app.datasets.models import Dataset
-    from app.ingest.metadata import _qtable
-    from app.ingest.ogr import run_ogrinfo
+    from app.ingest.metadata import (
+        _qtable,
+        add_4326_column,
+        clip_to_mercator_bounds,
+        detect_3d_metadata,
+        ensure_geom_column,
+        extract_metadata,
+        get_column_info,
+        get_sample_values,
+        grant_reader_access,
+        promote_z_to_elev,
+    )
+    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.jobs.models import IngestJob
     from sqlalchemy import select, text
     from sqlalchemy.orm import joinedload
@@ -1375,7 +1161,7 @@ async def reupload_file(
         )
         dataset = dataset_result.scalar_one()
 
-        staging_tn = f"{dataset.table_name[:_STAGING_BASE_MAX]}{_STAGING_SUFFIX}"
+        staging_tn = f"{dataset.table_name[:54]}_staging"
 
         try:
             # 1. Update job to running
@@ -1398,7 +1184,7 @@ async def reupload_file(
                 )
             except ValueError as exc:
                 job.status = "failed"
-                job.error_message = _safe_error_message(exc)
+                job.error_message = str(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 Path(file_path).unlink(missing_ok=True)
@@ -1420,24 +1206,75 @@ async def reupload_file(
             )
 
             # 4. Load into staging table (drop stale staging table first)
+            db_conn_str = build_pg_conn_str()
             await session.execute(
                 text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)} CASCADE")
             )
             await session.commit()
-
-            # 4–6. Shared vector staging pipeline (ogr2ogr → rename → DBF →
-            #      post-process → metadata extraction)
-            staging = await _ingest_vector_into_staging(
-                session,
-                job=job,
-                file_path=file_path,
-                target_table=staging_tn,
+            await run_ogr2ogr(
+                file_path,
+                staging_tn,
+                db_conn_str,
                 source_srid=srid,
-                ogr_geometry_type=geometry_type,
-                has_geometry=has_geometry,
-                effective_srid=effective_srid,
-                ogrinfo_columns=info.get("columns") or [],
+                geometry_type=geometry_type,
             )
+
+            # 4a. Rename any source column that collides with a GeoLens-internal
+            #     name. Runs BEFORE post-process steps (ensure_geom_column /
+            #     add_4326_column) so they cannot clash with source attributes.
+            from app.ingest.metadata import rename_reserved_columns
+
+            reserved_renames = await rename_reserved_columns(session, staging_tn)
+            if reserved_renames:
+                from app.ingest.warnings import make_reserved_rename_warning
+
+                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+            # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
+            if file_path.lower().endswith(".zip"):
+                import structlog
+                from app.ingest.metadata import detect_dbf_truncation_collisions
+                from app.ingest.ogr import run_ogrinfo_preview
+                from app.ingest.warnings import make_dbf_truncation_warning
+
+                preview_cols = info.get("columns") or []
+                if not preview_cols:
+                    preview_info = await run_ogrinfo_preview(file_path, sample_limit=0)
+                    preview_cols = preview_info.get("columns") or []
+                dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+                if dbf_collisions:
+                    _append_job_warning(
+                        job, make_dbf_truncation_warning(dbf_collisions)
+                    )
+                    structlog.get_logger().warning(
+                        "Shapefile DBF 10-char truncation collision detected",
+                        table=staging_tn,
+                        collisions=dbf_collisions,
+                    )
+
+            # 5. Post-process staging table
+            if has_geometry:
+                await ensure_geom_column(session, staging_tn)
+                await clip_to_mercator_bounds(session, staging_tn)
+                await add_4326_column(session, staging_tn, effective_srid)
+            await grant_reader_access(session, staging_tn)
+
+            # 6. Extract metadata from staging table
+            metadata = await extract_metadata(session, staging_tn)
+            sample_values = await get_sample_values(
+                session, staging_tn, metadata["column_info"]
+            )
+
+            # Detect 3D geometry on re-uploaded data (same as _finalize_ingest)
+            three_d = await detect_3d_metadata(session, staging_tn)
+
+            # Attribute promotion for 3D points
+            if three_d.get("is_3d"):
+                elev_promoted = await promote_z_to_elev(
+                    session, staging_tn, metadata.get("geometry_type")
+                )
+                if elev_promoted:
+                    metadata["column_info"] = await get_column_info(session, staging_tn)
 
             # 7. Compute file hash + source format
             file_hash = await asyncio.to_thread(sha256_file, file_path)
@@ -1449,8 +1286,8 @@ async def reupload_file(
                 session,
                 dataset=dataset,
                 staging_table=staging_tn,
-                metadata=staging.metadata,
-                sample_values=staging.sample_values,
+                metadata=metadata,
+                sample_values=sample_values,
                 user_id=user_id,
                 source_filename=job.source_filename,
                 source_format=source_format,
@@ -1459,10 +1296,10 @@ async def reupload_file(
             )
 
             # Persist 3D fields on dataset record
-            dataset.is_3d = staging.three_d.get("is_3d")
-            dataset.n_dims = staging.three_d.get("n_dims")
-            dataset.z_min = staging.three_d.get("z_min")
-            dataset.z_max = staging.three_d.get("z_max")
+            dataset.is_3d = three_d.get("is_3d")
+            dataset.n_dims = three_d.get("n_dims")
+            dataset.z_min = three_d.get("z_min")
+            dataset.z_max = three_d.get("z_max")
 
             # 9. Archive original file to storage provider.
             # Best-effort: failure does NOT fail the reupload (data is already
@@ -1483,7 +1320,7 @@ async def reupload_file(
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
 
-            await _post_reupload_success()
+            await invalidate_catalog_cache()
 
             # Generate embedding (non-fatal)
             from app.embeddings.helpers import defer_embedding
@@ -1512,7 +1349,7 @@ async def reupload_file(
 
             # Mark job as failed
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1545,6 +1382,7 @@ async def reupload_service(
     _bind_task_log_context(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
     )
+    from app.database import async_session
     from app.datasets.models import Dataset
     from app.ingest.metadata import (
         _qtable,
@@ -1579,7 +1417,7 @@ async def reupload_service(
         )
         dataset = dataset_result.scalar_one()
 
-        staging_tn = f"{dataset.table_name[:_STAGING_BASE_MAX]}{_STAGING_SUFFIX}"
+        staging_tn = f"{dataset.table_name[:54]}_staging"
 
         try:
             job.status = "running"
@@ -1659,7 +1497,7 @@ async def reupload_service(
                 metadata.get("column_info", []),
             )
 
-            reupload_source_url = enrich_source_url(source_url_value, layer_id)
+            reupload_source_url = f"{source_url_value}/{layer_id}" if layer_id is not None else source_url_value
             await _apply_reupload_swap(
                 session,
                 dataset=dataset,
@@ -1677,7 +1515,7 @@ async def reupload_service(
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
 
-            await _post_reupload_success()
+            await invalidate_catalog_cache()
 
             # Generate embedding (non-fatal)
             from app.embeddings.helpers import defer_embedding
@@ -1703,7 +1541,7 @@ async def reupload_service(
                 )
 
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1716,7 +1554,7 @@ async def reupload_service(
 
 
 async def create_raster_dataset(
-    session: "AsyncSession",
+    session,
     *,
     meta: dict,
     source_sha256: str,
@@ -1803,7 +1641,7 @@ async def create_raster_dataset(
 
 
 async def create_vrt_dataset(
-    session: "AsyncSession",
+    session,
     *,
     meta: dict,
     asset_sha256: str,
@@ -1973,7 +1811,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 )
             except ValueError as exc:
                 job.status = "failed"
-                job.error_message = _safe_error_message(exc)
+                job.error_message = str(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 _Path(file_path).unlink(missing_ok=True)
@@ -2106,7 +1944,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         except Exception as exc:
             await session.rollback()
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -2224,9 +2062,7 @@ async def ingest_vrt(
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
-                logger_vrt.warning(
-                    "Quicklook generation failed for VRT %s", job_id, exc_info=True
-                )
+                logger_vrt.warning("Quicklook generation failed for VRT %s", job_id, exc_info=True)
 
             # 9. Create DB records
             um = job.user_metadata or {}
@@ -2298,7 +2134,7 @@ async def ingest_vrt(
         except Exception as exc:
             await session.rollback()
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -2451,9 +2287,7 @@ async def regenerate_vrt(
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
                 logger_regen.warning(
-                    "Quicklook regeneration failed for VRT %s",
-                    vrt_dataset_id,
-                    exc_info=True,
+                    "Quicklook regeneration failed for VRT %s", vrt_dataset_id, exc_info=True
                 )
 
             # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
@@ -2524,7 +2358,7 @@ async def regenerate_vrt(
                 vrt_asset.status = "failed"
                 vrt_asset.current_generation_id = None
             job.status = "failed"
-            job.error_message = _safe_error_message(exc)
+            job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
 
             # Update generation record on failure

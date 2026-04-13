@@ -49,7 +49,7 @@ describe('useSearchStore', () => {
     useSearchStore.setState({ offset: 10 });
     useSearchStore.getState().setSortBy('name');
 
-    expect(useSearchStore.getState().sortBy).toBe('name');
+    expect(useSearchStore.getState().sort_by).toBe('name');
     expect(useSearchStore.getState().offset).toBe(0);
   });
 

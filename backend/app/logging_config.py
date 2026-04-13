@@ -5,18 +5,6 @@ import logging
 import structlog
 
 
-_SENSITIVE_KEYS = frozenset({"api_key", "password", "token", "secret", "authorization"})
-
-
-def _redact_sensitive_keys(
-    _logger: object, _method: str, event_dict: dict[str, object]
-) -> dict[str, object]:
-    """Replace values of sensitive keys with '***'."""
-    for key in _SENSITIVE_KEYS & event_dict.keys():
-        event_dict[key] = "***"
-    return event_dict
-
-
 def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
     """Configure structlog + stdlib logging with shared processor chain.
 
@@ -26,7 +14,6 @@ def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
         log_level: Root log level (e.g. "DEBUG", "INFO", "WARNING").
     """
     shared_processors: list[structlog.types.Processor] = [
-        _redact_sensitive_keys,
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,

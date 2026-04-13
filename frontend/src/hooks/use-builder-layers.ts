@@ -115,27 +115,21 @@ export function useBuilderLayers(
   // `layersRef.current` instead of `localLayers` to keep their dep lists
   // stable (KISS-2 / PERF-N2).
 
-  const handleMoveUp = useCallback((layerId: string) => {
+  const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
     setLocalLayers((prev) => {
       const idx = prev.findIndex((l) => l.id === layerId);
-      if (idx <= 0) return prev;
+      if (direction === 'up' && idx <= 0) return prev;
+      if (direction === 'down' && (idx < 0 || idx >= prev.length - 1)) return prev;
       const next = [...prev];
-      [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
   }, []);
 
-  const handleMoveDown = useCallback((layerId: string) => {
-    setLocalLayers((prev) => {
-      const idx = prev.findIndex((l) => l.id === layerId);
-      if (idx < 0 || idx >= prev.length - 1) return prev;
-      const next = [...prev];
-      [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    setHasUnsavedChanges(true);
-  }, []);
+  const handleMoveUp = useCallback((layerId: string) => handleMove(layerId, 'up'), [handleMove]);
+  const handleMoveDown = useCallback((layerId: string) => handleMove(layerId, 'down'), [handleMove]);
 
   const handleReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
     setLocalLayers(reorderedLayers.map((l, i) => ({ ...l, sort_order: i })));

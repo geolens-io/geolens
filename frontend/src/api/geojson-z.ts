@@ -15,42 +15,22 @@ export async function fetchGeoJsonZ(
   datasetId: string,
   options?: { apiKey?: string; embedToken?: string },
 ): Promise<GeoJsonZResponse> {
-  const relativePath = `/datasets/${datasetId}/features.geojson`;
-  const fullPath = `/api${relativePath}`;
+  const path = `/api/datasets/${datasetId}/features.geojson`;
 
   if (options?.embedToken) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(fullPath, {
-        signal: controller.signal,
-        headers: { 'X-Embed-Token': options.embedToken },
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
-      return res.json() as Promise<GeoJsonZResponse>;
-    } catch (e) {
-      clearTimeout(timer);
-      throw e;
-    }
+    const res = await fetch(path, {
+      headers: { 'X-Embed-Token': options.embedToken },
+    });
+    if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
+    return res.json() as Promise<GeoJsonZResponse>;
   }
 
   if (options?.apiKey) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(`${fullPath}?api_key=${encodeURIComponent(options.apiKey)}`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
-      return res.json() as Promise<GeoJsonZResponse>;
-    } catch (e) {
-      clearTimeout(timer);
-      throw e;
-    }
+    const res = await fetch(`${path}?api_key=${encodeURIComponent(options.apiKey)}`);
+    if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
+    return res.json() as Promise<GeoJsonZResponse>;
   }
 
-  // Default: JWT auth via apiFetch (prepends /api automatically)
-  return apiFetch<GeoJsonZResponse>(relativePath);
+  // Default: JWT auth via apiFetch
+  return apiFetch<GeoJsonZResponse>(path);
 }

@@ -63,6 +63,10 @@ describe('queryKeys factory', () => {
       expect(key[0]).toBe('datasets');
     });
 
+    it('quicklook includes datasetId', () => {
+      expect(queryKeys.datasets.quicklook('abc')).toEqual(['dataset-quicklook', 'abc']);
+    });
+
     it('rowsPrefix is a prefix of rows', () => {
       const prefix = queryKeys.datasets.rowsPrefix('abc');
       const full = queryKeys.datasets.rows('abc', 50, 0);

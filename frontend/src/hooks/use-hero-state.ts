@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-export type HeroState = 'loading' | 'loaded' | 'error';
+type HeroState = 'loading' | 'loaded' | 'error';
 
 interface UseHeroStateOptions {
   datasetId: string | undefined;
