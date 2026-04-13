@@ -106,7 +106,7 @@ class BaseCommitRequest(BaseModel):
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
     summary: str | None = Field(
-        default=None, description="Optional dataset description shown in the catalog."
+        default=None, max_length=5000, description="Optional dataset description shown in the catalog."
     )
     visibility: Visibility = Field(
         default="private",
@@ -198,7 +198,7 @@ class CommitRequest(BaseModel):
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
     summary: str | None = Field(
-        default=None, description="Optional dataset description shown in the catalog."
+        default=None, max_length=5000, description="Optional dataset description shown in the catalog."
     )
     visibility: Visibility = Field(
         default="private",
@@ -298,10 +298,10 @@ class DiscoverResponse(BaseModel):
 
 
 class BulkRegisterItem(BaseModel):
-    table_name: str = Field(description="PostgreSQL table name to register.")
-    title: str = Field(description="Human-readable dataset title.")
+    table_name: str = Field(max_length=63, description="PostgreSQL table name to register.")
+    title: str = Field(max_length=500, description="Human-readable dataset title.")
     summary: str | None = Field(
-        default=None, description="Optional dataset description."
+        default=None, max_length=5000, description="Optional dataset description."
     )
     visibility: Visibility = Field(
         default="private", description="Dataset visibility level."
@@ -418,10 +418,10 @@ class VrtCreateRequest(BaseModel):
         description="How to resolve mismatched source resolutions: 'finest' uses the highest, 'coarsest' uses the lowest, 'average' computes the mean."
     )
     title: str = Field(
-        description="Human-readable title for the resulting VRT dataset."
+        min_length=1, max_length=500, description="Human-readable title for the resulting VRT dataset."
     )
     summary: str | None = Field(
-        default=None, description="Optional description for the VRT dataset."
+        default=None, max_length=5000, description="Optional description for the VRT dataset."
     )
     visibility: Visibility = Field(
         default="private", description="Visibility level for the resulting VRT dataset."

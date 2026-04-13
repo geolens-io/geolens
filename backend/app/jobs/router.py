@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_active_user, require_permission
-from app.auth.models import Role, User, UserRole
+from app.auth.models import User
 from app.dependencies import get_db
 from app.ingest.schemas import UploadResponse
 from app.ingest.service import queue_ingest_job

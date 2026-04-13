@@ -42,7 +42,7 @@ class MapLayerInput(BaseModel):
         default=None, description="Data-driven style configuration"
     )
     layer_type: str | None = Field(
-        default=None, description="Auto-detected from record_type if omitted"
+        default=None, max_length=50, description="Auto-detected from record_type if omitted"
     )
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"
@@ -67,7 +67,7 @@ class MapUpdate(BaseModel):
         default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
     )
     basemap_style: str | None = Field(
-        default=None, description="Basemap style ID or URL"
+        default=None, max_length=500, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = Field(

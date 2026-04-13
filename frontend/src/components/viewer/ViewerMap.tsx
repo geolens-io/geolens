@@ -60,6 +60,7 @@ interface ViewerMapProps {
 
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
 const VIEWER_PREFIX = 'viewer-';
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' } as const;
 
 function getViewerSourceId(sortOrder: number) {
   return `viewer-source-${sortOrder}`;
@@ -185,10 +186,12 @@ export function ViewerMap({
     features: { properties: Record<string, unknown>; layerName: string; columnInfo: { name: string; type: string }[] | null }[];
   } | null>(null);
 
-  // Tile tokens fetched via API key auth
-  const [tokenMap, setTokenMap] = useState<Map<string, TileToken>>(new Map());
+  // Tile tokens fetched via API key auth — stored in ref to avoid full re-renders on refresh
+  const tokenMapRef = useRef<Map<string, TileToken>>(new Map());
+  const [tokenVersion, setTokenVersion] = useState(0);
   const [tokenError, setTokenError] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tokenRetryRef = useRef(5000);
 
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
@@ -243,7 +246,9 @@ export function ViewerMap({
         }
 
         if (cancelled) return;
-        setTokenMap(newMap);
+        tokenMapRef.current = newMap;
+        tokenRetryRef.current = 5000;
+        setTokenVersion((v) => v + 1);
 
         // Refresh at 80% of the minimum vector-token TTL. Raster tokens
         // have no expires_in (the tile_url is stable), so if there are no
@@ -262,8 +267,12 @@ export function ViewerMap({
           }, refreshMs);
         }
       } catch (err) {
-        console.error('ViewerMap: failed to fetch tile tokens', err);
+        console.error('[ViewerMap] Failed to fetch tile tokens:', err);
         setTokenError(true);
+        refreshTimerRef.current = setTimeout(() => {
+          if (!cancelled) fetchTokens();
+        }, tokenRetryRef.current);
+        tokenRetryRef.current = Math.min(tokenRetryRef.current * 2, 60_000);
       }
     }
 
@@ -332,11 +341,14 @@ export function ViewerMap({
               newMap.set(String(layer.sort_order), data as GeoJSON.FeatureCollection);
             }
           } catch (e) {
-            console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
+            if (import.meta.env.DEV) console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
           }
         }),
       );
       if (!cancelled) {
+        if (newMap.size === 0 && geojsonZLayers.length > 0) {
+          if (import.meta.env.DEV) console.warn('[ViewerMap] All GeoJSON-Z fetches failed — layers will render as 2D MVT');
+        }
         geojsonDataRef.current = newMap;
         const map = mapRef.current;
         if (map && mapReady) {
@@ -492,12 +504,13 @@ export function ViewerMap({
   }, [visibleLayers]);
 
   // Ref to hold current sync inputs so the style.load callback can access them
-  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels });
-  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels };
+  const syncInputsRef = useRef({ layers, visibleLayers, tokenMapRef, tileConfig, showBasemapLabels });
+  syncInputsRef.current = { layers, visibleLayers, tokenMapRef, tileConfig, showBasemapLabels };
 
   /** Wrapper: convert viewer state to normalized inputs and call unified syncLayersToMap */
   const runSync = useCallback((map: MaplibreMap) => {
-    const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
+    const { layers: ls, visibleLayers: vl, tokenMapRef: tmRef, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
+    const tm = tmRef.current;
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = ls.map((l) => toViewerSyncInput(l, vl));
     const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
@@ -515,9 +528,9 @@ export function ViewerMap({
     // server rejects for raster datasets and maplibre never recovers from.
     // The embed-token path has its own transformRequest flow and doesn't
     // depend on tokenMap, so it's allowed to sync immediately.
-    if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
+    if (!embedToken && layers.length > 0 && tokenMapRef.current.size === 0) return;
     runSync(map);
-  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken]);
+  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenVersion, showBasemapLabels, runSync, embedToken]);
 
   // Update tile URLs in-place when vector tokens refresh (token rotation).
   // Narrow the dep to the single primitive the effect actually reads so the
@@ -537,11 +550,11 @@ export function ViewerMap({
   const cdnBaseUrl = tileConfig?.cdn_base_url;
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || (!embedToken && tokenMap.size === 0)) return;
+    if (!map || !mapReady || (!embedToken && tokenMapRef.current.size === 0)) return;
     const tileBaseUrl = resolveTileBaseUrl({ cdn_base_url: cdnBaseUrl });
 
     for (const layer of layers) {
-      const token = tokenMap.get(layer.dataset_id) ?? null;
+      const token = tokenMapRef.current.get(layer.dataset_id) ?? null;
       // Skip rasters — their tile_url is stable, no refresh needed.
       if (token && token.kind !== 'vector') continue;
       const sourceId = getViewerSourceId(layer.sort_order);
@@ -552,7 +565,7 @@ export function ViewerMap({
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }
-  }, [tokenMap, layers, mapReady, cdnBaseUrl, embedToken]);
+  }, [tokenVersion, layers, mapReady, cdnBaseUrl, embedToken]);
 
   // Toggle visibility when visibleLayers set changes
   useEffect(() => {
@@ -639,7 +652,7 @@ export function ViewerMap({
         initialViewState={defaultView}
         mapStyle={styleValue as string}
         styleDiffing={false}
-        style={{ width: '100%', height: '100%' }}
+        style={MAP_CONTAINER_STYLE}
         attributionControl={false}
         minZoom={1}
         onLoad={handleLoad}

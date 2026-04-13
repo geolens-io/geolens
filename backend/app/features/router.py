@@ -74,9 +74,12 @@ async def get_features_geojson_z_endpoint(
             detail="Dataset has no geometry",
         )
 
-    rows, truncated, total_count = await get_features_geojson_z(
-        db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
-    )
+    try:
+        rows, truncated, total_count = await get_features_geojson_z(
+            db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
+        )
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset table not found")
 
     body = {
         "type": "FeatureCollection",
