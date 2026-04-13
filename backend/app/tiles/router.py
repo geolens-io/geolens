@@ -269,13 +269,12 @@ async def raster_auth_check(
         open_path = f"{settings.upload_staging_dir}/{asset_uri}"
 
     cache_status = "public" if row["visibility"] == "public" else "private"
-    render_params = _titiler_render_params(row["band_count"], row["dtype"])
     if row.get("is_dem"):
-        render_params = (
-            f"algorithm=terrainrgb&{render_params}"
-            if render_params
-            else "algorithm=terrainrgb"
-        )
+        # DEM terrain: use terrainrgb algorithm with NO rescale — the algorithm
+        # reads raw elevation values and encodes them into RGB channels directly.
+        render_params = "algorithm=terrainrgb"
+    else:
+        render_params = _titiler_render_params(row["band_count"], row["dtype"])
 
     return Response(
         status_code=status.HTTP_200_OK,
