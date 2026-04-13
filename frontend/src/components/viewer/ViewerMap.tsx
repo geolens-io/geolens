@@ -158,7 +158,7 @@ export function ViewerMap({
 
   // Find the first DEM raster layer in the shared map composition
   const demLayer = useMemo(
-    () => layers.find((l) => l.is_dem && l.dataset_record_type?.startsWith('raster')),
+    () => layers.find((l) => l.is_dem && (l.dataset_record_type === 'raster_dataset' || l.dataset_record_type === 'vrt_dataset')),
     [layers],
   );
 
