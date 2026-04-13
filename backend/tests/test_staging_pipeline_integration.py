@@ -116,6 +116,7 @@ async def test_job_csv(test_db_session):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
 class TestStagingPipelineIntegration:
     """Integration tests exercising _ingest_vector_into_staging with real ogr2ogr."""
 
