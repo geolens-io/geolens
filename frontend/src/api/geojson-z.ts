@@ -15,10 +15,11 @@ export async function fetchGeoJsonZ(
   datasetId: string,
   options?: { apiKey?: string; embedToken?: string },
 ): Promise<GeoJsonZResponse> {
-  const path = `/api/datasets/${datasetId}/features.geojson`;
+  const relativePath = `/datasets/${datasetId}/features.geojson`;
+  const fullPath = `/api${relativePath}`;
 
   if (options?.embedToken) {
-    const res = await fetch(path, {
+    const res = await fetch(fullPath, {
       headers: { 'X-Embed-Token': options.embedToken },
     });
     if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
@@ -26,11 +27,11 @@ export async function fetchGeoJsonZ(
   }
 
   if (options?.apiKey) {
-    const res = await fetch(`${path}?api_key=${encodeURIComponent(options.apiKey)}`);
+    const res = await fetch(`${fullPath}?api_key=${encodeURIComponent(options.apiKey)}`);
     if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
     return res.json() as Promise<GeoJsonZResponse>;
   }
 
-  // Default: JWT auth via apiFetch
-  return apiFetch<GeoJsonZResponse>(path);
+  // Default: JWT auth via apiFetch (prepends /api automatically)
+  return apiFetch<GeoJsonZResponse>(relativePath);
 }
