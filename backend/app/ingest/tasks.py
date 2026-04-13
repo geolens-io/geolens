@@ -18,6 +18,9 @@ from app.raster.quicklook import generate_quicklook
 from app.raster.vrt import build_vrt, resolve_vrt_source_path
 from app.storage import get_storage
 
+_STAGING_SUFFIX = "_staging"
+_STAGING_BASE_MAX = 63 - len(_STAGING_SUFFIX)  # 55
+
 if TYPE_CHECKING:
     from datetime import date
 
@@ -1327,7 +1330,7 @@ async def reupload_file(
         )
         dataset = dataset_result.scalar_one()
 
-        staging_tn = f"{dataset.table_name[:54]}_staging"
+        staging_tn = f"{dataset.table_name[:_STAGING_BASE_MAX]}{_STAGING_SUFFIX}"
 
         try:
             # 1. Update job to running
@@ -1532,7 +1535,7 @@ async def reupload_service(
         )
         dataset = dataset_result.scalar_one()
 
-        staging_tn = f"{dataset.table_name[:54]}_staging"
+        staging_tn = f"{dataset.table_name[:_STAGING_BASE_MAX]}{_STAGING_SUFFIX}"
 
         try:
             job.status = "running"
