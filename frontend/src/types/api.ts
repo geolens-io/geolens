@@ -32,6 +32,15 @@ export interface RasterConnect {
   s3_uri: string | null;
 }
 
+export interface StacAsset {
+  href: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  roles?: string[];
+  size_bytes?: number;
+}
+
 export interface RasterMetadata {
   epsg: number | null;
   res_x: number | null;
@@ -42,7 +51,6 @@ export interface RasterMetadata {
   width: number | null;
   height: number | null;
   size_bytes: number | null;
-  quicklook_url: string | null;
   tile_url: string | null;
   bands: RasterBandInfo[];
   connect: RasterConnect | null;
@@ -97,7 +105,7 @@ export interface DatasetResponse {
   updated_at: string;
   last_edited_by_display: string | null;
   last_edited_at: string | null;
-  record_status: string | null;
+  record_status: string;
   lineage_summary: string | null;
   update_frequency: string | null;
   usage_constraints: string | null;
@@ -121,7 +129,7 @@ export interface DatasetResponse {
   } | null;
   record_type: string;
   raster: RasterMetadata | null;
-  stac_assets?: Record<string, unknown>;
+  stac_assets?: Record<string, StacAsset> | null;
   stac_extensions?: string[];
   language?: string;
   is_3d?: boolean | null;
@@ -1078,7 +1086,7 @@ export interface EmbedTokenResponse {
   id: string;
   map_id: string;
   name?: string | null;
-  scoped_dataset_ids?: string[];
+  scoped_dataset_ids: string[];
   token_hint: string;
   allowed_origins: string[] | null;
   expires_at: string;

@@ -182,10 +182,12 @@ export function ViewerMap({
     features: { properties: Record<string, unknown>; layerName: string; columnInfo: { name: string; type: string }[] | null }[];
   } | null>(null);
 
-  // Fetch tile tokens for all layers
+  // Fetch tile tokens for all layers — use string key for stable identity
+  const datasetIdKey = layers.map((l) => l.dataset_id).filter(Boolean).join(',');
   const layerDatasetIds = useMemo(
     () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
-    [layers],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable by string key
+    [datasetIdKey],
   );
   const { tokenMapRef, tokenVersion, tokenError } = useTileTokens(layerDatasetIds, { apiKey, embedToken });
 
