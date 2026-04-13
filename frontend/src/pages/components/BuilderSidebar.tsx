@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2, Download, MessageSquare, PanelLeftClose, Share2, Copy, Info, MoreHorizontal, GripVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -98,7 +98,7 @@ interface BuilderSidebarProps {
   onShowInfo: () => void;
 }
 
-export function BuilderSidebar({
+export const BuilderSidebar = React.memo(function BuilderSidebar({
   layers,
   save,
   localName,
@@ -352,4 +352,4 @@ export function BuilderSidebar({
       <SidebarContent layers={layers} inspectorMode={inspectorMode} onAddDataClick={onShowAddData} />
     </div>
   );
-}
+});

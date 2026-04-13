@@ -51,7 +51,10 @@ export function OAuthCallbackPage() {
       })
       .catch(() => {
         useAuthStore.getState().logout();
-        navigate('/login', { replace: true });
+        navigate('/login', {
+          replace: true,
+          state: { oauthError: 'Session could not be established. Please try again.' },
+        });
       });
   }, [navigate]);
 
