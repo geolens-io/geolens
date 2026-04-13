@@ -162,6 +162,8 @@ export function MapBuilderPage() {
   const { isCompact, isMobile } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
+  // mapInstance state duplicates the ref — needed to trigger re-renders for
+  // widgetCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
 
   // Resizable sidebar state (persisted to localStorage)
