@@ -193,7 +193,7 @@ async def detect_3d_metadata(
         text(
             f"SELECT "
             f"  MAX(ST_NDims(geom)) AS n_dims, "
-            f"  bool_or(ST_Is3D(geom)) AS is_3d, "
+            f"  bool_or(ST_NDims(geom) >= 3) AS is_3d, "
             f"  MIN(ST_ZMin(geom)) AS z_min, "
             f"  MAX(ST_ZMax(geom)) AS z_max "
             f"FROM {_qtable(table_name)} "
@@ -265,7 +265,7 @@ async def promote_z_to_elev(
             text(
                 f"UPDATE {_qtable(table_name)} "
                 f"SET elev = ST_Z(geom) "
-                f"WHERE geom IS NOT NULL AND ST_Is3D(geom)"
+                f"WHERE geom IS NOT NULL AND ST_NDims(geom) >= 3"
             )
         )
     else:
@@ -274,7 +274,7 @@ async def promote_z_to_elev(
             text(
                 f"UPDATE {_qtable(table_name)} "
                 f"SET elev = ST_Z(ST_GeometryN(geom, 1)) "
-                f"WHERE geom IS NOT NULL AND ST_Is3D(geom)"
+                f"WHERE geom IS NOT NULL AND ST_NDims(geom) >= 3"
             )
         )
 
@@ -799,7 +799,7 @@ async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> Non
             f"  ST_Intersection(geom, {_MERCATOR_SAFE_ENVELOPE}),"
             f"  ST_Dimension(geom) + 1"
             f") "
-            f"WHERE NOT ST_CoveredBy(geom, {_MERCATOR_SAFE_ENVELOPE})"
+            f"WHERE NOT ST_CoveredBy(ST_Force2D(ST_SetSRID(geom, 4326)), {_MERCATOR_SAFE_ENVELOPE})"
         )
     )
     await session.commit()
@@ -822,13 +822,14 @@ async def add_4326_column(
         )
     )
 
-    if source_srid == 4326:
+    if source_srid in (4326, 4979):
+        # 4979 is WGS84 3D (same datum as 4326); strip Z for the 2D index column
         await session.execute(
-            text(f"UPDATE {tref} SET geom_4326 = ST_SetSRID(geom, 4326)")
+            text(f"UPDATE {tref} SET geom_4326 = ST_SetSRID(ST_Force2D(geom), 4326)")
         )
     else:
         await session.execute(
-            text(f"UPDATE {tref} SET geom_4326 = ST_Transform(geom, 4326)")
+            text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_Transform(geom, 4326))")
         )
 
     await session.execute(
