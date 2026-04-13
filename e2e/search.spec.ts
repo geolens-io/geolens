@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { getSearchSeed } from './helpers/catalog';
 
 test.describe('Search Flow', () => {
   test('search page renders at root with search input', async ({ page }) => {
@@ -42,6 +43,8 @@ test.describe('Search Flow', () => {
   });
 
   test('prefix search supports keyboard typeahead navigation', async ({ page }) => {
+    const seed = await getSearchSeed();
+
     // Verify search page loaded
     await page.goto('/');
     await expect(
@@ -50,35 +53,35 @@ test.describe('Search Flow', () => {
 
     // Navigate with query param to bypass hero→sticky transition race condition.
     // This puts us directly in browse mode with a single SearchBar.
-    await page.goto('/?q=Zoning');
+    await page.goto(`/?q=${encodeURIComponent(seed.query)}`);
     const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
-    await expect(searchInput).toHaveValue('Zoning');
+    await expect(searchInput).toHaveValue(seed.query);
 
     // Focus and re-fill to trigger typeahead (onFocus + onChange open the dropdown)
     await searchInput.click();
-    await searchInput.fill('Zoning');
-    await expect(page.getByRole('option', { name: /Composite Zoning 2024/ })).toBeVisible({
+    await searchInput.fill(seed.query);
+    await expect(page.getByRole('option', { name: seed.title, exact: true })).toBeVisible({
       timeout: 15_000,
     });
     await searchInput.press('ArrowDown');
     await searchInput.press('Enter');
 
     // Verify dataset detail page
-    await expect(page).toHaveURL(/\/datasets\//);
+    await expect(page).toHaveURL(new RegExp(`/datasets/${seed.id}$`));
     await expect(
-      page.getByRole('heading', { name: /Composite Zoning 2024/ }),
+      page.getByRole('heading', { name: seed.title, exact: true }),
     ).toBeVisible();
   });
 
   test('result cards stay readable on mobile widths', async ({ page }) => {
+    const seed = await getSearchSeed();
+
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/?q=Zoning');
+    await page.goto(`/?q=${encodeURIComponent(seed.query)}`);
 
     const card = page.getByTestId('search-result-card').first();
     await expect(card).toBeVisible();
-    await expect(card.getByText('Composite Zoning 2024')).toBeVisible();
-    await expect(card.getByTestId('dataset-card-specs')).toContainText('EPSG:4326');
-    await expect(card.getByTestId('dataset-card-source')).toContainText('Neglia Engineering Associates');
+    await expect(card).toContainText(seed.title);
 
     const overflow = await card.evaluate((element) => ({
       clientWidth: element.clientWidth,

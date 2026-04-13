@@ -38,6 +38,12 @@ describe('Table A11Y-03: keyboard-accessible container', () => {
     expect(container.getAttribute('aria-label')).toBe('Dataset attributes');
   });
 
+  it('can opt out of keyboard focus on the container', () => {
+    renderTable({ containerFocusable: false });
+    const container = document.querySelector('[data-slot="table-container"]')!;
+    expect(container.hasAttribute('tabindex')).toBe(false);
+  });
+
   it('has focus-visible ring classes', () => {
     renderTable();
     const container = document.querySelector('[data-slot="table-container"]')!;

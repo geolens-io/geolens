@@ -371,7 +371,10 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                 setCursorHistory([0]);
               }}
             >
-              <SelectTrigger className="h-7 w-[70px] text-xs">
+              <SelectTrigger
+                className="h-7 w-[70px] text-xs"
+                aria-label={t('attributes.rowsPerPage')}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -56,6 +56,17 @@ class IngestContext:
     source_url: str | None = None
 
 
+@dataclass
+class StagingResult:
+    """Intermediate staging outputs before dataset creation."""
+
+    metadata: dict
+    sample_values: dict
+    three_d: dict
+    has_geometry: bool
+    geometry_type: str | None
+
+
 _connector_kwargs: dict = {"min_size": 1, "max_size": 3}
 if settings.db_use_external_pooler:
     _connector_kwargs["kwargs"] = {"prepare_threshold": None}
@@ -354,6 +365,119 @@ async def _archive_original_file(
             )
 
 
+async def _ingest_vector_into_staging(
+    session,
+    *,
+    job,
+    file_path: str,
+    target_table: str,
+    source_srid: int | None,
+    ogr_geometry_type: str | None,
+    has_geometry: bool,
+    effective_srid: int | None,
+    layer_name: str | None = None,
+    ogrinfo_columns: list[dict] | None = None,
+    user_wants_geom: bool = False,
+    user_metadata: dict | None = None,
+) -> StagingResult:
+    """Load a vector source into staging and return extracted staging metadata.
+
+    This helper preserves the staging-pipeline unit-test boundary while the
+    production ingest path continues to inline the broader job lifecycle.
+    It intentionally performs no commits.
+    """
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        detect_3d_metadata,
+        ensure_geom_column,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+        promote_z_to_elev,
+        rename_reserved_columns,
+    )
+    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr
+
+    if user_wants_geom and user_metadata is None:
+        raise ValueError("user_metadata is required when user_wants_geom=True")
+
+    db_conn_str = build_pg_conn_str()
+    await run_ogr2ogr(
+        file_path,
+        target_table,
+        db_conn_str,
+        source_srid=source_srid,
+        geometry_type=ogr_geometry_type,
+        layer_name=layer_name,
+    )
+
+    reserved_renames = await rename_reserved_columns(session, target_table)
+    if reserved_renames:
+        from app.ingest.warnings import make_reserved_rename_warning
+
+        _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+    if file_path.lower().endswith(".zip"):
+        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.ingest.ogr import run_ogrinfo_preview
+        from app.ingest.warnings import make_dbf_truncation_warning
+
+        preview_cols = ogrinfo_columns or []
+        if not preview_cols:
+            preview_info = await run_ogrinfo_preview(
+                file_path, sample_limit=0, layer_name=layer_name
+            )
+            preview_cols = preview_info.get("columns") or []
+        dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+        if dbf_collisions:
+            _append_job_warning(job, make_dbf_truncation_warning(dbf_collisions))
+
+    geometry_type = ogr_geometry_type
+    if user_wants_geom:
+        override_geom_type = await _detect_and_override_geometry(
+            session,
+            table_name=target_table,
+            user_metadata=user_metadata or {},
+        )
+        if override_geom_type is not None:
+            has_geometry = True
+            geometry_type = override_geom_type
+
+    if has_geometry:
+        has_geometry = await ensure_geom_column(session, target_table)
+        if has_geometry:
+            await clip_to_mercator_bounds(session, target_table)
+            if effective_srid is not None:
+                await add_4326_column(session, target_table, effective_srid)
+
+    await grant_reader_access(session, target_table)
+
+    metadata = await extract_metadata(session, target_table)
+    three_d = await detect_3d_metadata(session, target_table)
+
+    if three_d.get("is_3d"):
+        elev_promoted = await promote_z_to_elev(
+            session, target_table, metadata.get("geometry_type")
+        )
+        if elev_promoted:
+            from app.ingest.metadata import get_column_info
+
+            metadata["column_info"] = await get_column_info(session, target_table)
+
+    sample_values = await get_sample_values(
+        session, target_table, metadata.get("column_info", [])
+    )
+
+    return StagingResult(
+        metadata=metadata,
+        sample_values=sample_values,
+        three_d=three_d,
+        has_geometry=has_geometry,
+        geometry_type=metadata.get("geometry_type", geometry_type),
+    )
+
+
 async def _finalize_ingest(ctx: IngestContext):
     """Shared post-ogr2ogr pipeline for both file and service ingestion.
 
@@ -428,6 +552,7 @@ async def _finalize_ingest(ctx: IngestContext):
         if elev_promoted:
             # Re-extract column_info so elev appears in the column list
             from app.ingest.metadata import get_column_info
+
             metadata["column_info"] = await get_column_info(session, table_name)
 
     # ArcGIS column_info fallback: if the DB-based extraction returned empty
@@ -616,7 +741,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # Check for missing CRS (CSV and GeoJSON default to EPSG:4326)
             # Non-spatial files don't need CRS at all
             lower_path = file_path.lower()
-            assumes_4326 = any(lower_path.endswith(ext) for ext in (".csv", ".geojson", ".json", ".xlsx", ".xls"))
+            assumes_4326 = any(
+                lower_path.endswith(ext)
+                for ext in (".csv", ".geojson", ".json", ".xlsx", ".xls")
+            )
             if (
                 has_geometry
                 and srid is None
@@ -792,7 +920,6 @@ def resolve_service_type(raw: str) -> tuple[str, str]:
     )
 
 
-
 @task_app.task(queue="ingest", retry=2)
 async def ingest_service(
     job_id: str,
@@ -916,7 +1043,9 @@ async def ingest_service(
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 5-8. Shared post-ogr2ogr pipeline
-            dataset_source_url = f"{source_url}/{layer_id}" if layer_id is not None else source_url
+            dataset_source_url = (
+                f"{source_url}/{layer_id}" if layer_id is not None else source_url
+            )
             await _finalize_ingest(
                 IngestContext(
                     session=session,
@@ -1120,7 +1249,6 @@ async def _apply_reupload_swap(
             "source_filename": source_filename,
         },
     )
-
 
 
 @task_app.task(queue="ingest", retry=1)
@@ -1503,7 +1631,11 @@ async def reupload_service(
                 metadata.get("column_info", []),
             )
 
-            reupload_source_url = f"{source_url_value}/{layer_id}" if layer_id is not None else source_url_value
+            reupload_source_url = (
+                f"{source_url_value}/{layer_id}"
+                if layer_id is not None
+                else source_url_value
+            )
             await _apply_reupload_swap(
                 session,
                 dataset=dataset,
@@ -2068,7 +2200,9 @@ async def ingest_vrt(
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
-                logger_vrt.warning("Quicklook generation failed for VRT %s", job_id, exc_info=True)
+                logger_vrt.warning(
+                    "Quicklook generation failed for VRT %s", job_id, exc_info=True
+                )
 
             # 9. Create DB records
             um = job.user_metadata or {}
@@ -2293,7 +2427,9 @@ async def regenerate_vrt(
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
                 logger_regen.warning(
-                    "Quicklook regeneration failed for VRT %s", vrt_dataset_id, exc_info=True
+                    "Quicklook regeneration failed for VRT %s",
+                    vrt_dataset_id,
+                    exc_info=True,
                 )
 
             # 10. Overwrite existing storage key (atomic swap -- same URI, new content)

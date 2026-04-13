@@ -4,12 +4,20 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Table({ className, "aria-label": ariaLabel = "Scrollable table", ...props }: React.ComponentProps<"table"> & { "aria-label"?: string }) {
+function Table({
+  className,
+  "aria-label": ariaLabel = "Scrollable table",
+  containerFocusable = true,
+  ...props
+}: React.ComponentProps<"table"> & {
+  "aria-label"?: string
+  containerFocusable?: boolean
+}) {
   return (
     <div
       data-slot="table-container"
       className="relative w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex
+      tabIndex={containerFocusable ? 0 : undefined} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex
       role="region"
       aria-label={ariaLabel}
     >

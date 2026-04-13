@@ -323,6 +323,18 @@ PUBLIC_API_URL = PersistentConfig[str](
     label="Public API URL",
 )
 
+PUBLIC_BASE_URL = PersistentConfig[str](
+    key="public_base_url",
+    type_=str,
+    env_default_factory=lambda: resolve_public_api_url(
+        settings.public_app_url,
+        settings.public_api_url,
+        settings.public_base_url,
+    ),
+    tab="general",
+    label="Public Base URL",
+)
+
 LOG_LEVEL = _LogLevelConfig(
     key="log_level",
     env_default_factory=lambda: settings.log_level,
@@ -578,19 +590,17 @@ _DEFAULT_BASEMAPS = [
 
 _DEFAULT_MAP_DEFAULTS = {"center_lat": 20.0, "center_lng": 0.0, "zoom": 2.0}
 
-from app.settings.schemas import BasemapEntry, MapDefaultsResponse  # noqa: E402
-
-BASEMAPS = PersistentConfig[list[BasemapEntry]](
+BASEMAPS = PersistentConfig[list[dict[str, Any]]](
     key="basemaps",
-    type_=list[BasemapEntry],
+    type_=list[dict[str, Any]],
     env_default=_DEFAULT_BASEMAPS,
     tab="map",
     label="Basemaps",
 )
 
-MAP_DEFAULTS = PersistentConfig[MapDefaultsResponse](
+MAP_DEFAULTS = PersistentConfig[dict[str, float]](
     key="map_defaults",
-    type_=MapDefaultsResponse,
+    type_=dict[str, float],
     env_default=_DEFAULT_MAP_DEFAULTS,
     tab="map",
     label="Map Defaults",
@@ -615,9 +625,9 @@ def _default_role_permissions() -> dict:
     return DEFAULT_ROLE_PERMISSIONS
 
 
-ROLE_PERMISSIONS = PersistentConfig[dict[str, list[str]]](
+ROLE_PERMISSIONS = PersistentConfig[dict[str, dict[str, bool]]](
     key="role_permissions",
-    type_=dict[str, list[str]],
+    type_=dict[str, dict[str, bool]],
     env_default_factory=_default_role_permissions,
     tab="permissions",
     label="Role Permissions",

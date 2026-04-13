@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useAdminJobs, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
@@ -56,14 +56,64 @@ export function JobList() {
 
   const { data: userNames } = useUserNames();
   const retryAdminJob = useRetryAdminJob();
+  const toggleRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
+  const visibleJobIds = data?.jobs?.map((job) => job.id) ?? [];
+  const [focusedToggleId, setFocusedToggleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextVisibleJobIds = data?.jobs?.map((job) => job.id) ?? [];
+    setFocusedToggleId((current) => {
+      if (nextVisibleJobIds.length === 0) return null;
+      return current && nextVisibleJobIds.includes(current) ? current : nextVisibleJobIds[0];
+    });
+  }, [data?.jobs]);
 
   function clearFilters() {
     setStatus('');
     setUserId('');
     setPage(0);
     setSearchQuery('');
+  }
+
+  function moveDisclosureFocus(currentId: string, key: 'ArrowDown' | 'ArrowUp' | 'Home' | 'End') {
+    if (visibleJobIds.length === 0) return;
+
+    const currentIndex = visibleJobIds.indexOf(currentId);
+    if (currentIndex === -1) return;
+
+    let nextIndex = currentIndex;
+    if (key === 'ArrowDown') {
+      nextIndex = Math.min(currentIndex + 1, visibleJobIds.length - 1);
+    } else if (key === 'ArrowUp') {
+      nextIndex = Math.max(currentIndex - 1, 0);
+    } else if (key === 'Home') {
+      nextIndex = 0;
+    } else if (key === 'End') {
+      nextIndex = visibleJobIds.length - 1;
+    }
+
+    const nextId = visibleJobIds[nextIndex];
+    setFocusedToggleId(nextId);
+    toggleRefs.current[nextId]?.focus();
+  }
+
+  function handleDisclosureKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    jobId: string,
+  ) {
+    if (
+      event.key !== 'ArrowDown' &&
+      event.key !== 'ArrowUp' &&
+      event.key !== 'Home' &&
+      event.key !== 'End'
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    moveDisclosureFocus(event.currentTarget.dataset.jobId ?? jobId, event.key);
   }
 
   return (
@@ -139,7 +189,13 @@ export function JobList() {
                 {t('jobs.noJobs')}
               </p>
             ) : (
-              <Table>
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {t('jobs.table.keyboardHint', {
+                    defaultValue: 'Tab to the details control, then use Up and Down arrows to move between rows.',
+                  })}
+                </p>
+                <Table containerFocusable={false}>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">
@@ -164,6 +220,7 @@ export function JobList() {
                             variant="ghost"
                             size="icon-sm"
                             data-testid="job-details-toggle"
+                            data-job-id={job.id}
                             aria-expanded={expandedId === job.id}
                             aria-label={
                               expandedId === job.id
@@ -179,6 +236,12 @@ export function JobList() {
                             onClick={() =>
                               setExpandedId(expandedId === job.id ? null : job.id)
                             }
+                            onFocus={() => setFocusedToggleId(job.id)}
+                            onKeyDown={(event) => handleDisclosureKeyDown(event, job.id)}
+                            tabIndex={focusedToggleId === job.id ? 0 : -1}
+                            ref={(node) => {
+                              toggleRefs.current[job.id] = node;
+                            }}
                           >
                             {expandedId === job.id ? (
                               <ChevronDown className="size-4" />
@@ -252,7 +315,8 @@ export function JobList() {
                     </Fragment>
                   ))}
                 </TableBody>
-              </Table>
+                </Table>
+              </>
             )}
 
             <DataTablePagination

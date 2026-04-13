@@ -10,7 +10,7 @@ import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatm
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
-import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
+import type { MapLayerResponse, MapResponse } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/hooks/use-layer-map-sync';
@@ -312,7 +312,7 @@ export function useBuilderLayers(
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as unknown as typeof l.style_config }
             : l,
         ),
       );
@@ -339,7 +339,7 @@ export function useBuilderLayers(
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as StyleConfig }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as unknown as typeof l.style_config }
             : l,
         ),
       );

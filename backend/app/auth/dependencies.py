@@ -39,7 +39,9 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
         return None
     # Only update last_used_at if it's been more than 60 seconds (reduce write amplification)
     now = datetime.now(timezone.utc)
-    if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(seconds=60):
+    if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(
+        seconds=60
+    ):
         api_key_obj.last_used_at = now
         await db.commit()
     return user

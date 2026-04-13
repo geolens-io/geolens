@@ -298,7 +298,9 @@ class DiscoverResponse(BaseModel):
 
 
 class BulkRegisterItem(BaseModel):
-    table_name: str = Field(max_length=63, description="PostgreSQL table name to register.")
+    table_name: str = Field(
+        max_length=63, description="PostgreSQL table name to register."
+    )
     title: str = Field(max_length=500, description="Human-readable dataset title.")
     summary: str | None = Field(
         default=None, max_length=5000, description="Optional dataset description."
@@ -418,10 +420,13 @@ class VrtCreateRequest(BaseModel):
         description="How to resolve mismatched source resolutions: 'finest' uses the highest, 'coarsest' uses the lowest, 'average' computes the mean."
     )
     title: str = Field(
-        max_length=500, description="Human-readable title for the resulting VRT dataset."
+        max_length=500,
+        description="Human-readable title for the resulting VRT dataset.",
     )
     summary: str | None = Field(
-        default=None, max_length=5000, description="Optional description for the VRT dataset."
+        default=None,
+        max_length=5000,
+        description="Optional description for the VRT dataset.",
     )
     visibility: Visibility = Field(
         default="private", description="Visibility level for the resulting VRT dataset."

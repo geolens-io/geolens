@@ -197,6 +197,42 @@ class TestVrtBuildFunctions:
         res_idx = cmd.index("-resolution")
         assert cmd[res_idx + 1] == "average"
 
+    def test_build_vrt_falls_back_to_python_writer_when_cli_missing(self, tmp_path):
+        import numpy as np
+        import rasterio
+        from rasterio.transform import from_origin
+
+        src_a = tmp_path / "a.tif"
+        src_b = tmp_path / "b.tif"
+        for path, origin_x in ((src_a, 0), (src_b, 5)):
+            with rasterio.open(
+                path,
+                "w",
+                driver="GTiff",
+                width=5,
+                height=5,
+                count=1,
+                dtype="uint8",
+                crs="EPSG:4326",
+                transform=from_origin(origin_x, 5, 1, 1),
+            ) as dataset:
+                dataset.write(np.ones((1, 5, 5), dtype="uint8"))
+
+        output = tmp_path / "out.vrt"
+        with patch("app.raster.vrt.subprocess.run", side_effect=FileNotFoundError()):
+            result = build_vrt(
+                "mosaic",
+                [str(src_a), str(src_b)],
+                str(output),
+                "finest",
+            )
+
+        assert result == str(output)
+        with rasterio.open(output) as dataset:
+            assert dataset.count == 1
+            assert dataset.width == 10
+            assert dataset.height == 5
+
 
 # ---------------------------------------------------------------------------
 # TestResolveSourcePath

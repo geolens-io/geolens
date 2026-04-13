@@ -178,7 +178,9 @@ async def _should_send_sample_values(session: AsyncSession) -> bool:
 
         return await AI_SEND_SAMPLE_VALUES.get(session)
     except Exception:
-        logger.warning("Failed to read AI_SEND_SAMPLE_VALUES, defaulting to True", exc_info=True)
+        logger.warning(
+            "Failed to read AI_SEND_SAMPLE_VALUES, defaulting to True", exc_info=True
+        )
         return True
 
 

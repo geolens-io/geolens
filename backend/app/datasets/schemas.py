@@ -167,10 +167,18 @@ class DatasetResponse(BaseModel):
     geometry_type: str | None = Field(
         default=None, description="OGC geometry type, e.g. MultiPolygon"
     )
-    is_3d: bool | None = Field(default=None, description="True if geometry has Z dimension")
-    n_dims: int | None = Field(default=None, description="Number of coordinate dimensions (2, 3, or 4)")
-    z_min: float | None = Field(default=None, description="Minimum Z value across all features")
-    z_max: float | None = Field(default=None, description="Maximum Z value across all features")
+    is_3d: bool | None = Field(
+        default=None, description="True if geometry has Z dimension"
+    )
+    n_dims: int | None = Field(
+        default=None, description="Number of coordinate dimensions (2, 3, or 4)"
+    )
+    z_min: float | None = Field(
+        default=None, description="Minimum Z value across all features"
+    )
+    z_max: float | None = Field(
+        default=None, description="Maximum Z value across all features"
+    )
     feature_count: int | None
     extent_bbox: list[float] | None = Field(
         default=None, description="Bounding box [minx, miny, maxx, maxy]"
@@ -592,12 +600,16 @@ class AttributeMetadataListResponse(BaseModel):
 
 class DatasetRelationshipCreate(BaseModel):
     target_dataset_id: uuid.UUID = Field(description="UUID of the dataset to link to")
-    source_column: str = Field(max_length=63, description="Join column in the source dataset")
+    source_column: str = Field(
+        max_length=63, description="Join column in the source dataset"
+    )
     target_column: str = Field(
         default="gid", max_length=63, description="Join column in the target dataset"
     )
     label: str | None = Field(
-        default=None, max_length=500, description="Optional display label for this relationship"
+        default=None,
+        max_length=500,
+        description="Optional display label for this relationship",
     )
 
 

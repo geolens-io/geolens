@@ -115,7 +115,7 @@ async def get_features(
 
     if property_filters and allowed_columns:
         for col, val in property_filters.items():
-            if col in allowed_columns:
+            if col in allowed_columns and _COLUMN_NAME_RE.match(col):
                 param_name = f"prop_{col}"
                 where_clauses.append(f'"{col}" = :{param_name}')
                 bind_values[param_name] = val
@@ -174,8 +174,7 @@ async def get_features_geojson_z(
     )
     # Fetch cap+1 to detect truncation without a separate COUNT query
     data_sql = (
-        f"SELECT {select_cols} FROM data.{table_name} t "
-        f"ORDER BY gid LIMIT :limit"
+        f"SELECT {select_cols} FROM data.{table_name} t ORDER BY gid LIMIT :limit"
     )
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]

@@ -20,12 +20,13 @@ are required. This migration documents the Pydantic schema tightening:
   DistributionCreate/Update.media_type:  max_length 255  -> 100 (SQL: VARCHAR(100))
   UserCreate.email:                      max_length 320  -> 255 (SQL: VARCHAR(255))
 """
+
 from typing import Sequence, Union
 
 
 # revision identifiers, used by Alembic.
-revision: str = '989ae68d7859'
-down_revision: Union[str, None] = 'a1b2c3d4e5f7'
+revision: str = "989ae68d7859"
+down_revision: Union[str, None] = "a1b2c3d4e5f7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
