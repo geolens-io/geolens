@@ -829,7 +829,7 @@ async def get_shared_map(
         is_public = ds_visibility == "public"
         if not is_public:
             has_non_public = True
-        if ds_record_type == "raster_dataset":
+        if ds_record_type in ("raster_dataset", "vrt_dataset"):
             tile_url = f"/tiles/raster-proxy/{layer.dataset_id}/{{z}}/{{x}}/{{y}}.png"
         elif is_public:
             tile_url = f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
