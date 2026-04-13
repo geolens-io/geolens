@@ -105,6 +105,12 @@ async def construct_wkt_geometry(
         )
     )
     geom_type = sample.scalar_one_or_none() or "GEOMETRY"
+    _VALID_GEOM_TYPES = {
+        "POINT", "LINESTRING", "POLYGON", "MULTIPOINT",
+        "MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION", "GEOMETRY",
+    }
+    if geom_type.upper() not in _VALID_GEOM_TYPES:
+        geom_type = "GEOMETRY"
 
     await session.execute(
         text(

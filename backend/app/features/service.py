@@ -6,7 +6,7 @@ import re
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingest.metadata import extract_metadata
+from app.ingest.metadata import _validate_table_name, extract_metadata
 
 # Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -36,12 +36,6 @@ def _geometry_sql(dataset_geometry_type: str) -> str:
     if dataset_geometry_type.strip().upper() in _MULTI_TYPES:
         return f"ST_Multi({base})"
     return base
-
-
-def _validate_table_name(table_name: str) -> None:
-    """Validate table name to prevent SQL injection."""
-    if not re.match(r"^[a-z0-9_]+$", table_name):
-        raise ValueError(f"Invalid table name: {table_name}")
 
 
 def parse_bbox(bbox_str: str) -> list[float]:

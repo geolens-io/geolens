@@ -19,17 +19,36 @@ export async function fetchGeoJsonZ(
   const fullPath = `/api${relativePath}`;
 
   if (options?.embedToken) {
-    const res = await fetch(fullPath, {
-      headers: { 'X-Embed-Token': options.embedToken },
-    });
-    if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
-    return res.json() as Promise<GeoJsonZResponse>;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(fullPath, {
+        signal: controller.signal,
+        headers: { 'X-Embed-Token': options.embedToken },
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
+      return res.json() as Promise<GeoJsonZResponse>;
+    } catch (e) {
+      clearTimeout(timer);
+      throw e;
+    }
   }
 
   if (options?.apiKey) {
-    const res = await fetch(`${fullPath}?api_key=${encodeURIComponent(options.apiKey)}`);
-    if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
-    return res.json() as Promise<GeoJsonZResponse>;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(`${fullPath}?api_key=${encodeURIComponent(options.apiKey)}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`GeoJSON-Z fetch failed: ${res.status}`);
+      return res.json() as Promise<GeoJsonZResponse>;
+    } catch (e) {
+      clearTimeout(timer);
+      throw e;
+    }
   }
 
   // Default: JWT auth via apiFetch (prepends /api automatically)

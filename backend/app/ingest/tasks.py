@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
 from procrastinate import App, PsycopgConnector
 from sqlalchemy import select
 
@@ -67,6 +70,15 @@ class StagingResult:
     three_d: dict[str, Any]  # from detect_3d_metadata()
     has_geometry: bool  # resolved (may differ from input if geometry override applied)
     geometry_type: str | None  # resolved geometry type string
+
+
+def _safe_error_message(exc: Exception) -> str:
+    """Return a user-safe error message, hiding internal details."""
+    from app.ingest.ogr import IngestionError
+
+    if isinstance(exc, (ValueError, IngestionError)):
+        return str(exc)
+    return "Internal error during ingestion. Check server logs for details."
 
 
 _connector_kwargs: dict = {"min_size": 1, "max_size": 3}
@@ -590,9 +602,8 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
         # effective_srid — guard for mypy since the two params are independent
         # at the signature level.
         if has_geometry:
-            assert ctx.effective_srid is not None, (
-                "effective_srid must be set when has_geometry is True"
-            )
+            if ctx.effective_srid is None:
+                raise ValueError("effective_srid must be set when has_geometry is True")
             await clip_to_mercator_bounds(session, table_name)
             await add_4326_column(session, table_name, ctx.effective_srid)
 
@@ -795,7 +806,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 )
             except ValueError as exc:
                 job.status = "failed"
-                job.error_message = str(exc)
+                job.error_message = _safe_error_message(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 # N2: do NOT unlink here. The finally block keeps local
@@ -946,7 +957,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
             # Mark job as failed
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1128,10 +1139,20 @@ async def ingest_service(
             )
 
         except Exception as exc:
-            # On any failure, mark job as failed (no staging file to clean up)
             await session.rollback()
+            try:
+                if table_name:
+                    from app.ingest.metadata import _qtable
+                    from sqlalchemy import text as _text
+
+                    await session.execute(
+                        _text(f"DROP TABLE IF EXISTS {_qtable(table_name)}")
+                    )
+                    await session.commit()
+            except Exception:
+                pass
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1376,7 +1397,7 @@ async def reupload_file(
                 )
             except ValueError as exc:
                 job.status = "failed"
-                job.error_message = str(exc)
+                job.error_message = _safe_error_message(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 Path(file_path).unlink(missing_ok=True)
@@ -1490,7 +1511,7 @@ async def reupload_file(
 
             # Mark job as failed
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1681,7 +1702,7 @@ async def reupload_service(
                 )
 
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -1694,7 +1715,7 @@ async def reupload_service(
 
 
 async def create_raster_dataset(
-    session,
+    session: "AsyncSession",
     *,
     meta: dict,
     source_sha256: str,
@@ -1781,7 +1802,7 @@ async def create_raster_dataset(
 
 
 async def create_vrt_dataset(
-    session,
+    session: "AsyncSession",
     *,
     meta: dict,
     asset_sha256: str,
@@ -1951,7 +1972,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 )
             except ValueError as exc:
                 job.status = "failed"
-                job.error_message = str(exc)
+                job.error_message = _safe_error_message(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 _Path(file_path).unlink(missing_ok=True)
@@ -2084,7 +2105,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         except Exception as exc:
             await session.rollback()
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -2276,7 +2297,7 @@ async def ingest_vrt(
         except Exception as exc:
             await session.rollback()
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
             import structlog
@@ -2502,7 +2523,7 @@ async def regenerate_vrt(
                 vrt_asset.status = "failed"
                 vrt_asset.current_generation_id = None
             job.status = "failed"
-            job.error_message = str(exc)
+            job.error_message = _safe_error_message(exc)
             job.completed_at = datetime.now(timezone.utc)
 
             # Update generation record on failure

@@ -723,13 +723,13 @@ export interface MapLayerResponse {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
-  layer_type?: string | null;
+  layer_type: string;
   dataset_record_type?: string | null;
   show_in_legend?: boolean;
-  tile_url?: string | null;
-  is_dem?: boolean | null;
-  is_3d?: boolean | null;
-  dataset_feature_count_total?: number | null;
+  tile_url: string | null;
+  is_dem: boolean | null;
+  is_3d: boolean | null;
+  dataset_feature_count_total: number | null;
 }
 
 export interface MapResponse {
@@ -838,12 +838,12 @@ export interface SharedLayerResponse {
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   show_in_legend?: boolean;
-  layer_type?: string;
+  layer_type: string;
   dataset_record_type?: string;
-  is_dem?: boolean;
-  is_3d?: boolean | null;
-  tile_url?: string;
-  feature_count?: number | null;
+  is_dem: boolean | null;
+  is_3d: boolean | null;
+  tile_url: string;
+  feature_count: number | null;
 }
 
 export interface SharedMapResponse {

@@ -36,11 +36,12 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     label_config: layer.label_config,
     style_config: layer.style_config,
     show_in_legend: layer.show_in_legend,
+    layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? undefined,
     tile_url: layer.tile_url ?? '',
-    is_dem: layer.is_dem ?? undefined,
-    is_3d: layer.is_3d ?? undefined,
-    feature_count: layer.dataset_feature_count_total ?? undefined,
+    is_dem: layer.is_dem ?? null,
+    is_3d: layer.is_3d ?? null,
+    feature_count: layer.dataset_feature_count_total ?? null,
   };
 }
 
