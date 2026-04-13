@@ -137,7 +137,7 @@ export function FilterPanel({
   const bbox = useSearchStore((s) => s.bbox);
   const dateFrom = useSearchStore((s) => s.date_from);
   const dateTo = useSearchStore((s) => s.date_to);
-  const sortBy = useSearchStore((s) => s.sortBy);
+  const sortBy = useSearchStore((s) => s.sort_by);
   const recordType = useSearchStore((s) => s.record_type);
   const collectionId = useSearchStore((s) => s.collection_id);
   const sourceOrganization = useSearchStore((s) => s.source_organization);

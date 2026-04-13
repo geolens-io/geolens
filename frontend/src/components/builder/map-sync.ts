@@ -84,21 +84,21 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   }
 }
 
-function prefixedSourceId(id: string, prefix?: string) {
-  return prefix ? `${prefix}source-${id}` : `source-${id}`;
+function prefixed(kind: 'source' | 'layer' | 'outline' | 'label', id: string, prefix?: string) {
+  const p = prefix ?? '';
+  switch (kind) {
+    case 'source':  return `${p}source-${id}`;
+    case 'layer':   return `${p}layer-${id}`;
+    case 'outline': return `${p}layer-${id}-outline`;
+    case 'label':   return `${p}layer-${id}-label`;
+  }
 }
 
-function prefixedLayerId(id: string, prefix?: string) {
-  return prefix ? `${prefix}layer-${id}` : `layer-${id}`;
-}
-
-function prefixedOutlineLayerId(id: string, prefix?: string) {
-  return `${prefixedLayerId(id, prefix)}-outline`;
-}
-
-function prefixedLabelLayerId(id: string, prefix?: string) {
-  return `${prefixedLayerId(id, prefix)}-label`;
-}
+// Thin wrappers kept for callsite readability
+function prefixedSourceId(id: string, prefix?: string)      { return prefixed('source', id, prefix); }
+function prefixedLayerId(id: string, prefix?: string)       { return prefixed('layer', id, prefix); }
+function prefixedOutlineLayerId(id: string, prefix?: string){ return prefixed('outline', id, prefix); }
+function prefixedLabelLayerId(id: string, prefix?: string)  { return prefixed('label', id, prefix); }
 
 // Keep the original non-prefixed exports for backward compatibility
 export function getSourceId(layerId: string) {
@@ -107,6 +107,10 @@ export function getSourceId(layerId: string) {
 
 export function getLayerId(layerId: string) {
   return `layer-${layerId}`;
+}
+
+export function getLabelLayerId(layerId: string) {
+  return `layer-${layerId}-label`;
 }
 
 /** Imperatively add/sync all data layers to the map. Safe to call repeatedly.

@@ -1,6 +1,7 @@
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
+from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -42,7 +43,7 @@ class MapLayerInput(BaseModel):
         default=None, description="Data-driven style configuration"
     )
     layer_type: str | None = Field(
-        default=None, max_length=50, description="Auto-detected from record_type if omitted"
+        default=None, description="Auto-detected from record_type if omitted"
     )
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"
@@ -67,7 +68,7 @@ class MapUpdate(BaseModel):
         default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
     )
     basemap_style: str | None = Field(
-        default=None, max_length=500, description="Basemap style ID or URL"
+        default=None, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = Field(
@@ -79,6 +80,19 @@ class MapUpdate(BaseModel):
     widgets: list[str] | None = Field(
         default=None, description="Enabled widget IDs, e.g. ['measurement']"
     )
+
+
+class DatasetMetaKwargs(TypedDict, total=False):
+    """Keyword arguments carrying dataset metadata into _build_layer_response."""
+
+    dataset_name: str
+    geometry_type: str | None
+    table_name: str
+    extent: object
+    column_info: list | None
+    feature_count: int | None
+    sample_values: dict | None
+    record_type: str | None
 
 
 class MapLayerResponse(BaseModel):
@@ -103,10 +117,6 @@ class MapLayerResponse(BaseModel):
     label_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
-    tile_url: str | None = None
-    is_dem: bool | None = None
-    is_3d: bool | None = None
-    dataset_feature_count_total: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

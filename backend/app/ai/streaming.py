@@ -55,19 +55,15 @@ async def _execute_and_yield_tools(
         stage_events: list[dict] = []
         stage_cb = _make_stage_callback(fn_name, stage_events)
 
-        try:
-            result = await _execute_chat_tool(
-                fn_name,
-                fn_args,
-                session,
-                user,
-                user_roles,
-                layers,
-                stage_callback=stage_cb,
-            )
-        except Exception as exc:
-            logger.exception("Chat tool execution failed", tool=fn_name)
-            result = {"success": False, "error": str(exc)}
+        result = await _execute_chat_tool(
+            fn_name,
+            fn_args,
+            session,
+            user,
+            user_roles,
+            layers,
+            stage_callback=stage_cb,
+        )
 
         if results_out is not None:
             results_out.append(result)

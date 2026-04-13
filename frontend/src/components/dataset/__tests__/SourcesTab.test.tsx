@@ -38,7 +38,7 @@ const mockDataset: DatasetResponse = {
   updated_at: '2026-01-01T00:00:00Z',
   last_edited_by_display: null,
   last_edited_at: null,
-  record_status: 'draft',
+  record_status: null,
   lineage_summary: null,
   update_frequency: null,
   usage_constraints: null,

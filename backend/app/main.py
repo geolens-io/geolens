@@ -215,10 +215,7 @@ async def lifespan(app: FastAPI):
     init_tile_cache()
 
     # Initialize dedicated tile connection pool
-    try:
-        await init_tile_pool()
-    except Exception:
-        logger.warning("Tile pool initialization failed — tiles may be degraded", exc_info=True)
+    await init_tile_pool()
 
     # Open procrastinate task app (allows API to defer async tasks)
     await task_app.open_async()

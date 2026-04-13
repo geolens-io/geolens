@@ -89,17 +89,16 @@ export const fillAdapter: LayerAdapter = {
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       syncVectorPaint(map, layerId, rawPaint);
-      try {
-        map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
-      } catch { /* layer may have been removed during style change */ }
+      map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(layerId, filter);
       } else {
         if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
       }
-      // Always suppress native fill-outline-color; companion -outline layer handles stroke
+      // Sync fill-outline-color based on _stroke-disabled
+      const strokeDisabled = !!rawPaint['_stroke-disabled'];
       try {
-        map.setPaintProperty(layerId, 'fill-outline-color', 'transparent');
+        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'transparent' : 'transparent');
       } catch { /* fill-outline-color may not be supported on all styles */ }
     }
     // Sync outline companion layer

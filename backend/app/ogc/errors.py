@@ -166,19 +166,11 @@ def register_error_handlers(app: FastAPI) -> None:
         except Exception:
             pass
 
-        scrubbed_qs = (
-            "&".join(
-                f"{k}=***" if k == "api_key" else f"{k}={v}"
-                for k, v in request.query_params.items()
-            )
-            if request.query_params
-            else None
-        )
         logger.exception(
             "Unhandled error",
             path=request.url.path,
             method=request.method,
-            query=scrubbed_qs,
+            query=str(request.url.query) if request.url.query else None,
             user_id=user_id,
             request_id=request_id,
             client_ip=client_ip,

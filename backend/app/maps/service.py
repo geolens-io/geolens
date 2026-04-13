@@ -8,7 +8,6 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timezone
-from typing import Any, NamedTuple
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, or_, select
@@ -22,23 +21,6 @@ from app.maps.models import Map, MapLayer, MapShareToken
 from app.raster.models import RasterAsset
 
 logger = logging.getLogger(__name__)
-
-
-class MapLayerRow(NamedTuple):
-    """Typed row returned by get_map_with_layers for each layer."""
-
-    layer: Any  # MapLayer ORM instance
-    dataset_name: str
-    geometry_type: str | None
-    table_name: str
-    extent: Any  # WKBElement or None
-    column_info: list | None
-    feature_count: int | None
-    sample_values: dict | None
-    record_type: str | None
-    visibility: str | None
-    is_3d: bool | None
-    is_dem: bool | None
 
 
 async def check_map_ownership(map_obj, user: User, db: AsyncSession) -> None:
@@ -130,10 +112,10 @@ async def get_map(
 async def get_map_with_layers(
     session: AsyncSession,
     map_id: uuid.UUID,
-) -> tuple[Map | None, list[MapLayerRow], str | None, str | None]:
+) -> tuple[Map | None, list[tuple], str | None, str | None]:
     """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
 
-    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, visibility, is_3d, is_dem), ...], forked_from_name, owner_username)
+    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values), ...], forked_from_name, owner_username)
     or (None, [], None, None).
     """
     ForkedMap = aliased(Map)
@@ -165,20 +147,16 @@ async def get_map_with_layers(
             Dataset.feature_count,
             Dataset.sample_values,
             Record.record_type,
-            Record.visibility,
-            Dataset.is_3d,
-            RasterAsset.is_dem,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
-        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
         .order_by(MapLayer.sort_order)
     )
     result = await session.execute(stmt)
     rows = result.all()
 
-    return map_obj, [MapLayerRow(*row) for row in rows], forked_from_name, owner_username
+    return map_obj, [tuple(row) for row in rows], forked_from_name, owner_username
 
 
 async def list_maps(

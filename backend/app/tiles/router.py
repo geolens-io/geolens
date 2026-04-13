@@ -52,7 +52,6 @@ _titiler_client = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=5.0),
     follow_redirects=True,
 )
-_tile_proxy_semaphore = asyncio.Semaphore(20)
 
 # ---------------------------------------------------------------------------
 # In-memory TTL cache for dataset metadata (avoids DB hit per tile request)
@@ -326,48 +325,47 @@ async def raster_tile_proxy(
     # intent clear and ensure we never fall through with `resp is None`.
     max_retries = 2
     resp: httpx.Response | None = None
-    async with _tile_proxy_semaphore:
-        for attempt in range(max_retries + 1):
-            try:
-                resp = await _titiler_client.get(titiler_url)
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                if attempt == max_retries:
-                    # RES-6: log final failure with context before raising so
-                    # operators can distinguish "titiler down" from normal activity.
-                    logger.warning(
-                        "Raster tile proxy exhausted retries",
-                        dataset_id=str(dataset_id),
-                        z=z,
-                        x=x,
-                        y=y,
-                        titiler_url=titiler_url,
-                        error=str(exc),
-                        exc_info=True,
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Tile service unavailable",
-                    )
-                # RES-N5: log transient failures at debug level so flaky upstream
-                # is observable in verbose logs without spamming production.
+    for attempt in range(max_retries + 1):
+        try:
+            resp = await _titiler_client.get(titiler_url)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            if attempt == max_retries:
+                # RES-6: log final failure with context before raising so
+                # operators can distinguish "titiler down" from normal activity.
+                logger.warning(
+                    "Raster tile proxy exhausted retries",
+                    dataset_id=str(dataset_id),
+                    z=z,
+                    x=x,
+                    y=y,
+                    titiler_url=titiler_url,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Tile service unavailable",
+                )
+            # RES-N5: log transient failures at debug level so flaky upstream
+            # is observable in verbose logs without spamming production.
+            logger.debug(
+                "Raster tile proxy transient failure; retrying",
+                attempt=attempt,
+                dataset_id=str(dataset_id),
+                error=str(exc),
+            )
+            await asyncio.sleep(0.5 * (2**attempt))
+            continue
+        else:
+            if resp.status_code == 503 and attempt < max_retries:
                 logger.debug(
-                    "Raster tile proxy transient failure; retrying",
+                    "Raster tile proxy got 503; retrying",
                     attempt=attempt,
                     dataset_id=str(dataset_id),
-                    error=str(exc),
                 )
                 await asyncio.sleep(0.5 * (2**attempt))
                 continue
-            else:
-                if resp.status_code == 503 and attempt < max_retries:
-                    logger.debug(
-                        "Raster tile proxy got 503; retrying",
-                        attempt=attempt,
-                        dataset_id=str(dataset_id),
-                    )
-                    await asyncio.sleep(0.5 * (2**attempt))
-                    continue
-                break
+            break
 
     # Safety guard: if the retry loop somehow exited without assigning resp
     # (should be impossible given the logic above, but protects against future
