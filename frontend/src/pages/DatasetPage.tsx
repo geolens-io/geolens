@@ -31,6 +31,7 @@ import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
+import { MapErrorBoundary } from '@/components/error';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
 import { formatNumber } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -467,22 +468,24 @@ export function DatasetPage() {
 
       {/* Hero Map -- visible for all spatial dataset types */}
       {!isDataTabExpanded && !isTable && (
-        <DatasetHeroMap
-          dataset={dataset}
-          datasetId={id}
-          bbox={bbox}
-          isEditor={isEditor}
-          isDrawing={isDrawing}
-          mapContainerRef={mapContainerRef}
-          onFeatureClick={setReadOnlyFeatureGid}
-          isRasterOrVrt={isRasterOrVrt}
-          heroState={heroState}
-          retryCount={retryCount}
-          mapKey={mapKey}
-          handleRetry={handleRetry}
-          onMapReady={onMapReady}
-          onTileError={onTileError}
-        />
+        <MapErrorBoundary>
+          <DatasetHeroMap
+            dataset={dataset}
+            datasetId={id}
+            bbox={bbox}
+            isEditor={isEditor}
+            isDrawing={isDrawing}
+            mapContainerRef={mapContainerRef}
+            onFeatureClick={setReadOnlyFeatureGid}
+            isRasterOrVrt={isRasterOrVrt}
+            heroState={heroState}
+            retryCount={retryCount}
+            mapKey={mapKey}
+            handleRetry={handleRetry}
+            onMapReady={onMapReady}
+            onTileError={onTileError}
+          />
+        </MapErrorBoundary>
       )}
 
       {/* Raster Quick Facts Strip */}

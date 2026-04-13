@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-13
+Last activity: 2026-04-13 - Completed quick task 260413-fvg: Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -105,6 +105,7 @@ None yet.
 | 260409 | map thumbnails not working, this seems to be a regression | 2026-04-10 | d8d59cbd | Verified | [260409-map-thumbnails-not-working-this-seems-to](./quick/260409-map-thumbnails-not-working-this-seems-to/) |
 | 260410-d7k | review and make sure during the Import operations are all columns being imported | 2026-04-10 | 630f585f | Verified | [260410-d7k-review-and-make-sure-during-the-import-o](./quick/260410-d7k-review-and-make-sure-during-the-import-o/) |
 | 260411-a62 | review and close out remaining items in post-impl-20260410 handoff | 2026-04-11 | cea32bca | Verified | [260411-a62-review-the-remaining-items-in-docs-inter](./quick/260411-a62-review-the-remaining-items-in-docs-inter/) |
+| 260413-fvg | Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components | 2026-04-13 | f5b055b5 |  | [260413-fvg-extract-datasetstatsline-datasetheromap-](./quick/260413-fvg-extract-datasetstatsline-datasetheromap-/) |
 
 ## Session Continuity
 
