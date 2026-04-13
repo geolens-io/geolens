@@ -241,9 +241,7 @@ class TestStagingPipelineIntegration:
             )
             await test_db_session.commit()
 
-    async def test_nonspatial_csv_path(
-        self, test_db_session, test_job_csv, tmp_path
-    ):
+    async def test_nonspatial_csv_path(self, test_db_session, test_job_csv, tmp_path):
         """Non-spatial CSV loads without geometry columns."""
         from app.ingest.ogr import run_ogrinfo
         from app.ingest.tasks import _ingest_vector_into_staging
@@ -251,7 +249,7 @@ class TestStagingPipelineIntegration:
         file_path = str(_create_test_csv(tmp_path))
         table_name = _table_id("test_nonspatial")
 
-        info = await run_ogrinfo(file_path)
+        _info = await run_ogrinfo(file_path)  # verify ogr2ogr can read the file
 
         try:
             staging = await _ingest_vector_into_staging(

@@ -7,7 +7,7 @@ calls the expected pipeline steps with the correct arguments.
 Per D-06: mock-based unit tests verifying the helper's orchestration logic.
 """
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,6 +15,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_job():
     """Return a minimal job mock with user_metadata support."""
@@ -49,25 +50,43 @@ class TestIngestVectorIntoStaging:
         job = _make_job()
 
         with (
-            patch("app.ingest.tasks._ingest_vector_into_staging.__wrapped__", None,
-                  create=True),
-            patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn") as mock_conn,
+            patch(
+                "app.ingest.tasks._ingest_vector_into_staging.__wrapped__",
+                None,
+                create=True,
+            ),
+            patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock) as mock_ogr,
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]) as _mock_rename,
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as _mock_rename,
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": "Point"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": "Point"},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await _ingest_vector_into_staging(
                 session,
@@ -103,23 +122,40 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=renames) as mock_rename,
-            patch("app.ingest.warnings.make_reserved_rename_warning",
-                  return_value={"kind": "reserved_rename", "details": []}) as mock_warn,
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=renames,
+            ) as mock_rename,
+            patch(
+                "app.ingest.warnings.make_reserved_rename_warning",
+                return_value={"kind": "reserved_rename", "details": []},
+            ) as mock_warn,
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": "Point"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": "Point"},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -150,26 +186,46 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.detect_dbf_truncation_collisions",
-                  return_value=[{"truncated": "longcolu", "originals": ["longcolumn", "longcolu_1"]}]
-                  ) as mock_dbf,
-            patch("app.ingest.warnings.make_dbf_truncation_warning",
-                  return_value={"kind": "dbf_truncation_collision", "details": []}) as mock_dbf_warn,
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.detect_dbf_truncation_collisions",
+                return_value=[
+                    {"truncated": "longcolu", "originals": ["longcolumn", "longcolu_1"]}
+                ],
+            ) as mock_dbf,
+            patch(
+                "app.ingest.warnings.make_dbf_truncation_warning",
+                return_value={"kind": "dbf_truncation_collision", "details": []},
+            ) as mock_dbf_warn,
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": "Point"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": "Point"},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -197,22 +253,37 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
             patch("app.ingest.metadata.detect_dbf_truncation_collisions") as mock_dbf,
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": "Point"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": "Point"},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -239,22 +310,38 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True) as mock_ensure,
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock) as mock_clip,
-            patch("app.ingest.metadata.add_4326_column",
-                  new_callable=AsyncMock) as mock_4326,
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_ensure,
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ) as mock_clip,
+            patch(
+                "app.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ) as mock_4326,
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": "Point"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": "Point"},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -282,22 +369,36 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock) as mock_ensure,
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock) as mock_clip,
-            patch("app.ingest.metadata.add_4326_column",
-                  new_callable=AsyncMock) as mock_4326,
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column", new_callable=AsyncMock
+            ) as mock_ensure,
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ) as mock_clip,
+            patch(
+                "app.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ) as mock_4326,
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": None}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": None},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -338,12 +439,19 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
             patch("app.ingest.metadata.extract_metadata", side_effect=_extract),
@@ -361,7 +469,11 @@ class TestIngestVectorIntoStaging:
                 effective_srid=4326,
             )
 
-        assert call_order == ["extract_metadata", "detect_3d_metadata", "get_sample_values"]
+        assert call_order == [
+            "extract_metadata",
+            "detect_3d_metadata",
+            "get_sample_values",
+        ]
 
     @pytest.mark.asyncio
     async def test_promote_z_to_elev_and_refetch_column_info_when_3d(self):
@@ -376,25 +488,49 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [{"name": "id"}], "geometry_type": "Point Z"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": True}),
-            patch("app.ingest.metadata.promote_z_to_elev",
-                  new_callable=AsyncMock, return_value=True) as mock_promote,
-            patch("app.ingest.metadata.get_column_info",
-                  new_callable=AsyncMock, return_value=new_columns) as mock_col_info,
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={
+                    "column_info": [{"name": "id"}],
+                    "geometry_type": "Point Z",
+                },
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": True},
+            ),
+            patch(
+                "app.ingest.metadata.promote_z_to_elev",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_promote,
+            patch(
+                "app.ingest.metadata.get_column_info",
+                new_callable=AsyncMock,
+                return_value=new_columns,
+            ) as mock_col_info,
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             result = await _ingest_vector_into_staging(
                 session,
@@ -425,20 +561,36 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock, return_value=expected_meta),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value=expected_3d),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value=expected_samples),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value=expected_meta,
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value=expected_3d,
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value=expected_samples,
+            ),
         ):
             result = await _ingest_vector_into_staging(
                 session,
@@ -470,21 +622,36 @@ class TestIngestVectorIntoStaging:
         with (
             patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
             patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
-            patch("app.ingest.metadata.rename_reserved_columns",
-                  new_callable=AsyncMock, return_value=[]),
-            patch("app.ingest.metadata.ensure_geom_column",
-                  new_callable=AsyncMock, return_value=True),
-            patch("app.ingest.metadata.clip_to_mercator_bounds",
-                  new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
             patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
             patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.ingest.metadata.extract_metadata",
-                  new_callable=AsyncMock,
-                  return_value={"column_info": [], "geometry_type": "Point"}),
-            patch("app.ingest.metadata.detect_3d_metadata",
-                  new_callable=AsyncMock, return_value={"is_3d": False}),
-            patch("app.ingest.metadata.get_sample_values",
-                  new_callable=AsyncMock, return_value={}),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={"column_info": [], "geometry_type": "Point"},
+            ),
+            patch(
+                "app.ingest.metadata.detect_3d_metadata",
+                new_callable=AsyncMock,
+                return_value={"is_3d": False},
+            ),
+            patch(
+                "app.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -498,3 +665,143 @@ class TestIngestVectorIntoStaging:
             )
 
         session.commit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Error-path tests
+# ---------------------------------------------------------------------------
+
+
+class TestIngestVectorIntoStagingErrors:
+    """Tests that verify failure propagation and guard clauses."""
+
+    @pytest.mark.asyncio
+    async def test_ogr2ogr_failure_propagates(self):
+        """run_ogr2ogr failure raises through the helper without being swallowed."""
+        from app.ingest.ogr import IngestionError
+        from app.ingest.tasks import _ingest_vector_into_staging
+
+        session = _make_session()
+        job = _make_job()
+
+        with (
+            patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
+            patch(
+                "app.ingest.ogr.run_ogr2ogr",
+                new_callable=AsyncMock,
+                side_effect=IngestionError("ogr2ogr failed: bad file"),
+            ),
+        ):
+            with pytest.raises(IngestionError, match="ogr2ogr failed"):
+                await _ingest_vector_into_staging(
+                    session,
+                    job=job,
+                    file_path="/tmp/bad.geojson",
+                    target_table="my_table",
+                    source_srid=4326,
+                    ogr_geometry_type="Point",
+                    has_geometry=True,
+                    effective_srid=4326,
+                )
+
+    @pytest.mark.asyncio
+    async def test_user_metadata_guard_raises_valueerror(self):
+        """user_wants_geom=True without user_metadata raises ValueError."""
+        from app.ingest.tasks import _ingest_vector_into_staging
+
+        session = _make_session()
+        job = _make_job()
+
+        with pytest.raises(ValueError, match="user_metadata is required"):
+            await _ingest_vector_into_staging(
+                session,
+                job=job,
+                file_path="/tmp/data.csv",
+                target_table="my_table",
+                source_srid=4326,
+                ogr_geometry_type=None,
+                has_geometry=False,
+                effective_srid=4326,
+                user_wants_geom=True,
+                user_metadata=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_extract_metadata_failure_propagates(self):
+        """DB failure in extract_metadata propagates through the helper."""
+        from app.ingest.tasks import _ingest_vector_into_staging
+
+        session = _make_session()
+        job = _make_job()
+
+        with (
+            patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
+            patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+            ),
+            patch("app.ingest.metadata.add_4326_column", new_callable=AsyncMock),
+            patch("app.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("DB connection lost"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="DB connection lost"):
+                await _ingest_vector_into_staging(
+                    session,
+                    job=job,
+                    file_path="/tmp/data.geojson",
+                    target_table="my_table",
+                    source_srid=4326,
+                    ogr_geometry_type="Point",
+                    has_geometry=True,
+                    effective_srid=4326,
+                )
+
+    @pytest.mark.asyncio
+    async def test_geometry_override_failure_propagates(self):
+        """Failure in _detect_and_override_geometry propagates through the helper."""
+        from app.ingest.tasks import _ingest_vector_into_staging
+
+        session = _make_session()
+        job = _make_job()
+
+        with (
+            patch("app.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
+            patch("app.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock),
+            patch(
+                "app.ingest.metadata.rename_reserved_columns",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.ingest.tasks._detect_and_override_geometry",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("geometry override failed"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="geometry override failed"):
+                await _ingest_vector_into_staging(
+                    session,
+                    job=job,
+                    file_path="/tmp/data.csv",
+                    target_table="my_table",
+                    source_srid=4326,
+                    ogr_geometry_type=None,
+                    has_geometry=False,
+                    effective_srid=4326,
+                    user_wants_geom=True,
+                    user_metadata={"x_column": "lon", "y_column": "lat"},
+                )
