@@ -66,11 +66,15 @@ function getButtonLabel(
 
 export function OAuthButtons() {
   const { t } = useTranslation('auth');
-  const { data: providers, isLoading } = useQuery({
+  const { data: providers, isLoading, isError } = useQuery({
     queryKey: queryKeys.authConfig.oauthProviders,
     queryFn: getOAuthProviders,
     staleTime: 5 * 60 * 1000,
   });
+
+  if (isError) {
+    return <p className="text-xs text-muted-foreground">SSO options unavailable</p>;
+  }
 
   if (isLoading || !providers || providers.length === 0) return null;
 

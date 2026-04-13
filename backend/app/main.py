@@ -186,7 +186,7 @@ async def lifespan(app: FastAPI):
                 addressing_style=settings.s3_addressing_style,
             )
         except Exception as exc:
-            logger.error(
+            logger.exception(
                 "S3 health check failed -- cannot start",
                 error=str(exc),
                 bucket=settings.s3_bucket,

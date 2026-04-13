@@ -52,7 +52,7 @@ interface SourcesTabProps {
 export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
   const { t } = useTranslation('dataset');
 
-  const { data: sourcesData, isLoading } = useVrtSources(datasetId);
+  const { data: sourcesData, isLoading, isError: sourcesError } = useVrtSources(datasetId);
   const addVrtSource = useAddVrtSource(datasetId);
   const removeVrtSource = useRemoveVrtSource(datasetId);
 
@@ -291,6 +291,11 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
+          </div>
+        ) : sourcesError ? (
+          <div className="flex items-center gap-2 rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{t('vrt.sourcesLoadError', { defaultValue: 'Failed to load VRT sources.' })}</span>
           </div>
         ) : (
           <Table>

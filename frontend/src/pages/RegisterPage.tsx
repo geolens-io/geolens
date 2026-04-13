@@ -24,7 +24,7 @@ export function RegisterPage() {
   const [submitted, setSubmitted] = useState(false);
   const token = useAuthStore((s) => s.token);
 
-  const { data: config, isLoading } = useQuery({
+  const { data: config, isLoading, isError: configError } = useQuery({
     queryKey: queryKeys.authConfig.config,
     queryFn: getAuthConfig,
     staleTime: 5 * 60 * 1000,
@@ -77,6 +77,7 @@ export function RegisterPage() {
           {t('geospatialDataCatalog')}
         </p>
       </div>
+      {configError && <div className="text-sm text-destructive">Unable to load authentication settings</div>}
       {submitted ? (
         <PendingApproval />
       ) : (
