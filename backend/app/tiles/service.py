@@ -73,7 +73,6 @@ mvtgeom AS (
     t.gid{attr_columns}
     FROM data.{table_name} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
-      AND ST_Intersects(t.geom_4326, bounds.geom_4326)
 )
 SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
 FROM mvtgeom
