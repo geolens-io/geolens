@@ -354,6 +354,11 @@ async def _ingest_vector_into_staging(
         StagingResult with metadata, sample_values, three_d, resolved has_geometry,
         and geometry_type.
     """
+    if user_wants_geom and not user_metadata:
+        raise ValueError(
+            "_ingest_vector_into_staging: user_metadata is required when user_wants_geom=True"
+        )
+
     import structlog
 
     from app.ingest.metadata import (
