@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from procrastinate import App, PsycopgConnector
 from sqlalchemy import select
@@ -62,10 +62,10 @@ class StagingResult:
     ``_apply_reupload_swap``).
     """
 
-    metadata: dict           # from extract_metadata()
-    sample_values: dict      # from get_sample_values()
-    three_d: dict            # from detect_3d_metadata()
-    has_geometry: bool       # resolved (may differ from input if geometry override applied)
+    metadata: dict[str, Any]  # from extract_metadata()
+    sample_values: dict[str, Any]  # from get_sample_values()
+    three_d: dict[str, Any]  # from detect_3d_metadata()
+    has_geometry: bool  # resolved (may differ from input if geometry override applied)
     geometry_type: str | None  # resolved geometry type string
 
 
@@ -102,7 +102,7 @@ def _arcgis_type_to_column_type(esri_type: str) -> str:
     return _ARCGIS_TYPE_MAP.get(esri_type, "text")
 
 
-def _append_job_warning(job, warning: "IngestJobWarning") -> None:
+def _append_job_warning(job: "IngestJob", warning: "IngestJobWarning") -> None:
     """Append a structured warning to ``job.user_metadata['warnings']``.
 
     Consolidates the 6× duplicated pattern from the ingest entry points
@@ -196,7 +196,7 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
 
 
 async def _validate_upload_file_safety(
-    session,
+    session: "AsyncSession",
     *,
     file_path: str,
     source_filename: str | None,
@@ -250,10 +250,10 @@ def _resolve_effective_srid(
 
 
 async def _detect_and_override_geometry(
-    session,
+    session: "AsyncSession",
     *,
     table_name: str,
-    user_metadata: dict,
+    user_metadata: dict[str, Any],
 ) -> str | None:
     """Apply user x/y or WKT geometry overrides to a freshly-loaded table.
 
@@ -306,9 +306,9 @@ async def _detect_and_override_geometry(
 
 
 async def _ingest_vector_into_staging(
-    session,
+    session: "AsyncSession",
     *,
-    job,
+    job: "IngestJob",
     file_path: str,
     target_table: str,
     source_srid: int | None,
@@ -317,8 +317,8 @@ async def _ingest_vector_into_staging(
     effective_srid: int,
     layer_name: str | None = None,
     user_wants_geom: bool = False,
-    user_metadata: dict | None = None,
-    ogrinfo_columns: list | None = None,
+    user_metadata: dict[str, Any] | None = None,
+    ogrinfo_columns: list[dict[str, Any]] | None = None,
 ) -> "StagingResult":
     """Shared vector staging pipeline: ogr2ogr → post-process → metadata.
 
@@ -375,7 +375,11 @@ async def _ingest_vector_into_staging(
     )
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr
 
-    logger = structlog.get_logger()
+    logger = structlog.get_logger().bind(
+        job_id=str(job.id),
+        file=file_path,
+        table=target_table,
+    )
 
     # --- Step 1: ogr2ogr load ---
     db_conn_str = build_pg_conn_str()
@@ -609,6 +613,7 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
             if elev_promoted:
                 # Re-extract column_info so elev appears in the column list
                 from app.ingest.metadata import get_column_info
+
                 metadata["column_info"] = await get_column_info(session, table_name)
 
         # ArcGIS column_info fallback: if the DB-based extraction returned empty
@@ -739,8 +744,6 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
     await invalidate_catalog_cache()
 
     # Generate embedding (non-fatal)
-    from app.embeddings.helpers import defer_embedding
-
     await defer_embedding(dataset)
 
     return dataset
@@ -750,19 +753,15 @@ async def _finalize_ingest(ctx: IngestContext, staging: "StagingResult | None" =
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
 
-    Full pipeline:
-    1. Update job status to running
-    2. Run ogrinfo to detect CRS
-    3. Run ogr2ogr to load file into PostGIS
-    4. Add geom_4326 column via ST_Transform
-    5. Grant geolens_reader SELECT access
-    6. Extract metadata (extent, columns, row count, geometry type)
-    7. Create Dataset record in catalog
-    8. Update job status to complete
-    9. Clean up staging file
+    Pipeline:
+    1. Update job status to running, validate file safety
+    2. Run ogrinfo to detect CRS and geometry type
+    3-6. Shared vector staging pipeline via ``_ingest_vector_into_staging``
+         (ogr2ogr → rename → DBF detect → geometry override → post-process → metadata)
+    7-9. Finalize via ``_finalize_ingest`` (create Dataset, quality score, commit, quicklook)
+    10. Archive original file, clean up local copy
     """
     _bind_task_log_context(task_name="ingest_file", job_id=job_id)
-    from app.database import async_session
     from app.ingest.ogr import run_ogrinfo
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
@@ -774,6 +773,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         )
         job = result.scalar_one()
 
+        table_name: str | None = None
         try:
             # 1. Update job to running
             job.status = "running"
@@ -923,8 +923,28 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             )
 
         except Exception as exc:
-            # On any failure, mark job as failed
+            # Clean up orphaned table on failure (matches reupload_file pattern)
             await session.rollback()
+            try:
+                if table_name:
+                    from app.ingest.metadata import _qtable
+                    from sqlalchemy import text as _text
+
+                    await session.execute(
+                        _text(f"DROP TABLE IF EXISTS {_qtable(table_name)}")
+                    )
+                    await session.commit()
+            except Exception as cleanup_exc:
+                import structlog
+
+                structlog.get_logger().warning(
+                    "Table cleanup failed during ingest_file failure",
+                    table=table_name,
+                    cleanup_error=str(cleanup_exc),
+                    original_error=str(exc),
+                )
+
+            # Mark job as failed
             job.status = "failed"
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
@@ -989,7 +1009,6 @@ async def ingest_service(
     7. Update job status to complete
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
-    from app.database import async_session
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.ingest.service import generate_table_name
     from app.jobs.models import IngestJob
@@ -1312,7 +1331,6 @@ async def reupload_file(
     )
     import asyncio
 
-    from app.database import async_session
     from app.datasets.models import Dataset
     from app.ingest.metadata import _qtable
     from app.ingest.ogr import run_ogrinfo
@@ -1505,7 +1523,6 @@ async def reupload_service(
     _bind_task_log_context(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
     )
-    from app.database import async_session
     from app.datasets.models import Dataset
     from app.ingest.metadata import (
         _qtable,
@@ -2185,7 +2202,9 @@ async def ingest_vrt(
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
-                logger_vrt.warning("Quicklook generation failed for VRT %s", job_id, exc_info=True)
+                logger_vrt.warning(
+                    "Quicklook generation failed for VRT %s", job_id, exc_info=True
+                )
 
             # 9. Create DB records
             um = job.user_metadata or {}
@@ -2410,7 +2429,9 @@ async def regenerate_vrt(
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
             except Exception:
                 logger_regen.warning(
-                    "Quicklook regeneration failed for VRT %s", vrt_dataset_id, exc_info=True
+                    "Quicklook regeneration failed for VRT %s",
+                    vrt_dataset_id,
+                    exc_info=True,
                 )
 
             # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
