@@ -9,7 +9,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import log_action
-from app.auth.dependencies import get_current_active_user, require_permission
+from app.auth.dependencies import get_current_active_user, get_optional_user, require_permission
+from app.auth.visibility import check_dataset_access_or_anonymous
 from app.auth.models import User
 from app.auth.visibility import check_dataset_access
 from app.datasets.service import get_dataset
@@ -54,7 +55,7 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates."""
@@ -65,7 +66,7 @@ async def get_features_geojson_z_endpoint(
             detail="Dataset not found",
         )
 
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     if dataset.geometry_type is None:
         raise HTTPException(
