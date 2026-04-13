@@ -35,7 +35,7 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.1.0",
     "authlib>=1.6.9",
     "itsdangerous>=2.2.0",
-    "sse-starlette>=3.3.2",
+    "sse-starlette>=3.3.4",
     "sqlglot>=29.0.0",
     # Security: pin transitive deps to versions without known CVEs
     # cryptography 46.0.7 patches a buffer-overflow bug affecting
