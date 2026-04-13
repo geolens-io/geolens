@@ -746,6 +746,7 @@ async def rename_reserved_columns(
             table=table_name,
             error=str(exc),
             renames_attempted=len(renames),
+            exc_info=True,
         )
         raise
 

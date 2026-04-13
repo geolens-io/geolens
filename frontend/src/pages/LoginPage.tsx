@@ -37,7 +37,7 @@ export function LoginPage() {
     }
   }, [oauthError, t]);
 
-  const { data: config, isLoading: configLoading } = useQuery({
+  const { data: config, isLoading: configLoading, isError: configError } = useQuery({
     queryKey: queryKeys.authConfig.config,
     queryFn: getAuthConfig,
     staleTime: 5 * 60 * 1000,
@@ -119,6 +119,7 @@ export function LoginPage() {
         </section>
 
         <div className="flex flex-col items-center gap-4 lg:items-stretch">
+          {configError && <div className="text-sm text-destructive">Unable to load authentication settings</div>}
           <LoginForm />
           <OAuthButtons />
           <p className="max-w-sm text-center text-sm text-muted-foreground">

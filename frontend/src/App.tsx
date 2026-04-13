@@ -53,7 +53,7 @@ export const appRoutes = (
       <Route index element={<SearchPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="search" element={<Navigate to="/" replace />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
-      <Route path="collections" element={<CollectionsPage />} />
+      <Route path="collections" element={<CollectionsPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="maps" element={<MapsPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="maps/:id" element={<MapViewerGate />} errorElement={<RouteErrorBoundary />} />
@@ -65,20 +65,20 @@ export const appRoutes = (
           <Route path="import" element={<ImportPage />} />
         </Route>
         <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
-          <Route element={<AdminLayout />}>
+          <Route element={<AdminLayout />} errorElement={<RouteErrorBoundary />}>
             <Route path="admin" element={<Navigate to="/admin/overview" replace />} />
-            <Route path="admin/overview" element={<AdminOverviewPage />} />
-            <Route path="admin/users" element={<AdminUsersPage />} />
-            <Route path="admin/jobs" element={<AdminJobsPage />} />
-            <Route path="admin/audit" element={<AdminAuditPage />} />
-            <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} />
+            <Route path="admin/overview" element={<AdminOverviewPage />} errorElement={<RouteErrorBoundary />} />
+            <Route path="admin/users" element={<AdminUsersPage />} errorElement={<RouteErrorBoundary />} />
+            <Route path="admin/jobs" element={<AdminJobsPage />} errorElement={<RouteErrorBoundary />} />
+            <Route path="admin/audit" element={<AdminAuditPage />} errorElement={<RouteErrorBoundary />} />
+            <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} errorElement={<RouteErrorBoundary />} />
             {/* Redirects from old routes */}
             <Route path="admin/share-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/embed-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             {/* Settings — each tab is its own route */}
             <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
-            <Route path="admin/settings/:tab" element={<AdminSettingsPage />} />
-            <Route path="admin/config-ops" element={<AdminConfigOpsPage />} />
+            <Route path="admin/settings/:tab" element={<AdminSettingsPage />} errorElement={<RouteErrorBoundary />} />
+            <Route path="admin/config-ops" element={<AdminConfigOpsPage />} errorElement={<RouteErrorBoundary />} />
             {/* Redirects from old routes */}
             <Route path="admin/settings/infrastructure" element={<Navigate to="/admin/overview" replace />} />
             <Route path="admin/general" element={<Navigate to="/admin/settings/general" replace />} />

@@ -155,12 +155,16 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
   const multiInitializedRef = useRef(false);
 
   // Pre-select source from query param
-  const { data: initialSource } = useQuery({
+  const { data: initialSource, isError: initialSourceError } = useQuery({
     queryKey: queryKeys.ogcRecords.detail(initialSourceId!),
     queryFn: () =>
       apiFetch<OGCRecordResponse>(`/collections/datasets/items/${initialSourceId}`),
     enabled: !!initialSourceId,
   });
+
+  useEffect(() => {
+    if (initialSourceError) toast.error('Failed to load source dataset');
+  }, [initialSourceError]);
 
   useEffect(() => {
     if (
