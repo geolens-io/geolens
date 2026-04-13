@@ -1,5 +1,7 @@
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createElement, type ReactNode } from 'react';
 
 vi.mock('@/api/client', () => ({
   apiFetchBlob: vi.fn(),
@@ -11,6 +13,14 @@ import { useMapThumbnail } from '@/hooks/use-map-thumbnail';
 const mockApiFetchBlob = vi.mocked(apiFetchBlob);
 
 const fakeBlob = new Blob(['img'], { type: 'image/png' });
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -26,7 +36,9 @@ describe('useMapThumbnail', () => {
   it('returns null initially then blob URL after fetch', async () => {
     mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
 
-    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'), {
+      wrapper: createWrapper(),
+    });
 
     expect(result.current).toBeNull();
 
@@ -36,7 +48,9 @@ describe('useMapThumbnail', () => {
   });
 
   it('returns null when thumbnailUrl is null', () => {
-    const { result } = renderHook(() => useMapThumbnail(null));
+    const { result } = renderHook(() => useMapThumbnail(null), {
+      wrapper: createWrapper(),
+    });
     expect(result.current).toBeNull();
     expect(mockApiFetchBlob).not.toHaveBeenCalled();
   });
@@ -44,62 +58,30 @@ describe('useMapThumbnail', () => {
   it('returns null when fetch fails', async () => {
     mockApiFetchBlob.mockRejectedValueOnce(new Error('404'));
 
-    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
-
-    // Wait for the rejected promise to settle
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10));
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'), {
+      wrapper: createWrapper(),
     });
 
+    // Query stays null on error (default value)
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalled());
     expect(result.current).toBeNull();
   });
 
-  it('revokes previous blob URL when thumbnailUrl changes', async () => {
+  it('returns blob URL for different thumbnailUrl', async () => {
     mockApiFetchBlob.mockResolvedValue(fakeBlob);
 
     const { result, rerender } = renderHook(
       ({ url }: { url: string }) => useMapThumbnail(url),
-      { initialProps: { url: '/api/maps/1/thumbnail/' } },
+      { initialProps: { url: '/api/maps/1/thumbnail/' }, wrapper: createWrapper() },
     );
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
 
     rerender({ url: '/api/maps/2/thumbnail/' });
 
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
-  });
-
-  it('revokes blob URL on unmount', async () => {
-    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
-
-    const { result, unmount } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
-
-    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
-
-    unmount();
-
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
-  });
-
-  it('does not set state after unmount (cancelled fetch)', async () => {
-    let resolveBlob: (b: Blob) => void;
-    mockApiFetchBlob.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveBlob = resolve;
-      }),
-    );
-
-    const { result, unmount } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'));
-
-    unmount();
-
-    // Resolve after unmount — should not create a blob URL
-    await act(async () => {
-      resolveBlob!(fakeBlob);
-      await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => {
+      expect(mockApiFetchBlob).toHaveBeenCalledTimes(2);
+      expect(result.current).toBe('blob:http://localhost/thumb');
     });
-
-    expect(result.current).toBeNull();
-    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Map as MapIcon, User, Layers, Calendar } from 'lucide-react';
@@ -16,7 +16,7 @@ import { getVisibilityLabel } from '@/i18n/labels';
 import type { MapCardProps } from './MapCard';
 import { VisibilityIcon } from './VisibilityIcon';
 
-export function MapCardGrid({ map, onDelete }: MapCardProps) {
+export const MapCardGrid = memo(function MapCardGrid({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
   const thumbnailSrc = useMapThumbnail(map.thumbnail_url);
@@ -108,4 +108,4 @@ export function MapCardGrid({ map, onDelete }: MapCardProps) {
       </div>
     </Card>
   );
-}
+});

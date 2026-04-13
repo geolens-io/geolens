@@ -40,7 +40,7 @@ export function RegisterPage() {
     );
   }
 
-  if (config?.registration_enabled === false) {
+  if (configError || !config || config.registration_enabled === false) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">

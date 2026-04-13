@@ -203,7 +203,7 @@ async def generate_map_endpoint(
         logger.warning("LLM API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error: {e.message}",
+            detail="LLM provider returned an error",
         )
     except Exception:
         logger.exception("AI map generation failed")
@@ -305,7 +305,7 @@ async def chat_endpoint(
         logger.warning("Chat LLM API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error: {e.message}",
+            detail="LLM provider returned an error",
         )
     except Exception:
         logger.exception("Chat map editing failed")
@@ -402,7 +402,7 @@ async def generate_metadata_summary(
         logger.warning("AI metadata API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error: {e.message}",
+            detail="LLM provider returned an error",
         )
     except Exception:
         logger.exception("AI metadata summary generation failed")
@@ -440,7 +440,7 @@ async def generate_metadata_keywords(
         logger.warning("AI metadata API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error: {e.message}",
+            detail="LLM provider returned an error",
         )
     except Exception:
         logger.exception("AI metadata keyword generation failed")
@@ -478,7 +478,7 @@ async def generate_metadata_lineage(
         logger.warning("AI metadata API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error: {e.message}",
+            detail="LLM provider returned an error",
         )
     except Exception:
         logger.exception("AI metadata lineage generation failed")
@@ -518,7 +518,7 @@ async def generate_metadata_quality_statement(
         logger.warning("AI metadata API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM provider error: {e.message}",
+            detail="LLM provider returned an error",
         )
     except Exception:
         logger.exception("AI metadata quality statement generation failed")

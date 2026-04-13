@@ -15,7 +15,7 @@ import uuid
 
 import pytest
 
-from app.datasets.router import ALLOWED_TRANSITIONS
+from app.datasets.router_data import ALLOWED_TRANSITIONS
 
 from tests.factories import create_dataset, get_user_id
 

@@ -1,10 +1,4 @@
-"""Procrastinate task definitions for async file ingestion.
-
-Note: Job failure handling is intentionally inline at each call site rather than
-extracted into a helper. Each failure path has distinct error_message formatting
-and may set additional fields (e.g. job.completed_at). A generic helper would
-either be too minimal to be useful or too complex to be readable.
-"""
+"""Procrastinate task definitions for async file ingestion."""
 
 import uuid
 from dataclasses import dataclass
@@ -365,6 +359,108 @@ async def _archive_original_file(
             )
 
 
+async def _run_staging_pipeline(
+    session,
+    *,
+    table_name: str,
+    has_geometry: bool,
+    effective_srid: int | None,
+) -> StagingResult:
+    """Run the post-ogr2ogr staging pipeline on a table.
+
+    Shared by ``_ingest_vector_into_staging`` (new ingests) and
+    ``reupload_file`` (re-uploads). Performs: ensure_geom_column,
+    clip_to_mercator_bounds, add_4326_column, grant_reader_access,
+    extract_metadata, detect_3d_metadata, promote_z_to_elev, and
+    get_sample_values. Does not commit.
+    """
+    from app.ingest.metadata import (
+        add_4326_column,
+        clip_to_mercator_bounds,
+        detect_3d_metadata,
+        ensure_geom_column,
+        extract_metadata,
+        get_sample_values,
+        grant_reader_access,
+        promote_z_to_elev,
+    )
+
+    if has_geometry:
+        has_geometry = await ensure_geom_column(session, table_name)
+        if has_geometry:
+            await clip_to_mercator_bounds(session, table_name)
+            if effective_srid is not None:
+                await add_4326_column(session, table_name, effective_srid)
+
+    await grant_reader_access(session, table_name)
+
+    metadata = await extract_metadata(session, table_name)
+    three_d = await detect_3d_metadata(session, table_name)
+
+    if three_d.get("is_3d"):
+        elev_promoted = await promote_z_to_elev(
+            session, table_name, metadata.get("geometry_type")
+        )
+        if elev_promoted:
+            from app.ingest.metadata import get_column_info
+
+            metadata["column_info"] = await get_column_info(session, table_name)
+
+    sample_values = await get_sample_values(
+        session, table_name, metadata.get("column_info", [])
+    )
+
+    return StagingResult(
+        metadata=metadata,
+        sample_values=sample_values,
+        three_d=three_d,
+        has_geometry=has_geometry,
+        geometry_type=metadata.get("geometry_type"),
+    )
+
+
+async def _cleanup_staging_on_failure(
+    session,
+    *,
+    staging_table: str,
+    job,
+    exc: Exception,
+    task_name: str,
+) -> None:
+    """Roll back, drop staging table, and mark job as failed.
+
+    Shared by ``reupload_file`` and ``reupload_service`` which have
+    structurally identical exception handlers.
+    """
+    import structlog
+    from sqlalchemy import text
+
+    from app.ingest.metadata import _qtable
+
+    await session.rollback()
+    try:
+        await session.execute(
+            text(f"DROP TABLE IF EXISTS {_qtable(staging_table)}")
+        )
+        await session.commit()
+    except Exception as cleanup_exc:
+        structlog.get_logger().warning(
+            f"Staging-table cleanup failed during {task_name} failure",
+            staging_table=staging_table,
+            cleanup_error=str(cleanup_exc),
+            original_error=str(exc),
+        )
+
+    job.status = "failed"
+    job.error_message = str(exc)
+    job.completed_at = datetime.now(timezone.utc)
+    await session.commit()
+    structlog.get_logger().exception(
+        "Ingest task failed",
+        extra={"job_id": str(job.id), "task": task_name},
+    )
+
+
 async def _ingest_vector_into_staging(
     session,
     *,
@@ -386,17 +482,7 @@ async def _ingest_vector_into_staging(
     production ingest path continues to inline the broader job lifecycle.
     It intentionally performs no commits.
     """
-    from app.ingest.metadata import (
-        add_4326_column,
-        clip_to_mercator_bounds,
-        detect_3d_metadata,
-        ensure_geom_column,
-        extract_metadata,
-        get_sample_values,
-        grant_reader_access,
-        promote_z_to_elev,
-        rename_reserved_columns,
-    )
+    from app.ingest.metadata import rename_reserved_columns
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr
 
     if user_wants_geom and user_metadata is None:
@@ -444,38 +530,20 @@ async def _ingest_vector_into_staging(
             has_geometry = True
             geometry_type = override_geom_type
 
-    if has_geometry:
-        has_geometry = await ensure_geom_column(session, target_table)
-        if has_geometry:
-            await clip_to_mercator_bounds(session, target_table)
-            if effective_srid is not None:
-                await add_4326_column(session, target_table, effective_srid)
-
-    await grant_reader_access(session, target_table)
-
-    metadata = await extract_metadata(session, target_table)
-    three_d = await detect_3d_metadata(session, target_table)
-
-    if three_d.get("is_3d"):
-        elev_promoted = await promote_z_to_elev(
-            session, target_table, metadata.get("geometry_type")
-        )
-        if elev_promoted:
-            from app.ingest.metadata import get_column_info
-
-            metadata["column_info"] = await get_column_info(session, target_table)
-
-    sample_values = await get_sample_values(
-        session, target_table, metadata.get("column_info", [])
-    )
-
-    return StagingResult(
-        metadata=metadata,
-        sample_values=sample_values,
-        three_d=three_d,
+    result = await _run_staging_pipeline(
+        session,
+        table_name=target_table,
         has_geometry=has_geometry,
-        geometry_type=metadata.get("geometry_type", geometry_type),
+        effective_srid=effective_srid,
     )
+
+    # Preserve the original geometry_type fallback: if _run_staging_pipeline
+    # returned a geometry_type from metadata, use it; otherwise fall back to
+    # the ogr_geometry_type (possibly overridden by user_wants_geom).
+    if result.geometry_type is None and geometry_type is not None:
+        result.geometry_type = geometry_type
+
+    return result
 
 
 async def _finalize_ingest(ctx: IngestContext):
@@ -972,16 +1040,8 @@ async def ingest_service(
             _preview_geom_type = um.get("geometry_type")
             is_non_spatial = _preview_geom_type is None
 
-            # 3. Build GDAL source string
+            # 3. Resolve service parameters
             object_id_field = um.get("object_id_field") or None
-            gdal_source, layer_arg = build_gdal_source(
-                service_type_raw,
-                source_url,
-                source_layer,
-                layer_id,
-                token=token,
-                order_field=object_id_field,
-            )
 
             # 4. Generate table name and run ogr2ogr
             dataset_name = um.get("title") or job.source_filename or "dataset"
@@ -997,20 +1057,7 @@ async def ingest_service(
 
             # WFS namespace retry via shared helper (KISS-8).
             async def _do_import(layer_name: str) -> None:
-                if layer_name == source_layer:
-                    # First attempt — use the already-built gdal_source/layer_arg.
-                    await run_ogr2ogr_service(
-                        gdal_source,
-                        layer_arg,
-                        table_name,
-                        db_conn_str,
-                        service_type,
-                        token=token,
-                        is_non_spatial=is_non_spatial,
-                    )
-                    return
-                # Retry with unqualified layer name — rebuild the source.
-                gdal_source_retry, layer_arg_retry = build_gdal_source(
+                _src, _layer = build_gdal_source(
                     service_type_raw,
                     source_url,
                     layer_name,
@@ -1019,8 +1066,8 @@ async def ingest_service(
                     order_field=object_id_field,
                 )
                 await run_ogr2ogr_service(
-                    gdal_source_retry,
-                    layer_arg_retry,
+                    _src,
+                    _layer,
                     table_name,
                     db_conn_str,
                     service_type,
@@ -1263,18 +1310,7 @@ async def reupload_file(
 
     from app.database import async_session
     from app.datasets.models import Dataset
-    from app.ingest.metadata import (
-        _qtable,
-        add_4326_column,
-        clip_to_mercator_bounds,
-        detect_3d_metadata,
-        ensure_geom_column,
-        extract_metadata,
-        get_column_info,
-        get_sample_values,
-        grant_reader_access,
-        promote_z_to_elev,
-    )
+    from app.ingest.metadata import _qtable
     from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.jobs.models import IngestJob
     from sqlalchemy import select, text
@@ -1386,29 +1422,16 @@ async def reupload_file(
                         collisions=dbf_collisions,
                     )
 
-            # 5. Post-process staging table
-            if has_geometry:
-                await ensure_geom_column(session, staging_tn)
-                await clip_to_mercator_bounds(session, staging_tn)
-                await add_4326_column(session, staging_tn, effective_srid)
-            await grant_reader_access(session, staging_tn)
-
-            # 6. Extract metadata from staging table
-            metadata = await extract_metadata(session, staging_tn)
-            sample_values = await get_sample_values(
-                session, staging_tn, metadata["column_info"]
+            # 5-6. Post-process staging table (shared pipeline)
+            staging_result = await _run_staging_pipeline(
+                session,
+                table_name=staging_tn,
+                has_geometry=has_geometry,
+                effective_srid=effective_srid,
             )
-
-            # Detect 3D geometry on re-uploaded data (same as _finalize_ingest)
-            three_d = await detect_3d_metadata(session, staging_tn)
-
-            # Attribute promotion for 3D points
-            if three_d.get("is_3d"):
-                elev_promoted = await promote_z_to_elev(
-                    session, staging_tn, metadata.get("geometry_type")
-                )
-                if elev_promoted:
-                    metadata["column_info"] = await get_column_info(session, staging_tn)
+            metadata = staging_result.metadata
+            sample_values = staging_result.sample_values
+            three_d = staging_result.three_d
 
             # 7. Compute file hash + source format
             file_hash = await asyncio.to_thread(sha256_file, file_path)
@@ -1462,35 +1485,12 @@ async def reupload_file(
             await defer_embedding(dataset)
 
         except Exception as exc:
-            # Clean up staging table on failure
-            await session.rollback()
-            try:
-                await session.execute(
-                    text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}")
-                )
-                await session.commit()
-            except Exception as cleanup_exc:
-                # Cleanup failure is non-fatal for job reporting but worth
-                # logging so orphaned staging tables can be traced (R-6).
-                import structlog
-
-                structlog.get_logger().warning(
-                    "Staging-table cleanup failed during reupload_file failure",
-                    staging_table=staging_tn,
-                    cleanup_error=str(cleanup_exc),
-                    original_error=str(exc),
-                )
-
-            # Mark job as failed
-            job.status = "failed"
-            job.error_message = str(exc)
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-            import structlog
-
-            structlog.get_logger().exception(
-                "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "reupload_file"},
+            await _cleanup_staging_on_failure(
+                session,
+                staging_table=staging_tn,
+                job=job,
+                exc=exc,
+                task_name="reupload_file",
             )
             raise
         finally:
@@ -1661,32 +1661,12 @@ async def reupload_service(
             await defer_embedding(dataset)
 
         except Exception as exc:
-            await session.rollback()
-            try:
-                await session.execute(
-                    text(f"DROP TABLE IF EXISTS {_qtable(staging_tn)}")
-                )
-                await session.commit()
-            except Exception as cleanup_exc:
-                # R-6: log orphaned staging tables.
-                import structlog
-
-                structlog.get_logger().warning(
-                    "Staging-table cleanup failed during reupload_service failure",
-                    staging_table=staging_tn,
-                    cleanup_error=str(cleanup_exc),
-                    original_error=str(exc),
-                )
-
-            job.status = "failed"
-            job.error_message = str(exc)
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-            import structlog
-
-            structlog.get_logger().exception(
-                "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "reupload_service"},
+            await _cleanup_staging_on_failure(
+                session,
+                staging_table=staging_tn,
+                job=job,
+                exc=exc,
+                task_name="reupload_service",
             )
             raise
 

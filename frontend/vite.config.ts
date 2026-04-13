@@ -99,7 +99,7 @@ export default defineConfig({
     },
   },
   build: {
-    rolldownOptions: {
+    rollupOptions: {
       output: {
         manualChunks,
       },

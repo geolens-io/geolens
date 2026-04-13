@@ -125,7 +125,7 @@ export interface DatasetResponse {
     geometry_validity: number;
     attribute_completeness: number;
     crs_defined: number;
-    computed_at: string;
+    computed_at: string | null;
   } | null;
   record_type: string;
   raster: RasterMetadata | null;
@@ -312,7 +312,7 @@ export interface OGCRecordProperties {
   feature_count: number | null;
   row_count?: number | null;
   column_count?: number | null;
-  contact: Record<string, unknown> | null;
+  contacts?: Array<{ name?: string; organization?: string; role?: string; email?: string; phone?: string }> | null;
   license: string | null;
   source_organization: string | null;
   quality_detail?: {
@@ -321,7 +321,7 @@ export interface OGCRecordProperties {
     geometry_validity: number | null;
     attribute_completeness: number;
     crs_defined: number | null;
-    computed_at: string;
+    computed_at: string | null;
   } | null;
   record_status?: string | null;
   record_type?: string;
@@ -352,6 +352,10 @@ export interface OGCRecordResponse {
   geometry: Geometry | null;
   properties: OGCRecordProperties;
   links: OGCRecordLink[];
+  conformsTo?: string[] | null;
+  time?: Record<string, unknown> | null;
+  assets?: Record<string, { href: string; type?: string; title?: string; roles?: string[] }> | null;
+  bbox?: number[] | null;
 }
 
 export interface SearchResponse {
@@ -359,6 +363,7 @@ export interface SearchResponse {
   numberMatched: number;
   numberReturned: number;
   features: OGCRecordResponse[];
+  links?: OGCRecordLink[] | null;
 }
 
 export interface CatalogSummary {
@@ -699,7 +704,7 @@ export interface StyleConfig {
 }
 
 export interface ColumnValuesResponse {
-  values: string[];
+  values: Array<string | number | null>;
   count: number;
 }
 

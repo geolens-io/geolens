@@ -62,7 +62,7 @@ export const appRoutes = (
       <Route element={<ProtectedRoute />} errorElement={<RouteErrorBoundary />}>
         <Route path="settings" element={<SettingsPage />} errorElement={<RouteErrorBoundary />} />
         <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
-          <Route path="import" element={<ImportPage />} />
+          <Route path="import" element={<ImportPage />} errorElement={<RouteErrorBoundary />} />
         </Route>
         <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
           <Route element={<AdminLayout />} errorElement={<RouteErrorBoundary />}>

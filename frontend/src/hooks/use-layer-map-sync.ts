@@ -4,10 +4,9 @@ import { getLayerType, resolveAdapterType, getCompoundOpacity, CUSTOM_PAINT_PROP
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 
-// Consolidated dev-only debug logger — avoids repeating the DEV guard at every catch site.
-const debugLog = import.meta.env.DEV
-  ? (msg: string, e: unknown) => console.debug(msg, e)
-  : undefined;
+function debugLog(msg: string, e: unknown) {
+  if (import.meta.env.DEV) console.debug(msg, e);
+}
 
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
@@ -93,7 +92,7 @@ export function useLayerMapSync(
               try {
                 map.setPaintProperty(mapLayerId, prop, value);
               } catch (e) {
-                debugLog?.(`[builder] Failed to set ${prop}:`, e);
+                debugLog(`[builder] Failed to set ${prop}:`, e);
               }
             }
           }
@@ -149,7 +148,7 @@ export function useLayerMapSync(
                   value as Parameters<MaplibreMap['setPaintProperty']>[2],
                 );
               } catch (e) {
-                debugLog?.(`[builder] Failed to set ${prop}:`, e);
+                debugLog(`[builder] Failed to set ${prop}:`, e);
               }
             }
           }
@@ -159,11 +158,11 @@ export function useLayerMapSync(
           if (map.getLayer(outlineId)) {
             const oc = paint['_outline-color'] ?? paint['outline-color'];
             if (oc !== undefined) {
-              try { map.setPaintProperty(outlineId, 'line-color', oc); } catch (e) { debugLog?.('[builder] outline-color sync:', e); }
+              try { map.setPaintProperty(outlineId, 'line-color', oc); } catch (e) { debugLog('[builder] outline-color sync:', e); }
             }
             const ow = paint['_outline-width'] ?? paint['outline-width'];
             if (ow !== undefined) {
-              try { map.setPaintProperty(outlineId, 'line-width', ow); } catch (e) { debugLog?.('[builder] outline-width sync:', e); }
+              try { map.setPaintProperty(outlineId, 'line-width', ow); } catch (e) { debugLog('[builder] outline-width sync:', e); }
             }
           }
         },
@@ -240,7 +239,7 @@ export function useLayerMapSync(
                 map.setLayoutProperty(mapLayerId, prop, value ?? undefined);
               }
             } catch (e) {
-              debugLog?.(`[builder] Failed to set layout ${prop}:`, e);
+              debugLog(`[builder] Failed to set layout ${prop}:`, e);
             }
           }
           // Clear removed props (e.g., removing line-dasharray sets solid)
@@ -254,7 +253,7 @@ export function useLayerMapSync(
                   map.setLayoutProperty(mapLayerId, prop, undefined);
                 }
               } catch (e) {
-                debugLog?.(`[builder] Failed to clear layout ${prop}:`, e);
+                debugLog(`[builder] Failed to clear layout ${prop}:`, e);
               }
             }
           }

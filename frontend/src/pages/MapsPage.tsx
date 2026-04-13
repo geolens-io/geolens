@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Map as MapIcon, Plus, Search, LayoutList, LayoutGrid } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -51,6 +51,7 @@ export function MapsPage() {
   const [viewMode, setViewMode] = useState(getStoredView);
   const [createOpen, setCreateOpen] = useState(false);
   const [deletingMap, setDeletingMap] = useState<{ id: string; name: string } | null>(null);
+  const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
   useDocumentTitle(t('common:pageTitle.maps'));
 
   // Debounce search input
@@ -236,7 +237,7 @@ export function MapsPage() {
           total={data.total}
           offset={skip}
           limit={PAGE_SIZE}
-          onPageChange={(newOffset) => setSkip(newOffset)}
+          onPageChange={handlePageChange}
         />
       )}
 

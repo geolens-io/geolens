@@ -1,7 +1,6 @@
 """Dataset core CRUD endpoints: list, create, get, update, delete, quicklook, history."""
 
 import uuid
-from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -56,9 +55,6 @@ from app.datasets.service import (
 from app.public_urls import get_dataset_service_url
 from app.dependencies import get_db
 from app.storage import get_storage
-
-# Re-export for backward compatibility (moved to router_data.py)
-from app.datasets.router_data import ALLOWED_TRANSITIONS  # noqa: F401
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
@@ -183,7 +179,7 @@ async def get_single_dataset(
 @router.get("/{dataset_id}/quicklook")
 async def get_quicklook(
     dataset_id: uuid.UUID,
-    size: Literal[256, 512] = Query(256, description="Quicklook size: 256 or 512"),
+    size: int = Query(256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:

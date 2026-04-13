@@ -29,6 +29,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
     useDropzone({
       accept,
       maxFiles: 10,
+      maxSize: maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined,
       multiple: true,
       disabled,
       onDrop: (accepted) => {
