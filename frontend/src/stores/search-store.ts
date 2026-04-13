@@ -16,7 +16,7 @@ export type SearchFilterKey =
   | 'date_to'
   | 'vintage_start'
   | 'vintage_end'
-  | 'sort_by'
+  | 'sortBy'
   | 'exclude_synthetic'
   | 'geometry'
   | 'spatial_predicate';
@@ -35,7 +35,7 @@ interface SearchState {
   date_to: string;
   vintage_start: string;
   vintage_end: string;
-  sort_by: string;
+  sortBy: string;
   offset: number;
   limit: number;
   exclude_synthetic: boolean;
@@ -46,7 +46,7 @@ interface SearchState {
   setFilter: (key: SearchFilterKey, value: string | string[] | boolean) => void;
   resetFilters: () => void;
   setPage: (offset: number) => void;
-  setSortBy: (sort_by: string) => void;
+  setSortBy: (sortBy: string) => void;
   setSpatialPanelOpen: (open: boolean) => void;
   toParams: () => Record<string, string>;
   restoreParams: (params: Record<string, string>) => void;
@@ -66,7 +66,7 @@ const initialState = {
   date_to: '',
   vintage_start: '',
   vintage_end: '',
-  sort_by: 'relevance',
+  sortBy: 'relevance',
   offset: 0,
   limit: DEFAULT_PAGE_SIZE,
   exclude_synthetic: true,
@@ -86,7 +86,7 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
 
   setPage: (offset) => set({ offset }),
 
-  setSortBy: (sort_by) => set({ sort_by, offset: 0 }),
+  setSortBy: (sortBy) => set({ sortBy, offset: 0 }),
 
   setSpatialPanelOpen: (open) => set({ spatialPanelOpen: open }),
 
@@ -109,7 +109,7 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
     if (state.vintage_start) params.vintage_start = state.vintage_start;
     if (state.vintage_end) params.vintage_end = state.vintage_end;
     if (state.spatial_predicate && state.spatial_predicate !== 'intersects') params.spatial_predicate = state.spatial_predicate;
-    if (state.sort_by && state.sort_by !== 'relevance') params.sort_by = state.sort_by;
+    if (state.sortBy && state.sortBy !== 'relevance') params.sort_by = state.sortBy;
     if (state.offset > 0) params.offset = String(state.offset);
     if (state.limit !== DEFAULT_PAGE_SIZE) params.limit = String(state.limit);
     if (!state.exclude_synthetic) params.exclude_synthetic = 'false';
@@ -135,7 +135,7 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
       vintage_start: params.vintage_start || '',
       vintage_end: params.vintage_end || '',
       spatial_predicate: params.spatial_predicate || 'intersects',
-      sort_by: params.sort_by || 'relevance',
+      sortBy: params.sort_by || 'relevance',
       offset: params.offset ? parseInt(params.offset, 10) || 0 : 0,
       limit: params.limit ? parseInt(params.limit, 10) || DEFAULT_PAGE_SIZE : DEFAULT_PAGE_SIZE,
       exclude_synthetic: params.exclude_synthetic === 'false' ? false : true,
