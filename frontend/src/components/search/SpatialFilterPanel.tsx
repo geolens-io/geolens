@@ -38,6 +38,12 @@ interface SpatialFilterPanelProps {
   initialPredicate?: string;
 }
 
+/**
+ * Bridge between GeoJSON.Feature<Polygon> and the store's feature type.
+ * The store uses a branded/extended GeoJSON type that is structurally
+ * compatible but nominally distinct — an explicit cast is required here.
+ * A runtime check would be pointless since the shape is guaranteed by the caller.
+ */
 function toStoreFeature(feature: GeoJSON.Feature<GeoJSON.Polygon>): GeoJSONStoreFeatures {
   return feature as unknown as GeoJSONStoreFeatures;
 }

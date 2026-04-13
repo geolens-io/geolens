@@ -436,7 +436,7 @@ async def get_collection_item_feature(
     )
     if row is None:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Feature '{feature_id}' not found in collection '{dataset_id}'",
         )
 
