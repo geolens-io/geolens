@@ -89,7 +89,9 @@ export const fillAdapter: LayerAdapter = {
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       syncVectorPaint(map, layerId, rawPaint);
-      map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
+      try {
+        map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
+      } catch { /* layer may have been removed during style change */ }
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(layerId, filter);
       } else {
