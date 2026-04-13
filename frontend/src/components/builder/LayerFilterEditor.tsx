@@ -178,6 +178,7 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       if (!Array.isArray(expr[i])) {
         return { kind: 'opaque', raw: expr };
       }
+      // Array.isArray confirms expr[i] is an array; cast narrows for parseSingle's signature.
       const parsed = parseSingle(expr[i] as unknown[]);
       if (parsed === null) {
         // Any unparseable sub-expression makes the whole thing opaque

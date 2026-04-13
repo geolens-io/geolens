@@ -66,7 +66,7 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     return client, provider
 
 
-@router.get("/{provider_slug}/login")
+@router.get("/{provider_slug}/login", response_class=RedirectResponse)
 async def oauth_login(
     provider_slug: str,
     request: Request,
@@ -81,7 +81,7 @@ async def oauth_login(
     return await client.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/{provider_slug}/callback")
+@router.get("/{provider_slug}/callback", response_class=Response)
 async def oauth_callback(
     provider_slug: str,
     request: Request,

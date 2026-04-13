@@ -12,7 +12,7 @@ from app.auth.models import User
 from app.datasets.models import Dataset, Record
 from app.dependencies import get_db
 from app.ingest.ogr import IngestionError
-from app.ingest.tasks import enrich_source_url, resolve_service_type
+from app.ingest.tasks import resolve_service_type
 from app.jobs.models import IngestJob
 from app.services.arcgis import ArcGISTokenError, normalize_arcgis_url
 from app.services.preview import build_gdal_source, run_service_preview
@@ -259,7 +259,7 @@ async def preview_service_layer(
         effective_layer_id = (
             request.layer_id if request.layer_id is not None else url_layer_id
         )
-        enriched_url = enrich_source_url(base_url, effective_layer_id)
+        enriched_url = f"{base_url}/{effective_layer_id}" if effective_layer_id is not None else base_url
         existing_stmt = (
             select(Dataset.id, Record.title)
             .join(Record, Dataset.record_id == Record.id)
@@ -385,7 +385,7 @@ async def preview_service_layer(
         )
         await db.commit()
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while previewing the layer.",
         )
 
