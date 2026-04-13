@@ -285,14 +285,14 @@ async def _detect_and_override_geometry(
     if geom_column:
         from sqlalchemy import text as _text
 
-        from app.ingest.metadata import construct_wkt_geometry
+        from app.ingest.metadata import _qtable, construct_wkt_geometry
 
         await construct_wkt_geometry(session, table_name, geom_column)
         # Re-detect geometry type from the constructed column so downstream
         # metadata reflects what was actually built (lines/polygons/etc).
         result = await session.execute(
             _text(
-                f"SELECT GeometryType(geom) FROM data.{table_name} "
+                f"SELECT GeometryType(geom) FROM {_qtable(table_name)} "
                 f"WHERE geom IS NOT NULL LIMIT 1"
             )
         )
