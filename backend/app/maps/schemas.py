@@ -179,6 +179,9 @@ class SharedLayerResponse(BaseModel):
     style_config: dict | None = None
     show_in_legend: bool = True
     tile_url: str
+    is_dem: bool | None = None
+    is_3d: bool | None = None
+    feature_count: int | None = None
 
 
 class SharedMapResponse(BaseModel):
