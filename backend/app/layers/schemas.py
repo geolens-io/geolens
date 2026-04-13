@@ -4,7 +4,7 @@ import re
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 ALLOWED_GEOMETRY_TYPES = {
     "Point",
@@ -66,9 +66,9 @@ class ColumnListResponse(BaseModel):
 
 
 class CreateLayerRequest(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=500)
     geometry_type: str
-    summary: str | None = None
+    summary: str | None = Field(default=None, max_length=5000)
     columns: list[ColumnDef] | None = None
 
     @field_validator("geometry_type")

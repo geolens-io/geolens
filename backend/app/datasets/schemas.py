@@ -212,8 +212,8 @@ class DatasetResponse(BaseModel):
     last_edited_at: datetime | None = None
     collections: list[dict] | None = None
     # ISO governance fields
-    record_status: str | None = Field(
-        default=None, description="Lifecycle status: draft, ready, published"
+    record_status: str = Field(
+        default="draft", description="Lifecycle status: draft, ready, published"
     )
     lineage_summary: str | None = Field(
         default=None, description="Free-text provenance / lineage statement"
@@ -274,13 +274,13 @@ class StatusUpdate(BaseModel):
 
 class DatasetDeleteRequest(BaseModel):
     confirm_title: str = Field(
-        description="Must match the dataset title to confirm deletion"
+        max_length=500, description="Must match the dataset title to confirm deletion"
     )
 
 
 class BulkDeleteItem(BaseModel):
     dataset_id: uuid.UUID
-    confirm_title: str
+    confirm_title: str = Field(max_length=500)
 
 
 class BulkDeleteRequest(BaseModel):
