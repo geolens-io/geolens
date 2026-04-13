@@ -8,7 +8,6 @@ Tests cover:
 import uuid
 
 import pytest
-from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.datasets.models import Dataset, Record

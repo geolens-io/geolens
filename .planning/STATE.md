@@ -4,13 +4,13 @@ milestone: v14.0
 milestone_name: getgeolens.com Marketing Site
 status: executing
 stopped_at: Phase 222 context gathered
-last_updated: "2026-04-12T23:20:30.554Z"
-last_activity: 2026-04-12
+last_updated: "2026-04-13T12:00:51.330Z"
+last_activity: 2026-04-13
 progress:
   total_phases: 15
-  completed_phases: 13
-  total_plans: 31
-  completed_plans: 31
+  completed_phases: 14
+  total_plans: 33
+  completed_plans: 33
   percent: 100
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-12
+Last activity: 2026-04-13 - Completed quick task 260413-fvg: Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -36,7 +36,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
 **Velocity:**
 
-- Total plans completed: 29
+- Total plans completed: 31
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -55,6 +55,7 @@ Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 | 999.1 | 4 | - | - |
 | 999.2 | 3 | - | - |
 | 999.3 | 3 | - | - |
+| 999.4 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -104,6 +105,7 @@ None yet.
 | 260409 | map thumbnails not working, this seems to be a regression | 2026-04-10 | d8d59cbd | Verified | [260409-map-thumbnails-not-working-this-seems-to](./quick/260409-map-thumbnails-not-working-this-seems-to/) |
 | 260410-d7k | review and make sure during the Import operations are all columns being imported | 2026-04-10 | 630f585f | Verified | [260410-d7k-review-and-make-sure-during-the-import-o](./quick/260410-d7k-review-and-make-sure-during-the-import-o/) |
 | 260411-a62 | review and close out remaining items in post-impl-20260410 handoff | 2026-04-11 | cea32bca | Verified | [260411-a62-review-the-remaining-items-in-docs-inter](./quick/260411-a62-review-the-remaining-items-in-docs-inter/) |
+| 260413-fvg | Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components | 2026-04-13 | f5b055b5 |  | [260413-fvg-extract-datasetstatsline-datasetheromap-](./quick/260413-fvg-extract-datasetstatsline-datasetheromap-/) |
 
 ## Session Continuity
 

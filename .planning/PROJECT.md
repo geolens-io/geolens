@@ -8,26 +8,11 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-41 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Phase 216 complete — /features page (6 zig-zag capability stripes + OGC compliance section) and /quickstart page (8-section docker-compose walkthrough) built in getgeolens.com. Real screenshots captured via Playwright from live instance (7 PNGs, AVIF+WebP derivatives). Nav subnav with active-page detection. All preview components retrofitted from SVG to real screenshots via Astro's Picture pipeline. Phase 217 complete — WCAG 2.1 AA accessibility audit passed: zero Axe critical/serious violations, Lighthouse accessibility 100/100 on all pages (desktop + mobile), skip-nav link, focus indicators on all interactive elements, CI gate preventing regression.
+42 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v14.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Marketing site at getgeolens.com shipped with Astro 6, SEO infrastructure, stylized product previews, homepage, demo collections, and WCAG 2.1 AA accessibility. Backend hardened with CommitRequest discriminated unions, PersistentConfig TypeAdapter validation, 3D geometry detection, GeoJSON-Z delivery, and shared vector staging pipeline. Phase 216 (Features & Quickstart pages) deferred to future milestone.
 
-## Current Milestone: v14.0 getgeolens.com Marketing Site
+## Last Milestone: v14.0 getgeolens.com Marketing Site (shipped 2026-04-13)
 
-**Goal:** Launch a public marketing site at getgeolens.com that converts GIS analysts and IT managers in enterprise/government toward self-hosted community deployment, with a secondary enterprise contact path.
-
-**Target features:**
-- Separate repo with static site (Astro or similar — fast, zero-JS-by-default, SEO-friendly)
-- Homepage with hero, value proposition, feature highlights, trust signals (Apache 2.0, OGC), and dual CTAs (Get Started / Contact for Enterprise)
-- Features page with deeper capability breakdown (search, map builder, ingestion, raster/VRT, AI chat, RBAC, OGC APIs)
-- Editions comparison (Community vs Enterprise) — feature matrix showing what's in each
-- Quickstart section or page (docker compose up flow, time-to-running emphasis)
-- Enterprise contact form or CTA (demo request / talk to us)
-- Stylized product preview assets (mock UI screenshots showing search, map builder, detail pages)
-- Responsive design, dark/light mode, consistent with GeoLens brand identity (emerald accent, Inter font)
-- SEO fundamentals (meta tags, OG images, structured data)
-
-## Last Milestone: v13.0 Open-Core Pre-Release (shipped 2026-03-27)
-
-**Delivered:** 6 phases (206-211), 12 plans, 19 requirements — extension seam architecture (Protocol interfaces, entry_point loader, edition detection), enterprise overlay repo (geolens-enterprise with SAML SSO, audit export, branding toggle), Apache 2.0 licensing, public README with quickstart, and CONTRIBUTING guide.
+**Delivered:** 14 phases (212-222, 999.1-999.4), 33 plans — Astro 6 marketing site with homepage, SEO, OG images, product previews, demo collections, accessibility audit. Backend: CommitRequest refactor, sample_values fix, PersistentConfig validation, 3D support (terrain, extrusions, metadata), GeoJSON-Z, shared staging pipeline. Known gap: Phase 216 (Features & Quickstart pages) deferred.
 
 ## Core Value
 

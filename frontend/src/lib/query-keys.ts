@@ -45,7 +45,6 @@ export const queryKeys = {
     validation: (id: string | undefined) => ['validation', id] as const,
     related: (id: string) => ['datasets', id, 'related'] as const,
     maps: (id: string) => ['datasets', id, 'maps'] as const,
-    quicklook: (id: string) => ['dataset-quicklook', id] as const,
   },
 
   // -------------------------------------------------------------------------
