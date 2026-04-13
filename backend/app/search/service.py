@@ -131,6 +131,7 @@ async def _get_vector_ranks(
 
     # Tune HNSW recall — default ef_search=40 may miss relevant results
     await session.execute(text("SET LOCAL hnsw.ef_search = 100"))
+    await session.execute(text("SET LOCAL statement_timeout = '3000'"))
 
     # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
     vector_stmt = (

@@ -28,7 +28,7 @@ from app.persistent_config import (
     _is_env_only,
     _registry,
 )
-from app.public_urls import get_public_api_url, get_public_app_url
+from app.public_urls import get_public_api_url, get_public_app_url, get_public_urls
 from app.settings.models import AppSetting
 from app.settings.schemas import (
     SETTING_VALIDATORS,
@@ -520,8 +520,7 @@ async def get_tile_config(
     db: AsyncSession = Depends(get_db),
 ) -> TileConfigResponse:
     """Return tile delivery configuration (public, no auth required)."""
-    public_app_url = await get_public_app_url(db, request=request)
-    public_api_url = await get_public_api_url(db, request=request)
+    public_app_url, public_api_url = await get_public_urls(db, request=request)
     return TileConfigResponse(
         cdn_base_url=app_settings.cdn_base_url,
         public_app_url=public_app_url,
