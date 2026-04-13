@@ -50,7 +50,10 @@ export function useCreateCollection() {
   return useMutation({
     mutationFn: createCollection,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.collections.all });
+      qc.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
+      });
     },
   });
 }
@@ -62,7 +65,10 @@ export function useUpdateCollection() {
       updateCollection(id, data),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.collections.detail(variables.id) });
-      qc.invalidateQueries({ queryKey: queryKeys.collections.all });
+      qc.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
+      });
     },
   });
 }
@@ -72,7 +78,10 @@ export function useDeleteCollection() {
   return useMutation({
     mutationFn: (id: string) => deleteCollection(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.collections.all });
+      qc.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
+      });
     },
   });
 }
@@ -85,7 +94,10 @@ export function useAddDatasetsToCollection() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.collections.detail(variables.collectionId) });
       qc.invalidateQueries({ queryKey: queryKeys.collections.datasetsPrefix(variables.collectionId) });
-      qc.invalidateQueries({ queryKey: queryKeys.collections.all });
+      qc.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
+      });
       for (const datasetId of variables.datasetIds) {
         qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
       }
@@ -101,7 +113,10 @@ export function useRemoveDatasetFromCollection() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.collections.detail(variables.collectionId) });
       qc.invalidateQueries({ queryKey: queryKeys.collections.datasetsPrefix(variables.collectionId) });
-      qc.invalidateQueries({ queryKey: queryKeys.collections.all });
+      qc.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
+      });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
     },
   });

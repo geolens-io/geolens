@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCreateCollection } from '@/hooks/use-collections';
+import { queryKeys } from '@/lib/query-keys';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,7 @@ export function CollectionCreateDialog({ open, onOpenChange }: CollectionCreateD
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const createCollection = useCreateCollection();
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (open) {
@@ -41,6 +44,13 @@ export function CollectionCreateDialog({ open, onOpenChange }: CollectionCreateD
       await createCollection.mutateAsync({
         name: name.trim(),
         description: description.trim() || null,
+      });
+      // Invalidate + refetch all collection queries so the list updates
+      // before the dialog closes. Use predicate to match any key starting
+      // with 'collections' since prefix matching may not catch parameterized keys.
+      await qc.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
       });
       onOpenChange(false);
       toast.success(t('toasts.created'));
