@@ -297,6 +297,7 @@ async def _stamp_raster_metadata(
             raster_check_path = await resolve_file_path(str(saved_path), str(job.id))
             downloaded = Path(raster_check_path)
         except Exception:
+            logger.warning("Failed to resolve raster path for CRS validation", exc_info=True)
             raster_check_path = None
 
     if raster_check_path:
