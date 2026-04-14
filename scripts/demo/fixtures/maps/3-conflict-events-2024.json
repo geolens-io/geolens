@@ -3,7 +3,7 @@
     "name": "Conflict Events 2024 (UCDP GED)",
     "description": "A year of fatal events of organized violence as recorded by the Uppsala Conflict Data Program. Each point is one event with confirmed coordinates. Rendered as a heatmap weighted by best estimate of fatalities.",
     "theme": "Lines on the Map (2024 Snapshot)",
-    "snapshot_date": "2024-01-01"
+    "snapshot_date": "2025-01-01"
   },
   "name": "Conflict Events 2024 (UCDP GED)",
   "description": "A year of fatal events of organized violence as recorded by the Uppsala Conflict Data Program. Each point is one event with confirmed coordinates. Rendered as a heatmap weighted by best estimate of fatalities.",
@@ -79,7 +79,7 @@
           "get",
           "year"
         ],
-        "2024"
+        2024
       ],
       "label_config": null,
       "style_config": {
@@ -120,7 +120,7 @@
           "get",
           "year"
         ],
-        "2024"
+        2024
       ],
       "label_config": null,
       "style_config": {

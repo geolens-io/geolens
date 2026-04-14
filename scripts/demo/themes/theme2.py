@@ -56,20 +56,19 @@ DATASETS: list[ThemeDataset] = [
         "license": "CC-BY 4.0 (Our World in Data)",
     },
 
-    # ---- Manhattan OSM buildings (forward-compat for Phase 999.1 fill-extrusion) ----
+    # ---- Manhattan buildings with real heights (NYC Open Data) ----
     {
         "stem": "manhattan_buildings",
         "type": "vector",
         "source": "local",
         "local_path": "/data/demo/manhattan_buildings.geojson",
         "summary": (
-            "OpenStreetMap building footprints for Manhattan, clipped from the Geofabrik New York extract. "
-            "Includes the `height` attribute where present in OSM (~40-60% coverage). "
-            "Source: © OpenStreetMap contributors. "
-            "Forward-compat note: 3D-ready — Phase 999.1 Terrain+Extrusions will add a fill-extrusion map "
-            "keyed on the `height` attribute without re-ingest."
+            "NYC building footprints for Manhattan with photogrammetric roof heights (HEIGHT_ROOF). "
+            "Source: NYC Office of Technology and Innovation (data.cityofnewyork.us). "
+            "Used by the Manhattan Skyline (3D) map for fill-extrusion rendering "
+            "keyed on the `height` column (meters, converted from feet at build time)."
         ),
-        "snapshot_date": "2026-04-01",
-        "license": "ODbL 1.0 (© OpenStreetMap contributors)",
+        "snapshot_date": "2026-04-12",
+        "license": "NYC Open Data (public use with attribution)",
     },
 ]

@@ -3,7 +3,7 @@
     "name": "Refugees by Country of Origin 2023",
     "description": "Country choropleth showing the number of refugees originating from each country, end-year 2023, per UNHCR's reporting framework. Joined to Natural Earth ADM0 polygons via the csv_to_choropleth helper.",
     "theme": "Lines on the Map (2024 Snapshot)",
-    "snapshot_date": "2024-01-01"
+    "snapshot_date": "2025-01-01"
   },
   "name": "Refugees by Country of Origin 2023",
   "description": "Country choropleth showing the number of refugees originating from each country, end-year 2023, per UNHCR's reporting framework. Joined to Natural Earth ADM0 polygons via the csv_to_choropleth helper.",
