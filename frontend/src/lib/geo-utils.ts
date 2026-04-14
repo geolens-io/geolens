@@ -24,6 +24,39 @@ export function extractBbox(feature: OGCRecordResponse): [number, number, number
 /**
  * Map a geometry type string to a Lucide icon component.
  */
+/** Column names that indicate elevation/height data */
+const ELEVATION_COLUMN_NAMES = new Set([
+  'height', 'elev', 'elevation', 'z', 'altitude', 'alt',
+  'elev_ft', 'elev_m', 'height_m', 'height_ft', 'dem', 'dtm',
+]);
+
+/** Column types that are numeric (can drive fill-extrusion-height) */
+const NUMERIC_COLUMN_TYPES = new Set([
+  'integer', 'bigint', 'smallint', 'real', 'float', 'float4', 'float8',
+  'double precision', 'numeric', 'decimal', 'number',
+]);
+
+/**
+ * Find an elevation/height column in column_info.
+ * Matches by exact column name (case-insensitive) AND numeric column type
+ * to avoid false positives on text columns named "dem" or "dtm".
+ * Returns the column name or null.
+ */
+export function findElevationColumn(columnInfo: { name: string; type?: string }[] | null | undefined): string | null {
+  if (!columnInfo) return null;
+  const col = columnInfo.find((c) => {
+    if (!ELEVATION_COLUMN_NAMES.has(c.name.toLowerCase())) return false;
+    // If type info is available, require it to be numeric
+    if (c.type) return NUMERIC_COLUMN_TYPES.has(c.type.toLowerCase());
+    // No type info — accept the name match (backward compat)
+    return true;
+  });
+  return col?.name ?? null;
+}
+
+/**
+ * Map a geometry type string to a Lucide icon component.
+ */
 export function geometryIcon(geomType: string | null): LucideIcon | null {
   if (!geomType) return null;
   const upper = geomType.toUpperCase();

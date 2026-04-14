@@ -96,7 +96,7 @@ export function SourceQualityTab({
     });
   }, []);
 
-  /** Renders a read-first empty state when value is empty and field is editable */
+  /** Renders a compact empty state when value is empty and field is editable */
   const renderReadFirstField = (
     fieldName: string,
     value: string,
@@ -106,18 +106,13 @@ export function SourceQualityTab({
   ) => {
     if (!value && editable && !expandedFields.has(fieldName)) {
       return (
-        <div className="space-y-1">
-          <p className="text-sm text-muted-foreground italic">
-            {t('inline.noFieldYet', { defaultValue: 'No {{field}} added yet.', field: label.toLowerCase() })}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toggleExpanded(fieldName)}
-          >
-            {t('inline.addField', { defaultValue: 'Add {{field}}', field: label.toLowerCase() })}
-          </Button>
-        </div>
+        <button
+          type="button"
+          className="text-sm text-muted-foreground italic hover:text-foreground transition-colors"
+          onClick={() => toggleExpanded(fieldName)}
+        >
+          {t('inline.clickToAdd', { defaultValue: 'Click to add {{field}}', field: label.toLowerCase() })}
+        </button>
       );
     }
     if (!value && !editable) {

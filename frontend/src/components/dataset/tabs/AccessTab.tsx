@@ -38,7 +38,7 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
         <div className="space-y-1.5">
           <Badge variant="outline" className="text-xs">XYZ</Badge>
           <div className="flex items-center gap-2">
-            <code className="flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs break-all text-foreground">
+            <code className="flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={tileUrl}>
               {tileUrl}
             </code>
             <Button

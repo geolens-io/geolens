@@ -65,7 +65,7 @@ export function DetailPanel(props: DetailPanelProps) {
 
   return (
     <Tabs value={activeTab} onValueChange={onTabChange}>
-      <TabsList className="overflow-x-auto w-full sticky top-0 z-10 bg-background border-b">
+      <TabsList className="overflow-x-auto w-full sticky top-0 z-20 bg-background border-b">
         <TabsTrigger value="overview">{t('tabs.overview')}</TabsTrigger>
         <TabsTrigger value="metadata">{t('tabs.metadata')}</TabsTrigger>
         {showData && <TabsTrigger value="data">{t('tabs.data')}</TabsTrigger>}
@@ -119,7 +119,6 @@ export function DetailPanel(props: DetailPanelProps) {
             columnInfo={dataset.column_info}
             capability={capabilities.theme_category}
             tableName={dataset.table_name}
-            recordType={dataset.record_type}
           />
         </TabsContent>
       )}

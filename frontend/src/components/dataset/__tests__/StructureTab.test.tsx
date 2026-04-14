@@ -1,9 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import { StructureTab } from '../tabs/StructureTab';
 
-vi.mock('@/components/dataset/AttributeTable', () => ({
-  AttributeTable: () => <div data-testid="attribute-table" />,
-}));
 vi.mock('@/components/dataset/AttributeMetadataTable', () => ({
   AttributeMetadataTable: () => <div data-testid="attribute-metadata-table" />,
 }));
@@ -20,21 +17,21 @@ const defaultProps = {
 };
 
 describe('StructureTab', () => {
-  it('does NOT render Data Preview card for table datasets', () => {
-    render(<StructureTab {...defaultProps} recordType="table" />);
+  it('renders attribute metadata table', () => {
+    render(<StructureTab {...defaultProps} />);
+
+    expect(screen.getByTestId('attribute-metadata-table')).toBeInTheDocument();
+  });
+
+  it('does not render data preview (moved to Data tab)', () => {
+    render(<StructureTab {...defaultProps} />);
 
     expect(screen.queryByTestId('attribute-table')).not.toBeInTheDocument();
   });
 
-  it('renders Data Preview card for vector datasets (no recordType)', () => {
+  it('renders table name', () => {
     render(<StructureTab {...defaultProps} />);
 
-    expect(screen.getByTestId('attribute-table')).toBeInTheDocument();
-  });
-
-  it('renders Data Preview card for vector_dataset recordType', () => {
-    render(<StructureTab {...defaultProps} recordType="vector_dataset" />);
-
-    expect(screen.getByTestId('attribute-table')).toBeInTheDocument();
+    expect(screen.getByText('my_table')).toBeInTheDocument();
   });
 });

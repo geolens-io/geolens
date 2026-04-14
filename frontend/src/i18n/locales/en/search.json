@@ -85,10 +85,14 @@
     "sourceCount_one": "{{count}} source",
     "sourceCount_other": "{{count}} sources",
     "autoDesc": {
-      "vector": "{{geometryType}} dataset with {{count}} features in {{crs}}",
-      "raster": "Raster dataset, {{bands}} bands, {{gsd}} resolution",
-      "vrt": "{{vrtType}} virtual raster with {{count}} sources",
-      "table": "Table with {{count}} rows",
+      "vector_one": "{{geometryType}} dataset with {{count}} feature in {{crs}}",
+      "vector_other": "{{geometryType}} dataset with {{count}} features in {{crs}}",
+      "raster_one": "Raster dataset, {{count}} band, {{gsd}} resolution",
+      "raster_other": "Raster dataset, {{count}} bands, {{gsd}} resolution",
+      "vrt_one": "{{vrtType}} virtual raster with {{count}} source",
+      "vrt_other": "{{vrtType}} virtual raster with {{count}} sources",
+      "table_one": "Table with {{count}} row",
+      "table_other": "Table with {{count}} rows",
       "fallback": "Geospatial dataset"
     },
     "vector": "Vector",

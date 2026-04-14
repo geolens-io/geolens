@@ -88,10 +88,14 @@
     "sourceCount_one": "{{count}} fuente",
     "sourceCount_other": "{{count}} fuentes",
     "autoDesc": {
-      "vector": "Conjunto de datos {{geometryType}} con {{count}} entidades en {{crs}}",
-      "raster": "Conjunto de datos ráster, {{bands}} bandas, resolución {{gsd}}",
-      "vrt": "Ráster virtual {{vrtType}} con {{count}} fuentes",
-      "table": "Tabla con {{count}} filas",
+      "vector_one": "Conjunto de datos {{geometryType}} con {{count}} entidad en {{crs}}",
+      "vector_other": "Conjunto de datos {{geometryType}} con {{count}} entidades en {{crs}}",
+      "raster_one": "Conjunto de datos ráster, {{count}} banda, resolución {{gsd}}",
+      "raster_other": "Conjunto de datos ráster, {{count}} bandas, resolución {{gsd}}",
+      "vrt_one": "Ráster virtual {{vrtType}} con {{count}} fuente",
+      "vrt_other": "Ráster virtual {{vrtType}} con {{count}} fuentes",
+      "table_one": "Tabla con {{count}} fila",
+      "table_other": "Tabla con {{count}} filas",
       "fallback": "Conjunto de datos geoespacial"
     },
     "moretags": "+{{count}} más",

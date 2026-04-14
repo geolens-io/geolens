@@ -89,7 +89,7 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
 
   return (
     <div className="flex items-center gap-2">
-      <code className="flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs break-all text-foreground">
+      <code className="flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
         {resolvedUrl}
       </code>
       <Button
