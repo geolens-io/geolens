@@ -15,12 +15,12 @@
   "basemap_style": "positron",
   "show_basemap_labels": true,
   "visibility": "public",
-  "widgets": null,
+  "widgets": ["legend"],
   "layers": [
     {
       "_stem": "ne_10m_admin_0_countries",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Countries",
       "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
@@ -35,12 +35,12 @@
       "filter": null,
       "label_config": null,
       "style_config": null,
-      "show_in_legend": true
+      "show_in_legend": false
     },
     {
       "_stem": "ne_10m_admin_0_antarctic_claims",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Antarctic Claims",
       "sort_order": 1,
       "visible": true,
       "opacity": 1.0,
@@ -58,7 +58,7 @@
     {
       "_stem": "ne_10m_admin_0_disputed_areas",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Disputed Areas",
       "sort_order": 2,
       "visible": true,
       "opacity": 1.0,
@@ -69,14 +69,25 @@
       "layout": {},
       "layer_type": "vector_geolens",
       "filter": null,
-      "label_config": null,
+      "label_config": {
+        "column": "BRK_NAME",
+        "fontSize": 11,
+        "textColor": "#e65100",
+        "haloColor": "#ffffff",
+        "haloWidth": 2.0,
+        "placement": "point",
+        "textAnchor": "center",
+        "allowOverlap": false,
+        "minZoom": 3,
+        "maxZoom": 22
+      },
       "style_config": null,
       "show_in_legend": true
     },
     {
       "_stem": "ne_10m_admin_0_boundary_lines_disputed_areas",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Disputed Boundary Lines",
       "sort_order": 3,
       "visible": true,
       "opacity": 1.0,

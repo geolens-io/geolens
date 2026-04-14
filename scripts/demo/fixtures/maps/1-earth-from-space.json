@@ -10,12 +10,12 @@
   "center_lng": 0.0,
   "center_lat": 20.0,
   "zoom": 1.5,
-  "bearing": 0.0,
-  "pitch": 0.0,
+  "bearing": -12.0,
+  "pitch": 15.0,
   "basemap_style": "dark-matter",
   "show_basemap_labels": false,
   "visibility": "public",
-  "widgets": null,
+  "widgets": ["legend"],
   "layers": [
     {
       "_stem": "ne_10m_ocean",
@@ -40,7 +40,7 @@
     {
       "_stem": "gebco_2024_30arcmin",
       "_ext": ".tif",
-      "display_name": null,
+      "display_name": "GEBCO Bathymetry",
       "sort_order": 1,
       "visible": true,
       "opacity": 0.85,
@@ -58,7 +58,7 @@
     {
       "_stem": "ne_10m_shaded_relief",
       "_ext": ".tif",
-      "display_name": null,
+      "display_name": "Shaded Relief",
       "sort_order": 2,
       "visible": true,
       "opacity": 1.0,
@@ -93,7 +93,7 @@
     {
       "_stem": "ne_10m_lakes",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Lakes",
       "sort_order": 4,
       "visible": true,
       "opacity": 0.8,
@@ -113,7 +113,7 @@
     {
       "_stem": "ne_10m_rivers_lake_centerlines",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Rivers",
       "sort_order": 5,
       "visible": true,
       "opacity": 0.8,
@@ -124,7 +124,17 @@
       "layout": {},
       "layer_type": "vector_geolens",
       "filter": null,
-      "label_config": null,
+      "label_config": {
+        "column": "name",
+        "fontSize": 10,
+        "textColor": "#a0d4f7",
+        "haloColor": "#0a1e3c",
+        "haloWidth": 1.5,
+        "placement": "line",
+        "allowOverlap": false,
+        "minZoom": 4,
+        "maxZoom": 22
+      },
       "style_config": null,
       "show_in_legend": true
     }

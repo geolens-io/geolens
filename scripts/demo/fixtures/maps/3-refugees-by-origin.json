@@ -15,12 +15,12 @@
   "basemap_style": "positron",
   "show_basemap_labels": true,
   "visibility": "public",
-  "widgets": null,
+  "widgets": ["legend"],
   "layers": [
     {
       "_stem": "ne_10m_admin_0_boundary_lines_land",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Country Borders",
       "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
@@ -38,7 +38,7 @@
     {
       "_stem": "refugees_by_origin_2023",
       "_ext": ".geojson",
-      "display_name": null,
+      "display_name": "Refugees by Origin",
       "sort_order": 1,
       "visible": true,
       "opacity": 1.0,
@@ -71,7 +71,18 @@
       "layout": {},
       "layer_type": "vector_geolens",
       "filter": null,
-      "label_config": null,
+      "label_config": {
+        "column": "NAME",
+        "fontSize": 10,
+        "textColor": "#333333",
+        "haloColor": "#ffffff",
+        "haloWidth": 1.5,
+        "placement": "point",
+        "textAnchor": "center",
+        "allowOverlap": false,
+        "minZoom": 3,
+        "maxZoom": 22
+      },
       "style_config": {
         "type": "choropleth",
         "n_classes": 6,
