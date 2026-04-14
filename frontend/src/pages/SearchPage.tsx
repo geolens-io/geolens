@@ -65,7 +65,7 @@ export function SearchPage() {
       <PageShell maxWidth="wide" className="pb-8 pt-5 sm:pt-6">
         <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
           <aside className="hidden lg:block">
-            <div className="sticky top-24">
+            <div className="sticky top-24 max-h-[calc(100vh-6rem)] overflow-y-auto">
               <FilterPanel
                 totalResults={totalMatched > 0 ? totalMatched : undefined}
                 showMobile={false}

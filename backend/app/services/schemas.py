@@ -8,10 +8,12 @@ from pydantic import BaseModel, Field
 class ProbeRequest(BaseModel):
     url: str = Field(
         min_length=1,
+        max_length=2048,
         description="Service URL to probe. May be a WFS GetCapabilities URL or an ArcGIS service endpoint.",
     )
     token: str | None = Field(
         default=None,
+        max_length=1000,
         description="Optional auth token for protected services (passed as query parameter or bearer token depending on service type).",
     )
 
@@ -80,7 +82,7 @@ class ServicePreviewRequest(BaseModel):
         default=None, description="ArcGIS layer ID, when applicable."
     )
     token: str | None = Field(
-        default=None, description="Optional auth token for protected services."
+        default=None, max_length=1000, description="Optional auth token for protected services."
     )
     object_id_field: str | None = Field(
         default=None,

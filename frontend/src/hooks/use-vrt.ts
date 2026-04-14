@@ -14,6 +14,7 @@ export function useVrtSources(datasetId: string) {
     queryKey: queryKeys.vrt.sources(datasetId),
     queryFn: () => listVrtSources(datasetId),
     enabled: !!datasetId,
+    staleTime: 120_000,
   });
 }
 
@@ -53,6 +54,7 @@ export function useVrtGenerations(datasetId: string, params?: { limit?: number; 
     queryKey: queryKeys.vrt.generations(datasetId, params),
     queryFn: () => getVrtGenerations(datasetId, params),
     enabled: !!datasetId,
+    staleTime: 120_000,
   });
 }
 

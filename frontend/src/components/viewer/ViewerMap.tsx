@@ -14,8 +14,8 @@ import {
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
-import { getTileTokenWithApiKey, getTileTokensBatch } from '@/api/tiles';
-import type { TileToken, VectorTileToken } from '@/api/tiles';
+import { useViewerTokens } from '@/hooks/use-viewer-tokens';
+import { useViewerTerrain } from '@/hooks/use-viewer-terrain';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -71,47 +71,6 @@ function getViewerLayerId(sortOrder: number) {
 
 function getViewerLabelLayerId(sortOrder: number) {
   return `viewer-layer-${sortOrder}-label`;
-}
-
-/** Pre-seed the raster-dem terrain source if it doesn't already exist. */
-function seedTerrainSource(map: MaplibreMap, tileUrl: string) {
-  if (!map.getSource('terrain-dem')) {
-    map.addSource('terrain-dem', {
-      type: 'raster-dem',
-      tiles: [`${window.location.origin}${tileUrl}`],
-      tileSize: 256,
-      encoding: 'mapbox',
-    });
-  }
-}
-
-/** Fetch tile tokens per-dataset using API key auth. */
-async function fetchTokensWithApiKey(
-  datasetIds: string[],
-  apiKey: string,
-): Promise<Map<string, TileToken>> {
-  const results = await Promise.all(
-    datasetIds.map((id) => getTileTokenWithApiKey(id, apiKey)),
-  );
-  const map = new Map<string, TileToken>();
-  for (let i = 0; i < datasetIds.length; i++) {
-    map.set(datasetIds[i], results[i]);
-  }
-  return map;
-}
-
-/** Fetch tile tokens in a single batch (anonymous / JWT auth). */
-async function fetchTokensBatch(
-  datasetIds: string[],
-): Promise<Map<string, TileToken>> {
-  const response = await getTileTokensBatch(datasetIds);
-  const map = new Map<string, TileToken>();
-  for (const [datasetId, entry] of Object.entries(response.tokens)) {
-    if ('kind' in entry) {
-      map.set(datasetId, entry);
-    }
-  }
-  return map;
 }
 
 /** Shared field mapping common to both SyncLayerInput and AdapterLayerInput. */
@@ -173,21 +132,13 @@ export function ViewerMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
-  const [terrainReady, setTerrainReady] = useState(false);
-  const terrainActiveRef = useRef(false);
 
-  // Find the first DEM raster layer in the shared map composition
-  const demLayer = useMemo(
-    () => layers.find((l) => l.is_dem && (l.dataset_record_type === 'raster_dataset' || l.dataset_record_type === 'vrt_dataset')),
-    [layers],
-  );
+  // Tile token management (fetch, auto-refresh, error toast)
+  const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
 
-  // Tile URL for the DEM source — used to seed the raster-dem terrain source
-  const demTileUrl = useMemo(() => demLayer?.tile_url ?? null, [demLayer]);
+  // Terrain source seeding and pitch animation
+  const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({ layers, mapRef, mapReady });
 
-  // Keep a stable ref to demTileUrl so style.load (registered once) sees latest value
-  const demTileUrlRef = useRef(demTileUrl);
-  demTileUrlRef.current = demTileUrl;
   // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const geojsonZLayers = useMemo(
@@ -205,11 +156,6 @@ export function ViewerMap({
     features: { properties: Record<string, unknown>; layerName: string; columnInfo: { name: string; type: string }[] | null }[];
   } | null>(null);
 
-  // Tile tokens fetched via API key auth
-  const [tokenMap, setTokenMap] = useState<Map<string, TileToken>>(new Map());
-  const [tokenError, setTokenError] = useState(false);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
@@ -222,98 +168,6 @@ export function ViewerMap({
     : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
   const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
-
-  // Fetch tile tokens for all layers using API key auth
-  const layerDatasetIds = useMemo(
-    () => [...new Set(layers.map((l) => l.dataset_id).filter(Boolean))],
-    [layers],
-  );
-  useEffect(() => {
-    if (embedToken || layerDatasetIds.length === 0) return;
-
-    let cancelled = false;
-
-    async function fetchTokens() {
-      try {
-        const newMap = apiKey
-          ? await fetchTokensWithApiKey(layerDatasetIds, apiKey)
-          : await fetchTokensBatch(layerDatasetIds);
-
-        if (cancelled) return;
-        setTokenMap(newMap);
-
-        // Refresh at 80% of the minimum vector-token TTL. Raster tokens
-        // have no expires_in (the tile_url is stable), so if there are no
-        // vector tokens in the map, skip the refresh cycle entirely.
-        const vectorTtls = [...newMap.values()]
-          .filter((t): t is VectorTileToken => t.kind === 'vector')
-          .map((t) => t.expires_in);
-        if (vectorTtls.length > 0) {
-          const minTtl = Math.min(...vectorTtls);
-          const refreshMs = Math.max(minTtl * 800, 30_000);
-          if (refreshTimerRef.current) {
-            clearTimeout(refreshTimerRef.current);
-          }
-          refreshTimerRef.current = setTimeout(() => {
-            if (!cancelled) fetchTokens();
-          }, refreshMs);
-        }
-      } catch (err) {
-        console.error('ViewerMap: failed to fetch tile tokens', err);
-        setTokenError(true);
-      }
-    }
-
-    fetchTokens();
-
-    return () => {
-      cancelled = true;
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-    };
-  }, [embedToken, apiKey, layerDatasetIds]);
-
-  // Surface tile token fetch failures as a user-visible toast
-  useEffect(() => {
-    if (tokenError) {
-      toast.error(t('viewer.tokenError', { defaultValue: 'Failed to load map layer tokens — some layers may not display.' }), {
-        id: 'viewer-token-error',
-      });
-    }
-  }, [tokenError, t]);
-
-  // Pre-seed the raster-dem terrain source when the map is ready and a DEM layer is present.
-  // The source exists but terrain is NOT enabled until the user clicks TerrainControl.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !demTileUrl) {
-      setTerrainReady(false);
-      return;
-    }
-    seedTerrainSource(map, demTileUrl);
-    setTerrainReady(true);
-  }, [mapReady, demTileUrl]);
-
-  // Listen for the 'terrain' event to drive pitch animation when TerrainControl toggles.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-
-    const onTerrain = () => {
-      const active = map.getTerrain() != null;
-      terrainActiveRef.current = active;
-      if (active) {
-        map.easeTo({ pitch: 45, duration: 300, easing: (t: number) => t * (2 - t) });
-      } else {
-        map.easeTo({ pitch: 0, bearing: 0, duration: 300, easing: (t: number) => t * (2 - t) });
-      }
-    };
-
-    map.on('terrain', onTerrain);
-    return () => { map.off('terrain', onTerrain); };
-  }, [mapReady]);
 
   // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07)
   useEffect(() => {
@@ -591,27 +445,14 @@ export function ViewerMap({
         runSync(map);
       }
       // style.load wipes all custom sources; re-seed terrain source if a DEM is present.
-      // Use a short timeout to let the new style settle before adding sources.
-      const currentDemTileUrl = demTileUrlRef.current;
-      if (currentDemTileUrl) {
-        setTimeout(() => {
-          const m = mapRef.current;
-          if (!m) return;
-          seedTerrainSource(m, currentDemTileUrl);
-          setTerrainReady(true);
-          // Re-enable terrain if it was active before the basemap swap
-          if (terrainActiveRef.current) {
-            m.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
-          }
-        }, 50);
-      }
+      reseedTerrainOnStyleLoad();
     };
 
     map.on('style.load', onStyleLoad);
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [mapReady, runSync]);
+  }, [mapReady, runSync, reseedTerrainOnStyleLoad]);
 
   // Cleanup on unmount
   useEffect(() => {

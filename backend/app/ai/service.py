@@ -32,7 +32,7 @@ from app.auth.visibility import apply_visibility_filter
 from app.datasets.models import Dataset, DatasetGrant, Record
 from app.datasets.utils import extract_bbox
 from app.maps.service import create_map, update_map
-from app.search.service import search_datasets
+from app.search.service import SearchFilters, search_datasets
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -271,11 +271,13 @@ async def _execute_search_tool(
         session,
         user,
         user_roles,
-        q=q,
-        geometry_type=geometry_type,
-        keywords=keywords,
-        bbox=bbox,
-        limit=limit,
+        SearchFilters(
+            q=q,
+            geometry_type=geometry_type,
+            keywords=keywords,
+            bbox=bbox,
+            limit=limit,
+        ),
     )
 
     results = []

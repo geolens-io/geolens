@@ -9,12 +9,6 @@ const GEOMETRY_TYPE_KEYS = {
   MULTIPOLYGON: 'common:enums.geometryType.multiPolygon',
 } as const;
 
-const GEOMETRY_FAMILY_KEYS = {
-  point: 'common:enums.geometryFamily.point',
-  line: 'common:enums.geometryFamily.line',
-  polygon: 'common:enums.geometryFamily.polygon',
-} as const;
-
 const VISIBILITY_KEYS = {
   public: 'common:enums.visibility.public',
   internal: 'common:enums.visibility.internal',
@@ -118,26 +112,6 @@ export function getGeometryTypeLabel(
   const defaultValue = defaultGeometryTypeLabel(normalized);
 
   return key ? resolveLabel(t, key, defaultValue) : defaultValue;
-}
-
-export function getGeometryFamilyLabel(
-  t: Translate,
-  geometryType: string | null | undefined,
-): string {
-  const normalized = normalizeGeometryType(geometryType);
-
-  if (!normalized) {
-    return '';
-  }
-
-  const family =
-    normalized.includes('POINT')
-      ? 'point'
-      : normalized.includes('LINE')
-        ? 'line'
-        : 'polygon';
-
-  return resolveLabel(t, GEOMETRY_FAMILY_KEYS[family], humanizeToken(family));
 }
 
 export function getVisibilityLabel(

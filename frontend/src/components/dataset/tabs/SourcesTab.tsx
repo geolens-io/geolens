@@ -85,7 +85,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const { data: searchResults, isFetching: isSearchFetching } = useQuery({
+  const { data: searchResults, isFetching: isSearchFetching, error: searchError } = useQuery({
     queryKey: queryKeys.cogSearch.addSource(debouncedQuery),
     queryFn: () => searchDatasets({ q: debouncedQuery, record_type: 'raster_dataset', limit: '10' }),
     enabled: debouncedQuery.length >= 2,
@@ -248,7 +248,10 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                 <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
               )}
             </div>
-            {debouncedQuery.length >= 2 && (
+            {searchError && debouncedQuery.length >= 2 && (
+              <p className="text-sm text-destructive mt-1">{t('vrt.searchError', { defaultValue: 'Failed to search datasets.' })}</p>
+            )}
+            {debouncedQuery.length >= 2 && !searchError && (
               <Card className="absolute z-50 w-full mt-1 shadow-lg">
                 <CardContent className="p-0">
                   {filteredResults.length === 0 ? (
@@ -325,17 +328,17 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                   <TableRow key={s.dataset_id}>
                     <TableCell className="w-8">
                       {healthMap.get(s.dataset_id) === 'healthy' ? (
-                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.healthy}`} title={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} />
+                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.healthy}`} role="img" aria-label={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} title={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} />
                       ) : healthMap.get(s.dataset_id) === 'missing' ? (
                         <Tooltip><TooltipTrigger asChild>
-                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} />
+                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} role="img" aria-label={t('vrt.healthMissing', { defaultValue: 'Source dataset deleted' })} />
                         </TooltipTrigger><TooltipContent>{t('vrt.healthMissing', { defaultValue: 'Source dataset deleted' })}</TooltipContent></Tooltip>
                       ) : healthMap.get(s.dataset_id) === 'inaccessible' ? (
                         <Tooltip><TooltipTrigger asChild>
-                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} />
+                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} role="img" aria-label={t('vrt.healthInaccessible', { defaultValue: 'Source file inaccessible' })} />
                         </TooltipTrigger><TooltipContent>{t('vrt.healthInaccessible', { defaultValue: 'Source file inaccessible' })}</TooltipContent></Tooltip>
                       ) : (
-                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unknown}`} />
+                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unknown}`} role="img" aria-label={t('vrt.healthUnknown', { defaultValue: 'Unknown' })} />
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">

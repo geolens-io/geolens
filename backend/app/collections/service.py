@@ -22,6 +22,7 @@ import uuid
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.auth.models import User
 from app.auth.visibility import apply_visibility_filter
@@ -215,7 +216,8 @@ async def get_collection_datasets(
 
     # Paginated results ordered by sort_order then added_at
     paginated_stmt = (
-        filtered_stmt.order_by(CollectionDataset.sort_order, CollectionDataset.added_at)
+        filtered_stmt.options(joinedload(Dataset.record))
+        .order_by(CollectionDataset.sort_order, CollectionDataset.added_at)
         .offset(skip)
         .limit(limit)
     )
@@ -240,70 +242,6 @@ async def get_dataset_collections(
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
-
-
-async def compute_collection_extent(
-    session: AsyncSession,
-    collection_id: uuid.UUID,
-    user: User | None,
-    user_roles: set[str],
-) -> dict:
-    """Compute aggregated spatial and temporal extent from member datasets visible to the user.
-
-    Returns dict with extent_bbox, temporal_start, temporal_end (all nullable).
-    """
-    stmt = (
-        select(
-            func.ST_AsGeoJSON(
-                func.ST_Envelope(func.ST_Collect(Record.spatial_extent))
-            ).label("bbox_geojson"),
-            func.min(Record.temporal_start).label("temporal_start"),
-            func.max(Record.temporal_end).label("temporal_end"),
-        )
-        .select_from(Dataset)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(CollectionDataset.collection_id == collection_id)
-    )
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-
-    result = await session.execute(stmt)
-    row = result.one()
-
-    # Parse spatial extent
-    extent_bbox = None
-    if row.bbox_geojson is not None:
-        geojson = json.loads(row.bbox_geojson)
-        coords = geojson["coordinates"][0]
-        xs = [c[0] for c in coords]
-        ys = [c[1] for c in coords]
-        extent_bbox = [min(xs), min(ys), max(xs), max(ys)]
-
-    return {
-        "extent_bbox": extent_bbox,
-        "temporal_start": row.temporal_start,
-        "temporal_end": row.temporal_end,
-    }
-
-
-async def get_collection_dataset_count(
-    session: AsyncSession,
-    collection_id: uuid.UUID,
-    user: User | None,
-    user_roles: set[str],
-) -> int:
-    """Count visible datasets in collection. Apply visibility filter."""
-    stmt = (
-        select(func.count())
-        .select_from(Dataset)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(CollectionDataset.collection_id == collection_id)
-    )
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-
-    result = await session.execute(stmt)
-    return result.scalar_one()
 
 
 async def batch_collection_extents(

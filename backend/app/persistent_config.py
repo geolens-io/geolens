@@ -323,18 +323,6 @@ PUBLIC_API_URL = PersistentConfig[str](
     label="Public API URL",
 )
 
-PUBLIC_BASE_URL = PersistentConfig[str](
-    key="public_base_url",
-    type_=str,
-    env_default_factory=lambda: resolve_public_api_url(
-        settings.public_app_url,
-        settings.public_api_url,
-        settings.public_base_url,
-    ),
-    tab="general",
-    label="Public Base URL",
-)
-
 LOG_LEVEL = _LogLevelConfig(
     key="log_level",
     env_default_factory=lambda: settings.log_level,

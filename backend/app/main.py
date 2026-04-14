@@ -52,7 +52,7 @@ from app.config_ops.router import router as config_ops_router
 from app.search.router import collections_router, search_router
 from app.embed_tokens.admin_router import router as embed_tokens_admin_router
 from app.embed_tokens.router import router as embed_tokens_router
-from app.tiles.router import router as tiles_router
+from app.tiles.router import router as tiles_router, _titiler_client
 from app.tiles.pool import init_tile_pool, close_tile_pool
 from app.stac.router import stac_router
 from app.extensions import load_extensions, list_extensions, get_extension_routers
@@ -235,6 +235,9 @@ async def lifespan(app: FastAPI):
 
     # Close tile connection pool
     await close_tile_pool()
+
+    # Close Titiler HTTP client
+    await _titiler_client.aclose()
 
     # Dispose engine
     await engine.dispose()

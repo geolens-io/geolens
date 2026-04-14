@@ -183,7 +183,7 @@ class DatasetResponse(BaseModel):
     extent_bbox: list[float] | None = Field(
         default=None, description="Bounding box [minx, miny, maxx, maxy]"
     )
-    column_info: list[ColumnInfo | dict] | None = Field(
+    column_info: list[ColumnInfo] | None = Field(
         default=None, description="Column names, types, and stats"
     )
     license: str | None = None
@@ -194,7 +194,7 @@ class DatasetResponse(BaseModel):
     data_vintage_end: date | None = Field(
         default=None, description="End of temporal coverage"
     )
-    quality_detail: QualityDetail | dict | None = Field(
+    quality_detail: QualityDetail | None = Field(
         default=None, description="Automated quality assessment results"
     )
     source_format: str | None = Field(
@@ -564,11 +564,11 @@ class VrtGenerationListResponse(BaseModel):
 
 class AttributeMetadataUpdate(BaseModel):
     title: str | None = Field(
-        default=None, description="Human-friendly column display name"
+        default=None, max_length=500, description="Human-friendly column display name"
     )
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
     units: str | None = Field(
-        default=None, description="Measurement units, e.g. meters, kg"
+        default=None, max_length=50, description="Measurement units, e.g. meters, kg"
     )
     semantic_role: SEMANTIC_ROLES | None = Field(
         default=None, description="Column role: geometry, identifier, measure, etc."
