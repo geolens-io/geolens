@@ -15,12 +15,12 @@
   "basemap_style": "positron",
   "show_basemap_labels": true,
   "visibility": "public",
-  "widgets": null,
+  "widgets": ["legend"],
   "layers": [
     {
       "_stem": "gdp_per_capita_ppp_2023",
       "_ext": ".geojson",
-      "display_name": null,
+      "display_name": "GDP per Capita (PPP $)",
       "sort_order": 0,
       "visible": true,
       "opacity": 0.85,
@@ -47,7 +47,18 @@
       "layout": {},
       "layer_type": "vector_geolens",
       "filter": null,
-      "label_config": null,
+      "label_config": {
+        "column": "NAME",
+        "fontSize": 10,
+        "textColor": "#333333",
+        "haloColor": "#ffffff",
+        "haloWidth": 1.5,
+        "placement": "point",
+        "textAnchor": "center",
+        "allowOverlap": false,
+        "minZoom": 3,
+        "maxZoom": 22
+      },
       "style_config": {
         "type": "classified",
         "column_name": "_value",

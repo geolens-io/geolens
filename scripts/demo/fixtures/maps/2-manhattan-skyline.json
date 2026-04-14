@@ -1,0 +1,59 @@
+{
+  "_meta": {
+    "name": "Manhattan Skyline (3D)",
+    "description": "OpenStreetMap building footprints extruded by height attribute, showcasing 3D fill-extrusion rendering. Tilt and rotate the map to explore the skyline.",
+    "theme": "How the World Lives (2024)",
+    "snapshot_date": "2026-04-01"
+  },
+  "name": "Manhattan Skyline (3D)",
+  "description": "OpenStreetMap building footprints extruded by height attribute, showcasing 3D fill-extrusion rendering. Tilt and rotate the map to explore the skyline.",
+  "center_lng": -73.985,
+  "center_lat": 40.748,
+  "zoom": 15.0,
+  "bearing": -30.0,
+  "pitch": 60.0,
+  "basemap_style": "dark-matter",
+  "show_basemap_labels": true,
+  "visibility": "public",
+  "widgets": ["legend", "measurement"],
+  "layers": [
+    {
+      "_stem": "manhattan_buildings",
+      "_ext": ".geojson",
+      "display_name": "Buildings (3D)",
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 0.9,
+      "paint": {
+        "fill-color": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["to-number", ["get", "height"], 0], 0],
+          0, "#2c3e50",
+          30, "#2980b9",
+          60, "#8e44ad",
+          100, "#e74c3c",
+          200, "#f39c12",
+          400, "#f1c40f"
+        ],
+        "fill-opacity": 0.9,
+        "_outline-color": "#1a1a2e",
+        "_outline-width": 0.3,
+        "_height_column": "height"
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": {
+        "type": "classified",
+        "column_name": "height",
+        "target": "color",
+        "colormap": "plasma",
+        "num_classes": 6,
+        "classification_method": "quantile"
+      },
+      "show_in_legend": true
+    }
+  ]
+}

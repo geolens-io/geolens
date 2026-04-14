@@ -10,12 +10,12 @@
   "center_lng": 76.0,
   "center_lat": 34.0,
   "zoom": 6.0,
-  "bearing": 0.0,
-  "pitch": 0.0,
+  "bearing": -15.0,
+  "pitch": 25.0,
   "basemap_style": "positron",
   "show_basemap_labels": true,
   "visibility": "public",
-  "widgets": null,
+  "widgets": ["legend"],
   "layers": [
     {
       "_stem": "ne_10m_admin_0_countries",
@@ -40,7 +40,7 @@
     {
       "_stem": "ne_10m_admin_0_countries_pak",
       "_ext": ".zip",
-      "display_name": "Pakistan view",
+      "display_name": "\ud83c\uddf5\ud83c\uddf0 Pakistan view",
       "sort_order": 1,
       "visible": false,
       "opacity": 1.0,
@@ -60,7 +60,7 @@
     {
       "_stem": "ne_10m_admin_0_countries_ind",
       "_ext": ".zip",
-      "display_name": "India view",
+      "display_name": "\ud83c\uddee\ud83c\uddf3 India view",
       "sort_order": 2,
       "visible": false,
       "opacity": 1.0,
@@ -80,7 +80,7 @@
     {
       "_stem": "ne_10m_admin_0_countries_chn",
       "_ext": ".zip",
-      "display_name": "China view",
+      "display_name": "\ud83c\udde8\ud83c\uddf3 China view",
       "sort_order": 3,
       "visible": true,
       "opacity": 1.0,

@@ -15,12 +15,12 @@
   "basemap_style": "positron",
   "show_basemap_labels": true,
   "visibility": "public",
-  "widgets": null,
+  "widgets": ["legend"],
   "layers": [
     {
       "_stem": "gdp_per_capita_ppp_2023",
       "_ext": ".geojson",
-      "display_name": null,
+      "display_name": "Country Boundaries",
       "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
@@ -34,12 +34,12 @@
       "filter": null,
       "label_config": null,
       "style_config": null,
-      "show_in_legend": true
+      "show_in_legend": false
     },
     {
       "_stem": "ne_10m_populated_places_simple",
       "_ext": ".zip",
-      "display_name": null,
+      "display_name": "Cities by Population",
       "sort_order": 1,
       "visible": true,
       "opacity": 1.0,
@@ -97,8 +97,26 @@
       "layout": {},
       "layer_type": "vector_geolens",
       "filter": null,
-      "label_config": null,
-      "style_config": null,
+      "label_config": {
+        "column": "name",
+        "fontSize": 11,
+        "textColor": "#333333",
+        "haloColor": "#ffffff",
+        "haloWidth": 1.5,
+        "placement": "point",
+        "textAnchor": "top",
+        "textOffset": [0, 1.2],
+        "allowOverlap": false,
+        "minZoom": 4,
+        "maxZoom": 22
+      },
+      "style_config": {
+        "type": "classified",
+        "column_name": "pop_max",
+        "target": "radius",
+        "num_classes": 7,
+        "classification_method": "quantile"
+      },
       "show_in_legend": true
     }
   ]
