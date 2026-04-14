@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useCallback, useState, type RefObject } from 'react';
+import { memo, useMemo, useEffect, useRef, useCallback, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
@@ -13,6 +13,7 @@ import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken } from '@/hooks/use-tile-token';
 import { useMapLayers, getSourceLayerName } from '@/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
+import { findElevationColumn } from '@/lib/geo-utils';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -68,7 +69,7 @@ interface DatasetMapProps {
   onFeatureClick?: (gid: number) => void;
 }
 
-export function DatasetMap({
+export const DatasetMap = memo(function DatasetMap({
   bbox,
   tableName,
   geometryType,
@@ -126,6 +127,11 @@ export function DatasetMap({
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
 
+  const elevationColumn = useMemo(
+    () => geometryType?.toUpperCase().includes('POLYGON') ? findElevationColumn(columnInfo) : null,
+    [geometryType, columnInfo],
+  );
+
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
     tableName,
     geometryType,
@@ -134,6 +140,7 @@ export function DatasetMap({
     tileToken: tileToken ?? null,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
     mapRef,
+    elevationColumn,
   });
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -615,12 +622,13 @@ export function DatasetMap({
       longitude: mapDefaults?.center_lng ?? 0,
       latitude: mapDefaults?.center_lat ?? 20,
       zoom: mapDefaults?.zoom ?? 2,
+      ...(elevationColumn ? { pitch: 45 } : {}),
     };
   } else if (hasBbox && isLargeExtent(bbox!)) {
     const { center, zoom } = computeLargeExtentView(bbox!);
-    initialViewState = { longitude: center[0], latitude: center[1], zoom };
+    initialViewState = { longitude: center[0], latitude: center[1], zoom, ...(elevationColumn ? { pitch: 45 } : {}) };
   } else {
-    initialViewState = { bounds, fitBoundsOptions: { padding: 60 } };
+    initialViewState = { bounds, fitBoundsOptions: { padding: 60 }, ...(elevationColumn ? { pitch: 45 } : {}) };
   }
 
   // Determine cursor: select mode -> pointer, drawing mode -> crosshair, else default
@@ -824,5 +832,5 @@ export function DatasetMap({
       )}
     </div>
   );
-}
+});
 

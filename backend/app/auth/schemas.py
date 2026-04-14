@@ -15,7 +15,7 @@ class TokenResponse(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=150, description="Unique login name")
-    password: str = Field(min_length=8, description="Plaintext password (min 8 chars)")
+    password: str = Field(min_length=8, max_length=256, description="Plaintext password (min 8 chars)")
     email: EmailStr | None = Field(
         default=None, max_length=255, description="Optional email address"
     )

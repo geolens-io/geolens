@@ -239,10 +239,10 @@ async def generate_map_stream_endpoint(
                 event="error",
             )
             return
-        except Exception as exc:
+        except Exception:
             logger.exception("Map generation pre-flight error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": str(exc)}),
+                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}),
                 event="error",
             )
             return
@@ -252,10 +252,10 @@ async def generate_map_stream_endpoint(
                 db, user, user_roles, body.prompt, language=body.language
             ):
                 yield ServerSentEvent(data=json.dumps(event), event=event["type"])
-        except Exception as e:
+        except Exception:
             logger.exception("Map generation stream error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": str(e)}), event="error"
+                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}), event="error"
             )
 
     return EventSourceResponse(event_generator())
@@ -341,10 +341,10 @@ async def chat_stream_endpoint(
                 event="error",
             )
             return
-        except Exception as exc:
+        except Exception:
             logger.exception("Chat pre-flight error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": str(exc)}),
+                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}),
                 event="error",
             )
             return
@@ -360,10 +360,10 @@ async def chat_stream_endpoint(
                 history=body.history or None,
             ):
                 yield ServerSentEvent(data=json.dumps(event), event=event["type"])
-        except Exception as e:
+        except Exception:
             logger.exception("Chat stream error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": str(e)}), event="error"
+                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}), event="error"
             )
 
     return EventSourceResponse(event_generator())

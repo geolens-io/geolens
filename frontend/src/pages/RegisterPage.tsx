@@ -40,7 +40,36 @@ export function RegisterPage() {
     );
   }
 
-  if (configError || !config || config.registration_enabled === false) {
+  if (configError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
+        <div className="text-center">
+          <GeoLensLogo size="lg" className="justify-center" />
+          <p className="text-muted-foreground mt-1 text-sm">
+            {t('geospatialDataCatalog')}
+          </p>
+        </div>
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle className="text-xl text-destructive">{t('common:error', { defaultValue: 'Error' })}</CardTitle>
+            <CardDescription>
+              {t('configLoadError', { defaultValue: 'Unable to load registration settings. Please try again.' })}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              to="/login"
+              className="text-primary underline hover:text-primary/80 text-sm"
+            >
+              {t('backToSignIn')}
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!config || config.registration_enabled === false) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">
@@ -77,7 +106,6 @@ export function RegisterPage() {
           {t('geospatialDataCatalog')}
         </p>
       </div>
-      {configError && <div className="text-sm text-destructive">Unable to load authentication settings</div>}
       {submitted ? (
         <PendingApproval />
       ) : (

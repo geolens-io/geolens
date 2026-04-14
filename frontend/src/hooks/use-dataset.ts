@@ -159,6 +159,7 @@ export function useDatasetVersions(datasetId: string, skip = 0, limit = 50) {
     queryFn: () => getDatasetVersions(datasetId, { skip, limit }),
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
+    staleTime: 120_000,
   });
 }
 

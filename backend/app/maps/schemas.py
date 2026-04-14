@@ -219,7 +219,7 @@ class ShareTokenRequest(BaseModel):
 
     @field_validator("expires_at")
     @classmethod
-    def expires_at_must_be_future(cls, v):
+    def expires_at_must_be_future(cls, v) -> datetime | None:
         if v is not None and v < datetime.now(timezone.utc):
             raise ValueError("expires_at must be in the future")
         return v

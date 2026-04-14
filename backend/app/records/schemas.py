@@ -91,8 +91,7 @@ class DistributionCreate(BaseModel):
     distribution_type: str = Field(
         max_length=30, description="e.g. download, api, ogc_wms, ogc_wfs"
     )
-    format: str | None = Field(
-        default=None,
+    format: str = Field(
         max_length=50,
         description="File or service format, e.g. GeoJSON, SHP, WMS",
     )

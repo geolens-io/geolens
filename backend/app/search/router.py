@@ -39,6 +39,7 @@ from app.search.schemas import (
     SavedSearchResponse,
 )
 from app.search.service import (
+    SearchFilters,
     dataset_to_ogc_record,
     get_facet_counts,
     search_collections,
@@ -222,10 +223,7 @@ async def _handle_search(
     else:
         user_roles = set()
 
-    datasets, total = await search_datasets(
-        db,
-        user,
-        user_roles,
+    filters = SearchFilters(
         q=q,
         bbox=bbox_parsed,
         keywords=keywords,
@@ -248,6 +246,13 @@ async def _handle_search(
         spatial_predicate=spatial_predicate,
         geometry_geojson=geometry_geojson,
         collection_id=collection_id,
+    )
+
+    datasets, total = await search_datasets(
+        db,
+        user,
+        user_roles,
+        filters,
     )
 
     # Bulk-query DatasetAsset rows for STAC assets
@@ -527,10 +532,7 @@ async def search_facets_endpoint(
     else:
         user_roles = set()
 
-    result = await get_facet_counts(
-        db,
-        user,
-        user_roles,
+    facet_filters = SearchFilters(
         q=q,
         bbox=bbox_parsed,
         keywords=keywords,
@@ -542,6 +544,13 @@ async def search_facets_endpoint(
         spatial_predicate=spatial_predicate,
         geometry_geojson=geometry_geojson,
         collection_id=collection_id,
+    )
+
+    result = await get_facet_counts(
+        db,
+        user,
+        user_roles,
+        facet_filters,
     )
     return result
 

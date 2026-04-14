@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid as uuid_mod
+from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -75,6 +76,129 @@ _TABLE_FORMAT_MEDIA = {
     "gpkg": "application/geopackage+sqlite3",
     "geojson": "application/geo+json",
 }
+
+
+# ---------------------------------------------------------------------------
+# SearchFilters dataclass — bundles common filter parameters for
+# search_datasets() and get_facet_counts()
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SearchFilters:
+    """Common filter parameters shared by search and facet queries."""
+
+    # Text / spatial
+    q: str | None = None
+    bbox: list[float] | None = None
+    keywords: list[str] | None = None
+    geometry_type: str | None = None
+    srid: int | None = None
+    source_organization: str | None = None
+    record_type: str | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    vintage_start: date | None = None
+    vintage_end: date | None = None
+    datetime_param: str | None = None
+    exclude_synthetic: bool = True
+    collection_id: uuid_mod.UUID | None = None
+    spatial_predicate: Literal["intersects", "within"] = "intersects"
+    geometry_geojson: str | None = None
+
+    # search_datasets-only fields
+    cql2_filter: str | None = None
+    cql2_filter_lang: str = "cql2-text"
+    sort_by: str = "relevance"
+    sort_desc: bool | None = None
+    skip: int = 0
+    limit: int = 10
+
+
+# ---------------------------------------------------------------------------
+# _build_text_filter — single source of truth for the 7-clause OR filter
+# ---------------------------------------------------------------------------
+
+
+def _build_text_filter(q: str, *, use_alias: bool = False):
+    """Build the full-text OR clause for a query string.
+
+    Returns a SQLAlchemy ``or_()`` clause combining:
+      - tsvector match on Record.search_vector
+      - ILIKE on Record.title
+      - ILIKE on Record.summary
+      - FTS + ILIKE on RecordKeyword
+      - FTS + ILIKE on RecordContact (name + organization)
+
+    When *use_alias* is True the keyword/contact sub-selects use aliased
+    models so they don't auto-correlate with an outer join on RecordKeyword.
+    """
+    query_text = q.strip()
+    query_like = f"%{query_text.lower()}%"
+    ts_query = func.websearch_to_tsquery("english", query_text)
+
+    vector_match = Record.search_vector.bool_op("@@")(ts_query)
+    title_match = func.lower(Record.title).like(query_like)
+    summary_match = func.lower(func.coalesce(Record.summary, "")).like(query_like)
+
+    # Choose model references for sub-selects
+    RK = aliased(RecordKeyword) if use_alias else RecordKeyword
+    RC = aliased(RecordContact) if use_alias else RecordContact
+
+    kw_fts_sel = select(RK.id).where(
+        RK.record_id == Record.id,
+        func.to_tsvector("english", RK.keyword).bool_op("@@")(ts_query),
+    )
+    kw_like_sel = select(RK.id).where(
+        RK.record_id == Record.id,
+        func.lower(RK.keyword).like(query_like),
+    )
+    ct_fts_sel = select(RC.id).where(
+        RC.record_id == Record.id,
+        func.to_tsvector(
+            "english",
+            func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+        ).bool_op("@@")(ts_query),
+    )
+    ct_like_sel = select(RC.id).where(
+        RC.record_id == Record.id,
+        func.lower(
+            func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+        ).like(query_like),
+    )
+
+    if use_alias:
+        kw_fts_sel = kw_fts_sel.correlate(Record)
+        kw_like_sel = kw_like_sel.correlate(Record)
+        ct_fts_sel = ct_fts_sel.correlate(Record)
+        ct_like_sel = ct_like_sel.correlate(Record)
+
+    keyword_exists = exists(kw_fts_sel)
+    keyword_partial_exists = exists(kw_like_sel)
+    contact_exists = exists(ct_fts_sel)
+    contact_partial_exists = exists(ct_like_sel)
+
+    clause = or_(
+        vector_match,
+        title_match,
+        summary_match,
+        keyword_exists,
+        keyword_partial_exists,
+        contact_exists,
+        contact_partial_exists,
+    )
+
+    # Return individual parts too — search_datasets needs them for ranking
+    return clause, {
+        "ts_query": ts_query,
+        "vector_match": vector_match,
+        "title_match": title_match,
+        "summary_match": summary_match,
+        "keyword_exists": keyword_exists,
+        "keyword_partial_exists": keyword_partial_exists,
+        "contact_exists": contact_exists,
+        "contact_partial_exists": contact_partial_exists,
+    }
 
 
 async def _attach_updated_actor_identities(
@@ -199,18 +323,7 @@ async def get_facet_counts(
     session: AsyncSession,
     user: User | None,
     user_roles: set[str],
-    *,
-    q: str | None = None,
-    bbox: list[float] | None = None,
-    keywords: list[str] | None = None,
-    geometry_type: str | None = None,
-    srid: int | None = None,
-    source_organization: str | None = None,
-    datetime_param: str | None = None,
-    exclude_synthetic: bool = True,
-    spatial_predicate: Literal["intersects", "within"] = "intersects",
-    geometry_geojson: str | None = None,
-    collection_id: uuid_mod.UUID | None = None,
+    filters: SearchFilters,
 ) -> FacetCounts:
     """Return multi-group facet counts for datasets matching the given filters.
 
@@ -218,6 +331,18 @@ async def get_facet_counts(
     Does NOT filter by record_type itself (facets show counts for all types).
     Separately counts matching collections from the collections table.
     """
+    q = filters.q
+    bbox = filters.bbox
+    keywords = filters.keywords
+    geometry_type = filters.geometry_type
+    srid = filters.srid
+    source_organization = filters.source_organization
+    datetime_param = filters.datetime_param
+    exclude_synthetic = filters.exclude_synthetic
+    spatial_predicate = filters.spatial_predicate
+    geometry_geojson = filters.geometry_geojson
+    collection_id = filters.collection_id
+
     stmt = (
         select(Record.record_type, func.count().label("count"))
         .select_from(Dataset)
@@ -229,62 +354,8 @@ async def get_facet_counts(
 
     # Text search (match condition only, no ranking)
     if q and q.strip():
-        query_text = q.strip()
-        query_like = f"%{query_text.lower()}%"
-        ts_query = func.websearch_to_tsquery("english", query_text)
-
-        vector_match = Record.search_vector.bool_op("@@")(ts_query)
-        title_match = func.lower(Record.title).like(query_like)
-        summary_match = func.lower(func.coalesce(Record.summary, "")).like(query_like)
-
-        keyword_exists = exists(
-            select(RecordKeyword.id).where(
-                RecordKeyword.record_id == Record.id,
-                func.to_tsvector("english", RecordKeyword.keyword).bool_op("@@")(
-                    ts_query
-                ),
-            )
-        )
-        keyword_partial_exists = exists(
-            select(RecordKeyword.id).where(
-                RecordKeyword.record_id == Record.id,
-                func.lower(RecordKeyword.keyword).like(query_like),
-            )
-        )
-
-        contact_exists = exists(
-            select(RecordContact.id).where(
-                RecordContact.record_id == Record.id,
-                func.to_tsvector(
-                    "english",
-                    func.coalesce(RecordContact.name, "")
-                    + " "
-                    + func.coalesce(RecordContact.organization, ""),
-                ).bool_op("@@")(ts_query),
-            )
-        )
-        contact_partial_exists = exists(
-            select(RecordContact.id).where(
-                RecordContact.record_id == Record.id,
-                func.lower(
-                    func.coalesce(RecordContact.name, "")
-                    + " "
-                    + func.coalesce(RecordContact.organization, ""),
-                ).like(query_like),
-            )
-        )
-
-        stmt = stmt.where(
-            or_(
-                vector_match,
-                title_match,
-                summary_match,
-                keyword_exists,
-                keyword_partial_exists,
-                contact_exists,
-                contact_partial_exists,
-            )
-        )
+        text_clause, _parts = _build_text_filter(q)
+        stmt = stmt.where(text_clause)
 
     # Spatial filter
     if geometry_geojson:
@@ -368,60 +439,11 @@ async def get_facet_counts(
     if coll_count > 0:
         counts["collection"] = coll_count
 
-    # Build text filter conditions once (used by keyword/org/srid facet queries)
-    # Use aliased RecordKeyword to avoid auto-correlation when outer query also joins RecordKeyword
+    # Build text filter with aliased models for facet sub-queries
+    # (avoids auto-correlation when outer query also joins RecordKeyword)
     _facet_text_filter = None
     if q and q.strip():
-        _qt = q.strip()
-        _ql = f"%{_qt.lower()}%"
-        _tsq = func.websearch_to_tsquery("english", _qt)
-        _RKA = aliased(RecordKeyword)  # aliased to avoid correlation with outer join
-        _facet_text_filter = or_(
-            Record.search_vector.bool_op("@@")(_tsq),
-            func.lower(Record.title).like(_ql),
-            func.lower(func.coalesce(Record.summary, "")).like(_ql),
-            exists(
-                select(_RKA.id)
-                .where(
-                    _RKA.record_id == Record.id,
-                    func.to_tsvector("english", _RKA.keyword).bool_op("@@")(_tsq),
-                )
-                .correlate(Record)
-            ),
-            exists(
-                select(_RKA.id)
-                .where(
-                    _RKA.record_id == Record.id,
-                    func.lower(_RKA.keyword).like(_ql),
-                )
-                .correlate(Record)
-            ),
-            exists(
-                select(RecordContact.id)
-                .where(
-                    RecordContact.record_id == Record.id,
-                    func.to_tsvector(
-                        "english",
-                        func.coalesce(RecordContact.name, "")
-                        + " "
-                        + func.coalesce(RecordContact.organization, ""),
-                    ).bool_op("@@")(_tsq),
-                )
-                .correlate(Record)
-            ),
-            exists(
-                select(RecordContact.id)
-                .where(
-                    RecordContact.record_id == Record.id,
-                    func.lower(
-                        func.coalesce(RecordContact.name, "")
-                        + " "
-                        + func.coalesce(RecordContact.organization, ""),
-                    ).like(_ql),
-                )
-                .correlate(Record)
-            ),
-        )
+        _facet_text_filter, _parts = _build_text_filter(q, use_alias=True)
 
     def _apply_facet_filters(fstmt):
         """Apply shared text/spatial/facet filters to a facet sub-query."""
@@ -646,29 +668,7 @@ async def search_datasets(
     session: AsyncSession,
     user: User | None,
     user_roles: set[str],
-    *,
-    q: str | None = None,
-    bbox: list[float] | None = None,
-    keywords: list[str] | None = None,
-    geometry_type: str | None = None,
-    srid: int | None = None,
-    source_organization: str | None = None,
-    record_type: str | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
-    vintage_start: date | None = None,
-    vintage_end: date | None = None,
-    sort_by: str = "relevance",
-    sort_desc: bool | None = None,
-    skip: int = 0,
-    limit: int = 10,
-    cql2_filter: str | None = None,
-    cql2_filter_lang: str = "cql2-text",
-    datetime_param: str | None = None,
-    exclude_synthetic: bool = True,
-    spatial_predicate: Literal["intersects", "within"] = "intersects",
-    geometry_geojson: str | None = None,
-    collection_id: uuid_mod.UUID | None = None,
+    filters: SearchFilters,
 ) -> tuple[list[Dataset], int]:
     """Search datasets with combined FTS + spatial + faceted filtering.
 
@@ -678,6 +678,30 @@ async def search_datasets(
 
     Returns a tuple of (matching_datasets, total_count).
     """
+    # Unpack filters for local use
+    q = filters.q
+    bbox = filters.bbox
+    keywords = filters.keywords
+    geometry_type = filters.geometry_type
+    srid = filters.srid
+    source_organization = filters.source_organization
+    record_type = filters.record_type
+    date_from = filters.date_from
+    date_to = filters.date_to
+    vintage_start = filters.vintage_start
+    vintage_end = filters.vintage_end
+    sort_by = filters.sort_by
+    sort_desc = filters.sort_desc
+    skip = filters.skip
+    limit = filters.limit
+    cql2_filter = filters.cql2_filter
+    cql2_filter_lang = filters.cql2_filter_lang
+    datetime_param = filters.datetime_param
+    exclude_synthetic = filters.exclude_synthetic
+    spatial_predicate = filters.spatial_predicate
+    geometry_geojson = filters.geometry_geojson
+    collection_id = filters.collection_id
+
     has_text_search = False
     rank_col = None
 
@@ -694,53 +718,16 @@ async def search_datasets(
 
     # 1. Full-text search (search_vector now on Record + child-table EXISTS)
     if q and q.strip():
-        query_text = q.strip()
-        query_like = f"%{query_text.lower()}%"
-        ts_query = func.websearch_to_tsquery("english", query_text)
+        text_clause, parts = _build_text_filter(q)
 
-        # Parent record tsvector match
-        vector_match = Record.search_vector.bool_op("@@")(ts_query)
-        title_match = func.lower(Record.title).like(query_like)
-        summary_match = func.lower(func.coalesce(Record.summary, "")).like(query_like)
-
-        # Child table: keywords (SEARCH-02)
-        keyword_exists = exists(
-            select(RecordKeyword.id).where(
-                RecordKeyword.record_id == Record.id,
-                func.to_tsvector("english", RecordKeyword.keyword).bool_op("@@")(
-                    ts_query
-                ),
-            )
-        )
-        keyword_partial_exists = exists(
-            select(RecordKeyword.id).where(
-                RecordKeyword.record_id == Record.id,
-                func.lower(RecordKeyword.keyword).like(query_like),
-            )
-        )
-
-        # Child table: contacts -- search both name AND organization (SEARCH-02)
-        contact_exists = exists(
-            select(RecordContact.id).where(
-                RecordContact.record_id == Record.id,
-                func.to_tsvector(
-                    "english",
-                    func.coalesce(RecordContact.name, "")
-                    + " "
-                    + func.coalesce(RecordContact.organization, ""),
-                ).bool_op("@@")(ts_query),
-            )
-        )
-        contact_partial_exists = exists(
-            select(RecordContact.id).where(
-                RecordContact.record_id == Record.id,
-                func.lower(
-                    func.coalesce(RecordContact.name, "")
-                    + " "
-                    + func.coalesce(RecordContact.organization, ""),
-                ).like(query_like),
-            )
-        )
+        ts_query = parts["ts_query"]
+        vector_match = parts["vector_match"]
+        title_match = parts["title_match"]
+        summary_match = parts["summary_match"]
+        keyword_exists = parts["keyword_exists"]
+        keyword_partial_exists = parts["keyword_partial_exists"]
+        contact_exists = parts["contact_exists"]
+        contact_partial_exists = parts["contact_partial_exists"]
 
         # Composite ranking: ts_rank_cd for vector matches + fixed boosts for child-table matches
         rank_col = (
@@ -760,17 +747,7 @@ async def search_datasets(
         ).label("rank")
 
         # Combine: match if any path hits
-        stmt = base_join.add_columns(rank_col).where(
-            or_(
-                vector_match,
-                title_match,
-                summary_match,
-                keyword_exists,
-                keyword_partial_exists,
-                contact_exists,
-                contact_partial_exists,
-            )
-        )
+        stmt = base_join.add_columns(rank_col).where(text_clause)
         has_text_search = True
     else:
         stmt = base_join

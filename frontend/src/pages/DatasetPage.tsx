@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database, Mountain } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -34,6 +34,7 @@ import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
 import { formatRelativeDate, formatNumber } from '@/lib/format';
+import { findElevationColumn } from '@/lib/geo-utils';
 import { getRecordStatusLabel, getGeometryTypeLabel } from '@/i18n/labels';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +59,7 @@ const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'mem
 
 const Sep = () => <span className="text-muted-foreground/50">·</span>;
 
+
 function normalizeLegacyTabHash(hash: string): string | null {
   if (hash === 'source-quality' || hash === 'coverage' || hash === 'source-coverage') {
     return 'metadata';
@@ -79,14 +81,10 @@ const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:
 /**
  * Scroll the element identified by `anchor` into view and focus it.
  * Retries once via setTimeout(120ms) if the element isn't mounted yet.
- * Calls `onDone(null)` when finished, or `onDone(timerId)` when a retry is scheduled.
+ * Returns a cleanup function that cancels any pending retry.
  */
-function scrollAndFocus(
-  anchor: string,
-  onDone: (v: null) => void,
-  onRetryScheduled: (timerId: ReturnType<typeof setTimeout>) => void,
-) {
-  const target = document.querySelector<HTMLElement>(`[data-field-anchor="${anchor}"]`);
+function scrollAndFocus(anchor: string): () => void {
+  let timerId: ReturnType<typeof setTimeout> | null = null;
 
   const focusEl = (el: HTMLElement) => {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -94,20 +92,208 @@ function scrollAndFocus(
       ? el
       : el.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     focusable?.focus({ preventScroll: true });
-    onDone(null);
   };
 
+  const target = document.querySelector<HTMLElement>(`[data-field-anchor="${anchor}"]`);
+
   if (!target) {
-    const timerId = setTimeout(() => {
+    timerId = setTimeout(() => {
       const retryTarget = document.querySelector<HTMLElement>(`[data-field-anchor="${anchor}"]`);
-      if (!retryTarget) { onDone(null); return; }
-      focusEl(retryTarget);
+      if (retryTarget) focusEl(retryTarget);
     }, 120);
-    onRetryScheduled(timerId);
-    return;
+  } else {
+    focusEl(target);
   }
 
-  focusEl(target);
+  return () => {
+    if (timerId) clearTimeout(timerId);
+  };
+}
+
+function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: typeof import('react-i18next').useTranslation extends (...a: never[]) => { t: infer T } ? T : never }) {
+  const isTable = dataset.record_type === 'table';
+  const rasterGsd: number | null =
+    dataset.raster?.res_x != null && dataset.raster?.res_y != null
+      ? Math.min(Math.abs(dataset.raster.res_x), Math.abs(dataset.raster.res_y))
+      : null;
+
+  return (
+    <>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <RecordTypeBadge recordType={dataset.record_type} />
+        {dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type ? (
+          <>
+            {dataset.geometry_type && (
+              <>
+                <Sep />
+                <span>{getGeometryTypeLabel(t, dataset.geometry_type)}</span>
+              </>
+            )}
+            {dataset.feature_count != null && (
+              <>
+                <Sep />
+                <span>{formatNumber(dataset.feature_count)} {isTable ? (dataset.feature_count === 1 ? 'row' : 'rows') : (dataset.feature_count === 1 ? 'feature' : 'features')}</span>
+              </>
+            )}
+            {dataset.srid && (
+              <>
+                <Sep />
+                <span>EPSG:{dataset.srid}</span>
+              </>
+            )}
+            {dataset.is_3d && (
+              <>
+                <Sep />
+                <span className="font-medium">3D</span>
+                {dataset.z_min != null && dataset.z_max != null && (
+                  <span className="ml-1 text-muted-foreground">
+                    Z: {dataset.z_min.toFixed(1)} to {dataset.z_max.toFixed(1)}
+                  </span>
+                )}
+              </>
+            )}
+            {!dataset.is_3d && findElevationColumn(dataset.column_info) && (
+              <>
+                <Sep />
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <Mountain className="h-3.5 w-3.5" />
+                  {t('page.hasElevation', { defaultValue: 'Elevation' })}
+                </span>
+              </>
+            )}
+          </>
+        ) : dataset.record_type === 'raster_dataset' ? (
+          <>
+            {dataset.raster?.band_count != null && (
+              <>
+                <Sep />
+                <span>{dataset.raster.band_count} {dataset.raster.band_count === 1 ? t('raster.band', { defaultValue: 'band' }) : t('raster.bands').toLowerCase()}</span>
+              </>
+            )}
+            {rasterGsd != null && (
+              <>
+                <Sep />
+                <span>{rasterGsd} m</span>
+              </>
+            )}
+            {dataset.raster?.epsg && (
+              <>
+                <Sep />
+                <span>EPSG:{dataset.raster.epsg}</span>
+              </>
+            )}
+          </>
+        ) : dataset.record_type === 'vrt_dataset' ? (
+          <>
+            {dataset.raster?.vrt_type && (
+              <>
+                <Sep />
+                <span>{dataset.raster.vrt_type === 'band_stack' ? t('raster.bandStack') : t('raster.mosaic')}</span>
+              </>
+            )}
+            {dataset.raster?.source_count != null && (
+              <>
+                <Sep />
+                <span>{dataset.raster.source_count} {dataset.raster.source_count === 1 ? 'source' : 'sources'}</span>
+              </>
+            )}
+            {dataset.raster?.band_count != null && (
+              <>
+                <Sep />
+                <span>{dataset.raster.band_count} {dataset.raster.band_count === 1 ? 'band' : 'bands'}</span>
+              </>
+            )}
+            {dataset.raster?.epsg && (
+              <>
+                <Sep />
+                <span>EPSG:{dataset.raster.epsg}</span>
+              </>
+            )}
+          </>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
+        <Sep />
+        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
+          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
+          {dataset.visibility}
+        </Badge>
+        <Sep />
+        <span>Updated {formatRelativeDate(dataset.updated_at)}</span>
+      </div>
+    </>
+  );
+}
+
+function TableHero({
+  dataset,
+  isHeroExpanded,
+  setIsHeroExpanded,
+  datasetId,
+  isEditor,
+  t,
+}: {
+  dataset: DatasetResponse;
+  isHeroExpanded: boolean;
+  setIsHeroExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  datasetId: string;
+  isEditor: boolean;
+  t: typeof import('react-i18next').useTranslation extends (...a: never[]) => { t: infer T } ? T : never;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg border bg-background p-2 shadow-sm">
+              <Database className="h-5 w-5 text-foreground" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">
+                  {t('page.dataFirstTitle', { defaultValue: 'Data-first table dataset' })}
+                </span>
+                <Badge variant="outline" className="text-[11px]">
+                  <EyeOff className="me-1 h-3 w-3" />
+                  {t('page.noMapPreview', { defaultValue: 'No map preview' })}
+                </Badge>
+              </div>
+              <p className="max-w-3xl text-sm text-muted-foreground">
+                {t('page.dataFirstDescription', {
+                  defaultValue: 'This record is a non-spatial table. Review rows below, inspect schema in Structure, and use Connect for downstream access.',
+                })}
+              </p>
+            </div>
+          </div>
+          {dataset.feature_count != null && (
+            <Badge variant="secondary" className="self-start text-xs lg:self-center">
+              {formatNumber(dataset.feature_count)} {dataset.feature_count === 1 ? 'row' : 'rows'}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="rounded-lg border shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
+          <span className="text-xs font-medium text-muted-foreground">
+            {t('page.dataPreview', { defaultValue: 'Data Preview' })}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={() => setIsHeroExpanded(prev => !prev)}
+            aria-label={isHeroExpanded ? 'Collapse data grid' : 'Expand data grid'}
+          >
+            {isHeroExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
+        <div className={isHeroExpanded ? 'h-[60vh]' : 'h-64'}>
+          <DataTab datasetId={datasetId} canEdit={isEditor} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function DatasetPage() {
@@ -227,6 +413,19 @@ export function DatasetPage() {
     window.history.replaceState(window.history.state, '', nextUrl);
   }, []);
 
+  // Sync active tab when hash changes (e.g. browser back/forward)
+  useEffect(() => {
+    const handler = () => {
+      const hash = window.location.hash.replace('#', '');
+      const normalized = normalizeLegacyTabHash(hash) ?? hash;
+      if (VALID_TABS.includes(normalized as (typeof VALID_TABS)[number])) {
+        setActiveTab(normalized);
+      }
+    };
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
   // Poll dataset when VRT is regenerating so the banner auto-clears
   useEffect(() => {
     const status = dataset?.raster?.status;
@@ -236,17 +435,16 @@ export function DatasetPage() {
   useEffect(() => {
     if (!pendingNavigationAnchor) return;
 
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let cleanup: (() => void) | null = null;
 
     const frameId = requestAnimationFrame(() => {
-      scrollAndFocus(pendingNavigationAnchor, setPendingNavigationAnchor, (id) => {
-        timeoutId = id;
-      });
+      cleanup = scrollAndFocus(pendingNavigationAnchor);
+      setPendingNavigationAnchor(null);
     });
 
     return () => {
       cancelAnimationFrame(frameId);
-      if (timeoutId) clearTimeout(timeoutId);
+      cleanup?.();
     };
   }, [activeTab, pendingNavigationAnchor]);
 
@@ -340,104 +538,7 @@ export function DatasetPage() {
     });
   };
 
-  const statsLine = (
-    <>
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <RecordTypeBadge recordType={dataset.record_type} />
-        {dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type ? (
-          <>
-            {dataset.geometry_type && (
-              <>
-                <Sep />
-                <span>{getGeometryTypeLabel(t, dataset.geometry_type)}</span>
-              </>
-            )}
-            {dataset.feature_count != null && (
-              <>
-                <Sep />
-                <span>{formatNumber(dataset.feature_count)} {isTable ? 'rows' : 'features'}</span>
-              </>
-            )}
-            {dataset.srid && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.srid}</span>
-              </>
-            )}
-            {dataset.is_3d && (
-              <>
-                <Sep />
-                <span className="font-medium">3D</span>
-                {dataset.z_min != null && dataset.z_max != null && (
-                  <span className="ml-1 text-muted-foreground">
-                    Z: {dataset.z_min.toFixed(1)} to {dataset.z_max.toFixed(1)}
-                  </span>
-                )}
-              </>
-            )}
-          </>
-        ) : dataset.record_type === 'raster_dataset' ? (
-          <>
-            {dataset.raster?.band_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.band_count} {t('raster.bands').toLowerCase()}</span>
-              </>
-            )}
-            {rasterGsd != null && (
-              <>
-                <Sep />
-                <span>{rasterGsd} m</span>
-              </>
-            )}
-            {dataset.raster?.epsg && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.raster.epsg}</span>
-              </>
-            )}
-          </>
-        ) : dataset.record_type === 'vrt_dataset' ? (
-          <>
-            {dataset.raster?.vrt_type && (
-              <>
-                <Sep />
-                <span>{dataset.raster.vrt_type === 'band_stack' ? t('raster.bandStack') : t('raster.mosaic')}</span>
-              </>
-            )}
-            {dataset.raster?.source_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.source_count} sources</span>
-              </>
-            )}
-            {dataset.raster?.band_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.band_count} bands</span>
-              </>
-            )}
-            {dataset.raster?.epsg && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.raster.epsg}</span>
-              </>
-            )}
-          </>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
-        <Sep />
-        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
-          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
-          {dataset.visibility}
-        </Badge>
-        <Sep />
-        <span>Updated {formatRelativeDate(dataset.updated_at)}</span>
-      </div>
-    </>
-  );
+  const statsLine = <RecordTypeStats dataset={dataset} t={t} />;
 
   const headerActions: DatasetDetailHeaderAction[] = [
     {
@@ -511,57 +612,14 @@ export function DatasetPage() {
 
       {/* Hero Data Grid for table datasets (no map) */}
       {isTable && (
-        <div className="space-y-3">
-          <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="rounded-lg border bg-background p-2 shadow-sm">
-                  <Database className="h-5 w-5 text-foreground" />
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">
-                      {t('page.dataFirstTitle', { defaultValue: 'Data-first table dataset' })}
-                    </span>
-                    <Badge variant="outline" className="text-[11px]">
-                      <EyeOff className="me-1 h-3 w-3" />
-                      {t('page.noMapPreview', { defaultValue: 'No map preview' })}
-                    </Badge>
-                  </div>
-                  <p className="max-w-3xl text-sm text-muted-foreground">
-                    {t('page.dataFirstDescription', {
-                      defaultValue: 'This record is a non-spatial table. Review rows below, inspect schema in Structure, and use Connect for downstream access.',
-                    })}
-                  </p>
-                </div>
-              </div>
-              {dataset.feature_count != null && (
-                <Badge variant="secondary" className="self-start text-xs lg:self-center">
-                  {formatNumber(dataset.feature_count)} {dataset.feature_count === 1 ? 'row' : 'rows'}
-                </Badge>
-              )}
-            </div>
-          </div>
-          <div className="rounded-lg border shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
-                {t('page.dataPreview', { defaultValue: 'Data Preview' })}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => setIsHeroExpanded(prev => !prev)}
-                aria-label={isHeroExpanded ? 'Collapse data grid' : 'Expand data grid'}
-              >
-                {isHeroExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-            <div className={isHeroExpanded ? 'h-[60vh]' : 'h-64'}>
-              <DataTab datasetId={id!} canEdit={isEditor} />
-            </div>
-          </div>
-        </div>
+        <TableHero
+          dataset={dataset}
+          isHeroExpanded={isHeroExpanded}
+          setIsHeroExpanded={setIsHeroExpanded}
+          datasetId={id!}
+          isEditor={isEditor}
+          t={t}
+        />
       )}
 
       {/* Hero Map -- visible for all spatial dataset types */}
@@ -617,21 +675,21 @@ export function DatasetPage() {
 
       {/* Raster Quick Facts Strip */}
       {!isDataTabExpanded && dataset.record_type === 'raster_dataset' && dataset.raster && (
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30 text-sm overflow-x-auto">
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30 text-sm overflow-x-auto divide-x divide-border">
           {dataset.raster.band_count != null && (
-            <div><span className="text-muted-foreground">{t('raster.bands')}</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
+            <div className="pe-3"><span className="text-muted-foreground">{t('raster.bands')}</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
           )}
           {(dataset.raster.res_x != null || rasterGsd != null) && (
-            <div>
+            <div className="ps-3">
               <span className="text-muted-foreground">{t('raster.resolution')}</span>{' '}
               <span className="font-medium">{rasterGsd != null ? `${rasterGsd} m` : `${dataset.raster.res_x?.toFixed(6)}`}</span>
             </div>
           )}
           {dataset.raster.width != null && dataset.raster.height != null && (
-            <div><span className="text-muted-foreground">{t('raster.dimensions')}</span> <span className="font-medium">{dataset.raster.width} x {dataset.raster.height} px</span></div>
+            <div className="ps-3"><span className="text-muted-foreground">{t('raster.dimensions')}</span> <span className="font-medium">{dataset.raster.width} x {dataset.raster.height} px</span></div>
           )}
           {dataset.raster.compression && (
-            <div><span className="text-muted-foreground">{t('raster.format')}</span> <span className="font-medium">{dataset.raster.compression}</span></div>
+            <div className="ps-3"><span className="text-muted-foreground">{t('raster.format')}</span> <span className="font-medium">{dataset.raster.compression}</span></div>
           )}
         </div>
       )}
