@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { AttributeMetadataTable } from '@/components/dataset/AttributeMetadataTable';
-import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { SchemaEditor } from '@/components/dataset/SchemaEditor';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
@@ -17,10 +16,9 @@ interface StructureTabProps {
   columnInfo?: { name: string; type: string }[] | null;
   capability: DatasetEditCapability;
   tableName?: string;
-  recordType?: string;
 }
 
-export function StructureTab({ datasetId, canEdit, columnInfo, capability, tableName, recordType }: StructureTabProps) {
+export function StructureTab({ datasetId, canEdit, columnInfo, capability, tableName }: StructureTabProps) {
   const { t } = useTranslation('dataset');
   const [schemaOpen, setSchemaOpen] = useState(false);
 
@@ -58,17 +56,7 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability, table
         </CardContent>
       </Card>
 
-      {/* Data Preview (hidden for table datasets — hero grid already shows it) */}
-      {recordType !== 'table' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t('page.attributeData')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <AttributeTable datasetId={datasetId} />
-          </CardContent>
-        </Card>
-      )}
+      {/* Data preview removed — use the Data tab instead */}
 
       {/* Schema Editor Dialog */}
       {canEdit && columnInfo && capability.editable && (

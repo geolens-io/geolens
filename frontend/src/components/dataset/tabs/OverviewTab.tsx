@@ -4,11 +4,10 @@ import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatDate, formatNumber, formatBytes } from '@/lib/format';
+import { formatDate, formatBytes } from '@/lib/format';
 import { resolveProvenanceIdentity, formatProvenanceTime } from '@/lib/provenance-attribution';
 import {
   Layers,
-  Database,
   Calendar,
   ChevronDown,
   FileText,
@@ -40,9 +39,26 @@ import { MetadataField } from '@/components/dataset/MetadataField';
 import { RelatedDatasets } from '@/components/dataset/RelatedDatasets';
 import { UsedInMaps } from '@/components/dataset/UsedInMaps';
 import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
-import { getGeometryTypeLabel, getRecordStatusLabel, getSourceFormatLabel } from '@/i18n/labels';
+import { getSourceFormatLabel } from '@/i18n/labels';
 import { vrtRasterStatusColors } from '@/lib/status-colors';
 
+/** Format resolution values: use 2 decimals for values >= 0.01, otherwise 6 */
+function formatResolution(value: number | null | undefined): string {
+  if (value == null) return '—';
+  const abs = Math.abs(value);
+  return abs >= 0.01 ? value.toFixed(2) : value.toFixed(6);
+}
+
+/** Format nodata values: truncate long floats to exponential notation */
+function formatNodata(value: number | string | null | undefined): string {
+  if (value == null) return 'None';
+  const str = String(value);
+  if (str.length > 12) {
+    const num = Number(value);
+    if (!isNaN(num)) return num.toExponential(4);
+  }
+  return str;
+}
 
 interface OverviewTabProps {
   dataset: DatasetResponse;
@@ -131,11 +147,11 @@ export function OverviewTab({
         <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm">
           <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
           <span>
-            {requiredCount > 0 && <span className="font-medium">{requiredCount} required</span>}
+            {requiredCount > 0 && <span className="font-medium">{t('overview.requiredCount', { count: requiredCount, defaultValue: '{{count}} required' })}</span>}
             {requiredCount > 0 && recommendedCount > 0 && ' · '}
-            {recommendedCount > 0 && <span>{recommendedCount} recommended</span>}
+            {recommendedCount > 0 && <span>{t('overview.recommendedCount', { count: recommendedCount, defaultValue: '{{count}} recommended' })}</span>}
             {' · '}
-            <span>{completionPercent}% complete</span>
+            <span>{t('overview.percentComplete', { percent: completionPercent, defaultValue: '{{percent}}% complete' })}</span>
             {(() => {
               const nextField = validationData?.errors?.[0]?.field ?? validationData?.warnings?.[0]?.field;
               if (!nextField) return null;
@@ -147,7 +163,7 @@ export function OverviewTab({
                     className="text-primary underline underline-offset-2 hover:text-primary/80"
                     onClick={() => onNavigateToValidationField?.(nextField)}
                   >
-                    Next: fill in {nextField}
+                    {t('overview.nextFillIn', { field: nextField, defaultValue: 'Next: fill in {{field}}' })}
                   </button>
                 </>
               );
@@ -159,7 +175,7 @@ export function OverviewTab({
             className="ml-auto"
             onClick={() => onNavigateToValidationField?.('validation')}
           >
-            Review issues
+            {t('overview.reviewIssues', { defaultValue: 'Review issues' })}
           </Button>
         </div>
       ) : validationData ? (
@@ -180,24 +196,14 @@ export function OverviewTab({
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {!isRaster && !isVrt && dataset.geometry_type && (
-              <MetadataField icon={Layers} label={t('metadata.geometryType')}>
-                <Badge variant="outline">{getGeometryTypeLabel(t, dataset.geometry_type)}</Badge>
-              </MetadataField>
-            )}
-
-            {!isRaster && !isVrt && (
-              <MetadataField icon={Database} label={dataset.record_type === 'table' ? t('metadata.rowCount', { defaultValue: 'Row Count' }) : t('metadata.featureCount')}>
-                {formatNumber(dataset.feature_count)}
-              </MetadataField>
-            )}
-
+            {/* Source format — not shown in stats line */}
             {!isVrt && (
               <MetadataField icon={FileText} label={t('metadata.sourceFormat')}>
                 {dataset.source_format ? getSourceFormatLabel(t, dataset.source_format) : t('common:notAvailable')}
               </MetadataField>
             )}
 
+            {/* VRT-specific fields (not in stats line) */}
             {isVrt && dataset.raster?.source_count != null && (
               <MetadataField icon={Layers} label={t('metadata.sourceCount', { defaultValue: 'Source Count' })}>
                 {dataset.raster.source_count}
@@ -241,22 +247,7 @@ export function OverviewTab({
               </MetadataField>
             )}
 
-            <MetadataField icon={Calendar} label={t('metadata.created')}>
-              {formatDate(dataset.created_at)}
-            </MetadataField>
-
-            <MetadataField icon={Calendar} label={t('metadata.lastUpdated')}>
-              {formatDate(dataset.updated_at)}
-            </MetadataField>
-
-            <MetadataField label={t('metadata.recordStatus')}>
-              {dataset.record_status ? (
-                <Badge variant="outline">{getRecordStatusLabel(t, dataset.record_status)}</Badge>
-              ) : (
-                t('common:notAvailable')
-              )}
-            </MetadataField>
-
+            {/* Provenance — not duplicated in stats line */}
             <MetadataField icon={UserRound} label={t('metadata.createdBy')}>
               <span title={createdTime.absolute}>
                 {createdByIdentity} ({createdTime.relative})
@@ -358,7 +349,7 @@ export function OverviewTab({
                 {t('overview.resolution', { defaultValue: 'Resolution' })}
               </span>
               <p className="font-medium">
-                {dataset.raster.res_x?.toFixed(6)} x {dataset.raster.res_y?.toFixed(6)}
+                {formatResolution(dataset.raster.res_x)} x {formatResolution(dataset.raster.res_y)}
               </p>
             </div>
             <div>
@@ -379,7 +370,7 @@ export function OverviewTab({
               <span className="text-muted-foreground">
                 {t('overview.nodata', { defaultValue: 'Nodata' })}
               </span>
-              <p className="font-medium">{dataset.raster.nodata ?? 'None'}</p>
+              <p className="font-medium font-mono text-xs" title={dataset.raster.nodata != null ? String(dataset.raster.nodata) : undefined}>{formatNodata(dataset.raster.nodata)}</p>
             </div>
             <div>
               <span className="text-muted-foreground">
@@ -434,7 +425,7 @@ export function OverviewTab({
                         <TableRow key={band.index}>
                           <TableCell>{band.index}</TableCell>
                           <TableCell>{band.dtype}</TableCell>
-                          <TableCell>{band.nodata ?? notAvailableLabel}</TableCell>
+                          <TableCell title={band.nodata != null ? String(band.nodata) : undefined}>{formatNodata(band.nodata)}</TableCell>
                           <TableCell>{band.color_interp && band.color_interp !== 'undefined' ? band.color_interp : t('common:notSpecified', { defaultValue: 'Not specified' })}</TableCell>
                         </TableRow>
                       ))}

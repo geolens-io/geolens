@@ -23,6 +23,8 @@ interface UseMapLayersOptions {
   tileToken: { sig: string; exp: number; scope: string } | null;
   tileConfigCdnBaseUrl?: string;
   mapRef: React.RefObject<MaplibreMap | null>;
+  /** Column name containing height/elevation data for 3D extrusion (polygon datasets only) */
+  elevationColumn?: string | null;
 }
 
 export function useMapLayers({
@@ -33,6 +35,7 @@ export function useMapLayers({
   tileToken,
   tileConfigCdnBaseUrl,
   mapRef,
+  elevationColumn,
 }: UseMapLayersOptions) {
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
@@ -81,6 +84,20 @@ export function useMapLayers({
               'line-width': 2,
             },
           });
+        } else if (elevationColumn) {
+          // 3D extruded polygons driven by the elevation/height column
+          map.addLayer({
+            id: 'vector-extrusion',
+            type: 'fill-extrusion',
+            source: 'vector-tile-source',
+            'source-layer': sourceLayer,
+            paint: {
+              'fill-extrusion-color': MAP_COLORS.default.fill,
+              'fill-extrusion-height': ['max', ['coalesce', ['to-number', ['get', elevationColumn], 0], 0], 0],
+              'fill-extrusion-base': 0,
+              'fill-extrusion-opacity': 0.8,
+            },
+          });
         } else {
           map.addLayer({
             id: 'vector-fill',
@@ -109,7 +126,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
-    [tableName, geometryType, tileConfigCdnBaseUrl, tileToken, tileVersion],
+    [tableName, geometryType, tileConfigCdnBaseUrl, tileToken, tileVersion, elevationColumn],
   );
 
   const addRasterLayers = useCallback(

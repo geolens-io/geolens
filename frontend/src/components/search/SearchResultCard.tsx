@@ -120,7 +120,7 @@ function buildAutoDescription(
       break;
     case 'raster_dataset':
       return t('card.autoDesc.raster', {
-        bands: properties.band_count ?? 0,
+        count: properties.band_count ?? 0,
         gsd: properties.gsd != null ? formatGsd(properties.gsd, properties.crs) : '',
       });
     case 'vrt_dataset':

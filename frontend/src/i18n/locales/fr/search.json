@@ -88,10 +88,14 @@
     "sourceCount_one": "{{count}} source",
     "sourceCount_other": "{{count}} sources",
     "autoDesc": {
-      "vector": "Jeu de données {{geometryType}} avec {{count}} entités en {{crs}}",
-      "raster": "Jeu de données raster, {{bands}} bandes, résolution {{gsd}}",
-      "vrt": "Raster virtuel {{vrtType}} avec {{count}} sources",
-      "table": "Table avec {{count}} lignes",
+      "vector_one": "Jeu de données {{geometryType}} avec {{count}} entité en {{crs}}",
+      "vector_other": "Jeu de données {{geometryType}} avec {{count}} entités en {{crs}}",
+      "raster_one": "Jeu de données raster, {{count}} bande, résolution {{gsd}}",
+      "raster_other": "Jeu de données raster, {{count}} bandes, résolution {{gsd}}",
+      "vrt_one": "Raster virtuel {{vrtType}} avec {{count}} source",
+      "vrt_other": "Raster virtuel {{vrtType}} avec {{count}} sources",
+      "table_one": "Table avec {{count}} ligne",
+      "table_other": "Table avec {{count}} lignes",
       "fallback": "Jeu de données géospatial"
     },
     "moretags": "+{{count}} de plus",

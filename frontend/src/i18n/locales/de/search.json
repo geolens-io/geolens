@@ -88,10 +88,14 @@
     "sourceCount_one": "{{count}} Quelle",
     "sourceCount_other": "{{count}} Quellen",
     "autoDesc": {
-      "vector": "{{geometryType}}-Datensatz mit {{count}} Features in {{crs}}",
-      "raster": "Rasterdatensatz, {{bands}} Bänder, {{gsd}} Auflösung",
-      "vrt": "{{vrtType}} virtuelles Raster mit {{count}} Quellen",
-      "table": "Tabelle mit {{count}} Zeilen",
+      "vector_one": "{{geometryType}}-Datensatz mit {{count}} Feature in {{crs}}",
+      "vector_other": "{{geometryType}}-Datensatz mit {{count}} Features in {{crs}}",
+      "raster_one": "Rasterdatensatz, {{count}} Band, {{gsd}} Auflösung",
+      "raster_other": "Rasterdatensatz, {{count}} Bänder, {{gsd}} Auflösung",
+      "vrt_one": "{{vrtType}} virtuelles Raster mit {{count}} Quelle",
+      "vrt_other": "{{vrtType}} virtuelles Raster mit {{count}} Quellen",
+      "table_one": "Tabelle mit {{count}} Zeile",
+      "table_other": "Tabelle mit {{count}} Zeilen",
       "fallback": "Geodatensatz"
     },
     "moretags": "+{{count}} weitere",

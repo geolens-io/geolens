@@ -17,7 +17,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 
 /** Vector tile layer IDs used for querying and filtering */
-const VECTOR_TILE_LAYERS = ['vector-points', 'vector-lines', 'vector-fill', 'vector-outline'];
+const VECTOR_TILE_LAYERS = ['vector-points', 'vector-lines', 'vector-fill', 'vector-outline', 'vector-extrusion'];
 
 /** Empty GeoJSON FeatureCollection for overlay reset */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -244,7 +244,7 @@ export function useFeatureEditing({
       if (useDrawingStore.getState().selectedFeature) return;
       if (!datasetId) return;
 
-      const queryLayers = ['vector-points', 'vector-lines', 'vector-fill'].filter(
+      const queryLayers = ['vector-points', 'vector-lines', 'vector-fill', 'vector-extrusion'].filter(
         (id) => map.getLayer(id),
       );
       if (queryLayers.length === 0) return;

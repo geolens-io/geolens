@@ -68,9 +68,9 @@ describe('DatasetDetailHeader', () => {
     const desktop = partitionActions(actions, false);
     expect(desktop.primary.map((action) => action.id)).toEqual([
       'edit',
-      'secondary-edit',
     ]);
     expect(desktop.overflow.map((action) => action.id)).toEqual([
+      'secondary-edit',
       'draw',
       'delete',
     ]);
@@ -127,10 +127,14 @@ describe('DatasetDetailHeader', () => {
       />,
     );
 
+    // With DESKTOP_PRIMARY_ACTION_LIMIT=1, only EDIT is primary
     expect(screen.getByRole('button', { name: 'EDIT' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'DRAW' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /more actions/i }));
+
+    // DRAW and DELETE are in overflow
+    const overflowDraw = screen.getByRole('menuitem', { name: 'DRAW' });
+    expect(overflowDraw).toBeInTheDocument();
 
     const overflowDelete = screen.getByRole('menuitem', { name: 'DELETE' });
     expect(overflowDelete).toHaveAttribute('data-disabled', '');

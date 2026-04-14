@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router';
-import { Calendar, Database, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { Calendar, Database, MapPin, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -17,6 +17,12 @@ import { CollectionDeleteDialog } from '@/components/collections/CollectionDelet
 import { useCollection, useRemoveDatasetFromCollection } from '@/hooks/use-collections';
 import { useAuthStore } from '@/stores/auth-store';
 import { formatDate, formatNumber } from '@/lib/format';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
 export function CollectionDetailPage() {
@@ -98,20 +104,34 @@ export function CollectionDetailPage() {
         description={collection.description ?? undefined}
         breadcrumbs={[{ label: t('detail.breadcrumb'), to: '/collections' }]}
         actions={
-          <>
-            {isEditor && (
-              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                <Pencil className="h-4 w-4 me-1" />
-                {t('common:edit')}
-              </Button>
-            )}
-            {isAdmin && (
-              <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
-                <Trash2 className="h-4 w-4 me-1" />
-                {t('common:delete')}
-              </Button>
-            )}
-          </>
+          (isEditor || isAdmin) ? (
+            <>
+              {isEditor && (
+                <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-4 w-4 me-1" />
+                  {t('common:edit')}
+                </Button>
+              )}
+              {isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" aria-label={t('common:moreActions', { defaultValue: 'More actions' })}>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {t('common:delete')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
+          ) : undefined
         }
       />
 

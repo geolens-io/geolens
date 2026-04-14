@@ -21,15 +21,16 @@ export function DatasetDetailSkeleton({ isTable }: DatasetDetailSkeletonProps = 
         </div>
       </div>
 
-      {/* Hero map placeholder */}
-      <Skeleton className={cn('w-full rounded-lg', isTable ? 'h-[60vh]' : 'h-80 lg:h-96')} data-testid="hero-skeleton" />
-
-      {/* Title and description placeholders */}
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-72" />
-        <Skeleton className="h-4 w-full max-w-lg" />
-        <Skeleton className="h-4 w-3/4 max-w-md" />
+      {/* Stats line skeleton */}
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-5 w-16 rounded-full" />
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-4 w-16" />
       </div>
+
+      {/* Hero map placeholder */}
+      <Skeleton className={cn('w-full rounded-lg', isTable ? 'h-[60vh]' : 'h-64 lg:h-80')} data-testid="hero-skeleton" />
 
       {/* Tab bar skeleton */}
       <div className="flex items-center gap-1">
