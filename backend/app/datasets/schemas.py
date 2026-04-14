@@ -46,11 +46,11 @@ class ColumnInfo(BaseModel):
 class QualityDetail(BaseModel):
     """Automated quality assessment results."""
 
-    overall: float = Field(ge=0.0, le=1.0)
-    metadata_completeness: float = Field(ge=0.0, le=1.0)
-    geometry_validity: float = Field(ge=0.0, le=1.0)
-    attribute_completeness: float = Field(ge=0.0, le=1.0)
-    crs_defined: float = Field(ge=0.0, le=1.0)
+    overall: float = Field(ge=0.0, le=100.0)
+    metadata_completeness: float = Field(ge=0.0, le=100.0)
+    geometry_validity: float | None = Field(default=None, ge=0.0, le=100.0)
+    attribute_completeness: float = Field(ge=0.0, le=100.0)
+    crs_defined: float | None = Field(default=None, ge=0.0, le=100.0)
     computed_at: datetime | None = None
 
 
