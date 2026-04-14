@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-13 - Completed quick task 260413-fvg: Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components
+Last activity: 2026-04-14 - Completed quick task 260414-cw3: Execute populating the demo data and maps with scripts/demo
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -106,6 +106,8 @@ None yet.
 | 260410-d7k | review and make sure during the Import operations are all columns being imported | 2026-04-10 | 630f585f | Verified | [260410-d7k-review-and-make-sure-during-the-import-o](./quick/260410-d7k-review-and-make-sure-during-the-import-o/) |
 | 260411-a62 | review and close out remaining items in post-impl-20260410 handoff | 2026-04-11 | cea32bca | Verified | [260411-a62-review-the-remaining-items-in-docs-inter](./quick/260411-a62-review-the-remaining-items-in-docs-inter/) |
 | 260413-fvg | Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components | 2026-04-13 | f5b055b5 |  | [260413-fvg-extract-datasetstatsline-datasetheromap-](./quick/260413-fvg-extract-datasetstatsline-datasetheromap-/) |
+| 260413-i5h | Address all outstanding issues in post-impl-20260413-b audit | 2026-04-13 | 61b7b2ef | Verified | [260413-i5h-address-all-outstanding-issues-in-post-i](./quick/260413-i5h-address-all-outstanding-issues-in-post-i/) |
+| 260414-cw3 | Execute populating the demo data and maps with scripts/demo | 2026-04-14 | a5f29428 |  | [260414-cw3-execute-populating-the-demo-data-and-map](./quick/260414-cw3-execute-populating-the-demo-data-and-map/) |
 
 ## Session Continuity
 

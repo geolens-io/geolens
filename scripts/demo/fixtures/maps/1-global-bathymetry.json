@@ -36,28 +36,10 @@
       "show_in_legend": true
     },
     {
-      "_stem": "ne_10m_admin_0_boundary_lines_land",
-      "_ext": ".zip",
-      "display_name": "Country Borders",
-      "sort_order": 1,
-      "visible": true,
-      "opacity": 0.6,
-      "paint": {
-        "line-color": "#ffffff",
-        "line-width": 0.4
-      },
-      "layout": {},
-      "layer_type": "vector_geolens",
-      "filter": null,
-      "label_config": null,
-      "style_config": null,
-      "show_in_legend": false
-    },
-    {
       "_stem": "ne_10m_coastline",
       "_ext": ".zip",
       "display_name": "Coastline",
-      "sort_order": 2,
+      "sort_order": 1,
       "visible": true,
       "opacity": 0.9,
       "paint": {

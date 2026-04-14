@@ -18,29 +18,10 @@
   "widgets": ["legend"],
   "layers": [
     {
-      "_stem": "gdp_per_capita_ppp_2023",
-      "_ext": ".geojson",
-      "display_name": "Country Boundaries",
-      "sort_order": 0,
-      "visible": true,
-      "opacity": 1.0,
-      "paint": {
-        "fill-color": "#f0f0f0",
-        "fill-opacity": 0.3,
-        "fill-outline-color": "#cccccc"
-      },
-      "layout": {},
-      "layer_type": "vector_geolens",
-      "filter": null,
-      "label_config": null,
-      "style_config": null,
-      "show_in_legend": false
-    },
-    {
       "_stem": "ne_10m_populated_places_simple",
       "_ext": ".zip",
       "display_name": "Cities by Population",
-      "sort_order": 1,
+      "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
       "paint": {
