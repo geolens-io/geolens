@@ -1,10 +1,3 @@
-"""Export format definitions."""
+"""Compatibility shim — real code moved to app.processing.export.schemas."""
 
-from enum import StrEnum
-
-
-class ExportFormat(StrEnum):
-    gpkg = "gpkg"
-    geojson = "geojson"
-    shp = "shp"
-    csv = "csv"
+from app.processing.export.schemas import *  # noqa: F403

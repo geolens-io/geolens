@@ -1,0 +1,1 @@
+"""Embed token module namespace."""

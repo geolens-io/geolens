@@ -1,13 +1,3 @@
-"""Domain exceptions for the config_ops service layer."""
+"""Compatibility shim — real code moved to app.platform.config_ops.exceptions."""
 
-
-class ConfigValidationError(Exception):
-    """Raised when config import validation fails."""
-
-    pass
-
-
-class ConfigLockedError(Exception):
-    """Raised when configuration is locked to environment variables."""
-
-    pass
+from app.platform.config_ops.exceptions import *  # noqa: F403

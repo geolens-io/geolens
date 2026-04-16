@@ -1,0 +1,2 @@
+"""Standards STAC namespace."""
+

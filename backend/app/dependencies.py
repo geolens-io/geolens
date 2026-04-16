@@ -1,20 +1,5 @@
-from collections.abc import AsyncGenerator
+"""Compatibility shim for legacy dependency imports."""
 
-from fastapi import Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.dependencies import get_client_ip, get_db
 
-from app.database import async_session
-
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with async_session() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-
-
-def get_client_ip(request: Request) -> str | None:
-    """Extract client IP from a FastAPI request."""
-    return request.client.host if request.client else None
+__all__ = ["get_client_ip", "get_db"]
