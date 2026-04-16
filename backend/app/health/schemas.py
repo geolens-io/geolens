@@ -1,12 +1,3 @@
-from pydantic import BaseModel
+"""Compatibility shim — real code moved to app.observability.health.schemas."""
 
-
-class ServiceHealth(BaseModel):
-    status: str
-    latency_ms: float | None = None
-    error: str | None = None
-
-
-class HealthResponse(BaseModel):
-    status: str
-    providers: dict[str, ServiceHealth]
+from app.observability.health.schemas import *  # noqa: F403

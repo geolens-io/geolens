@@ -1,0 +1,2 @@
+"""Business module namespace."""
+

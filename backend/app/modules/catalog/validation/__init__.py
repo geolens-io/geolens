@@ -1,0 +1,2 @@
+"""Catalog validation namespace."""
+
