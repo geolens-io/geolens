@@ -154,7 +154,7 @@ def test_init_cache_memory():
     old = cache_provider._cache_provider
     try:
         cache_provider._cache_provider = None
-        with patch("app.config.settings") as mock_settings:
+        with patch("app.core.config.settings") as mock_settings:
             mock_settings.redis_url = None
             cache_provider.init_cache()
             assert isinstance(

@@ -952,7 +952,7 @@ async def test_get_falls_back_to_env_default_on_validation_error(
         cache = get_cache()
         await cache.delete("config:login_rate_limit")
 
-        with patch("app.persistent_config.logger") as mock_logger:
+        with patch("app.core.persistent_config.logger") as mock_logger:
             value = await LOGIN_RATE_LIMIT.get(db)
 
         # Returned the env_default, not the corrupt value
@@ -1029,7 +1029,7 @@ async def test_log_level_config_subclass_validates_str(client: AsyncClient):
         cache = get_cache()
         await cache.delete("config:log_level")
 
-        with patch("app.persistent_config.logger") as mock_logger:
+        with patch("app.core.persistent_config.logger") as mock_logger:
             value = await LOG_LEVEL.get(db)
 
         # Returned the env_default (a string like "INFO" or "DEBUG")
@@ -1087,7 +1087,7 @@ async def test_get_all_registry_values_falls_back_on_bad_row(client: AsyncClient
         db.add(AppSetting(key="login_rate_limit", value={"v": "not_an_int"}))
         await db.commit()
 
-        with patch("app.persistent_config.logger") as mock_logger:
+        with patch("app.core.persistent_config.logger") as mock_logger:
             all_values = await get_all_registry_values(db)
 
         # Corrupt key returned env_default

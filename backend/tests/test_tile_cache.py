@@ -159,7 +159,7 @@ def test_get_tile_cache_returns_none_when_redis_not_set():
     old = cache_provider._tile_cache
     try:
         cache_provider._tile_cache = None
-        with patch("app.config.settings") as mock_settings:
+        with patch("app.core.config.settings") as mock_settings:
             mock_settings.redis_url = None
             cache_provider.init_tile_cache()
             assert cache_provider.get_tile_cache() is None
@@ -176,7 +176,7 @@ def test_get_tile_cache_returns_provider_when_redis_set():
     old = cache_provider._tile_cache
     try:
         cache_provider._tile_cache = None
-        with patch("app.config.settings") as mock_settings:
+        with patch("app.core.config.settings") as mock_settings:
             mock_settings.redis_url = "redis://localhost:6379"
             cache_provider.init_tile_cache()
             result = cache_provider.get_tile_cache()
