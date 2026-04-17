@@ -26,7 +26,7 @@ from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url
 from app.processing.raster.models import DatasetAsset, RasterAsset
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
-from app.utils.geo import make_bbox_filter
+from app.core.geo import make_bbox_filter
 from app.modules.catalog.search.service import build_assets, dataset_to_ogc_record
 from app.standards.stac.schemas import (
     StacCatalog,

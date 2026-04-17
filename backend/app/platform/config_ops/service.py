@@ -278,7 +278,8 @@ async def import_config(
     Validates role_permissions to prevent admin lockout.
     Skips unknown setting keys for forward compatibility.
     """
-    from app.core.persistent_config import _registry, _is_env_only
+    from app.core.persistent_config import _registry
+    from app.core.public_urls import _is_env_only
     from app.modules.audit.service import log_action
 
     if _is_env_only():
