@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
-import { useDeleteDataset } from '@/hooks/use-dataset';
+import { useDeleteDataset } from '@/components/dataset/hooks/use-dataset';
 import type { DatasetResponse } from '@/types/api';
 import { Input } from '@/components/ui/input';
 import {

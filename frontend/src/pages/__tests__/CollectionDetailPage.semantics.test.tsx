@@ -10,7 +10,7 @@ vi.mock('react-router', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/use-collections', () => ({
+vi.mock('@/components/collections/hooks/use-collections', () => ({
   useCollection: vi.fn().mockReturnValue({
     data: {
       id: 'test-collection-id',

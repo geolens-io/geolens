@@ -14,8 +14,8 @@ import {
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
-import { useViewerTokens } from '@/hooks/use-viewer-tokens';
-import { useViewerTerrain } from '@/hooks/use-viewer-terrain';
+import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
+import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';

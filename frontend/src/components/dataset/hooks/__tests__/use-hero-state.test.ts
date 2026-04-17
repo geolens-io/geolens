@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { useHeroState } from '@/hooks/use-hero-state';
+import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 
 describe('useHeroState', () => {
   beforeEach(() => {

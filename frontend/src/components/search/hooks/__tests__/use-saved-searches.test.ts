@@ -8,7 +8,7 @@ vi.mock('@/api/saved-searches', () => ({
 }));
 
 import { fetchSavedSearches, createSavedSearch, deleteSavedSearch } from '@/api/saved-searches';
-import { useSavedSearches, useSaveSearch, useDeleteSavedSearch } from '@/hooks/use-saved-searches';
+import { useSavedSearches, useSaveSearch, useDeleteSavedSearch } from '@/components/search/hooks/use-saved-searches';
 
 const mockFetchSavedSearches = vi.mocked(fetchSavedSearches);
 const mockCreateSavedSearch = vi.mocked(createSavedSearch);

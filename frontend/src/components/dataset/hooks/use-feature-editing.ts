@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useCreateFeature, useUpdateFeature, useDeleteFeature } from '@/hooks/use-features';
 import { getFeature } from '@/api/features';
-import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/hooks/use-terra-draw';
+import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/components/drawing/hooks/use-terra-draw';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getEnvConfig } from '@/lib/env';
 import type { Map as MaplibreMap } from 'maplibre-gl';

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useAttributes, useUpdateAttribute } from '@/hooks/use-dataset';
+import { useAttributes, useUpdateAttribute } from '@/components/dataset/hooks/use-dataset';
 import {
   Table,
   TableHeader,

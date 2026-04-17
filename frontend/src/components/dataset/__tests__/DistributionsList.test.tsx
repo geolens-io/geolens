@@ -1,5 +1,5 @@
 import { render, screen } from '@/test/test-utils';
-import { useDistributions } from '@/hooks/use-records';
+import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import {
   DistributionsList,
@@ -7,7 +7,7 @@ import {
   resolveDistributionUrl,
 } from '@/components/dataset/DistributionsList';
 
-vi.mock('@/hooks/use-records', () => ({
+vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
 }));
 

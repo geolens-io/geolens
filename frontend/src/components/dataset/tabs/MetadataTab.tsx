@@ -14,8 +14,8 @@ import { ChangeHistory } from '@/components/dataset/ChangeHistory';
 import { SourceQualityTab, type SourceQualityDraftField, type SourceQualityDraftValues } from '@/components/dataset/tabs/SourceQualityTab';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useKeywordSuggestions } from '@/hooks/use-ai-metadata';
-import { useCreateKeyword, useKeywords } from '@/hooks/use-records';
-import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
+import { useCreateKeyword, useKeywords } from '@/components/dataset/hooks/use-records';
+import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
 interface MetadataTabProps {
   dataset: DatasetResponse;

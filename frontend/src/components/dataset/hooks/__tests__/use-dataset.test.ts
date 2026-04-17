@@ -7,7 +7,7 @@ vi.mock('@/api/datasets', async (importOriginal) => {
 });
 
 import { getDataset, getDatasetRows } from '@/api/datasets';
-import { useDataset, useDatasetRows } from '@/hooks/use-dataset';
+import { useDataset, useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 
 const mockGetDataset = vi.mocked(getDataset);
 const mockGetDatasetRows = vi.mocked(getDatasetRows);

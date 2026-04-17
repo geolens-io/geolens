@@ -49,7 +49,7 @@ vi.mock('@/stores/drawing-store', () => ({
   useDrawingStore: (selector: (state: typeof drawingState) => unknown) => selector(drawingState),
 }));
 
-vi.mock('@/hooks/use-terra-draw', () => ({
+vi.mock('@/components/drawing/hooks/use-terra-draw', () => ({
   useTerraDraw: () => ({
     setMode: vi.fn(),
     isReady: false,

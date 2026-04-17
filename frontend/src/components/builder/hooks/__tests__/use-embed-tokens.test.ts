@@ -9,7 +9,7 @@ vi.mock('@/api/embed-tokens', () => ({
 }));
 
 import { createEmbedToken, listEmbedTokens, revokeEmbedToken } from '@/api/embed-tokens';
-import { useCreateEmbedToken, useMapEmbedTokens, useRevokeEmbedToken } from '@/hooks/use-embed-tokens';
+import { useCreateEmbedToken, useMapEmbedTokens, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 
 const mockCreateEmbedToken = vi.mocked(createEmbedToken);
 const mockListEmbedTokens = vi.mocked(listEmbedTokens);

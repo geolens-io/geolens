@@ -1,10 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useValidation } from '@/hooks/use-dataset';
+import { useValidation } from '@/components/dataset/hooks/use-dataset';
 import { ValidationStatus } from '@/components/dataset/ValidationStatus';
 import type { ValidationIssue } from '@/types/api';
 
-vi.mock('@/hooks/use-dataset', () => ({
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useValidation: vi.fn(),
 }));
 

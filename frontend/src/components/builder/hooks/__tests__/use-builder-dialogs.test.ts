@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useBuilderDialogs } from '@/hooks/use-builder-dialogs';
+import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 
 describe('useBuilderDialogs', () => {
   it('all dialogs start closed', () => {

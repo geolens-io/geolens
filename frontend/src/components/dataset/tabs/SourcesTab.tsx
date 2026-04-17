@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, AlertCircle, Trash2, Search, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVrtGenerations, useRegenerateVrt } from '@/hooks/use-vrt';
+import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVrtGenerations, useRegenerateVrt } from '@/components/import/hooks/use-vrt';
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';

@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCreateDataset } from '@/hooks/use-dataset';
+import { useCreateDataset } from '@/components/dataset/hooks/use-dataset';
 
 type ColumnType = 'text' | 'integer' | 'float' | 'date' | 'boolean';
 

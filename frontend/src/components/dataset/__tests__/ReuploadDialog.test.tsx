@@ -6,8 +6,8 @@ import {
   useReuploadPreview,
   useReuploadServicePreview,
   useReuploadCommit,
-} from '@/hooks/use-dataset';
-import { useJobStatus, useUploadConfig } from '@/hooks/use-ingest';
+} from '@/components/dataset/hooks/use-dataset';
+import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { probeService } from '@/api/ingest';
 import { ReuploadDialog } from '../ReuploadDialog';
 import type { DatasetResponse, ProbeResponse, ReuploadPreviewResponse } from '@/types/api';
@@ -26,14 +26,14 @@ vi.mock('react-dropzone', () => ({
   }),
 }));
 
-vi.mock('@/hooks/use-dataset', () => ({
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useReuploadDataset: vi.fn(),
   useReuploadPreview: vi.fn(),
   useReuploadServicePreview: vi.fn(),
   useReuploadCommit: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-ingest', () => ({
+vi.mock('@/components/import/hooks/use-ingest', () => ({
   useUploadConfig: vi.fn(),
   useJobStatus: vi.fn(),
 }));

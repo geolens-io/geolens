@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
-import { useValidation } from '@/hooks/use-dataset';
+import { useValidation } from '@/components/dataset/hooks/use-dataset';
 import { useAllSettings } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 import { semanticBadgeColors, validationLevelColors } from '@/lib/status-colors';

@@ -12,8 +12,8 @@ import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
-import { useEphemeralLayers } from '@/hooks/use-ephemeral-layers';
-import { useLayerMapSync } from '@/hooks/use-layer-map-sync';
+import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,

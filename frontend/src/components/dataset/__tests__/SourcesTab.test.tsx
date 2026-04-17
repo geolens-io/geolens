@@ -1,10 +1,10 @@
 import { screen } from '@testing-library/react';
 import { render } from '@/test/test-utils';
-import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVrtGenerations, useRegenerateVrt } from '@/hooks/use-vrt';
+import { useVrtSources, useAddVrtSource, useRemoveVrtSource, useVrtStatus, useVrtGenerations, useRegenerateVrt } from '@/components/import/hooks/use-vrt';
 import { SourcesTab } from '../tabs/SourcesTab';
 import type { DatasetResponse } from '@/types/api';
 
-vi.mock('@/hooks/use-vrt', () => ({
+vi.mock('@/components/import/hooks/use-vrt', () => ({
   useVrtSources: vi.fn(),
   useAddVrtSource: vi.fn(),
   useRemoveVrtSource: vi.fn(),

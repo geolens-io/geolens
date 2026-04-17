@@ -4,7 +4,7 @@ import type { OGCRecordResponse } from '@/types/api';
 import { VrtCreatorForm } from '../VrtCreatorForm';
 
 const mockMutateAsync = vi.fn();
-vi.mock('@/hooks/use-ingest', () => ({
+vi.mock('@/components/import/hooks/use-ingest', () => ({
   useCreateVrt: () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,

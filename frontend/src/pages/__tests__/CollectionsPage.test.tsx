@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@/test/test-utils';
 import { CollectionsPage } from '@/pages/CollectionsPage';
-import { useCollections } from '@/hooks/use-collections';
+import { useCollections } from '@/components/collections/hooks/use-collections';
 import { useAuthStore } from '@/stores/auth-store';
 import type { UserResponse } from '@/types/api';
 
@@ -11,7 +11,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@/hooks/use-collections', () => ({
+vi.mock('@/components/collections/hooks/use-collections', () => ({
   useCollections: vi.fn(),
 }));
 

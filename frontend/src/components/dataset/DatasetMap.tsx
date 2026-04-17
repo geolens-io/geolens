@@ -6,12 +6,12 @@ import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings
 import { getThemeBasemap, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
-import { useTerraDraw } from '@/hooks/use-terra-draw';
-import { useFeatureEditing, showAllFeaturesInTiles } from '@/hooks/use-feature-editing';
+import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
+import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/hooks/use-feature-editing';
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken } from '@/hooks/use-tile-token';
-import { useMapLayers, getSourceLayerName } from '@/hooks/use-map-layers';
+import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
 import { useAuthStore } from '@/stores/auth-store';

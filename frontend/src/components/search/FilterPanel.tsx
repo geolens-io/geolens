@@ -28,7 +28,7 @@ import { KeywordFacetPicker } from './KeywordFacetPicker';
 import { SaveSearchButton } from './SavedSearches';
 import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { useCatalogSummary, useFacets } from '@/hooks/use-search';
+import { useCatalogSummary, useFacets } from '@/components/search/hooks/use-search';
 import { getGeometryTypeLabel, getSearchSortLabel } from '@/i18n/labels';
 import { cn } from '@/lib/utils';
 

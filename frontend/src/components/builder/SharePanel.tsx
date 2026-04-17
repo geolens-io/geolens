@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
 import { checkMapVisibility } from '@/api/maps';
-import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken } from '@/hooks/use-embed-tokens';
+import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import type { MapVisibility } from '@/types/api';
 
 function parseOrigins(input: string): string[] {

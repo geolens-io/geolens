@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@/test/test-utils';
-import { useUrlSearchSync } from '@/hooks/use-url-search-sync';
+import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useSearchStore } from '@/stores/search-store';
 
 const initialSearchState = useSearchStore.getState();

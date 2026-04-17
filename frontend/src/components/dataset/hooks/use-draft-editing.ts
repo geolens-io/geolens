@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useUpdateDataset } from '@/hooks/use-dataset';
+import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import type { DatasetResponse, DatasetUpdateRequest } from '@/types/api';
 
 export type PendingDraftField =

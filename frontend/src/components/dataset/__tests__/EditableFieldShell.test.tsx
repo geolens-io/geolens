@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
-import type { DatasetEditCapability } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetEditCapability } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
 function renderShell(capability: DatasetEditCapability, onAttemptEdit?: () => void) {
   return render(

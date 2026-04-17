@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDrawingStore } from '@/stores/drawing-store';
-import { getAvailableModes } from '@/hooks/use-terra-draw';
+import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 import { Button } from '@/components/ui/button';
 import type { LucideIcon } from 'lucide-react';
 

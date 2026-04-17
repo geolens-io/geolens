@@ -19,7 +19,7 @@ import { CollectionCard } from '@/components/collections/CollectionCard';
 import { CollectionCardSkeleton } from '@/components/collections/CollectionCardSkeleton';
 import { CollectionCreateDialog } from '@/components/collections/CollectionCreateDialog';
 import { Pagination } from '@/components/layout/Pagination';
-import { useCollections } from '@/hooks/use-collections';
+import { useCollections } from '@/components/collections/hooks/use-collections';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 

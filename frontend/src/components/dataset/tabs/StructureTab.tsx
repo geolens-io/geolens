@@ -8,7 +8,7 @@ import { AttributeMetadataTable } from '@/components/dataset/AttributeMetadataTa
 import { SchemaEditor } from '@/components/dataset/SchemaEditor';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
-import type { DatasetEditCapability } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetEditCapability } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
 interface StructureTabProps {
   datasetId: string;

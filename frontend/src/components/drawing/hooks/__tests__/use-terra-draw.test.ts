@@ -4,7 +4,7 @@ import {
   getModeName,
   extractSingleGeometry,
   isMultiPartGeometry,
-} from '@/hooks/use-terra-draw';
+} from '@/components/drawing/hooks/use-terra-draw';
 
 describe('getAvailableModes', () => {
   it('returns empty array for null geometry type', () => {

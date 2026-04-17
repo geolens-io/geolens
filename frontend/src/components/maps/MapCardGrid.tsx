@@ -2,7 +2,7 @@ import { memo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Map as MapIcon, User, Layers, Calendar } from 'lucide-react';
-import { useMapThumbnail } from '@/hooks/use-map-thumbnail';
+import { useMapThumbnail } from '@/components/maps/hooks/use-map-thumbnail';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

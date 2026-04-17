@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { GitCompareArrows } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useRelatedDatasets } from '@/hooks/use-records';
+import { useRelatedDatasets } from '@/components/dataset/hooks/use-records';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { formatNumber } from '@/lib/format';
 

@@ -4,11 +4,11 @@ import { vi } from 'vitest';
 import { MapCard } from '../MapCard';
 import { MapCardGrid } from '../MapCardGrid';
 
-vi.mock('@/hooks/use-map-thumbnail', () => ({
+vi.mock('@/components/maps/hooks/use-map-thumbnail', () => ({
   useMapThumbnail: vi.fn(),
 }));
 
-import { useMapThumbnail } from '@/hooks/use-map-thumbnail';
+import { useMapThumbnail } from '@/components/maps/hooks/use-map-thumbnail';
 
 const mockUseMapThumbnail = vi.mocked(useMapThumbnail);
 
