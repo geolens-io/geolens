@@ -45,7 +45,7 @@ vi.mock('@/hooks/use-tile-token', () => ({
   useTileToken: () => ({ data: null }),
 }));
 
-vi.mock('@/stores/drawing-store', () => ({
+vi.mock('@/components/drawing/drawing-store', () => ({
   useDrawingStore: (selector: (state: typeof drawingState) => unknown) => selector(drawingState),
 }));
 

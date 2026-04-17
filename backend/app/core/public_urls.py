@@ -219,6 +219,7 @@ async def get_dataset_service_url(
     *,
     request: Request | None = None,
 ) -> str:
+    # Alias kept for future divergence (e.g. dedicated dataset service URL).
     return await get_public_app_url(db, request=request)
 
 

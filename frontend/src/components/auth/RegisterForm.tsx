@@ -91,9 +91,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
             <p className="text-xs text-muted-foreground">{t('passwordRequirement')}</p>
           </div>
           {error && (
-            <p className="text-destructive text-sm">{error}</p>
+            <p className="text-destructive text-sm" role="alert">{error}</p>
           )}
-          <Button type="submit" disabled={loading} className="w-full">
+          <Button type="submit" disabled={loading || !username.trim() || !email.trim() || !password} className="w-full">
             {loading && <Loader2 className="size-4 animate-spin" />}
             {loading ? t('creatingAccount') : t('createAccount')}
           </Button>

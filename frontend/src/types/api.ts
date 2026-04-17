@@ -1206,6 +1206,7 @@ export interface VrtSourceListResponse {
 
 export interface VrtMutationResponse {
   job_id: string;
+  status: string;
   message: string;
 }
 

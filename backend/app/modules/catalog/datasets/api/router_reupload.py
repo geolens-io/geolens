@@ -112,6 +112,10 @@ async def reupload_dataset(
             await storage.delete(saved_path)
         if downloaded_validation_path is not None:
             downloaded_validation_path.unlink(missing_ok=True)
+        # Mark the job as failed so it doesn't linger as a dangling pending row
+        job.status = "failed"
+        job.error_message = str(exc)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
@@ -452,7 +456,10 @@ async def request_presigned_reupload(
             detail="Dataset not found",
         )
 
-    allowed_list = await get_allowed_extensions_list(db)
+    try:
+        allowed_list = await get_allowed_extensions_list(db)
+    except Exception:
+        allowed_list = [".zip", ".gpkg", ".geojson", ".json", ".csv", ".tif", ".tiff", ".xlsx", ".xls"]
     validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time

@@ -41,7 +41,7 @@ vi.mock('@/hooks/use-mobile', () => ({
   useIsMobile: () => false,
 }));
 
-vi.mock('@/stores/drawing-store', () => ({
+vi.mock('@/components/drawing/drawing-store', () => ({
   useDrawingStore: (selector: (state: {
     isDrawing: boolean;
     isEditDirty: boolean;

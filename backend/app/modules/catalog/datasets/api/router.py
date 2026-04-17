@@ -2,6 +2,7 @@
 
 import uuid
 
+import structlog
 from fastapi import (
     APIRouter,
     Depends,
@@ -55,6 +56,8 @@ from app.modules.catalog.datasets.domain.service import (
 from app.core.dependencies import get_db
 from app.core.public_urls import get_dataset_service_url
 from app.platform.storage import get_storage
+
+logger = structlog.get_logger()
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
@@ -320,26 +323,13 @@ async def bulk_delete_datasets_endpoint(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
-        except DependentVrtError as exc:
-            await db.rollback()
-            results.append(
-                BulkDeleteResultItem(
-                    dataset_id=item.dataset_id,
-                    status="error",
-                    detail=str(exc),
-                )
-            )
-        except ValueError as exc:
-            await db.rollback()
-            results.append(
-                BulkDeleteResultItem(
-                    dataset_id=item.dataset_id,
-                    status="error",
-                    detail=str(exc),
-                )
-            )
         except Exception as exc:
             await db.rollback()
+            if not isinstance(exc, (DependentVrtError, ValueError)):
+                logger.exception(
+                    "Unexpected error during bulk delete",
+                    dataset_id=str(item.dataset_id),
+                )
             results.append(
                 BulkDeleteResultItem(
                     dataset_id=item.dataset_id,

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from app.modules.catalog.sources.wfs import _build_capabilities_url, parse_wfs_capabilities
+from app.modules.catalog.sources.adapters.wfs import _build_capabilities_url, parse_wfs_capabilities
 
 
 class TestParseWfsCapabilities:

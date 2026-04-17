@@ -60,6 +60,7 @@ export function useDiscoverTables() {
   return useQuery({
     queryKey: queryKeys.ingest.discoverTables,
     queryFn: discoverTables,
+    staleTime: 30_000,
   });
 }
 
