@@ -223,7 +223,7 @@ async def generate_map_stream_endpoint(
     body: MapGenerateRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
-):
+) -> EventSourceResponse:
     """Generate a map from a natural language prompt with streaming progress events."""
 
     async def event_generator():
@@ -322,7 +322,7 @@ async def chat_stream_endpoint(
     body: ChatRequest,
     user: User = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
-):
+) -> EventSourceResponse:
     """Chat-based map editing with server-sent event streaming."""
 
     async def event_generator():

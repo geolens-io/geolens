@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import structlog
+
 from procrastinate import App, PsycopgConnector
 from sqlalchemy import select
 
@@ -454,11 +456,12 @@ async def _cleanup_staging_on_failure(
     job.status = "failed"
     job.error_message = str(exc)
     job.completed_at = datetime.now(timezone.utc)
-    await session.commit()
     structlog.get_logger().exception(
         "Ingest task failed",
-        extra={"job_id": str(job.id), "task": task_name},
+        job_id=str(job.id),
+        task=task_name,
     )
+    await session.commit()
 
 
 async def _ingest_vector_into_staging(
@@ -955,13 +958,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             job.status = "failed"
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-            import structlog
-
             structlog.get_logger().exception(
                 "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "ingest_file"},
+                job_id=str(job.id),
+                task="ingest_file",
             )
+            await session.commit()
             raise
         finally:
             # Clean up local file on success always; on failure only if it was
@@ -1115,13 +1117,12 @@ async def ingest_service(
             job.status = "failed"
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-            import structlog
-
             structlog.get_logger().exception(
                 "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "ingest_service"},
+                job_id=str(job.id),
+                task="ingest_service",
             )
+            await session.commit()
             raise
 
 
@@ -2064,13 +2065,12 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             job.status = "failed"
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-            import structlog
-
             structlog.get_logger().exception(
                 "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "ingest_raster"},
+                job_id=str(job.id),
+                task="ingest_raster",
             )
+            await session.commit()
             raise
         finally:
             # Clean up temp COG dir
@@ -2501,13 +2501,12 @@ async def regenerate_vrt(
                         ).total_seconds()
                     gen.error_message = str(exc)
 
-            await session.commit()
-            import structlog
-
             structlog.get_logger().exception(
                 "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "regenerate_vrt"},
+                job_id=str(job.id),
+                task="regenerate_vrt",
             )
+            await session.commit()
             raise
         finally:
             if tmp_dir:

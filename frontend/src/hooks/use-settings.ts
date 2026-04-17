@@ -23,7 +23,8 @@ export function useBasemaps() {
   return useQuery({
     queryKey: queryKeys.settings.basemaps,
     queryFn: getBasemaps,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -31,7 +32,8 @@ export function useMapDefaults() {
   return useQuery({
     queryKey: queryKeys.settings.mapDefaults,
     queryFn: getMapDefaults,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 

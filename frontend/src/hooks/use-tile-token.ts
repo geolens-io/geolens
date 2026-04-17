@@ -80,10 +80,10 @@ export function useTileTokens(datasetIds: string[]) {
       return {
         data: isTokenEntry ? (entry as TileToken) : undefined,
         isLoading: batchQuery.isLoading,
-        isError: !isTokenEntry && !!entry,
+        isError: batchQuery.isError || (!isTokenEntry && !!entry),
         error:
-          !isTokenEntry && entry ? new Error((entry as TileTokenError).error) : null,
+          batchQuery.error ?? (!isTokenEntry && entry ? new Error((entry as TileTokenError).error) : null),
       };
     });
-  }, [uniqueIds, batchQuery.data, batchQuery.isLoading]);
+  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.error]);
 }

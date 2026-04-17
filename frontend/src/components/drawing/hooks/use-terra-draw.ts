@@ -16,6 +16,127 @@ import type { Feature, Geometry } from 'geojson';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 /**
+ * Static Terra Draw mode instances. These never change at runtime so they are
+ * created once at module level to keep the initialization effect body short.
+ */
+const TERRA_DRAW_MODES = [
+  new TerraDrawPointMode({
+    styles: {
+      pointColor: MAP_COLORS.default.fill,
+      pointWidth: 6,
+      pointOutlineColor: MAP_COLORS.default.stroke,
+      pointOutlineWidth: 2,
+    },
+  }),
+  new TerraDrawLineStringMode({
+    snapping: { toCoordinate: true, toLine: true },
+    styles: {
+      lineStringColor: MAP_COLORS.default.fill,
+      lineStringWidth: 2,
+      closingPointColor: MAP_COLORS.closing.point,
+      closingPointWidth: 6,
+      closingPointOutlineColor: MAP_COLORS.closing.pointOutline,
+      closingPointOutlineWidth: 2,
+    },
+  }),
+  new TerraDrawPolygonMode({
+    snapping: { toCoordinate: true, toLine: true },
+    styles: {
+      fillColor: MAP_COLORS.default.fill,
+      fillOpacity: 0.15,
+      outlineColor: MAP_COLORS.default.stroke,
+      outlineWidth: 2,
+      closingPointColor: MAP_COLORS.closing.point,
+      closingPointWidth: 6,
+      closingPointOutlineColor: MAP_COLORS.closing.pointOutline,
+      closingPointOutlineWidth: 2,
+    },
+  }),
+  new TerraDrawRectangleMode({
+    styles: {
+      fillColor: MAP_COLORS.default.fill,
+      fillOpacity: 0.15,
+      outlineColor: MAP_COLORS.default.stroke,
+      outlineWidth: 2,
+    },
+  }),
+  new TerraDrawCircleMode({
+    styles: {
+      fillColor: MAP_COLORS.default.fill,
+      fillOpacity: 0.15,
+      outlineColor: MAP_COLORS.default.stroke,
+      outlineWidth: 2,
+    },
+  }),
+  new TerraDrawFreehandMode({
+    styles: {
+      fillColor: MAP_COLORS.default.fill,
+      fillOpacity: 0.15,
+      outlineColor: MAP_COLORS.default.stroke,
+      outlineWidth: 2,
+    },
+  }),
+  new TerraDrawSelectMode({
+    allowManualDeselection: true,
+    flags: {
+      point: {
+        feature: { draggable: true },
+      },
+      linestring: {
+        feature: {
+          draggable: true,
+          coordinates: { midpoints: true, draggable: true, deletable: true },
+        },
+      },
+      polygon: {
+        feature: {
+          draggable: true,
+          coordinates: { midpoints: true, draggable: true, deletable: true },
+        },
+      },
+      freehand: {
+        feature: {
+          draggable: true,
+          coordinates: { midpoints: true, draggable: true },
+        },
+      },
+      circle: {
+        feature: {
+          draggable: true,
+          coordinates: { midpoints: true, draggable: true },
+        },
+      },
+      rectangle: {
+        feature: {
+          draggable: true,
+          coordinates: { midpoints: true, draggable: true },
+        },
+      },
+    },
+    styles: {
+      selectedPolygonColor: MAP_COLORS.selection.fill,
+      selectedPolygonFillOpacity: MAP_COLORS.selection.fillOpacity,
+      selectedPolygonOutlineColor: MAP_COLORS.selection.stroke,
+      selectedPolygonOutlineWidth: 3,
+      selectedLineStringColor: MAP_COLORS.selection.fill,
+      selectedLineStringWidth: 3,
+      selectedPointColor: MAP_COLORS.selection.fill,
+      selectedPointWidth: 8,
+      selectedPointOutlineColor: MAP_COLORS.selection.stroke,
+      selectedPointOutlineWidth: 2,
+      selectionPointColor: MAP_COLORS.handle.point,
+      selectionPointWidth: 7,
+      selectionPointOutlineColor: MAP_COLORS.handle.pointOutline,
+      selectionPointOutlineWidth: 2,
+      midPointColor: MAP_COLORS.handle.midpoint,
+      midPointWidth: 5,
+      midPointOutlineColor: MAP_COLORS.handle.midpointOutline,
+      midPointOutlineWidth: 1,
+    },
+  }),
+];
+
+/**
  * Mapping from PostGIS/dataset geometry type to compatible Terra Draw modes.
  * Used by DrawingToolbar to filter visible mode buttons.
  */
@@ -151,122 +272,7 @@ export function useTerraDraw(
 
     const td = new TerraDraw({
       adapter: new TerraDrawMapLibreGLAdapter({ map }),
-      modes: [
-        new TerraDrawPointMode({
-          styles: {
-            pointColor: MAP_COLORS.default.fill,
-            pointWidth: 6,
-            pointOutlineColor: MAP_COLORS.default.stroke,
-            pointOutlineWidth: 2,
-          },
-        }),
-        new TerraDrawLineStringMode({
-          snapping: { toCoordinate: true, toLine: true },
-          styles: {
-            lineStringColor: MAP_COLORS.default.fill,
-            lineStringWidth: 2,
-            closingPointColor: MAP_COLORS.closing.point,
-            closingPointWidth: 6,
-            closingPointOutlineColor: MAP_COLORS.closing.pointOutline,
-            closingPointOutlineWidth: 2,
-          },
-        }),
-        new TerraDrawPolygonMode({
-          snapping: { toCoordinate: true, toLine: true },
-          styles: {
-            fillColor: MAP_COLORS.default.fill,
-            fillOpacity: 0.15,
-            outlineColor: MAP_COLORS.default.stroke,
-            outlineWidth: 2,
-            closingPointColor: MAP_COLORS.closing.point,
-            closingPointWidth: 6,
-            closingPointOutlineColor: MAP_COLORS.closing.pointOutline,
-            closingPointOutlineWidth: 2,
-          },
-        }),
-        new TerraDrawRectangleMode({
-          styles: {
-            fillColor: MAP_COLORS.default.fill,
-            fillOpacity: 0.15,
-            outlineColor: MAP_COLORS.default.stroke,
-            outlineWidth: 2,
-          },
-        }),
-        new TerraDrawCircleMode({
-          styles: {
-            fillColor: MAP_COLORS.default.fill,
-            fillOpacity: 0.15,
-            outlineColor: MAP_COLORS.default.stroke,
-            outlineWidth: 2,
-          },
-        }),
-        new TerraDrawFreehandMode({
-          styles: {
-            fillColor: MAP_COLORS.default.fill,
-            fillOpacity: 0.15,
-            outlineColor: MAP_COLORS.default.stroke,
-            outlineWidth: 2,
-          },
-        }),
-        new TerraDrawSelectMode({
-          allowManualDeselection: true,
-          flags: {
-            point: {
-              feature: { draggable: true },
-            },
-            linestring: {
-              feature: {
-                draggable: true,
-                coordinates: { midpoints: true, draggable: true, deletable: true },
-              },
-            },
-            polygon: {
-              feature: {
-                draggable: true,
-                coordinates: { midpoints: true, draggable: true, deletable: true },
-              },
-            },
-            freehand: {
-              feature: {
-                draggable: true,
-                coordinates: { midpoints: true, draggable: true },
-              },
-            },
-            circle: {
-              feature: {
-                draggable: true,
-                coordinates: { midpoints: true, draggable: true },
-              },
-            },
-            rectangle: {
-              feature: {
-                draggable: true,
-                coordinates: { midpoints: true, draggable: true },
-              },
-            },
-          },
-          styles: {
-            selectedPolygonColor: MAP_COLORS.selection.fill,
-            selectedPolygonFillOpacity: MAP_COLORS.selection.fillOpacity,
-            selectedPolygonOutlineColor: MAP_COLORS.selection.stroke,
-            selectedPolygonOutlineWidth: 3,
-            selectedLineStringColor: MAP_COLORS.selection.fill,
-            selectedLineStringWidth: 3,
-            selectedPointColor: MAP_COLORS.selection.fill,
-            selectedPointWidth: 8,
-            selectedPointOutlineColor: MAP_COLORS.selection.stroke,
-            selectedPointOutlineWidth: 2,
-            selectionPointColor: MAP_COLORS.handle.point,
-            selectionPointWidth: 7,
-            selectionPointOutlineColor: MAP_COLORS.handle.pointOutline,
-            selectionPointOutlineWidth: 2,
-            midPointColor: MAP_COLORS.handle.midpoint,
-            midPointWidth: 5,
-            midPointOutlineColor: MAP_COLORS.handle.midpointOutline,
-            midPointOutlineWidth: 1,
-          },
-        }),
-      ],
+      modes: TERRA_DRAW_MODES,
     });
 
     td.start();

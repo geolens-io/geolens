@@ -155,6 +155,13 @@ class StacAsset(BaseModel):
     size_bytes: int | None = None
 
 
+class CollectionRef(BaseModel):
+    """Minimal reference to a collection a dataset belongs to."""
+
+    id: uuid.UUID
+    name: str
+
+
 class DatasetResponse(BaseModel):
     id: uuid.UUID
     record_id: uuid.UUID = Field(description="Parent catalog record UUID")
@@ -206,7 +213,7 @@ class DatasetResponse(BaseModel):
     )
     current_version: int = Field(default=1, description="Monotonic version counter")
     source_url: str | None = Field(
-        default=None, description="URL the data was originally fetched from"
+        default=None, max_length=2000, description="URL the data was originally fetched from"
     )
     quality_statement: str | None = None
     visibility: str = Field(
@@ -218,7 +225,7 @@ class DatasetResponse(BaseModel):
     updated_at: datetime
     last_edited_by_display: str | None = None
     last_edited_at: datetime | None = None
-    collections: list[dict] | None = None
+    collections: list["CollectionRef"] | None = None
     # ISO governance fields
     record_status: str = Field(
         default="draft", description="Lifecycle status: draft, ready, published"
@@ -354,7 +361,7 @@ class DatasetMeta(BaseModel):
     quality_statement: str | None = Field(default=None, max_length=5000)
     source_url: str | None = Field(
         default=None,
-        max_length=1000,
+        max_length=2000,
         description="URL the data was originally fetched from",
     )
     language: str | None = Field(

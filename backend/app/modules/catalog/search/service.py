@@ -543,8 +543,10 @@ async def get_facet_counts(
     )
     org_stmt = apply_visibility_filter(org_stmt, user, user_roles, Record, DatasetGrant)
     org_stmt = _apply_facet_filters(org_stmt)
-    org_stmt = org_stmt.group_by(Record.source_organization).order_by(
-        func.count().desc()
+    org_stmt = (
+        org_stmt.group_by(Record.source_organization)
+        .order_by(func.count().desc())
+        .limit(50)
     )
     org_result = await session.execute(org_stmt)
     org_facets = [
@@ -566,7 +568,7 @@ async def get_facet_counts(
         srid_stmt, user, user_roles, Record, DatasetGrant
     )
     srid_stmt = _apply_facet_filters(srid_stmt)
-    srid_stmt = srid_stmt.group_by(Dataset.srid).order_by(func.count().desc())
+    srid_stmt = srid_stmt.group_by(Dataset.srid).order_by(func.count().desc()).limit(50)
     srid_result = await session.execute(srid_stmt)
     srid_facets = [
         {"value": row.srid_str, "count": row.count} for row in srid_result.all()
@@ -678,30 +680,6 @@ async def search_datasets(
 
     Returns a tuple of (matching_datasets, total_count).
     """
-    # Unpack filters for local use
-    q = filters.q
-    bbox = filters.bbox
-    keywords = filters.keywords
-    geometry_type = filters.geometry_type
-    srid = filters.srid
-    source_organization = filters.source_organization
-    record_type = filters.record_type
-    date_from = filters.date_from
-    date_to = filters.date_to
-    vintage_start = filters.vintage_start
-    vintage_end = filters.vintage_end
-    sort_by = filters.sort_by
-    sort_desc = filters.sort_desc
-    skip = filters.skip
-    limit = filters.limit
-    cql2_filter = filters.cql2_filter
-    cql2_filter_lang = filters.cql2_filter_lang
-    datetime_param = filters.datetime_param
-    exclude_synthetic = filters.exclude_synthetic
-    spatial_predicate = filters.spatial_predicate
-    geometry_geojson = filters.geometry_geojson
-    collection_id = filters.collection_id
-
     has_text_search = False
     rank_col = None
 
@@ -717,8 +695,8 @@ async def search_datasets(
     )
 
     # 1. Full-text search (search_vector now on Record + child-table EXISTS)
-    if q and q.strip():
-        text_clause, parts = _build_text_filter(q)
+    if filters.q and filters.q.strip():
+        text_clause, parts = _build_text_filter(filters.q)
 
         ts_query = parts["ts_query"]
         vector_match = parts["vector_match"]
@@ -756,20 +734,20 @@ async def search_datasets(
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
 
     # 3. Spatial filter (spatial_extent now on Record)
-    if geometry_geojson:
-        geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
+    if filters.geometry_geojson:
+        geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(filters.geometry_geojson), 4326)
         spatial_fn = (
-            func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+            func.ST_Within if filters.spatial_predicate == "within" else func.ST_Intersects
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
-    elif bbox and len(bbox) == 4:
+    elif filters.bbox and len(filters.bbox) == 4:
         stmt = stmt.where(
-            make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate)
+            make_bbox_filter(Record.spatial_extent, filters.bbox, predicate=filters.spatial_predicate)
         )
 
     # 4. Faceted filters
-    if keywords:
-        for kw in keywords:
+    if filters.keywords:
+        for kw in filters.keywords:
             stmt = stmt.where(
                 exists(
                     select(RecordKeyword.id).where(
@@ -778,35 +756,35 @@ async def search_datasets(
                     )
                 )
             )
-    if geometry_type:
-        stmt = stmt.where(Dataset.geometry_type == geometry_type)
-    if srid:
-        stmt = stmt.where(Dataset.srid == srid)
-    if source_organization:
-        stmt = stmt.where(Record.source_organization == source_organization)
-    if record_type:
-        stmt = stmt.where(Record.record_type == record_type)
-    if collection_id is not None:
+    if filters.geometry_type:
+        stmt = stmt.where(Dataset.geometry_type == filters.geometry_type)
+    if filters.srid:
+        stmt = stmt.where(Dataset.srid == filters.srid)
+    if filters.source_organization:
+        stmt = stmt.where(Record.source_organization == filters.source_organization)
+    if filters.record_type:
+        stmt = stmt.where(Record.record_type == filters.record_type)
+    if filters.collection_id is not None:
         stmt = stmt.where(
             exists(
                 select(CollectionDataset.dataset_id).where(
                     CollectionDataset.dataset_id == Dataset.id,
-                    CollectionDataset.collection_id == collection_id,
+                    CollectionDataset.collection_id == filters.collection_id,
                 )
             )
         )
-    if date_from:
-        stmt = stmt.where(Record.created_at >= date_from)
-    if date_to:
-        stmt = stmt.where(Record.created_at <= date_to)
-    if vintage_start:
-        stmt = stmt.where(Record.temporal_start >= vintage_start)
-    if vintage_end:
-        stmt = stmt.where(Record.temporal_end <= vintage_end)
+    if filters.date_from:
+        stmt = stmt.where(Record.created_at >= filters.date_from)
+    if filters.date_to:
+        stmt = stmt.where(Record.created_at <= filters.date_to)
+    if filters.vintage_start:
+        stmt = stmt.where(Record.temporal_start >= filters.vintage_start)
+    if filters.vintage_end:
+        stmt = stmt.where(Record.temporal_end <= filters.vintage_end)
 
     # 4a. OGC datetime temporal overlap filter
-    if datetime_param:
-        dt_start, dt_end = parse_ogc_datetime(datetime_param)
+    if filters.datetime_param:
+        dt_start, dt_end = parse_ogc_datetime(filters.datetime_param)
         if dt_start is not None:
             stmt = stmt.where(
                 or_(Record.temporal_end >= dt_start, Record.temporal_end.is_(None))
@@ -817,7 +795,7 @@ async def search_datasets(
             )
 
     # 4b. Exclude synthetic/test datasets by default
-    if exclude_synthetic:
+    if filters.exclude_synthetic:
         stmt = stmt.where(
             ~exists(
                 select(RecordKeyword.id).where(
@@ -828,26 +806,29 @@ async def search_datasets(
         )
 
     # 4c. CQL2 structured filter (applied AFTER visibility + facets)
-    if cql2_filter:
+    if filters.cql2_filter:
         from app.standards.ogc.filtering import apply_cql2_filter
 
-        stmt = apply_cql2_filter(stmt, cql2_filter, cql2_filter_lang)
+        stmt = apply_cql2_filter(stmt, filters.cql2_filter, filters.cql2_filter_lang)
 
     # 5. Count total matches (FTS count; vector doesn't expand count)
+    # TODO(perf): count via subquery re-evaluates the full predicate stack.
+    # Consider a window function (COUNT(*) OVER()) to piggyback on the main
+    # query, but that changes result shape -- measure before changing.
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await session.execute(count_stmt)).scalar_one()
 
     # -- Hybrid semantic search with RRF --
     semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(session)
-    use_rrf = semantic_enabled and has_text_search and q and q.strip()
+    use_rrf = semantic_enabled and has_text_search and filters.q and filters.q.strip()
 
     if use_rrf:
         # Get vector similarity ranks (empty dict on any failure = FTS-only)
-        vector_ranks = await _get_vector_ranks(session, q.strip(), limit)
+        vector_ranks = await _get_vector_ranks(session, filters.q.strip(), filters.limit)
 
         if vector_ranks:
             # Get FTS-ranked record IDs (up to a reasonable cap for merging)
-            fts_cap = max(limit * 3, 100)
+            fts_cap = max(filters.limit * 3, 100)
             fts_stmt = stmt.order_by(rank_col.desc()).limit(fts_cap)
             fts_result = await session.execute(fts_stmt)
             fts_rows = fts_result.unique().all()
@@ -864,7 +845,7 @@ async def search_datasets(
             rrf_ordered = _compute_rrf_scores(fts_ids, filtered_vector_ranks)
 
             # Apply pagination to RRF-ordered list
-            page_ids = rrf_ordered[skip : skip + limit]
+            page_ids = rrf_ordered[filters.skip : filters.skip + filters.limit]
 
             if page_ids:
                 # Fetch full Dataset objects for the final page
@@ -904,22 +885,22 @@ async def search_datasets(
         else_=literal(1.0),
     )
 
-    if sort_by == "relevance" and has_text_search:
+    if filters.sort_by == "relevance" and has_text_search:
         boosted_rank = rank_col * published_boost * freshness_boost
         stmt = stmt.order_by(boosted_rank.desc())
-    elif sort_by == "relevance":
+    elif filters.sort_by == "relevance":
         # No text search -- use boost factors with updated_at tiebreaker
         stmt = stmt.order_by(
             (published_boost * freshness_boost).desc(),
             Record.updated_at.desc(),
         )
-    elif sort_by == "date_added":
-        _desc = sort_desc if sort_desc is not None else True
+    elif filters.sort_by == "date_added":
+        _desc = filters.sort_desc if filters.sort_desc is not None else True
         stmt = stmt.order_by(
             Record.created_at.desc() if _desc else Record.created_at.asc()
         )
-    elif sort_by in {"title", "name"}:
-        _desc = sort_desc if sort_desc is not None else False
+    elif filters.sort_by in {"title", "name"}:
+        _desc = filters.sort_desc if filters.sort_desc is not None else False
         if _desc:
             stmt = stmt.order_by(
                 collate(func.lower(Record.title), "C").desc(),
@@ -931,8 +912,8 @@ async def search_datasets(
                 collate(func.lower(Record.title), "C").asc(),
                 collate(Record.title, "C").asc(),
             )
-    elif sort_by == "last_updated":
-        _desc = sort_desc if sort_desc is not None else True
+    elif filters.sort_by == "last_updated":
+        _desc = filters.sort_desc if filters.sort_desc is not None else True
         stmt = stmt.order_by(
             Record.updated_at.desc() if _desc else Record.updated_at.asc()
         )
@@ -940,7 +921,7 @@ async def search_datasets(
         stmt = stmt.order_by(Record.created_at.desc())
 
     # 7. Paginate
-    stmt = stmt.offset(skip).limit(limit)
+    stmt = stmt.offset(filters.skip).limit(filters.limit)
 
     # 8. Execute
     result = await session.execute(stmt)

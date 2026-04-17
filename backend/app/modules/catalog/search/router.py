@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies import get_current_active_user, get_optional_user
 from app.modules.auth.models import User
-from app.modules.auth.visibility import apply_visibility_filter, get_user_roles
+from app.modules.auth.visibility import (
+    apply_visibility_filter,
+    check_dataset_access_or_anonymous,
+    get_user_roles,
+)
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -902,6 +906,7 @@ async def list_collections(
         .options(_jl(Dataset.record))
     )
     ds_stmt = apply_visibility_filter(ds_stmt, user, user_roles, Record, DatasetGrant)
+    ds_stmt = ds_stmt.limit(200)
     ds_result = await db.execute(ds_stmt)
     datasets = ds_result.scalars().unique().all()
 
@@ -1257,28 +1262,8 @@ async def get_collection_item(
             detail="Record not found",
         )
 
-    # Visibility check
-    if user is not None:
-        user_roles = await get_user_roles(db, user)
-    else:
-        user_roles = set()
-
-    if "admin" not in user_roles:
-        # Re-query with visibility filter to check access
-        vis_stmt = (
-            select(Dataset)
-            .join(Record, Dataset.record_id == Record.id)
-            .where(Dataset.id == record_id)
-        )
-        vis_stmt = apply_visibility_filter(
-            vis_stmt, user, user_roles, Record, DatasetGrant
-        )
-        vis_result = await db.execute(vis_stmt)
-        if vis_result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Record not found",
-            )
+    # Single visibility check (raises 404 if access denied)
+    await check_dataset_access_or_anonymous(db, dataset, record_id, user)
 
     # Query DatasetAsset rows for STAC assets
     from app.processing.raster.models import DatasetAsset as DA

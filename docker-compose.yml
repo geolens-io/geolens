@@ -19,6 +19,10 @@ x-db-ssl-env: &db-ssl-env
   DATABASE_SSL_CA_CERT: "${DATABASE_SSL_CA_CERT:-}"
   DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-false}"
   DB_USE_EXTERNAL_POOLER: "${DB_USE_EXTERNAL_POOLER:-false}"
+  DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
+  DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-5}"
+  DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
+  DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
 
 x-storage-env: &storage-env
   STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
@@ -28,6 +32,7 @@ x-storage-env: &storage-env
   S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
   S3_REGION: "${S3_REGION:-us-east-1}"
   S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
+  S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
 
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
@@ -118,6 +123,11 @@ services:
       UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
       UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls}"
       REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
+      TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
+      TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
+      AWS_MARKETPLACE_PRODUCT_CODE: "${AWS_MARKETPLACE_PRODUCT_CODE:-}"
+      AWS_MARKETPLACE_PUBLIC_KEY_VERSION: "${AWS_MARKETPLACE_PUBLIC_KEY_VERSION:-1}"
+      ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       # CORS: comma-separated allowed origins for cross-origin API access (empty = same-origin only)
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
     depends_on:

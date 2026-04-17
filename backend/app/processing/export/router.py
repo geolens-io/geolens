@@ -30,7 +30,7 @@ def _cleanup_export(path: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-@router.get("/{dataset_id}/export")
+@router.get("/{dataset_id}/export", response_class=FileResponse)
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
     request: Request,

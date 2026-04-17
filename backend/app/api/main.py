@@ -95,8 +95,25 @@ async def seed_initial_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.connect() as conn:
-        await conn.execute(text("SELECT 1"))
+    for attempt in range(1, 4):
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            break
+        except Exception as exc:
+            if attempt < 3:
+                logger.warning(
+                    "Database not ready, retrying",
+                    attempt=attempt,
+                    error=str(exc),
+                )
+                await asyncio.sleep(2)
+            else:
+                logger.exception(
+                    "Database health check failed after 3 attempts",
+                    error=str(exc),
+                )
+                raise
 
     await seed_roles()
     await seed_initial_admin()

@@ -106,6 +106,9 @@ export function BuilderMap({
   const layersRef = useRef(layers);
   layersRef.current = layers;
 
+  // Cached queryable layer IDs — updated when layers change, read by click/mousemove handlers
+  const queryLayerIdsRef = useRef<string[]>([]);
+
   // Track basemap URL to detect style changes
   const prevBasemapUrlRef = useRef<string | null>(null);
 
@@ -184,16 +187,23 @@ export function BuilderMap({
     };
   }, [basemapEntry?.url]);
 
+  // Update cached queryable layer IDs when layers change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    queryLayerIdsRef.current = layers
+      .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
+      .map((l) => getLayerId(l.id))
+      .filter((id) => map.getLayer(id));
+  }, [layers, mapReady]);
+
   // Click handler: show popup with feature attributes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
     const handleClick = (e: MapMouseEvent) => {
-      const queryLayers = layersRef.current
-        .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
-        .map((l) => getLayerId(l.id))
-        .filter((id) => map.getLayer(id));
+      const queryLayers = queryLayerIdsRef.current;
 
       if (queryLayers.length === 0) {
         setPopupInfo(null);
@@ -236,10 +246,7 @@ export function BuilderMap({
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (!map.isStyleLoaded()) return;
-        const queryLayers = layersRef.current
-          .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
-          .map((l) => getLayerId(l.id))
-          .filter((id) => map.getLayer(id));
+        const queryLayers = queryLayerIdsRef.current;
 
         if (queryLayers.length === 0) {
           map.getCanvas().style.cursor = '';

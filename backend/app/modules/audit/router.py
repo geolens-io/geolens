@@ -81,7 +81,7 @@ async def list_audit_logs(
     )
 
 
-@router.get("/audit-logs/export/{format}")
+@router.get("/audit-logs/export/{format}", response_class=StreamingResponse)
 async def export_audit_logs(
     format: Literal["csv", "json"],
     action: str | None = Query(None),

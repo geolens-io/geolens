@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app import public_urls
+from app.core import public_urls
 
 
 def _make_request(
