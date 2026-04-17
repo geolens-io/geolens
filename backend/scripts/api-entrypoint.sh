@@ -70,7 +70,7 @@ if [ "${migration_rc}" -ne 0 ]; then
 fi
 
 if [ "$#" -eq 0 ]; then
-    set -- sh -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    set -- sh -c "uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
 fi
 
 if [ "$(id -u)" -eq 0 ]; then

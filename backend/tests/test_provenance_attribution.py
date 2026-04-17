@@ -8,9 +8,9 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import joinedload
 
-from app.audit.models import AuditLog
-from app.datasets.models import Dataset
-from app.ingest.tasks import _apply_reupload_swap
+from app.modules.audit.models import AuditLog
+from app.modules.catalog.datasets.domain.models import Dataset
+from app.processing.ingest.tasks import _apply_reupload_swap
 
 from tests.factories import get_user_id
 
@@ -303,10 +303,10 @@ async def test_reupload_swap_stamps_actor_and_emits_reupload_commit_audit(
 
     with (
         patch(
-            "app.ingest.metadata.refresh_attribute_metadata", new_callable=AsyncMock
+            "app.processing.ingest.metadata.refresh_attribute_metadata", new_callable=AsyncMock
         ) as mock_refresh,
         patch(
-            "app.ingest.metadata.compute_quality_score",
+            "app.processing.ingest.metadata.compute_quality_score",
             new_callable=AsyncMock,
         ) as mock_quality,
     ):

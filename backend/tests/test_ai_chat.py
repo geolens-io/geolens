@@ -11,12 +11,12 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.ai.router import _validate_chat_layers
-from app.ai.schemas import ChatMapLayer
-from app.auth.models import User
-from app.config import settings
-from app.datasets.models import Dataset
-from app.maps.models import Map
+from app.processing.ai.router import _validate_chat_layers
+from app.processing.ai.schemas import ChatMapLayer
+from app.modules.auth.models import User
+from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.maps.models import Map
 
 from tests.factories import create_dataset
 

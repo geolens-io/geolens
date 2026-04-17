@@ -1,4 +1,4 @@
-from app.ogc.utils import build_url
+from app.standards.ogc.utils import build_url
 
 
 # --- build_url() unit tests ---
@@ -15,7 +15,7 @@ def test_build_url_avoids_double_slashes(monkeypatch):
     """build_url() normalizes trailing slash on base URL."""
     # Patch in both the source module and the importing module
     monkeypatch.setattr(
-        "app.ogc.utils.get_env_public_api_url",
+        "app.standards.ogc.utils.get_env_public_api_url",
         lambda request=None: "http://example.com/",
     )
     result = build_url("/conformance")

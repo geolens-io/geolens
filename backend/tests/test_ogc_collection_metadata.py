@@ -17,7 +17,7 @@ from datetime import date
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from app.datasets.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 
 from tests.factories import get_user_id
 

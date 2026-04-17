@@ -6,21 +6,21 @@ import sqlalchemy as sa
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.config import settings
-from app.database import Base
+from app.core.config import settings
+from app.core.db import Base
 
-import app.auth.models  # noqa: F401 -- register models for autogenerate
-import app.auth.oauth.models  # noqa: F401
-import app.audit.models  # noqa: F401
-import app.datasets.models  # noqa: F401
-import app.embed_tokens.models  # noqa: F401
-import app.jobs.models  # noqa: F401
-import app.collections.models  # noqa: F401
-import app.maps.models  # noqa: F401
-import app.raster.models  # noqa: F401
-import app.search.saved  # noqa: F401
-import app.settings.models  # noqa: F401
-import app.embeddings.models  # noqa: F401
+import app.modules.auth.models  # noqa: F401 -- register models for autogenerate
+import app.modules.auth.oauth.models  # noqa: F401
+import app.modules.audit.models  # noqa: F401
+import app.modules.catalog.datasets.domain.models  # noqa: F401
+import app.modules.embed_tokens.models  # noqa: F401
+import app.platform.jobs.models  # noqa: F401
+import app.modules.catalog.collections.models  # noqa: F401
+import app.modules.catalog.maps.models  # noqa: F401
+import app.processing.raster.models  # noqa: F401
+import app.modules.catalog.search.saved  # noqa: F401
+import app.modules.settings.models  # noqa: F401
+import app.processing.embeddings.models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

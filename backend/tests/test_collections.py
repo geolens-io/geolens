@@ -15,7 +15,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy import func, update
 
-from app.datasets.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 

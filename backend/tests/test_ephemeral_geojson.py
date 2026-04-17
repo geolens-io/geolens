@@ -9,7 +9,7 @@ import shapely
 
 
 # Import helpers from chat_service
-from app.ai.chat_service import (
+from app.processing.ai.chat_service import (
     _is_geom_value,
     _detect_geom_column,
     _safe_value,

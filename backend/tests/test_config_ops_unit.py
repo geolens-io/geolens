@@ -3,7 +3,7 @@
 
 def test_schemas_importable():
     """Config ops schemas should be importable."""
-    from app.config_ops.schemas import (
+    from app.platform.config_ops.schemas import (
         ConfigExportResponse,
         ConfigImportRequest,
         DryRunResponse,
@@ -22,7 +22,7 @@ def test_schemas_importable():
 
 def test_service_importable():
     """Config ops service functions should be importable."""
-    from app.config_ops.service import export_config, import_config, dry_run_import
+    from app.platform.config_ops.service import export_config, import_config, dry_run_import
 
     assert export_config is not None
     assert import_config is not None
@@ -31,7 +31,7 @@ def test_service_importable():
 
 def test_config_export_response_shape():
     """ConfigExportResponse should accept version, exported_at, settings, oauth_providers."""
-    from app.config_ops.schemas import ConfigExportResponse
+    from app.platform.config_ops.schemas import ConfigExportResponse
 
     resp = ConfigExportResponse(
         version="1.0",
@@ -46,7 +46,7 @@ def test_config_export_response_shape():
 
 def test_config_import_request_defaults():
     """ConfigImportRequest fields should default to None."""
-    from app.config_ops.schemas import ConfigImportRequest
+    from app.platform.config_ops.schemas import ConfigImportRequest
 
     req = ConfigImportRequest()
     assert req.settings is None
@@ -55,7 +55,7 @@ def test_config_import_request_defaults():
 
 def test_import_result_shape():
     """ImportResult should track counts."""
-    from app.config_ops.schemas import ImportResult
+    from app.platform.config_ops.schemas import ImportResult
 
     result = ImportResult(
         settings_applied=2,
@@ -70,7 +70,7 @@ def test_import_result_shape():
 
 def test_setting_change_shape():
     """SettingChange should have key, current, imported, action."""
-    from app.config_ops.schemas import SettingChange
+    from app.platform.config_ops.schemas import SettingChange
 
     change = SettingChange(
         key="log_level",
@@ -83,7 +83,7 @@ def test_setting_change_shape():
 
 def test_oauth_provider_change_shape():
     """OAuthProviderChange should have slug, action, changed_fields."""
-    from app.config_ops.schemas import OAuthProviderChange
+    from app.platform.config_ops.schemas import OAuthProviderChange
 
     change = OAuthProviderChange(
         slug="google",
@@ -95,7 +95,7 @@ def test_oauth_provider_change_shape():
 
 def test_dry_run_response_shape():
     """DryRunResponse should have settings and oauth_providers sections."""
-    from app.config_ops.schemas import DryRunResponse
+    from app.platform.config_ops.schemas import DryRunResponse
 
     resp = DryRunResponse(
         settings={"changes": []},

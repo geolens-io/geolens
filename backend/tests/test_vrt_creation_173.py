@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from app.ingest.schemas import VrtCreateRequest, VrtCreateResponse
-from app.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.processing.ingest.schemas import VrtCreateRequest, VrtCreateResponse
+from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ class TestVrtBuildFunctions:
         output = "/tmp/out.vrt"
 
         with patch(
-            "app.raster.vrt.subprocess.run", return_value=mock_result
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
         ) as mock_run:
             result = build_vrt("mosaic", sources, output, "finest")
 
@@ -138,7 +138,7 @@ class TestVrtBuildFunctions:
         output = "/tmp/out.vrt"
 
         with patch(
-            "app.raster.vrt.subprocess.run", return_value=mock_result
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
         ) as mock_run:
             result = build_vrt("band_stack", sources, output, "coarsest")
 
@@ -150,14 +150,14 @@ class TestVrtBuildFunctions:
     def test_build_mosaic_vrt_raises_on_nonzero_returncode(self):
         mock_result = _make_subprocess_result(returncode=1, stderr="gdalbuildvrt error")
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result):
+        with patch("app.processing.raster.vrt.subprocess.run", return_value=mock_result):
             with pytest.raises(RuntimeError, match="gdalbuildvrt failed"):
                 build_vrt("mosaic", ["/a.tif"], "/out.vrt", "finest")
 
     def test_build_band_stack_vrt_raises_on_nonzero_returncode(self):
         mock_result = _make_subprocess_result(returncode=1, stderr="gdalbuildvrt error")
 
-        with patch("app.raster.vrt.subprocess.run", return_value=mock_result):
+        with patch("app.processing.raster.vrt.subprocess.run", return_value=mock_result):
             with pytest.raises(RuntimeError, match="gdalbuildvrt failed"):
                 build_vrt("band_stack", ["/a.tif"], "/out.vrt", "finest")
 
@@ -165,7 +165,7 @@ class TestVrtBuildFunctions:
         mock_result = _make_subprocess_result(returncode=0)
 
         with patch(
-            "app.raster.vrt.subprocess.run", return_value=mock_result
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
         ) as mock_run:
             build_vrt("mosaic", ["/a.tif"], "/out.vrt", "finest")
 
@@ -177,7 +177,7 @@ class TestVrtBuildFunctions:
         mock_result = _make_subprocess_result(returncode=0)
 
         with patch(
-            "app.raster.vrt.subprocess.run", return_value=mock_result
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
         ) as mock_run:
             build_vrt("mosaic", ["/a.tif"], "/out.vrt", "coarsest")
 
@@ -189,7 +189,7 @@ class TestVrtBuildFunctions:
         mock_result = _make_subprocess_result(returncode=0)
 
         with patch(
-            "app.raster.vrt.subprocess.run", return_value=mock_result
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
         ) as mock_run:
             build_vrt("mosaic", ["/a.tif"], "/out.vrt", "average")
 
@@ -219,7 +219,7 @@ class TestVrtBuildFunctions:
                 dataset.write(np.ones((1, 5, 5), dtype="uint8"))
 
         output = tmp_path / "out.vrt"
-        with patch("app.raster.vrt.subprocess.run", side_effect=FileNotFoundError()):
+        with patch("app.processing.raster.vrt.subprocess.run", side_effect=FileNotFoundError()):
             result = build_vrt(
                 "mosaic",
                 [str(src_a), str(src_b)],
@@ -247,7 +247,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "local"
         mock_settings.upload_staging_dir = "/data/staging"
 
-        with patch("app.raster.vrt.settings", mock_settings):
+        with patch("app.processing.raster.vrt.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/abc/source.cog.tif")
 
         assert path == "/data/staging/rasters/abc/source.cog.tif"
@@ -257,7 +257,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "s3"
         mock_settings.s3_bucket = "my-geolens-bucket"
 
-        with patch("app.raster.vrt.settings", mock_settings):
+        with patch("app.processing.raster.vrt.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/abc/source.cog.tif")
 
         assert path == "/vsis3/my-geolens-bucket/rasters/abc/source.cog.tif"
@@ -268,7 +268,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "s3"
         mock_settings.s3_bucket = "test-bucket"
 
-        with patch("app.raster.vrt.settings", mock_settings):
+        with patch("app.processing.raster.vrt.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/xyz/source.cog.tif")
 
         assert path.startswith("/vsis3/")
@@ -279,7 +279,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "local"
         mock_settings.upload_staging_dir = "/mnt/data"
 
-        with patch("app.raster.vrt.settings", mock_settings):
+        with patch("app.processing.raster.vrt.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/def/source.cog.tif")
 
         assert "rasters/def/source.cog.tif" in path
@@ -299,7 +299,7 @@ class TestVrtCreateEndpoint:
         import asyncio
 
         async def _check():
-            from app.ingest.router import create_vrt
+            from app.processing.ingest.router import create_vrt
 
             mock_request = MagicMock()
             mock_request.source_dataset_ids = [uuid.uuid4()]  # only 1
@@ -319,7 +319,7 @@ class TestVrtCreateEndpoint:
         import asyncio
 
         async def _check():
-            from app.ingest.router import create_vrt
+            from app.processing.ingest.router import create_vrt
 
             mock_request = MagicMock()
             mock_request.source_dataset_ids = []
@@ -390,7 +390,7 @@ class TestCreateVrtJob:
         from fastapi import HTTPException
         from unittest.mock import AsyncMock
 
-        from app.ingest.service import create_vrt_job
+        from app.processing.ingest.service import create_vrt_job
 
         async def _check():
             mock_db = AsyncMock()
@@ -413,7 +413,7 @@ class TestCreateVrtJob:
         from fastapi import HTTPException
         from unittest.mock import AsyncMock
 
-        from app.ingest.service import create_vrt_job
+        from app.processing.ingest.service import create_vrt_job
 
         async def _check():
             mock_db = AsyncMock()
@@ -443,7 +443,7 @@ class TestCreateVrtJob:
         from fastapi import HTTPException
         from unittest.mock import AsyncMock, patch
 
-        from app.ingest.service import create_vrt_job
+        from app.processing.ingest.service import create_vrt_job
 
         async def _check():
             mock_db = AsyncMock()
@@ -470,7 +470,7 @@ class TestCreateVrtJob:
             }
 
             with patch(
-                "app.raster.validation.validate_sources",
+                "app.processing.raster.validation.validate_sources",
                 return_value=[fake_error],
             ):
                 mock_user = MagicMock()
@@ -489,7 +489,7 @@ class TestCreateVrtJob:
 
         from unittest.mock import AsyncMock, patch
 
-        from app.ingest.service import create_vrt_job
+        from app.processing.ingest.service import create_vrt_job
 
         async def _check():
             mock_db = AsyncMock()
@@ -521,15 +521,15 @@ class TestCreateVrtJob:
 
             with (
                 patch(
-                    "app.raster.validation.validate_sources",
+                    "app.processing.raster.validation.validate_sources",
                     return_value=[],
                 ),
                 patch(
-                    "app.ingest.service.create_ingest_job",
+                    "app.processing.ingest.service.create_ingest_job",
                     new=AsyncMock(return_value=stub_job),
                 ),
                 patch(
-                    "app.ingest.tasks.ingest_vrt",
+                    "app.processing.ingest.tasks.ingest_vrt",
                     defer_async=mock_defer,
                 ),
             ):
@@ -567,7 +567,7 @@ class TestCreateVrtJob:
         from fastapi import HTTPException
         from unittest.mock import AsyncMock, patch
 
-        from app.ingest.service import create_vrt_job
+        from app.processing.ingest.service import create_vrt_job
 
         async def _check():
             mock_db = AsyncMock()
@@ -601,15 +601,15 @@ class TestCreateVrtJob:
 
             with (
                 patch(
-                    "app.raster.validation.validate_sources",
+                    "app.processing.raster.validation.validate_sources",
                     return_value=[],
                 ),
                 patch(
-                    "app.ingest.service.create_ingest_job",
+                    "app.processing.ingest.service.create_ingest_job",
                     new=AsyncMock(return_value=stub_job),
                 ),
                 patch(
-                    "app.ingest.tasks.ingest_vrt",
+                    "app.processing.ingest.tasks.ingest_vrt",
                     defer_async=failing_defer,
                 ),
             ):
@@ -635,7 +635,7 @@ class TestCreateVrtJob:
 
         from unittest.mock import AsyncMock, patch
 
-        from app.ingest.router import create_vrt
+        from app.processing.ingest.router import create_vrt
 
         async def _check():
             request = VrtCreateRequest(
@@ -651,7 +651,7 @@ class TestCreateVrtJob:
             fake_job.id = uuid.uuid4()
 
             with patch(
-                "app.ingest.service.create_vrt_job",
+                "app.processing.ingest.service.create_vrt_job",
                 new=AsyncMock(return_value=fake_job),
             ) as mock_svc:
                 response = await create_vrt(request, mock_user, mock_db)

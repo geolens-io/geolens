@@ -5,8 +5,8 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from app.datasets.models import Dataset, Record, RecordKeyword
-from app.search.service import parse_ogc_datetime
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.search.service import parse_ogc_datetime
 
 from tests.factories import get_user_id
 

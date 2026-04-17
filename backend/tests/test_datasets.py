@@ -13,7 +13,7 @@ import uuid
 
 from httpx import AsyncClient
 
-from app.maps.models import Map, MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
 from tests.factories import (
     create_dataset as _create_dataset,
     get_user_id as _get_user_id,

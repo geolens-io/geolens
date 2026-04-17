@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.embeddings.service import EmbeddingUnavailableError, generate_embedding
+from app.processing.embeddings.service import EmbeddingUnavailableError, generate_embedding
 
 
 @pytest.mark.asyncio
@@ -21,14 +21,14 @@ async def test_generate_embedding_returns_float_vector():
 
     with (
         patch(
-            "app.embeddings.service.build_openai_client",
+            "app.processing.embeddings.service.build_openai_client",
             return_value=mock_client_instance,
         ),
-        patch("app.embeddings.service.settings") as mock_settings,
-        patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
-        patch("app.embeddings.service.EMBEDDING_DIMS") as mock_dims,
+        patch("app.processing.embeddings.service.settings") as mock_settings,
+        patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
+        patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
         patch(
-            "app.embeddings.service.resolve_embedding_base_url",
+            "app.processing.embeddings.service.resolve_embedding_base_url",
             new_callable=AsyncMock,
             return_value="",
         ),
@@ -49,7 +49,7 @@ async def test_generate_embedding_raises_when_no_openai_key():
     """EmbeddingUnavailableError raised with clear message when only Anthropic key configured."""
     mock_session = AsyncMock()
 
-    with patch("app.embeddings.service.settings") as mock_settings:
+    with patch("app.processing.embeddings.service.settings") as mock_settings:
         mock_settings.openai_api_key = None
 
         with pytest.raises(EmbeddingUnavailableError) as exc_info:
@@ -73,14 +73,14 @@ async def test_generate_embedding_uses_persistent_config():
 
     with (
         patch(
-            "app.embeddings.service.build_openai_client",
+            "app.processing.embeddings.service.build_openai_client",
             return_value=mock_client_instance,
         ),
-        patch("app.embeddings.service.settings") as mock_settings,
-        patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
-        patch("app.embeddings.service.EMBEDDING_DIMS") as mock_dims,
+        patch("app.processing.embeddings.service.settings") as mock_settings,
+        patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
+        patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
         patch(
-            "app.embeddings.service.resolve_embedding_base_url",
+            "app.processing.embeddings.service.resolve_embedding_base_url",
             new_callable=AsyncMock,
             return_value="http://localhost:11434/v1",
         ),
@@ -114,14 +114,14 @@ async def test_generate_embedding_truncates_long_input():
 
     with (
         patch(
-            "app.embeddings.service.build_openai_client",
+            "app.processing.embeddings.service.build_openai_client",
             return_value=mock_client_instance,
         ),
-        patch("app.embeddings.service.settings") as mock_settings,
-        patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
-        patch("app.embeddings.service.EMBEDDING_DIMS") as mock_dims,
+        patch("app.processing.embeddings.service.settings") as mock_settings,
+        patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
+        patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
         patch(
-            "app.embeddings.service.resolve_embedding_base_url",
+            "app.processing.embeddings.service.resolve_embedding_base_url",
             new_callable=AsyncMock,
             return_value="",
         ),
@@ -157,14 +157,14 @@ async def test_generate_embedding_dimension_mismatch():
 
     with (
         patch(
-            "app.embeddings.service.build_openai_client",
+            "app.processing.embeddings.service.build_openai_client",
             return_value=mock_client_instance,
         ),
-        patch("app.embeddings.service.settings") as mock_settings,
-        patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
-        patch("app.embeddings.service.EMBEDDING_DIMS") as mock_dims,
+        patch("app.processing.embeddings.service.settings") as mock_settings,
+        patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
+        patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
         patch(
-            "app.embeddings.service.resolve_embedding_base_url",
+            "app.processing.embeddings.service.resolve_embedding_base_url",
             new_callable=AsyncMock,
             return_value="",
         ),

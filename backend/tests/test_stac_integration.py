@@ -9,8 +9,8 @@ from httpx import AsyncClient
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.collections.models import Collection, CollectionDataset
-from app.datasets.models import Dataset, Record
+from app.modules.catalog.collections.models import Collection, CollectionDataset
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 
@@ -92,7 +92,21 @@ class TestSTACCollections:
     async def test_list_collections(self, client: AsyncClient, test_db_session):
         """GET /stac/collections returns collections with links."""
         admin_id = await get_user_id(test_db_session, "admin")
-        await _create_raster_dataset(test_db_session, created_by=admin_id)
+        ds = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        coll = Collection(
+            name=f"stac-list-{uuid.uuid4().hex[:8]}",
+            created_by=admin_id,
+        )
+        test_db_session.add(coll)
+        await test_db_session.flush()
+        test_db_session.add(
+            CollectionDataset(
+                collection_id=coll.id,
+                dataset_id=ds.id,
+                added_by=admin_id,
+            )
+        )
+        await test_db_session.commit()
 
         resp = await client.get("/stac/collections")
         assert resp.status_code == 200

@@ -16,8 +16,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from app.config import settings
-from app.datasets.models import Dataset, Record
+from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 
@@ -112,7 +112,7 @@ async def _init_tile_pool_for_tests():
     The test client uses ASGITransport which does not run the app lifespan,
     so we need to create the tile pool manually.
     """
-    import app.tiles.pool as pool_module
+    import app.processing.tiles.pool as pool_module
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await asyncpg.create_pool(
@@ -207,7 +207,7 @@ class TestTileEndpoint:
             mock_cache = AsyncMock()
             mock_cache.get.return_value = b""  # empty sentinel
 
-            with patch("app.tiles.router.get_tile_cache", return_value=mock_cache):
+            with patch("app.processing.tiles.router.get_tile_cache", return_value=mock_cache):
                 resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
 
             assert resp.status_code == 204
@@ -316,7 +316,7 @@ class TestTileQueryStructure:
 
     def test_tile_query_column_selection(self):
         """Tile query excludes geom, geom_4326 from attribute columns."""
-        from app.tiles.service import _build_attr_columns
+        from app.processing.tiles.service import _build_attr_columns
 
         columns = [
             {"name": "gid", "type": "integer"},
@@ -333,7 +333,7 @@ class TestTileQueryStructure:
 
     def test_tile_query_uses_correct_params(self):
         """Tile query uses ST_AsMVTGeom with 4096 extent, 256 buffer."""
-        from app.tiles.service import _build_tile_query
+        from app.processing.tiles.service import _build_tile_query
 
         columns = [{"name": "name", "type": "text"}]
         query = _build_tile_query("test_table", columns)
@@ -348,7 +348,7 @@ class TestTileQueryStructure:
 
     def test_tile_query_single_transform_in_where(self):
         """WHERE clause uses precomputed bounds.geom_4326, not ST_Transform."""
-        from app.tiles.service import _build_tile_query
+        from app.processing.tiles.service import _build_tile_query
 
         columns = [{"name": "name", "type": "text"}]
         query = _build_tile_query("test_table", columns)
@@ -361,7 +361,7 @@ class TestTileQueryStructure:
 
     def test_mvt_source_layer_name(self):
         """ST_AsMVT uses 'data.{table_name}' as source layer name."""
-        from app.tiles.service import _build_tile_query
+        from app.processing.tiles.service import _build_tile_query
 
         columns = [{"name": "name", "type": "text"}]
         query = _build_tile_query("my_dataset", columns)
@@ -375,7 +375,7 @@ class TestTilePool:
 
     def test_get_tile_pool_raises_when_not_initialized(self):
         """get_tile_pool raises RuntimeError when pool not initialized."""
-        import app.tiles.pool as pool_module
+        import app.processing.tiles.pool as pool_module
 
         # Ensure pool is None
         original = pool_module._tile_pool
@@ -388,7 +388,7 @@ class TestTilePool:
 
     def test_tile_table_name_validation(self):
         """Invalid table names are rejected."""
-        from app.tiles.service import _validate_tile_table_name
+        from app.processing.tiles.service import _validate_tile_table_name
 
         # Valid names
         _validate_tile_table_name("my_table")

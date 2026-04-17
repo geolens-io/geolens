@@ -1,6 +1,6 @@
 """Tests for XML tool call parser."""
 
-from app.ai.tool_call_parser import parse_xml_tool_calls
+from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 
 
 class TestParseXmlToolCalls:

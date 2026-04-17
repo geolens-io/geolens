@@ -14,7 +14,7 @@ from datetime import date
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from app.datasets.models import (
+from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
     RecordContact,

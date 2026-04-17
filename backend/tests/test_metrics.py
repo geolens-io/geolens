@@ -6,15 +6,15 @@ import pytest
 from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.metrics.instrumentator import create_instrumentator
-from app.metrics.jobs import (
+from app.observability.metrics.instrumentator import create_instrumentator
+from app.observability.metrics.jobs import (
     _refresh_job_metrics,
     jobs_active,
     jobs_completed_total,
     jobs_failed_total,
     jobs_queue_depth,
 )
-from app.metrics.pool import (
+from app.observability.metrics.pool import (
     _refresh_pool_metrics,
     db_pool_checkedout,
     db_pool_checkedin,

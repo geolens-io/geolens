@@ -19,7 +19,7 @@ def _get_register_fn():
     """Import register_marketplace_usage, reloading to pick up patched boto3."""
     if "app.marketplace" in sys.modules:
         importlib.reload(sys.modules["app.marketplace"])
-    from app.marketplace import register_marketplace_usage
+    from app.core.marketplace import register_marketplace_usage
 
     return register_marketplace_usage
 

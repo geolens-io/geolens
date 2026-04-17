@@ -3,7 +3,7 @@
 Pure unit tests -- no database or fixtures required.
 """
 
-from app.stac.serializer import (
+from app.standards.stac.serializer import (
     STAC_CONFORMANCE,
     ogc_collection_to_stac_collection,
     ogc_record_to_stac_item,
