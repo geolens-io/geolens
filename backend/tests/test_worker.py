@@ -92,7 +92,6 @@ def test_worker_module_is_importable():
     import app.worker as worker_mod
 
     assert hasattr(worker_mod, "main")
-    assert hasattr(worker_mod, "recover_stale_jobs")
     assert callable(worker_mod.main)
 
 
@@ -138,7 +137,7 @@ async def test_recover_stale_jobs_marks_running_as_failed():
 
     mock_session = _make_mock_session([fake_job], [])
 
-    with patch("app.database.async_session", return_value=mock_session):
+    with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
 
     assert fake_job.status == "failed"
@@ -159,7 +158,7 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
 
     mock_session = _make_mock_session([], [fake_job])
 
-    with patch("app.database.async_session", return_value=mock_session):
+    with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
 
     assert fake_job.status == "failed"
@@ -186,8 +185,8 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
 
     mock_session = _make_mock_session([job1, job2], [])
 
-    with patch("app.database.async_session", return_value=mock_session):
-        with patch("app.worker.log") as mock_log:
+    with patch("app.core.db.async_session", return_value=mock_session):
+        with patch("app.platform.jobs.worker.log") as mock_log:
             await recover_stale_jobs()
 
     # Should have individual log calls with job_id kwarg
@@ -215,12 +214,12 @@ async def test_main_uses_shutdown_graceful_timeout():
     mock_task_app.run_worker_async = AsyncMock()
 
     with (
-        patch("app.worker.recover_stale_jobs", new_callable=AsyncMock),
-        patch("app.worker.ensure_staging_ready"),
+        patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.ensure_staging_ready"),
         patch("app.platform.storage.init_storage"),
         patch("app.platform.cache.init_cache"),
         patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
-        patch("app.worker.run_health_server", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
         patch.dict("os.environ", {"WORKER_SHUTDOWN_TIMEOUT": "45"}),
     ):
@@ -243,12 +242,12 @@ async def test_main_uses_default_shutdown_timeout():
     mock_task_app.run_worker_async = AsyncMock()
 
     with (
-        patch("app.worker.recover_stale_jobs", new_callable=AsyncMock),
-        patch("app.worker.ensure_staging_ready"),
+        patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.ensure_staging_ready"),
         patch("app.platform.storage.init_storage"),
         patch("app.platform.cache.init_cache"),
         patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
-        patch("app.worker.run_health_server", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
         patch.dict("os.environ", {}, clear=False),
     ):
@@ -275,12 +274,12 @@ async def test_main_passes_install_signal_handlers_true():
     mock_task_app.run_worker_async = AsyncMock()
 
     with (
-        patch("app.worker.recover_stale_jobs", new_callable=AsyncMock),
-        patch("app.worker.ensure_staging_ready"),
+        patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.ensure_staging_ready"),
         patch("app.platform.storage.init_storage"),
         patch("app.platform.cache.init_cache"),
         patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
-        patch("app.worker.run_health_server", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
     ):
         await main()

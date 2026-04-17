@@ -65,7 +65,7 @@ async def test_refresh_job_metrics_handles_db_error():
     mock_conn.__aexit__ = AsyncMock(return_value=False)
     mock_engine.connect = MagicMock(return_value=mock_conn)
 
-    with patch("app.database.engine", mock_engine):
+    with patch("app.core.db.engine", mock_engine):
         # Should not raise
         await _refresh_job_metrics()
 
@@ -81,8 +81,8 @@ async def test_refresh_pool_metrics_skips_non_queuepool():
     mock_settings.db_use_external_pooler = False
 
     with (
-        patch("app.database.engine", mock_engine),
-        patch("app.config.settings", mock_settings),
+        patch("app.core.db.engine", mock_engine),
+        patch("app.core.config.settings", mock_settings),
     ):
         await _refresh_pool_metrics()
 
