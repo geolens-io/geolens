@@ -3,7 +3,7 @@ import { Route, Routes } from 'react-router';
 import { render, screen } from '@/test/test-utils';
 import { PublicViewerPage } from '../PublicViewerPage';
 import { useSharedMap } from '@/hooks/use-maps';
-import { useViewerLayers } from '@/hooks/use-viewer-layers';
+import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 import type { SharedMapResponse } from '@/types/api';
@@ -12,7 +12,7 @@ vi.mock('@/hooks/use-maps', () => ({
   useSharedMap: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-viewer-layers', () => ({
+vi.mock('@/components/viewer/hooks/use-viewer-layers', () => ({
   useViewerLayers: vi.fn(),
 }));
 

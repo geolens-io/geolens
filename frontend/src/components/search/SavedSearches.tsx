@@ -17,7 +17,7 @@ import {
   useSavedSearches,
   useSaveSearch,
   useDeleteSavedSearch,
-} from '@/hooks/use-saved-searches';
+} from '@/components/search/hooks/use-saved-searches';
 import { useSearchStore } from '@/stores/search-store';
 import { cn } from '@/lib/utils';
 

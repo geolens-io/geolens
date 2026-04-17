@@ -90,15 +90,15 @@ vi.mock('@/hooks/use-document-title', () => ({
   useDocumentTitle: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-builder-layout', () => ({
+vi.mock('@/components/builder/hooks/use-builder-layout', () => ({
   useBuilderLayout: () => ({ isCompact: false, isMobile: false }),
 }));
 
-vi.mock('@/hooks/use-builder-dialogs', () => ({
+vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
   useBuilderDialogs: () => dialogsState,
 }));
 
-vi.mock('@/hooks/use-builder-layers', () => ({
+vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
     localLayers: [],
     localBasemap: 'carto',
@@ -135,7 +135,7 @@ vi.mock('@/hooks/use-builder-layers', () => ({
   }),
 }));
 
-vi.mock('@/hooks/use-builder-save', () => ({
+vi.mock('@/components/builder/hooks/use-builder-save', () => ({
   useBuilderSave: () => ({
     handleSave: vi.fn(),
     isSaving: false,

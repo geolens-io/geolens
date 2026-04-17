@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { DatasetEditCapability } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetEditCapability } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { RoleCapabilityHint } from '@/components/dataset/RoleCapabilityHint';
 
 interface EditableFieldShellProps {

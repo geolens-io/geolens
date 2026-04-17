@@ -1,7 +1,7 @@
 import { CircleHelp, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import type { DatasetCapabilityReason } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetCapabilityReason } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
 interface RoleCapabilityHintProps {
   reason?: DatasetCapabilityReason | null;

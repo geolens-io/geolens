@@ -7,8 +7,8 @@ import {
   useReuploadPreview,
   useReuploadServicePreview,
   useReuploadCommit,
-} from '@/hooks/use-dataset';
-import { useJobStatus, useUploadConfig } from '@/hooks/use-ingest';
+} from '@/components/dataset/hooks/use-dataset';
+import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { SchemaDiffView } from './SchemaDiffView';

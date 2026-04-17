@@ -1,5 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useDraftEditing } from '@/hooks/use-draft-editing';
+import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import type { DatasetResponse } from '@/types/api';
 
 vi.mock('react-i18next', () => ({
@@ -7,7 +7,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 const mockMutateAsync = vi.fn().mockResolvedValue({});
-vi.mock('@/hooks/use-dataset', () => ({
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useUpdateDataset: () => ({ mutateAsync: mockMutateAsync }),
 }));
 

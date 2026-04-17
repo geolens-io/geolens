@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useDatasetHistory } from '@/hooks/use-dataset';
+import { useDatasetHistory } from '@/components/dataset/hooks/use-dataset';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
 import { History } from 'lucide-react';

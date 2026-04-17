@@ -29,16 +29,16 @@ import { DatasetCollectionBadges } from '@/components/collections/DatasetCollect
 import { AiAssistButton, AiDraftPreview } from '@/components/dataset/AiAssistButton';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useSummaryDraft } from '@/hooks/use-ai-metadata';
-import { useValidation } from '@/hooks/use-dataset';
+import { useValidation } from '@/components/dataset/hooks/use-dataset';
 import { useAuthStore } from '@/stores/auth-store';
-import { useVrtGenerations } from '@/hooks/use-vrt';
+import { useVrtGenerations } from '@/components/import/hooks/use-vrt';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
 import { MetadataField } from '@/components/dataset/MetadataField';
 import { RelatedDatasets } from '@/components/dataset/RelatedDatasets';
 import { UsedInMaps } from '@/components/dataset/UsedInMaps';
-import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { getSourceFormatLabel } from '@/i18n/labels';
 import { vrtRasterStatusColors } from '@/lib/status-colors';
 

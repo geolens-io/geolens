@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { apiFetch } from '@/api/client';
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
-import { useCreateVrt } from '@/hooks/use-ingest';
+import { useCreateVrt } from '@/components/import/hooks/use-ingest';
 import { JobProgress } from '@/components/import/JobProgress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

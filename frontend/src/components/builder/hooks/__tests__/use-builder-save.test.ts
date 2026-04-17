@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
-import { useBuilderSave } from '@/hooks/use-builder-save';
+import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import type { MapLayerResponse } from '@/types/api';
 
 /* ── Mocks ─────────────────────────────────────────── */

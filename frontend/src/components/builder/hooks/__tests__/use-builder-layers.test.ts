@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
-import { useBuilderLayers } from '@/hooks/use-builder-layers';
+import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 function makeMockLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {

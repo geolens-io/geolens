@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
-import { useDeleteCollection } from '@/hooks/use-collections';
+import { useDeleteCollection } from '@/components/collections/hooks/use-collections';
 import type { CollectionResponse } from '@/types/api';
 import { Input } from '@/components/ui/input';
 import {

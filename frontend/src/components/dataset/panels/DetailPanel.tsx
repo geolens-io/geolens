@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DatasetResponse } from '@/types/api';
-import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
-import type { PendingDraftField } from '@/hooks/use-draft-editing';
+import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
+import type { PendingDraftField } from '@/components/dataset/hooks/use-draft-editing';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OverviewTab } from '../tabs/OverviewTab';
 import { MetadataTab } from '../tabs/MetadataTab';

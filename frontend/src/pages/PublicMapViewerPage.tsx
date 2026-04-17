@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMap } from '@/hooks/use-maps';
-import { useViewerLayers } from '@/hooks/use-viewer-layers';
+import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { ViewerMap } from '@/components/viewer/ViewerMap';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { MapTitlePill } from '@/components/map/MapTitlePill';

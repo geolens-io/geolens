@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, CircleDashed, HardDriveUpload } from 'lucide-react';
 import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/ingest';
-import { useUploadConfig } from '@/hooks/use-ingest';
+import { useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

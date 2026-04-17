@@ -2,7 +2,7 @@ import { act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
 import { render, screen } from '@/test/test-utils';
-import { useDataset, useUpdateDataset } from '@/hooks/use-dataset';
+import { useDataset, useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useAuthStore } from '@/stores/auth-store';
 import { DatasetPage } from '@/pages/DatasetPage';
 import type { DatasetResponse, UserResponse } from '@/types/api';
@@ -22,7 +22,7 @@ vi.mock('react-router', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/use-dataset', () => ({
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn(),
   useUpdateDataset: vi.fn(),
   useUpdatePublicationStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -50,7 +50,7 @@ vi.mock('@/components/dataset/DatasetMap', () => ({
   DatasetMap: () => <div data-testid="dataset-map" />,
 }));
 
-vi.mock('@/hooks/use-vrt', () => ({
+vi.mock('@/components/import/hooks/use-vrt', () => ({
   useVrtGenerations: () => ({ data: { generations: [] } }),
   useVrtStatus: () => ({ data: null }),
 }));
@@ -94,7 +94,7 @@ vi.mock('@/hooks/use-ai-metadata', () => ({
   useLineageDraft: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
-vi.mock('@/hooks/use-records', () => ({
+vi.mock('@/components/dataset/hooks/use-records', () => ({
   useCreateKeyword: () => ({ mutateAsync: vi.fn() }),
   useKeywords: () => ({ data: { keywords: [] } }),
 }));

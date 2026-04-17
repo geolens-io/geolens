@@ -16,7 +16,7 @@ vi.mock('@/api/ingest', () => ({
 }));
 
 import { uploadFile, getJobStatus, discoverTables, getUploadConfig } from '@/api/ingest';
-import { useUploadFile, useJobStatus, useDiscoverTables, useUploadConfig } from '@/hooks/use-ingest';
+import { useUploadFile, useJobStatus, useDiscoverTables, useUploadConfig } from '@/components/import/hooks/use-ingest';
 
 const mockUploadFile = vi.mocked(uploadFile);
 const mockGetJobStatus = vi.mocked(getJobStatus);

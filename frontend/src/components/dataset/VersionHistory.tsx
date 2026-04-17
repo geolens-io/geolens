@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDatasetVersions } from '@/hooks/use-dataset';
+import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/format';

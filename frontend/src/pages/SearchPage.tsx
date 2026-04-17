@@ -12,10 +12,10 @@ import { FilterPanel } from '@/components/search/FilterPanel';
 import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
-import { useSearchResults } from '@/hooks/use-search';
+import { useSearchResults } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { useUrlSearchSync } from '@/hooks/use-url-search-sync';
+import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
 interface SearchControlsProps {

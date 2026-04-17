@@ -7,7 +7,7 @@ const mockFacets = {
   record_type: { vector_dataset: 10, raster_dataset: 5, vrt_dataset: 0, table: 1, collection: 3 },
 };
 
-vi.mock('@/hooks/use-search', () => ({
+vi.mock('@/components/search/hooks/use-search', () => ({
   useFacets: () => ({ data: mockFacets, isLoading: false }),
   useCatalogSummary: () => ({ data: undefined, isLoading: false }),
 }));

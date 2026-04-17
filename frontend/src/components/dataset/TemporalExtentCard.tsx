@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useUpdateDataset } from '@/hooks/use-dataset';
-import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
+import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
+import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';

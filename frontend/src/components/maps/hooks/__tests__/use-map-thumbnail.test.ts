@@ -8,7 +8,7 @@ vi.mock('@/api/client', () => ({
 }));
 
 import { apiFetchBlob } from '@/api/client';
-import { useMapThumbnail } from '@/hooks/use-map-thumbnail';
+import { useMapThumbnail } from '@/components/maps/hooks/use-map-thumbnail';
 
 const mockApiFetchBlob = vi.mocked(apiFetchBlob);
 

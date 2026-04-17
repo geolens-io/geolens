@@ -17,7 +17,7 @@ vi.mock('@/api/datasets', () => ({
 
 import { listContacts, createContact, listKeywords } from '@/api/records';
 import { fetchRelatedDatasets } from '@/api/datasets';
-import { useContacts, useCreateContact, useKeywords, useRelatedDatasets } from '@/hooks/use-records';
+import { useContacts, useCreateContact, useKeywords, useRelatedDatasets } from '@/components/dataset/hooks/use-records';
 
 const mockListContacts = vi.mocked(listContacts);
 const mockCreateContact = vi.mocked(createContact);

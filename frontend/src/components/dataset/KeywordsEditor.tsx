@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { X, Loader2 } from 'lucide-react';
-import { useKeywords, useCreateKeyword, useDeleteKeyword } from '@/hooks/use-records';
+import { useKeywords, useCreateKeyword, useDeleteKeyword } from '@/components/dataset/hooks/use-records';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 

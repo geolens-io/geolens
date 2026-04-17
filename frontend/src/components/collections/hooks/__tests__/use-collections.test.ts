@@ -5,7 +5,7 @@ import {
   useCollectionDatasets,
   useCreateCollection,
   useDeleteCollection,
-} from '@/hooks/use-collections';
+} from '@/components/collections/hooks/use-collections';
 
 vi.mock('@/api/collections', () => ({
   listCollections: vi.fn(),

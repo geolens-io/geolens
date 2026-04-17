@@ -11,7 +11,7 @@ vi.mock('@/api/vrt', () => ({
 }));
 
 import { listVrtSources, addVrtSource, getVrtStatus, regenerateVrt } from '@/api/vrt';
-import { useVrtSources, useAddVrtSource, useVrtStatus, useRegenerateVrt } from '@/hooks/use-vrt';
+import { useVrtSources, useAddVrtSource, useVrtStatus, useRegenerateVrt } from '@/components/import/hooks/use-vrt';
 
 const mockListVrtSources = vi.mocked(listVrtSources);
 const mockAddVrtSource = vi.mocked(addVrtSource);

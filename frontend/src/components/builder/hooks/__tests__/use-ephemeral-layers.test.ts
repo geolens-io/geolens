@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { renderHook } from '@/test/test-utils';
-import { useEphemeralLayers } from '@/hooks/use-ephemeral-layers';
+import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 
 interface MockMap {
   layers: Set<string>;

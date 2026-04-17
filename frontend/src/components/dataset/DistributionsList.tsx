@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDistributions } from '@/hooks/use-records';
+import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

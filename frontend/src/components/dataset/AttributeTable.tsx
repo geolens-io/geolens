@@ -10,7 +10,7 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { useDatasetRows } from '@/hooks/use-dataset';
+import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { DEFAULT_ROWS_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/constants';

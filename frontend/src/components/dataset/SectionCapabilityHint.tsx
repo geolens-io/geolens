@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { RoleCapabilityHint } from '@/components/dataset/RoleCapabilityHint';
-import type { DatasetEditCapability } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetEditCapability } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
 interface SectionCapabilityHintProps {
   capability: DatasetEditCapability;

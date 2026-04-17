@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useDiscoverTables, useBulkRegister } from '@/hooks/use-ingest';
+import { useDiscoverTables, useBulkRegister } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import type { BulkRegisterResult } from '@/types/api';
 import { toast } from 'sonner';

@@ -14,7 +14,7 @@ import { CollectionDatasetList } from '@/components/collections/CollectionDatase
 import { CollectionMembershipManager } from '@/components/collections/CollectionMembershipManager';
 import { CollectionEditDialog } from '@/components/collections/CollectionEditDialog';
 import { CollectionDeleteDialog } from '@/components/collections/CollectionDeleteDialog';
-import { useCollection, useRemoveDatasetFromCollection } from '@/hooks/use-collections';
+import { useCollection, useRemoveDatasetFromCollection } from '@/components/collections/hooks/use-collections';
 import { useAuthStore } from '@/stores/auth-store';
 import { formatDate, formatNumber } from '@/lib/format';
 import {

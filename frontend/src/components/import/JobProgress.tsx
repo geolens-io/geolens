@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useJobStatus, useRetryJob } from '@/hooks/use-ingest';
+import { useJobStatus, useRetryJob } from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Copy, Download, Link2, Map } from 'lucide-react';
 import { jobStatusColors } from '@/lib/status-colors';

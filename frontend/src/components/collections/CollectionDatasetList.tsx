@@ -9,7 +9,7 @@ import { Pagination } from '@/components/layout/Pagination';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { ErrorState } from '@/components/layout/ErrorState';
-import { useCollectionDatasets } from '@/hooks/use-collections';
+import { useCollectionDatasets } from '@/components/collections/hooks/use-collections';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 
 interface CollectionDatasetListProps {

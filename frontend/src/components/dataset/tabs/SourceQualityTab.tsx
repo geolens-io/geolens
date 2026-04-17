@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
-import { useUpdateDataset } from '@/hooks/use-dataset';
+import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useLineageDraft, useQualityStatementDraft } from '@/hooks/use-ai-metadata';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,7 +23,7 @@ import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
 import { SpatialExtentCard } from '@/components/dataset/SpatialExtentCard';
 import { TemporalExtentCard } from '@/components/dataset/TemporalExtentCard';
-import type { DatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
+import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { UPDATE_FREQUENCY_OPTIONS, SENSITIVITY_OPTIONS, THEME_CATEGORIES } from '@/lib/iso-constants';
 
 interface SourceQualityTabProps {

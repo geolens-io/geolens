@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { searchDatasets } from '@/api/search';
 import { useAbortSignal } from '@/hooks/use-abort-signal';
-import { useAddDatasetsToCollection, useCollectionDatasets } from '@/hooks/use-collections';
+import { useAddDatasetsToCollection, useCollectionDatasets } from '@/components/collections/hooks/use-collections';
 import type { OGCRecordResponse } from '@/types/api';
 
 interface CollectionMembershipManagerProps {

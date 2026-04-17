@@ -6,12 +6,12 @@ import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, L
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
-import { useDataset, useUpdateDataset, useUpdatePublicationStatus, useValidation } from '@/hooks/use-dataset';
-import { useDatasetJobStatus } from '@/hooks/use-ingest';
+import { useDataset, useUpdateDataset, useUpdatePublicationStatus, useValidation } from '@/components/dataset/hooks/use-dataset';
+import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
-import { useDatasetEditCapabilities } from '@/hooks/use-dataset-edit-capabilities';
-import { useDraftEditing } from '@/hooks/use-draft-editing';
-import { useHeroState } from '@/hooks/use-hero-state';
+import { useDatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
+import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
+import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useAllSettings } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
