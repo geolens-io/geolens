@@ -17,9 +17,9 @@ from datetime import date
 
 from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
-from app.search.service import (
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.search.service import (
     _build_stac_assets,
     dataset_to_ogc_record,
 )

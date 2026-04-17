@@ -16,8 +16,8 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from app.datasets.models import Dataset, Record
-from app.export.ogr import FORMAT_MAP
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.processing.export.ogr import FORMAT_MAP
 
 from tests.factories import get_user_id
 
@@ -119,7 +119,7 @@ def mock_export_service(monkeypatch):
 
         return file_path, filename, media
 
-    monkeypatch.setattr("app.export.router.export_dataset", _fake_export)
+    monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
 
     yield _fake_export
 

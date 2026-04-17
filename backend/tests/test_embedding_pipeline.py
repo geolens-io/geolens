@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 class TestBuildContentText:
     def test_all_fields(self):
-        from app.embeddings.service import build_content_text
+        from app.processing.embeddings.service import build_content_text
 
         result = build_content_text(
             title="My Dataset",
@@ -36,7 +36,7 @@ class TestBuildContentText:
         assert "\n" in result
 
     def test_all_none(self):
-        from app.embeddings.service import build_content_text
+        from app.processing.embeddings.service import build_content_text
 
         result = build_content_text(
             title=None, summary=None, keywords=None, lineage=None
@@ -44,7 +44,7 @@ class TestBuildContentText:
         assert result == ""
 
     def test_partial_fields(self):
-        from app.embeddings.service import build_content_text
+        from app.processing.embeddings.service import build_content_text
 
         result = build_content_text(
             title="Title Only", summary=None, keywords=None, lineage=None
@@ -52,7 +52,7 @@ class TestBuildContentText:
         assert result == "Title Only"
 
     def test_empty_keywords_list(self):
-        from app.embeddings.service import build_content_text
+        from app.processing.embeddings.service import build_content_text
 
         result = build_content_text(
             title="Title", summary=None, keywords=[], lineage=None
@@ -60,7 +60,7 @@ class TestBuildContentText:
         assert result == "Title"
 
     def test_keywords_joined_with_comma(self):
-        from app.embeddings.service import build_content_text
+        from app.processing.embeddings.service import build_content_text
 
         result = build_content_text(
             title=None, summary=None, keywords=["a", "b", "c"], lineage=None
@@ -75,19 +75,19 @@ class TestBuildContentText:
 
 class TestComputeContentHash:
     def test_returns_sha256(self):
-        from app.embeddings.service import compute_content_hash
+        from app.processing.embeddings.service import compute_content_hash
 
         text = "hello world"
         expected = hashlib.sha256(text.encode()).hexdigest()
         assert compute_content_hash(text) == expected
 
     def test_deterministic(self):
-        from app.embeddings.service import compute_content_hash
+        from app.processing.embeddings.service import compute_content_hash
 
         assert compute_content_hash("test") == compute_content_hash("test")
 
     def test_different_inputs(self):
-        from app.embeddings.service import compute_content_hash
+        from app.processing.embeddings.service import compute_content_hash
 
         assert compute_content_hash("a") != compute_content_hash("b")
 
@@ -100,11 +100,11 @@ class TestComputeContentHash:
 class TestGenerateAndStoreEmbedding:
     @pytest.mark.asyncio
     async def test_skips_when_ai_disabled(self):
-        from app.embeddings.service import generate_and_store_embedding
+        from app.processing.embeddings.service import generate_and_store_embedding
 
         session = AsyncMock(spec=AsyncSession)
 
-        with patch("app.embeddings.service.AI_ENABLED") as mock_ai:
+        with patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai:
             mock_ai.get = AsyncMock(return_value=False)
             result = await generate_and_store_embedding(
                 session=session,
@@ -119,11 +119,11 @@ class TestGenerateAndStoreEmbedding:
 
     @pytest.mark.asyncio
     async def test_skips_when_content_empty(self):
-        from app.embeddings.service import generate_and_store_embedding
+        from app.processing.embeddings.service import generate_and_store_embedding
 
         session = AsyncMock(spec=AsyncSession)
 
-        with patch("app.embeddings.service.AI_ENABLED") as mock_ai:
+        with patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai:
             mock_ai.get = AsyncMock(return_value=True)
             result = await generate_and_store_embedding(
                 session=session,
@@ -137,7 +137,7 @@ class TestGenerateAndStoreEmbedding:
 
     @pytest.mark.asyncio
     async def test_skips_when_hash_matches(self):
-        from app.embeddings.service import generate_and_store_embedding
+        from app.processing.embeddings.service import generate_and_store_embedding
 
         record_id = uuid.uuid4()
         content_text = "Test Title"
@@ -153,8 +153,8 @@ class TestGenerateAndStoreEmbedding:
         session.execute = AsyncMock(return_value=mock_result)
 
         with (
-            patch("app.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
+            patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
+            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
         ):
             mock_ai.get = AsyncMock(return_value=True)
             mock_model.get = AsyncMock(return_value="text-embedding-3-small")
@@ -171,8 +171,8 @@ class TestGenerateAndStoreEmbedding:
 
     @pytest.mark.asyncio
     async def test_upserts_on_success(self):
-        from app.embeddings.models import RecordEmbedding
-        from app.embeddings.service import generate_and_store_embedding
+        from app.processing.embeddings.models import RecordEmbedding
+        from app.processing.embeddings.service import generate_and_store_embedding
 
         record_id = uuid.uuid4()
         fake_vector = [0.1] * 1536
@@ -184,10 +184,10 @@ class TestGenerateAndStoreEmbedding:
         session.execute = AsyncMock(return_value=mock_result)
 
         with (
-            patch("app.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
+            patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
+            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)
@@ -212,7 +212,7 @@ class TestGenerateAndStoreEmbedding:
 
     @pytest.mark.asyncio
     async def test_updates_existing_on_hash_change(self):
-        from app.embeddings.service import generate_and_store_embedding
+        from app.processing.embeddings.service import generate_and_store_embedding
 
         record_id = uuid.uuid4()
         fake_vector = [0.2] * 1536
@@ -227,10 +227,10 @@ class TestGenerateAndStoreEmbedding:
         session.execute = AsyncMock(return_value=mock_result)
 
         with (
-            patch("app.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
+            patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
+            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)
@@ -251,7 +251,7 @@ class TestGenerateAndStoreEmbedding:
 
     @pytest.mark.asyncio
     async def test_catches_embedding_unavailable_error(self):
-        from app.embeddings.service import (
+        from app.processing.embeddings.service import (
             EmbeddingUnavailableError,
             generate_and_store_embedding,
         )
@@ -265,10 +265,10 @@ class TestGenerateAndStoreEmbedding:
         session.execute = AsyncMock(return_value=mock_result)
 
         with (
-            patch("app.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
+            patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
+            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)
@@ -287,7 +287,7 @@ class TestGenerateAndStoreEmbedding:
 
     @pytest.mark.asyncio
     async def test_catches_generic_exception(self):
-        from app.embeddings.service import generate_and_store_embedding
+        from app.processing.embeddings.service import generate_and_store_embedding
 
         record_id = uuid.uuid4()
 
@@ -298,10 +298,10 @@ class TestGenerateAndStoreEmbedding:
         session.execute = AsyncMock(return_value=mock_result)
 
         with (
-            patch("app.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.embeddings.service.EMBEDDING_MODEL") as mock_model,
+            patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
+            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.config import Settings
+from app.core.config import Settings
 
 # Settings constructor kwargs (lowercase field names).
 # JWT_SECRET_KEY must be ≥ 32 chars to satisfy validate_jwt_secret_length.

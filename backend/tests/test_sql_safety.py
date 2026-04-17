@@ -6,8 +6,8 @@ used in dynamic DDL/DML statements.
 
 import pytest
 
-from app.datasets.service import _safe_table_ref
-from app.ingest.metadata import _qtable, _validate_table_name
+from app.modules.catalog.datasets.domain.service import _safe_table_ref
+from app.processing.ingest.metadata import _qtable, _validate_table_name
 
 
 class TestValidateTableName:

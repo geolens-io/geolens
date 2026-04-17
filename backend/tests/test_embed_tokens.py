@@ -23,11 +23,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
-from app.cache.provider import get_cache
-from app.config import settings
-from app.datasets.models import Dataset
-from app.embed_tokens.models import EmbedToken
-from app.maps.models import Map, MapLayer
+from app.platform.cache.provider import get_cache
+from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.embed_tokens.models import EmbedToken
+from app.modules.catalog.maps.models import Map, MapLayer
 
 from tests.factories import create_dataset, get_user_id
 
@@ -35,7 +35,7 @@ from tests.factories import create_dataset, get_user_id
 @pytest.fixture(autouse=True)
 async def _init_tile_pool_for_tests():
     """Initialize asyncpg pool for tile tests."""
-    import app.tiles.pool as pool_module
+    import app.processing.tiles.pool as pool_module
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await asyncpg.create_pool(
@@ -438,7 +438,7 @@ class TestTileEmbedTokenAccess:
             await test_db_session.commit()
 
             # Clear cache so the expired value is picked up from DB
-            from app.cache.provider import get_cache
+            from app.platform.cache.provider import get_cache
             import hashlib
 
             token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -615,7 +615,7 @@ class TestTileDomainLocking:
 
         # Clear cache to ensure fresh validation path
         import hashlib as _hl
-        from app.cache.provider import get_cache
+        from app.platform.cache.provider import get_cache
 
         token_hash = _hl.sha256(raw_token.encode()).hexdigest()
         cache = get_cache()

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.datasets.service import DependentVrtError
+from app.modules.catalog.datasets.domain.service import DependentVrtError
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ class TestDeleteGuard:
     @pytest.mark.asyncio
     async def test_delete_cog_referenced_by_vrt_raises_error(self):
         """delete_dataset raises DependentVrtError when COG is referenced by VRTs."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
         vrt_id = uuid.uuid4()
@@ -72,7 +72,7 @@ class TestDeleteGuard:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with pytest.raises(DependentVrtError) as exc_info:
                 await delete_dataset(mock_session, dataset_id, "My COG")
@@ -85,7 +85,7 @@ class TestDeleteGuard:
     @pytest.mark.asyncio
     async def test_delete_cog_not_referenced_proceeds(self):
         """delete_dataset succeeds when COG is not referenced by any VRT."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
         mock_dataset = _make_mock_dataset("raster_dataset", "Standalone COG")
@@ -102,9 +102,9 @@ class TestDeleteGuard:
         mock_storage.list = AsyncMock(return_value=[])
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
-            with patch("app.storage.provider.get_storage", return_value=mock_storage):
+            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
                 result = await delete_dataset(
                     mock_session, dataset_id, "Standalone COG"
                 )
@@ -115,7 +115,7 @@ class TestDeleteGuard:
     @pytest.mark.asyncio
     async def test_delete_guard_lists_multiple_vrts(self):
         """DependentVrtError lists all referencing VRTs when multiple exist."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
         mock_dataset = _make_mock_dataset("raster_dataset", "Shared COG")
@@ -137,7 +137,7 @@ class TestDeleteGuard:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
             with pytest.raises(DependentVrtError) as exc_info:
                 await delete_dataset(mock_session, dataset_id, "Shared COG")
@@ -154,7 +154,7 @@ class TestDeleteGuard:
 
         # Minimal check: DependentVrtError is imported correctly in router
         # Full endpoint testing would require full app setup; check import path only
-        import app.datasets.router as router_module
+        import app.modules.catalog.datasets.api.router as router_module
 
         assert (
             hasattr(router_module, "DependentVrtError") or True
@@ -172,7 +172,7 @@ class TestVrtDeletion:
     @pytest.mark.asyncio
     async def test_delete_vrt_cleans_rasters_prefix_only(self):
         """Deleting VRT calls storage.list/delete with rasters/{id}/ but NOT originals/{id}/."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
         mock_dataset = _make_mock_dataset("vrt_dataset", "My VRT")
@@ -194,9 +194,9 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
-            with patch("app.storage.provider.get_storage", return_value=mock_storage):
+            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
                 result = await delete_dataset(mock_session, dataset_id, "My VRT")
 
         assert result == "test_table"
@@ -214,7 +214,7 @@ class TestVrtDeletion:
     @pytest.mark.asyncio
     async def test_delete_cog_cleans_both_prefixes(self):
         """Deleting COG (no VRT refs) cleans both rasters/ and originals/ prefixes."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
         mock_dataset = _make_mock_dataset("raster_dataset", "My COG")
@@ -244,9 +244,9 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
-            with patch("app.storage.provider.get_storage", return_value=mock_storage):
+            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
                 await delete_dataset(mock_session, dataset_id, "My COG")
 
         list_calls = [c.args[0] for c in mock_storage.list.call_args_list]
@@ -260,7 +260,7 @@ class TestVrtDeletion:
     @pytest.mark.asyncio
     async def test_delete_vrt_does_not_touch_source_cog_storage(self):
         """Deleting VRT does not delete any source COG storage keys."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         vrt_id = uuid.uuid4()
         source_cog_id = uuid.uuid4()
@@ -288,9 +288,9 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
-            with patch("app.storage.provider.get_storage", return_value=mock_storage):
+            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
                 await delete_dataset(mock_session, vrt_id, "My VRT")
 
         # Source COG key should never be deleted
@@ -301,7 +301,7 @@ class TestVrtDeletion:
     @pytest.mark.asyncio
     async def test_delete_vrt_cascades_source_links(self):
         """VRT deletion cascade: session.delete(record) triggers DB-level CASCADE on vrt_source_links."""
-        from app.datasets.service import delete_dataset
+        from app.modules.catalog.datasets.domain.service import delete_dataset
 
         dataset_id = uuid.uuid4()
         mock_dataset = _make_mock_dataset("vrt_dataset", "My VRT")
@@ -315,9 +315,9 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.datasets.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
         ):
-            with patch("app.storage.provider.get_storage", return_value=mock_storage):
+            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
                 await delete_dataset(mock_session, dataset_id, "My VRT")
 
         # Verify record deletion is invoked (CASCADE handles vrt_source_links)

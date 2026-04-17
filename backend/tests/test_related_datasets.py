@@ -8,7 +8,7 @@ import uuid
 
 from httpx import AsyncClient
 
-from app.embeddings.models import RecordEmbedding
+from app.processing.embeddings.models import RecordEmbedding
 
 from tests.factories import create_dataset, get_user_id
 

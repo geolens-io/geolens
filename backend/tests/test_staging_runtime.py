@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from app.config import settings
-from app.export.service import export_dataset
+from app.core.config import settings
+from app.processing.export.service import export_dataset
 from app.runtime.staging import StagingRuntimeError, ensure_staging_ready
 
 
@@ -85,7 +85,7 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
         Path(output_path).write_text("export-data", encoding="utf-8")
 
     monkeypatch.setattr(
-        "app.export.service.run_ogr2ogr_export", _fake_run_ogr2ogr_export
+        "app.processing.export.service.run_ogr2ogr_export", _fake_run_ogr2ogr_export
     )
 
     output_path, filename, media_type = await export_dataset(

@@ -19,9 +19,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from app.config import settings
-from app.datasets.models import Dataset, Record
-from app.tiles.signing import generate_tile_signature
+from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.processing.tiles.signing import generate_tile_signature
 
 from tests.factories import get_user_id
 
@@ -101,7 +101,7 @@ async def _cleanup_data_table(session, table_name: str) -> None:
 @pytest.fixture
 async def _init_tile_pool_for_tests():
     """Initialize asyncpg pool for tile tests."""
-    import app.tiles.pool as pool_module
+    import app.processing.tiles.pool as pool_module
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await asyncpg.create_pool(
@@ -123,7 +123,7 @@ class TestTileSigningModule:
 
     def test_generate_returns_64_char_hex(self):
         """generate_tile_signature returns a 64-char hex string (SHA256)."""
-        from app.tiles.signing import generate_tile_signature
+        from app.processing.tiles.signing import generate_tile_signature
 
         sig = generate_tile_signature("my_table", 1700000000)
         assert len(sig) == 64
@@ -131,7 +131,7 @@ class TestTileSigningModule:
 
     def test_verify_round_trip(self):
         """A signature generated for a scope/exp verifies correctly."""
-        from app.tiles.signing import generate_tile_signature, verify_tile_signature
+        from app.processing.tiles.signing import generate_tile_signature, verify_tile_signature
 
         exp = int(time.time()) + 3600  # 1 hour in the future
         sig = generate_tile_signature("my_table", exp)
@@ -139,7 +139,7 @@ class TestTileSigningModule:
 
     def test_verify_rejects_expired(self):
         """Expired signatures are rejected even if HMAC is valid."""
-        from app.tiles.signing import generate_tile_signature, verify_tile_signature
+        from app.processing.tiles.signing import generate_tile_signature, verify_tile_signature
 
         past_exp = int(time.time()) - 100
         sig = generate_tile_signature("my_table", past_exp)
@@ -147,14 +147,14 @@ class TestTileSigningModule:
 
     def test_verify_rejects_tampered(self):
         """Tampered signatures are rejected."""
-        from app.tiles.signing import verify_tile_signature
+        from app.processing.tiles.signing import verify_tile_signature
 
         future_exp = int(time.time()) + 3600
         assert verify_tile_signature("my_table", future_exp, "tampered") is False
 
     def test_verify_rejects_wrong_scope(self):
         """Signature for one scope does not verify for another."""
-        from app.tiles.signing import generate_tile_signature, verify_tile_signature
+        from app.processing.tiles.signing import generate_tile_signature, verify_tile_signature
 
         future_exp = int(time.time()) + 3600
         sig = generate_tile_signature("my_table", future_exp)
@@ -162,27 +162,27 @@ class TestTileSigningModule:
 
     def test_round_expiry_is_multiple_of_900(self):
         """round_expiry returns a value that is a multiple of 900."""
-        from app.tiles.signing import round_expiry
+        from app.processing.tiles.signing import round_expiry
 
         exp = round_expiry()
         assert exp % 900 == 0
 
     def test_round_expiry_is_greater_than_now(self):
         """round_expiry returns a value strictly greater than current time."""
-        from app.tiles.signing import round_expiry
+        from app.processing.tiles.signing import round_expiry
 
         exp = round_expiry()
         assert exp > time.time()
 
     def test_round_expiry_same_within_window(self):
         """Two calls within the same 15-min window return the same value."""
-        from app.tiles.signing import round_expiry
+        from app.processing.tiles.signing import round_expiry
 
         # Mock time to be at two points within the same 15-min window
         base_time = 1700000100  # arbitrary time
-        with patch("app.tiles.signing.time.time", return_value=base_time):
+        with patch("app.processing.tiles.signing.time.time", return_value=base_time):
             exp1 = round_expiry()
-        with patch("app.tiles.signing.time.time", return_value=base_time + 1):
+        with patch("app.processing.tiles.signing.time.time", return_value=base_time + 1):
             exp2 = round_expiry()
         assert exp1 == exp2
 
@@ -542,7 +542,7 @@ class TestTileAccessLogging:
         await _create_data_table(test_db_session, table_name)
 
         try:
-            with caplog.at_level(logging.DEBUG, logger="app.tiles.router"):
+            with caplog.at_level(logging.DEBUG, logger="app.processing.tiles.router"):
                 resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
                 assert resp.status_code == 200
 

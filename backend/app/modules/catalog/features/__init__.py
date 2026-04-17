@@ -1,0 +1,2 @@
+"""Catalog features namespace."""
+

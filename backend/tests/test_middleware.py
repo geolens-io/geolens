@@ -84,7 +84,7 @@ async def test_body_size_limit_allows_normal(client: AsyncClient):
 @pytest.mark.anyio
 async def test_rate_limiting(client: AsyncClient):
     """When rate limiter is enabled and client exceeds limit, response is 429."""
-    from app.auth.router import limiter
+    from app.modules.auth.router import limiter
 
     original_enabled = limiter.enabled
     original_limits = limiter._default_limits
@@ -110,7 +110,7 @@ async def test_rate_limiting(client: AsyncClient):
 @pytest.mark.anyio
 async def test_rate_limit_health_excluded(client: AsyncClient):
     """GET /health is exempt from rate limiting when decorated with @limiter.exempt."""
-    from app.auth.router import limiter
+    from app.modules.auth.router import limiter
 
     original_enabled = limiter.enabled
     original_limits = limiter._default_limits
@@ -137,7 +137,7 @@ async def test_rate_limit_health_excluded(client: AsyncClient):
 @pytest.mark.anyio
 async def test_ai_endpoint_rate_limit(client: AsyncClient, admin_auth_header: dict):
     """AI endpoints respect their per-route rate limit (10/minute for generate)."""
-    from app.auth.router import limiter
+    from app.modules.auth.router import limiter
 
     original_enabled = limiter.enabled
     try:
@@ -165,8 +165,8 @@ async def test_ai_endpoint_rate_limit(client: AsyncClient, admin_auth_header: di
 @pytest.mark.anyio
 async def test_global_rate_limit_configurable(client: AsyncClient):
     """Global rate limit is configurable and defaults to 60/second."""
-    from app.auth.router import _global_rate_limit
-    from app.persistent_config import get_cached_global_rate_limit
+    from app.modules.auth.router import _global_rate_limit
+    from app.core.persistent_config import get_cached_global_rate_limit
 
     assert get_cached_global_rate_limit() == 60
     assert _global_rate_limit() == "60/second"

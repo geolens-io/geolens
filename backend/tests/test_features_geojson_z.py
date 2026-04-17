@@ -10,7 +10,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from app.datasets.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 from tests.conftest import _create_test_user
@@ -230,7 +230,7 @@ class TestGetFeaturesGeoJSONZService:
         self, z_dataset, test_db_session
     ):
         """3 Point Z rows → 3 rows returned, truncated=False."""
-        from app.features.service import get_features_geojson_z
+        from app.modules.catalog.features.service import get_features_geojson_z
 
         rows, truncated, total_count = await get_features_geojson_z(
             test_db_session, z_dataset.table_name
@@ -250,7 +250,7 @@ class TestGetFeaturesGeoJSONZService:
 
     async def test_truncation_at_cap(self, large_dataset, test_db_session):
         """Table with 5010 rows → cap=5000, returns 5000 rows with truncated=True."""
-        from app.features.service import get_features_geojson_z
+        from app.modules.catalog.features.service import get_features_geojson_z
 
         rows, truncated, total_count = await get_features_geojson_z(
             test_db_session, large_dataset.table_name, cap=5000
@@ -264,7 +264,7 @@ class TestGetFeaturesGeoJSONZService:
         self, z_dataset, test_db_session
     ):
         """When not truncated and cached_feature_count provided, uses it for total_count."""
-        from app.features.service import get_features_geojson_z
+        from app.modules.catalog.features.service import get_features_geojson_z
 
         rows, truncated, total_count = await get_features_geojson_z(
             test_db_session,

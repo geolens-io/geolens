@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 

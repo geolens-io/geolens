@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.ingest.schemas import VrtAddSourceRequest, VrtMutationResponse
-from app.datasets.schemas import RasterMetadata
+from app.processing.ingest.schemas import VrtAddSourceRequest, VrtMutationResponse
+from app.modules.catalog.datasets.domain.schemas import RasterMetadata
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ class TestAddSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -131,7 +131,7 @@ class TestAddSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -153,7 +153,7 @@ class TestAddSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -176,7 +176,7 @@ class TestAddSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             source_id = uuid.uuid4()
             mock_request = MagicMock()
@@ -198,10 +198,10 @@ class TestAddSource:
     def test_returns_422_when_validation_fails(self):
         """Returns 422 when new source is incompatible with existing sources."""
         from fastapi import HTTPException
-        from app.raster.validation import SourceValidationError
+        from app.processing.raster.validation import SourceValidationError
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -218,7 +218,7 @@ class TestAddSource:
                 "message": "CRS mismatch",
             }
 
-            with patch("app.ingest.router.validate_sources", return_value=[mock_error]):
+            with patch("app.processing.ingest.router.validate_sources", return_value=[mock_error]):
                 with pytest.raises(HTTPException) as exc_info:
                     await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
 
@@ -226,11 +226,12 @@ class TestAddSource:
 
         asyncio.run(_check())
 
-    def test_returns_202_with_job_id_on_success(self):
+    def test_returns_202_with_job_id_on_success(self, monkeypatch):
         """Returns 202 Accepted with job_id on valid add."""
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
+            import app.processing.ingest.router as ingest_router
 
             source_id = uuid.uuid4()
             mock_request = MagicMock()
@@ -240,13 +241,16 @@ class TestAddSource:
             dataset_id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id = _build_mock_db_success_add(
+            mock_db, expected_job_id, mock_create_ingest_job = _build_mock_db_success_add(
                 mock_asset, dataset_id
+            )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
             )
 
             with (
-                patch("app.ingest.router.validate_sources", return_value=[]),
-                patch("app.ingest.router.regenerate_vrt") as mock_task,
+                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
             ):
                 mock_task.defer_async = AsyncMock()
                 result = await add_vrt_source(
@@ -272,7 +276,7 @@ class TestRemoveSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -296,7 +300,7 @@ class TestRemoveSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -318,7 +322,7 @@ class TestRemoveSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -343,7 +347,7 @@ class TestRemoveSource:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -364,11 +368,12 @@ class TestRemoveSource:
 
         asyncio.run(_check())
 
-    def test_returns_202_with_job_id_on_success(self):
+    def test_returns_202_with_job_id_on_success(self, monkeypatch):
         """Returns 202 Accepted with job_id on valid remove."""
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
+            import app.processing.ingest.router as ingest_router
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -376,11 +381,14 @@ class TestRemoveSource:
             mock_user.id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id = _build_mock_db_success_remove(
+            mock_db, expected_job_id, mock_create_ingest_job = _build_mock_db_success_remove(
                 mock_asset, dataset_id, source_count=3
             )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
+            )
 
-            with patch("app.ingest.router.regenerate_vrt") as mock_task:
+            with patch("app.processing.ingest.router.regenerate_vrt") as mock_task:
                 mock_task.defer_async = AsyncMock()
                 result = await remove_vrt_source(
                     dataset_id, source_dataset_id, mock_user, mock_db
@@ -405,7 +413,7 @@ class TestMutationSerialization:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -426,7 +434,7 @@ class TestMutationSerialization:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -443,11 +451,12 @@ class TestMutationSerialization:
 
         asyncio.run(_check())
 
-    def test_add_allows_ready_status(self):
+    def test_add_allows_ready_status(self, monkeypatch):
         """Add endpoint proceeds when status is 'ready'."""
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
+            import app.processing.ingest.router as ingest_router
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -456,11 +465,16 @@ class TestMutationSerialization:
             dataset_id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, _ = _build_mock_db_success_add(mock_asset, dataset_id)
+            mock_db, _, mock_create_ingest_job = _build_mock_db_success_add(
+                mock_asset, dataset_id
+            )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
+            )
 
             with (
-                patch("app.ingest.router.validate_sources", return_value=[]),
-                patch("app.ingest.router.regenerate_vrt") as mock_task,
+                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
             ):
                 mock_task.defer_async = AsyncMock()
                 # Should not raise 409
@@ -476,7 +490,7 @@ class TestMutationSerialization:
         from fastapi import HTTPException
 
         async def _check():
-            from app.ingest.router import add_vrt_source
+            from app.processing.ingest.router import add_vrt_source
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -503,14 +517,14 @@ class TestRegenerateVrtTask:
     """Tests for the regenerate_vrt Procrastinate task."""
 
     def test_task_exists_and_is_importable(self):
-        """regenerate_vrt task can be imported from app.ingest.tasks."""
-        from app.ingest.tasks import regenerate_vrt
+        """regenerate_vrt task can be imported from app.processing.ingest.tasks."""
+        from app.processing.ingest.tasks import regenerate_vrt
 
         assert regenerate_vrt is not None
 
     def test_task_is_on_raster_queue(self):
         """regenerate_vrt must be on the 'raster' queue."""
-        from app.ingest.tasks import regenerate_vrt
+        from app.processing.ingest.tasks import regenerate_vrt
 
         # Procrastinate tasks store queue in task.queue or task.task_kwargs
         assert hasattr(regenerate_vrt, "queue") or hasattr(
@@ -525,7 +539,7 @@ class TestRegenerateVrtTask:
         """On exception, task sets asset.status = 'failed' and job.status = 'failed'."""
 
         async def _check():
-            from app.ingest.tasks import regenerate_vrt
+            from app.processing.ingest.tasks import regenerate_vrt
 
             job_id = str(uuid.uuid4())
             vrt_dataset_id = str(uuid.uuid4())
@@ -557,9 +571,9 @@ class TestRegenerateVrtTask:
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
             with (
-                patch("app.ingest.tasks.async_session") as mock_async_session,
+                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
                 patch(
-                    "app.ingest.tasks.build_vrt",
+                    "app.processing.ingest.tasks.build_vrt",
                     side_effect=RuntimeError("gdalbuildvrt failed"),
                 ),
             ):
@@ -582,7 +596,7 @@ class TestRegenerateVrtTask:
         """On failure, current_generation_id is cleared (set to None)."""
 
         async def _check():
-            from app.ingest.tasks import regenerate_vrt
+            from app.processing.ingest.tasks import regenerate_vrt
 
             job_id = str(uuid.uuid4())
             vrt_dataset_id = str(uuid.uuid4())
@@ -615,8 +629,8 @@ class TestRegenerateVrtTask:
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
             with (
-                patch("app.ingest.tasks.async_session") as mock_async_session,
-                patch("app.ingest.tasks.build_vrt", side_effect=RuntimeError("fail")),
+                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
+                patch("app.processing.ingest.tasks.build_vrt", side_effect=RuntimeError("fail")),
             ):
                 mock_async_session.return_value = mock_session
                 try:
@@ -634,7 +648,7 @@ class TestRegenerateVrtTask:
         """On success, asset.status is set to 'ready' and last_regenerated_at is updated."""
 
         async def _check():
-            from app.ingest.tasks import regenerate_vrt
+            from app.processing.ingest.tasks import regenerate_vrt
 
             job_id = str(uuid.uuid4())
             vrt_dataset_id = str(uuid.uuid4())
@@ -712,19 +726,19 @@ class TestRegenerateVrtTask:
             }
 
             with (
-                patch("app.ingest.tasks.async_session") as mock_async_session,
-                patch("app.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
+                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
+                patch("app.processing.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
                 patch(
-                    "app.ingest.tasks.resolve_vrt_source_path",
+                    "app.processing.ingest.tasks.resolve_vrt_source_path",
                     return_value="/path/to/source.cog.tif",
                 ),
                 patch(
-                    "app.ingest.tasks.extract_raster_metadata", return_value=mock_meta
+                    "app.processing.ingest.tasks.extract_raster_metadata", return_value=mock_meta
                 ),
-                patch("app.ingest.tasks.sha256_file", return_value="newhash"),
-                patch("app.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
+                patch("app.processing.ingest.tasks.sha256_file", return_value="newhash"),
+                patch("app.processing.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
                 patch(
-                    "app.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
+                    "app.processing.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
                 ),
                 patch(
                     "builtins.open",
@@ -745,8 +759,8 @@ class TestRegenerateVrtTask:
                 mock_storage = AsyncMock()
                 mock_storage.put = AsyncMock()
                 with (
-                    patch("app.ingest.tasks.get_storage", return_value=mock_storage),
-                    patch("app.ingest.tasks.defer_embedding", new_callable=AsyncMock),
+                    patch("app.processing.ingest.tasks.get_storage", return_value=mock_storage),
+                    patch("app.processing.ingest.tasks.defer_embedding", new_callable=AsyncMock),
                 ):
                     await regenerate_vrt.func(
                         job_id=job_id, vrt_dataset_id=vrt_dataset_id
@@ -764,7 +778,7 @@ class TestRegenerateVrtTask:
         # The asset_uri should remain UNCHANGED after successful regeneration.
         # Atomic swap = overwrite same key, asset_uri stays the same.
         async def _check():
-            from app.ingest.tasks import regenerate_vrt
+            from app.processing.ingest.tasks import regenerate_vrt
 
             original_uri = "rasters/vrt-id/oldhash/source.vrt"
             job_id = str(uuid.uuid4())
@@ -841,19 +855,19 @@ class TestRegenerateVrtTask:
                 put_calls.append(key)
 
             with (
-                patch("app.ingest.tasks.async_session") as mock_async_session,
-                patch("app.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
+                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
+                patch("app.processing.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
                 patch(
-                    "app.ingest.tasks.resolve_vrt_source_path",
+                    "app.processing.ingest.tasks.resolve_vrt_source_path",
                     return_value="/path/to/source.cog.tif",
                 ),
                 patch(
-                    "app.ingest.tasks.extract_raster_metadata", return_value=mock_meta
+                    "app.processing.ingest.tasks.extract_raster_metadata", return_value=mock_meta
                 ),
-                patch("app.ingest.tasks.sha256_file", return_value="newhash"),
-                patch("app.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
+                patch("app.processing.ingest.tasks.sha256_file", return_value="newhash"),
+                patch("app.processing.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
                 patch(
-                    "app.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
+                    "app.processing.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
                 ),
                 patch(
                     "builtins.open",
@@ -874,8 +888,8 @@ class TestRegenerateVrtTask:
                 mock_storage = AsyncMock()
                 mock_storage.put = mock_put
                 with (
-                    patch("app.ingest.tasks.get_storage", return_value=mock_storage),
-                    patch("app.ingest.tasks.defer_embedding", new_callable=AsyncMock),
+                    patch("app.processing.ingest.tasks.get_storage", return_value=mock_storage),
+                    patch("app.processing.ingest.tasks.defer_embedding", new_callable=AsyncMock),
                 ):
                     await regenerate_vrt.func(
                         job_id=job_id, vrt_dataset_id=vrt_dataset_id
@@ -926,7 +940,7 @@ class TestStatusField:
 
     def test_build_raster_metadata_includes_status(self):
         """_build_raster_metadata populates status from raster_asset.status."""
-        from app.datasets.helpers import _build_raster_metadata
+        from app.modules.catalog.datasets.domain.helpers import _build_raster_metadata
 
         mock_dataset = MagicMock()
         mock_dataset.id = uuid.uuid4()
@@ -954,7 +968,7 @@ class TestStatusField:
 
     def test_build_raster_metadata_status_regenerating(self):
         """_build_raster_metadata maps status='regenerating' correctly."""
-        from app.datasets.helpers import _build_raster_metadata
+        from app.modules.catalog.datasets.domain.helpers import _build_raster_metadata
 
         mock_dataset = MagicMock()
         mock_dataset.id = uuid.uuid4()
@@ -982,7 +996,7 @@ class TestStatusField:
 
     def test_build_raster_metadata_returns_none_for_none_asset(self):
         """_build_raster_metadata returns None when raster_asset is None."""
-        from app.datasets.helpers import _build_raster_metadata
+        from app.modules.catalog.datasets.domain.helpers import _build_raster_metadata
 
         assert _build_raster_metadata(MagicMock(), None) is None
 
@@ -1099,7 +1113,7 @@ def _build_mock_db_for_validation_failure(mock_asset: MagicMock) -> AsyncMock:
 def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
     """DB: Full success path for add_vrt_source.
 
-    Returns (mock_db, expected_job_id).
+    Returns (mock_db, expected_job_id, mock_create_ingest_job).
     """
     mock_db = AsyncMock()
     call_count = [0]
@@ -1141,15 +1155,10 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
     mock_db.commit = AsyncMock()
 
-    # Patch create_ingest_job to return our mock job
-    import app.ingest.router as _router
-
     async def mock_create_ingest_job(db, *args, **kwargs):
         return mock_job
 
-    _router.create_ingest_job = mock_create_ingest_job
-
-    return mock_db, job_id
+    return mock_db, job_id, mock_create_ingest_job
 
 
 def _build_mock_db_remove_min_guard(
@@ -1206,7 +1215,7 @@ def _build_mock_db_success_remove(
 ):
     """DB: Full success path for remove_vrt_source.
 
-    Returns (mock_db, expected_job_id).
+    Returns (mock_db, expected_job_id, mock_create_ingest_job).
     """
     mock_db = AsyncMock()
     call_count = [0]
@@ -1234,14 +1243,10 @@ def _build_mock_db_success_remove(
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
     mock_db.commit = AsyncMock()
 
-    import app.ingest.router as _router
-
     async def mock_create_ingest_job(db, *args, **kwargs):
         return mock_job
 
-    _router.create_ingest_job = mock_create_ingest_job
-
-    return mock_db, job_id
+    return mock_db, job_id, mock_create_ingest_job
 
 
 # ---------------------------------------------------------------------------

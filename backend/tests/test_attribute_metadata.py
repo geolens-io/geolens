@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.datasets.models import AttributeMetadata, Dataset
+from app.modules.catalog.datasets.domain.models import AttributeMetadata, Dataset
 
 from tests.factories import get_user_id
 
@@ -89,7 +89,7 @@ async def _create_dataset_with_attributes(
         "created_date": ["2020-01-01", "2021-06-15", "2022-03-20"],
     }
 
-    from app.datasets.service import create_dataset
+    from app.modules.catalog.datasets.domain.service import create_dataset
 
     dataset = await create_dataset(
         session,
@@ -736,7 +736,7 @@ class TestAttributeCurrentFlag:
         ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
 
         # Simulate re-upload with a subset of columns (name column removed)
-        from app.ingest.metadata import refresh_attribute_metadata
+        from app.processing.ingest.metadata import refresh_attribute_metadata
 
         new_column_info = [
             {

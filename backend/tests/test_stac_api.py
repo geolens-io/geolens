@@ -9,8 +9,8 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from app.stac.schemas import StacCatalog, StacConformance, StacItemCollection, StacLink
-from app.stac.serializer import STAC_CONFORMANCE
+from app.standards.stac.schemas import StacCatalog, StacConformance, StacItemCollection, StacLink
+from app.standards.stac.serializer import STAC_CONFORMANCE
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ async def test_get_collection_valid(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     """GET /stac/collections/{id} returns collection data when it exists."""
-    from app.collections.models import Collection
+    from app.modules.catalog.collections.models import Collection
 
     coll = Collection(
         name="STAC Test Collection", description="Test collection for STAC"
@@ -201,7 +201,7 @@ async def test_get_collection_valid(
 @pytest.mark.anyio
 async def test_get_collection_items_empty(client: AsyncClient, test_db_session):
     """GET /stac/collections/{id}/items returns empty feature collection."""
-    from app.collections.models import Collection
+    from app.modules.catalog.collections.models import Collection
 
     coll = Collection(name="Empty STAC Collection", description="No items")
     test_db_session.add(coll)

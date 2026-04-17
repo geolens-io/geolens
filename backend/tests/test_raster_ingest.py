@@ -106,7 +106,7 @@ class TestValidateRasterCrs:
     def test_valid_crs_passes(self, tmp_path):
         tif = _write_tmp_tif(crs=CRS.from_epsg(4326))
         try:
-            from app.raster.cog import validate_raster_crs
+            from app.processing.raster.cog import validate_raster_crs
 
             validate_raster_crs(str(tif))  # should not raise
         finally:
@@ -115,7 +115,7 @@ class TestValidateRasterCrs:
     def test_missing_crs_raises(self, tmp_path):
         tif = _write_tmp_tif(crs=None)
         try:
-            from app.raster.cog import validate_raster_crs
+            from app.processing.raster.cog import validate_raster_crs
 
             with pytest.raises(ValueError, match="Missing CRS"):
                 validate_raster_crs(str(tif))
@@ -132,7 +132,7 @@ class TestExtractRasterMetadata:
     def test_returns_expected_keys(self, tmp_path):
         tif = _write_tmp_tif(width=64, height=64, bands=3, crs=CRS.from_epsg(4326))
         try:
-            from app.raster.cog import extract_raster_metadata
+            from app.processing.raster.cog import extract_raster_metadata
 
             meta = extract_raster_metadata(str(tif))
             assert meta["width"] == 64
@@ -150,7 +150,7 @@ class TestExtractRasterMetadata:
     def test_nodata_captured(self, tmp_path):
         tif = _write_tmp_tif(nodata=255.0)
         try:
-            from app.raster.cog import extract_raster_metadata
+            from app.processing.raster.cog import extract_raster_metadata
 
             meta = extract_raster_metadata(str(tif))
             assert meta["nodata"] == 255.0
@@ -178,7 +178,7 @@ class TestExtractRasterMetadata:
         tmp.write(buf.getvalue())
         tmp.close()
         try:
-            from app.raster.cog import extract_raster_metadata
+            from app.processing.raster.cog import extract_raster_metadata
 
             meta = extract_raster_metadata(tmp.name)
             # bounds_wgs84 should be roughly [-180, -90, 180, 90]
@@ -198,7 +198,7 @@ class TestCheckCogCompliance:
     def test_non_tiled_fails(self, tmp_path):
         tif = _write_tmp_tif(tiled=False)
         try:
-            from app.raster.cog import check_cog_compliance
+            from app.processing.raster.cog import check_cog_compliance
 
             ok, reason = check_cog_compliance(str(tif))
             assert ok is False
@@ -209,7 +209,7 @@ class TestCheckCogCompliance:
     def test_wrong_blocksize_fails(self, tmp_path):
         tif = _write_tmp_tif(tiled=True, blocksize=256, compress="deflate")
         try:
-            from app.raster.cog import check_cog_compliance
+            from app.processing.raster.cog import check_cog_compliance
 
             ok, reason = check_cog_compliance(str(tif))
             assert ok is False
@@ -220,7 +220,7 @@ class TestCheckCogCompliance:
     def test_missing_crs_fails(self, tmp_path):
         tif = _write_tmp_tif(crs=None, tiled=True, blocksize=512, compress="deflate")
         try:
-            from app.raster.cog import check_cog_compliance
+            from app.processing.raster.cog import check_cog_compliance
 
             ok, reason = check_cog_compliance(str(tif))
             assert ok is False
@@ -237,7 +237,7 @@ class TestSha256File:
     def test_deterministic(self, tmp_path):
         f = tmp_path / "test.bin"
         f.write_bytes(b"hello world")
-        from app.raster.cog import sha256_file
+        from app.processing.raster.cog import sha256_file
 
         h1 = sha256_file(str(f))
         h2 = sha256_file(str(f))
@@ -254,7 +254,7 @@ class TestSha256File:
         f2 = tmp_path / "b.bin"
         f1.write_bytes(b"content A")
         f2.write_bytes(b"content B")
-        from app.raster.cog import sha256_file
+        from app.processing.raster.cog import sha256_file
 
         assert sha256_file(str(f1)) != sha256_file(str(f2))
 
@@ -268,7 +268,7 @@ class TestGenerateQuicklook:
     def test_single_band_returns_png_bytes(self, tmp_path):
         tif = _write_tmp_tif(bands=1, width=128, height=64)
         try:
-            from app.raster.quicklook import generate_quicklook
+            from app.processing.raster.quicklook import generate_quicklook
 
             result = generate_quicklook(str(tif), 256)
             assert isinstance(result, bytes)
@@ -280,7 +280,7 @@ class TestGenerateQuicklook:
     def test_multi_band_returns_png_bytes(self, tmp_path):
         tif = _write_tmp_tif(bands=3, width=128, height=128)
         try:
-            from app.raster.quicklook import generate_quicklook
+            from app.processing.raster.quicklook import generate_quicklook
 
             result = generate_quicklook(str(tif), 256)
             assert isinstance(result, bytes)
@@ -294,7 +294,7 @@ class TestGenerateQuicklook:
 
         tif = _write_tmp_tif(bands=1, width=200, height=100)
         try:
-            from app.raster.quicklook import generate_quicklook
+            from app.processing.raster.quicklook import generate_quicklook
 
             png_bytes = generate_quicklook(str(tif), 128)
             img = Image.open(io.BytesIO(png_bytes))
@@ -310,7 +310,7 @@ class TestGenerateQuicklook:
         with rasterio.open(str(tif), "r+") as ds:
             ds.write(np.zeros((ds.height, ds.width), dtype="uint8"), 1)
         try:
-            from app.raster.quicklook import generate_quicklook
+            from app.processing.raster.quicklook import generate_quicklook
 
             result = generate_quicklook(str(tif), 64)
             assert isinstance(result, bytes)
@@ -323,7 +323,7 @@ class TestGenerateQuicklook:
 
         tif = _write_tmp_tif(bands=3, width=512, height=512)
         try:
-            from app.raster.quicklook import generate_quicklook
+            from app.processing.raster.quicklook import generate_quicklook
 
             r256 = generate_quicklook(str(tif), 256)
             r512 = generate_quicklook(str(tif), 512)
@@ -416,10 +416,10 @@ class TestRasterDeleteCascadeRemovesStorage:
         session.execute = mock.AsyncMock(side_effect=_track_execute)
 
         with (
-            mock.patch("app.datasets.service.get_dataset", return_value=mock_dataset),
-            mock.patch("app.storage.provider.get_storage", return_value=storage),
+            mock.patch("app.modules.catalog.datasets.domain.service.get_dataset", return_value=mock_dataset),
+            mock.patch("app.platform.storage.provider.get_storage", return_value=storage),
         ):
-            from app.datasets.service import delete_dataset
+            from app.modules.catalog.datasets.domain.service import delete_dataset
 
             result = await delete_dataset(session, dataset_id, "My Raster")
 
@@ -458,10 +458,10 @@ class TestRasterDeleteCascadeRemovesStorage:
         session.execute.return_value = _refs_result
 
         with (
-            mock.patch("app.datasets.service.get_dataset", return_value=mock_dataset),
-            mock.patch("app.storage.provider.get_storage", return_value=storage),
+            mock.patch("app.modules.catalog.datasets.domain.service.get_dataset", return_value=mock_dataset),
+            mock.patch("app.platform.storage.provider.get_storage", return_value=storage),
         ):
-            from app.datasets.service import delete_dataset
+            from app.modules.catalog.datasets.domain.service import delete_dataset
 
             with pytest.raises(RuntimeError, match="Storage delete failed"):
                 await delete_dataset(session, dataset_id, "My Raster")
@@ -484,8 +484,8 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         session.execute.side_effect = _capture_execute
 
-        with mock.patch("app.datasets.service.get_dataset", return_value=mock_dataset):
-            from app.datasets.service import delete_dataset
+        with mock.patch("app.modules.catalog.datasets.domain.service.get_dataset", return_value=mock_dataset):
+            from app.modules.catalog.datasets.domain.service import delete_dataset
 
             result = await delete_dataset(session, dataset_id, "My Vector")
 
@@ -512,7 +512,7 @@ class TestRasterDistributionAndQuicklook:
         creation during ingest is tested end-to-end via the integration tests;
         this test verifies the model contract.
         """
-        from app.datasets.models import RecordDistribution
+        from app.modules.catalog.datasets.domain.models import RecordDistribution
 
         record_id = uuid.uuid4()
         dataset_id = uuid.uuid4()
@@ -530,7 +530,7 @@ class TestRasterDistributionAndQuicklook:
 
     def test_quicklook_stored_in_managed_storage(self):
         """RasterAsset quicklook URI fields follow the expected path pattern."""
-        from app.raster.models import RasterAsset
+        from app.processing.raster.models import RasterAsset
 
         dataset_id = uuid.uuid4()
         sha256 = "deadbeef" * 8  # 64-char hex

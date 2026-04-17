@@ -14,7 +14,7 @@ class TestVrtGenerationModel:
     """Verify VrtGeneration model has all required columns."""
 
     def test_model_has_required_columns(self):
-        from app.raster.models import VrtGeneration
+        from app.processing.raster.models import VrtGeneration
 
         mapper = VrtGeneration.__table__
         col_names = {c.name for c in mapper.columns}
@@ -33,19 +33,19 @@ class TestVrtGenerationModel:
         assert expected.issubset(col_names), f"Missing columns: {expected - col_names}"
 
     def test_model_table_name(self):
-        from app.raster.models import VrtGeneration
+        from app.processing.raster.models import VrtGeneration
 
         assert VrtGeneration.__tablename__ == "vrt_generations"
 
     def test_model_schema(self):
-        from app.raster.models import VrtGeneration
+        from app.processing.raster.models import VrtGeneration
 
         # __table_args__ is a tuple: (constraints..., {"schema": "catalog"})
         schema_dict = VrtGeneration.__table_args__[-1]
         assert schema_dict["schema"] == "catalog"
 
     def test_primary_key_is_uuid(self):
-        from app.raster.models import VrtGeneration
+        from app.processing.raster.models import VrtGeneration
 
         pk_cols = [c for c in VrtGeneration.__table__.columns if c.primary_key]
         assert len(pk_cols) == 1
@@ -56,7 +56,7 @@ class TestVrtStatusResponseSchema:
     """VrtStatusResponse schema validation."""
 
     def test_valid_status_response(self):
-        from app.datasets.schemas import VrtStatusResponse
+        from app.modules.catalog.datasets.domain.schemas import VrtStatusResponse
 
         data = VrtStatusResponse(
             status="ready",
@@ -69,7 +69,7 @@ class TestVrtStatusResponseSchema:
         assert data.active_generation is None
 
     def test_status_with_optional_fields(self):
-        from app.datasets.schemas import VrtActiveGeneration, VrtStatusResponse
+        from app.modules.catalog.datasets.domain.schemas import VrtActiveGeneration, VrtStatusResponse
 
         now = datetime.now(timezone.utc)
         active = VrtActiveGeneration(
@@ -92,7 +92,7 @@ class TestVrtGenerationItemSchema:
     """VrtGenerationItem schema validation."""
 
     def test_valid_generation_item(self):
-        from app.datasets.schemas import VrtGenerationItem
+        from app.modules.catalog.datasets.domain.schemas import VrtGenerationItem
 
         now = datetime.now(timezone.utc)
         item = VrtGenerationItem(
@@ -108,7 +108,7 @@ class TestVrtGenerationItemSchema:
         assert item.duration_seconds == 2.5
 
     def test_minimal_generation_item(self):
-        from app.datasets.schemas import VrtGenerationItem
+        from app.modules.catalog.datasets.domain.schemas import VrtGenerationItem
 
         item = VrtGenerationItem(id=uuid.uuid4(), status="pending")
         assert item.started_at is None
@@ -119,7 +119,7 @@ class TestVrtGenerationListResponseSchema:
     """VrtGenerationListResponse contains generations and total."""
 
     def test_valid_list_response(self):
-        from app.datasets.schemas import VrtGenerationItem, VrtGenerationListResponse
+        from app.modules.catalog.datasets.domain.schemas import VrtGenerationItem, VrtGenerationListResponse
 
         items = [
             VrtGenerationItem(id=uuid.uuid4(), status="completed"),
@@ -134,7 +134,7 @@ class TestVrtSourceHealthSchema:
     """VrtSourceHealth schema validation."""
 
     def test_healthy_source(self):
-        from app.datasets.schemas import VrtSourceHealth
+        from app.modules.catalog.datasets.domain.schemas import VrtSourceHealth
 
         h = VrtSourceHealth(
             dataset_id=uuid.uuid4(),
@@ -144,7 +144,7 @@ class TestVrtSourceHealthSchema:
         assert h.status == "healthy"
 
     def test_missing_source(self):
-        from app.datasets.schemas import VrtSourceHealth
+        from app.modules.catalog.datasets.domain.schemas import VrtSourceHealth
 
         h = VrtSourceHealth(
             dataset_id=uuid.uuid4(),
@@ -154,7 +154,7 @@ class TestVrtSourceHealthSchema:
         assert h.status == "missing"
 
     def test_inaccessible_source(self):
-        from app.datasets.schemas import VrtSourceHealth
+        from app.modules.catalog.datasets.domain.schemas import VrtSourceHealth
 
         h = VrtSourceHealth(
             dataset_id=uuid.uuid4(),
@@ -220,7 +220,7 @@ class TestVrtStatusEndpoint:
     """Tests for GET /datasets/{id}/vrt/status/."""
 
     def test_endpoint_exists_in_router(self):
-        from app.datasets.router_vrt import router
+        from app.modules.catalog.datasets.api.router_vrt import router
 
         paths = [r.path for r in router.routes if hasattr(r, "path")]
         assert "/datasets/{dataset_id}/vrt/status/" in paths
@@ -257,7 +257,7 @@ class TestVrtGenerationsEndpoint:
     """Tests for GET /datasets/{id}/vrt/generations/."""
 
     def test_endpoint_exists_in_router(self):
-        from app.datasets.router_vrt import router
+        from app.modules.catalog.datasets.api.router_vrt import router
 
         paths = [r.path for r in router.routes if hasattr(r, "path")]
         assert "/datasets/{dataset_id}/vrt/generations/" in paths
@@ -281,7 +281,7 @@ class TestVrtRegenerateEndpoint:
     """Tests for POST /datasets/{id}/vrt/regenerate/."""
 
     def test_endpoint_exists_in_router(self):
-        from app.datasets.router_vrt import router
+        from app.modules.catalog.datasets.api.router_vrt import router
 
         paths = [r.path for r in router.routes if hasattr(r, "path")]
         assert "/datasets/{dataset_id}/vrt/regenerate/" in paths
@@ -305,7 +305,7 @@ class TestVrtRegenerateEndpoint:
         assert "VrtGeneration" in source
 
     def test_advisory_lock_key_helper_exists(self):
-        from app.datasets.router_vrt import _advisory_lock_key
+        from app.modules.catalog.datasets.api.router_vrt import _advisory_lock_key
 
         dataset_id = uuid.uuid4()
         key = _advisory_lock_key(dataset_id)

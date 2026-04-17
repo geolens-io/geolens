@@ -19,9 +19,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.datasets.models import Dataset, Record, RecordKeyword
-from app.embeddings.models import RecordEmbedding
-from app.settings.models import AppSetting
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.processing.embeddings.models import RecordEmbedding
+from app.modules.settings.models import AppSetting
 
 from tests.factories import get_user_id
 
@@ -73,7 +73,7 @@ async def _create_search_dataset(
 
 
 def _make_vector(base_value: float, dim: int = 1536) -> list[float]:
-    """Create a simple 1536-dim vector with a dominant direction.
+    """Create a simple vector with a dominant direction.
 
     Different base_value values produce vectors with different cosine similarities.
     """
@@ -86,16 +86,29 @@ def _make_vector(base_value: float, dim: int = 1536) -> list[float]:
     return [v / magnitude for v in vec]
 
 
-# "Transportation" query vector
-_TRANSPORT_VECTOR = _make_vector(1.0)
-# Roads/highways: close to transport
-_ROADS_VECTOR = _make_vector(0.95)
-# Railways: close to transport
-_RAILWAYS_VECTOR = _make_vector(0.90)
-# Population: distant from transport
-_POPULATION_VECTOR = _make_vector(-0.5)
-# Rivers: distant from transport
-_RIVERS_VECTOR = _make_vector(-0.8)
+async def _get_embedding_dim(session) -> int:
+    """Return the current fixed vector dimension for record embeddings."""
+    result = await session.execute(
+        text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+            "AND attname = 'embedding'"
+        )
+    )
+    current_dim = result.scalar_one_or_none()
+    if current_dim and current_dim > 0:
+        return current_dim
+
+    setting_result = await session.execute(
+        select(AppSetting).where(AppSetting.key == "embedding_dims")
+    )
+    setting = setting_result.scalar_one_or_none()
+    if setting and isinstance(setting.value, dict):
+        configured_dim = setting.value.get("v")
+        if isinstance(configured_dim, int) and configured_dim > 0:
+            return configured_dim
+
+    return 1536
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +128,7 @@ async def _set_semantic_search(session, enabled: bool):
         existing.value = {"v": enabled}
     await session.commit()
 
-    from app.cache import get_cache
+    from app.platform.cache import get_cache
 
     try:
         cache = get_cache()
@@ -176,21 +189,29 @@ async def hybrid_datasets(test_db_session):
 
 
 @pytest.fixture
-async def hybrid_datasets_with_embeddings(hybrid_datasets, test_db_session):
+async def hybrid_vectors(test_db_session) -> dict[str, list[float]]:
+    """Build search vectors that match the current embedding column dimension."""
+    dim = await _get_embedding_dim(test_db_session)
+    return {
+        "transport": _make_vector(1.0, dim=dim),
+        "roads": _make_vector(0.95, dim=dim),
+        "railways": _make_vector(0.90, dim=dim),
+        "population": _make_vector(-0.5, dim=dim),
+        "rivers": _make_vector(-0.8, dim=dim),
+    }
+
+
+@pytest.fixture
+async def hybrid_datasets_with_embeddings(
+    hybrid_datasets, hybrid_vectors: dict[str, list[float]], test_db_session
+):
     """Add mock embeddings to the hybrid_datasets fixture records."""
     session = test_db_session
-
-    embedding_map = {
-        "roads": _ROADS_VECTOR,
-        "railways": _RAILWAYS_VECTOR,
-        "population": _POPULATION_VECTOR,
-        "rivers": _RIVERS_VECTOR,
-    }
 
     for name, ds in hybrid_datasets.items():
         emb = RecordEmbedding(
             record_id=ds.record_id,
-            embedding=embedding_map[name],
+            embedding=hybrid_vectors[name],
             model_name="text-embedding-3-small",
             content_hash=f"test_hash_{name}",
         )
@@ -214,12 +235,13 @@ async def test_semantic_search_returns_200(
     client: AsyncClient,
     admin_auth_header: dict,
     hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
 ):
     """With semantic enabled and embeddings present, text query returns 200."""
     with patch(
-        "app.search.service.generate_embedding",
+        "app.modules.catalog.search.service.generate_embedding",
         new_callable=AsyncMock,
-        return_value=_TRANSPORT_VECTOR,
+        return_value=hybrid_vectors["transport"],
     ):
         resp = await client.get(
             "/search/datasets/",
@@ -311,6 +333,7 @@ async def test_semantic_works_when_ai_disabled(
     client: AsyncClient,
     admin_auth_header: dict,
     hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
     test_db_session,
 ):
     """Semantic search still works when AI_ENABLED is off but embeddings exist.
@@ -331,7 +354,7 @@ async def test_semantic_works_when_ai_disabled(
         existing.value = {"v": False}
     await session.commit()
 
-    from app.cache import get_cache
+    from app.platform.cache import get_cache
 
     try:
         cache = get_cache()
@@ -342,9 +365,9 @@ async def test_semantic_works_when_ai_disabled(
     # Mock generate_embedding since there's no real API key,
     # but the vector search itself reads embeddings from DB directly
     with patch(
-        "app.search.service.generate_embedding",
+        "app.modules.catalog.search.service.generate_embedding",
         new_callable=AsyncMock,
-        return_value=_TRANSPORT_VECTOR,
+        return_value=hybrid_vectors["transport"],
     ):
         resp = await client.get(
             "/search/datasets/",
@@ -380,6 +403,7 @@ async def test_rrf_ranking_with_embeddings(
     client: AsyncClient,
     admin_auth_header: dict,
     hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
     test_db_session,
 ):
     """RRF-ranked results include vector similarity when semantic is enabled.
@@ -388,9 +412,9 @@ async def test_rrf_ranking_with_embeddings(
     due to vector similarity, augmenting the FTS results.
     """
     with patch(
-        "app.search.service.generate_embedding",
+        "app.modules.catalog.search.service.generate_embedding",
         new_callable=AsyncMock,
-        return_value=_TRANSPORT_VECTOR,
+        return_value=hybrid_vectors["transport"],
     ):
         resp_with = await client.get(
             "/search/datasets/",
@@ -426,7 +450,7 @@ async def test_rrf_ranking_with_embeddings(
 
 def test_compute_rrf_scores_basic():
     """Verify RRF score computation merges FTS and vector ranks correctly."""
-    from app.search.service import _compute_rrf_scores
+    from app.modules.catalog.search.service import _compute_rrf_scores
 
     fts_ids = ["a", "b", "c"]
     vector_ranks = {"b": 1, "c": 2, "d": 3}

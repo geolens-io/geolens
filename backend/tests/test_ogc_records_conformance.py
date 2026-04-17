@@ -20,8 +20,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record, RecordContact, RecordKeyword
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordContact, RecordKeyword
 
 
 # ---------------------------------------------------------------------------

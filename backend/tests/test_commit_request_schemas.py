@@ -10,7 +10,7 @@ FastAPI, no fixtures. Fast (< 1 second total). They prove:
 import pytest
 from pydantic import ValidationError
 
-from app.ingest.schemas import (
+from app.processing.ingest.schemas import (
     BaseCommitRequest,
     RasterCommitRequest,
     ServiceCommitRequest,

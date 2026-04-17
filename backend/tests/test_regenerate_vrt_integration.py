@@ -74,8 +74,8 @@ def local_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (called inside regenerate_vrt at tasks.py:2200) resolves source asset_uris
     to paths under the same tmp_path / "storage" root.
     """
-    from app.config import settings
-    from app.storage.local import LocalStorageProvider
+    from app.core.config import settings
+    from app.platform.storage.local import LocalStorageProvider
 
     storage_root = tmp_path / "storage"
     storage_root.mkdir(parents=True, exist_ok=True)
@@ -83,9 +83,9 @@ def local_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     provider = LocalStorageProvider(base_dir=str(storage_root))
 
     # Patch the top-level import in app.ingest.tasks — NOT app.storage.get_storage.
-    # tasks.py:19 does `from app.storage import get_storage`, rebinding the name
+    # tasks.py:19 does `from app.platform.storage import get_storage`, rebinding the name
     # inside the tasks module; patching the source module has no effect.
-    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: provider)
+    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: provider)
 
     # Override upload_staging_dir so resolve_vrt_source_path (vrt.py:16-26) resolves
     # source asset_uris to files under our storage root. Without this override,
@@ -109,7 +109,7 @@ def quicklook_stub(monkeypatch: pytest.MonkeyPatch):
         return b"\x00" * 256  # fixed-size fake PNG bytes
 
     # Patch at the ingest.tasks binding, not the source module
-    monkeypatch.setattr("app.ingest.tasks.generate_quicklook", _stub)
+    monkeypatch.setattr("app.processing.ingest.tasks.generate_quicklook", _stub)
     return _stub
 
 
@@ -135,13 +135,13 @@ async def vrt_db_state(
     (_create_vrt_dataset_rows), minus distribution rows and source_dataset_ids
     parameter handling.
     """
-    import app.database as db_module
-    import app.ingest.tasks as tasks_module
-    from app.datasets.models import Dataset, Record
-    from app.jobs.models import IngestJob
-    from app.raster.models import RasterAsset
+    import app.core.db as db_module
+    import app.processing.ingest.tasks as tasks_module
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.jobs.models import IngestJob
+    from app.processing.raster.models import RasterAsset
 
-    # CRITICAL: tasks.py:14 does `from app.database import async_session`, which
+    # CRITICAL: tasks.py:14 does `from app.core.db import async_session`, which
     # binds the name at module import time. The `client` fixture patches
     # `db_module.async_session` to the test session factory, but that does NOT
     # update the already-bound `app.ingest.tasks.async_session`. Without this
@@ -292,10 +292,10 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     The 15 assertions cover every DB + storage mutation that regenerate_vrt
     performs in the happy path. See CONTEXT.md D-03 for the enumerated list.
     """
-    from app.datasets.models import Record
-    from app.ingest.tasks import regenerate_vrt
-    from app.jobs.models import IngestJob
-    from app.raster.models import RasterAsset, VrtGeneration
+    from app.modules.catalog.datasets.domain.models import Record
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.platform.jobs.models import IngestJob
+    from app.processing.raster.models import RasterAsset, VrtGeneration
 
     session = test_db_session
 

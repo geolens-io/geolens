@@ -16,11 +16,11 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.auth.models import User
-from app.sandbox import validate_and_execute
-from app.sandbox.executor import execute_safe
-from app.sandbox.schemas import SandboxError, SandboxResult, ValidatedQuery
-from app.sandbox.validator import (
+from app.modules.auth.models import User
+from app.platform.sandbox import validate_and_execute
+from app.platform.sandbox.executor import execute_safe
+from app.platform.sandbox.schemas import SandboxError, SandboxResult, ValidatedQuery
+from app.platform.sandbox.validator import (
     build_table_allowlist,
     check_table_access,
     validate_sql,

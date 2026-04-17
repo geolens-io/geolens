@@ -6,7 +6,7 @@ Uses the same _make_ogc_record helper pattern as test_stac_serializer.py.
 
 import pystac
 
-from app.stac.serializer import (
+from app.standards.stac.serializer import (
     ogc_collection_to_stac_collection,
     ogc_record_to_stac_item,
 )

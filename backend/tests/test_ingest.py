@@ -16,8 +16,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.auth.models import User
-from app.jobs.models import IngestJob
+from app.modules.auth.models import User
+from app.platform.jobs.models import IngestJob
 from tests.conftest import get_auth_header
 
 
@@ -36,7 +36,7 @@ def mock_ingest_task():
     path becomes a no-op.
     """
     with patch(
-        "app.ingest.router.queue_ingest_job", new_callable=AsyncMock
+        "app.processing.ingest.router.queue_ingest_job", new_callable=AsyncMock
     ) as mock_task:
         yield mock_task
 
@@ -45,7 +45,7 @@ def mock_ingest_task():
 def mock_file_save(tmp_path: Path):
     """Save mocked uploads to a temp path so validation sees a real file."""
     with patch(
-        "app.ingest.router.save_upload_file", new_callable=AsyncMock
+        "app.processing.ingest.router.save_upload_file", new_callable=AsyncMock
     ) as mock_save:
 
         async def _save_to_temp(file, job_id: str) -> Path:
@@ -275,7 +275,7 @@ class TestJobStatus:
     ):
         """GET /jobs/{id} returns correct status for a job owned by the user."""
         # Get admin user ID
-        from app.auth.models import User
+        from app.modules.auth.models import User
 
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")
@@ -304,7 +304,7 @@ class TestJobStatus:
     ):
         """Non-creator, non-admin user gets 403 on another user's job."""
         # Get admin user ID
-        from app.auth.models import User
+        from app.modules.auth.models import User
 
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")
@@ -342,7 +342,7 @@ class TestJobStatus:
         """GET /jobs/{id} auto-fails a pending job older than 1 hour."""
         from datetime import datetime, timedelta, timezone
 
-        from app.auth.models import User
+        from app.modules.auth.models import User
 
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")
@@ -382,7 +382,7 @@ class TestJobCleanup:
         """POST /jobs/cleanup/stale marks old pending jobs as failed."""
         from datetime import datetime, timedelta, timezone
 
-        from app.auth.models import User
+        from app.modules.auth.models import User
 
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")
@@ -659,13 +659,13 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
 
     from sqlalchemy import text
 
-    from app.datasets.models import Dataset
-    from app.ingest.tasks import (
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.processing.ingest.tasks import (
         IngestContext,
         _arcgis_type_to_column_type,
         _finalize_ingest,
     )
-    from app.jobs.models import IngestJob
+    from app.platform.jobs.models import IngestJob
 
     admin_id = await _get_admin_id_for_ingest(test_db_session)
 
@@ -773,7 +773,7 @@ async def test_detect_and_override_geometry_returns_none_when_no_override(
     test_db_session,
 ):
     """Empty user_metadata → helper is a no-op returning None (KISS-2)."""
-    from app.ingest.tasks import _detect_and_override_geometry
+    from app.processing.ingest.tasks import _detect_and_override_geometry
 
     geom_type = await _detect_and_override_geometry(
         test_db_session,
@@ -790,7 +790,7 @@ async def test_detect_and_override_geometry_x_y_constructs_point(test_db_session
 
     from sqlalchemy import text
 
-    from app.ingest.tasks import _detect_and_override_geometry
+    from app.processing.ingest.tasks import _detect_and_override_geometry
 
     table_name = f"tst_xygeom_{_uuid.uuid4().hex[:8]}"
     await test_db_session.execute(
@@ -845,7 +845,7 @@ async def test_detect_and_override_geometry_uppercase_column_names_lowered(
 
     from sqlalchemy import text
 
-    from app.ingest.tasks import _detect_and_override_geometry
+    from app.processing.ingest.tasks import _detect_and_override_geometry
 
     table_name = f"tst_xyupper_{_uuid.uuid4().hex[:8]}"
     await test_db_session.execute(
@@ -884,7 +884,7 @@ async def test_detect_and_override_geometry_wkt_column_detects_type(test_db_sess
 
     from sqlalchemy import text
 
-    from app.ingest.tasks import _detect_and_override_geometry
+    from app.processing.ingest.tasks import _detect_and_override_geometry
 
     table_name = f"tst_wktgeom_{_uuid.uuid4().hex[:8]}"
     await test_db_session.execute(
@@ -924,7 +924,7 @@ async def test_detect_and_override_geometry_empty_strings_treated_as_absent(
     test_db_session,
 ):
     """Empty strings must not trigger the override path — they mean 'not set'."""
-    from app.ingest.tasks import _detect_and_override_geometry
+    from app.processing.ingest.tasks import _detect_and_override_geometry
 
     geom_type = await _detect_and_override_geometry(
         test_db_session,
@@ -947,7 +947,7 @@ async def test_archive_original_file_success_leaves_user_metadata_untouched(
     import uuid as _uuid
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.ingest.tasks import _archive_original_file
+    from app.processing.ingest.tasks import _archive_original_file
 
     # Create a real file to upload.
     upload_file = tmp_path / "roads.geojson"
@@ -958,7 +958,7 @@ async def test_archive_original_file_success_leaves_user_metadata_untouched(
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=lambda key, fobj: put_calls.append(key))
 
-    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
 
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
@@ -990,7 +990,7 @@ async def test_archive_original_file_failure_marks_user_metadata(tmp_path, monke
     import uuid as _uuid
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.ingest.tasks import _archive_original_file
+    from app.processing.ingest.tasks import _archive_original_file
 
     upload_file = tmp_path / "cities.csv"
     upload_file.write_text("name,lat,lng\nParis,48.85,2.35\n")
@@ -998,7 +998,7 @@ async def test_archive_original_file_failure_marks_user_metadata(tmp_path, monke
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
 
-    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
 
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
@@ -1040,14 +1040,14 @@ async def test_archive_original_file_commit_failure_does_not_raise(
     import uuid as _uuid
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.ingest.tasks import _archive_original_file
+    from app.processing.ingest.tasks import _archive_original_file
 
     upload_file = tmp_path / "fragile.geojson"
     upload_file.write_text('{"type":"FeatureCollection","features":[]}')
 
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
-    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
 
     mock_session = AsyncMock()
     # Commit fails — simulate a pooler drop or deadlock.
@@ -1081,7 +1081,7 @@ async def test_archive_original_file_failure_truncates_long_error(
     import uuid as _uuid
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.ingest.tasks import _archive_original_file
+    from app.processing.ingest.tasks import _archive_original_file
 
     upload_file = tmp_path / "big.shp.zip"
     upload_file.write_bytes(b"PK\x03\x04")  # fake zip header
@@ -1091,7 +1091,7 @@ async def test_archive_original_file_failure_truncates_long_error(
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=RuntimeError(long_error))
 
-    monkeypatch.setattr("app.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
 
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
@@ -1124,7 +1124,7 @@ async def test_queue_ingest_job_file_defer_failure_marks_job_failed(tmp_path):
 
     from fastapi import HTTPException
 
-    from app.ingest.service import queue_ingest_job
+    from app.processing.ingest.service import queue_ingest_job
 
     # Real file on disk so queue_ingest_job's size probe runs.
     upload_file = tmp_path / "cities.geojson"
@@ -1144,7 +1144,7 @@ async def test_queue_ingest_job_file_defer_failure_marks_job_failed(tmp_path):
 
     failing_defer = AsyncMock(side_effect=RuntimeError("procrastinate unreachable"))
 
-    with patch("app.ingest.tasks.ingest_file") as mock_task:
+    with patch("app.processing.ingest.tasks.ingest_file") as mock_task:
         # Small file path routes to configure("priority").defer_async
         priority_task = MagicMock()
         priority_task.defer_async = failing_defer
@@ -1170,7 +1170,7 @@ async def test_queue_ingest_job_service_defer_failure_marks_job_failed():
 
     from fastapi import HTTPException
 
-    from app.ingest.service import queue_ingest_job
+    from app.processing.ingest.service import queue_ingest_job
 
     mock_db = AsyncMock()
     mock_db.commit = AsyncMock()
@@ -1188,7 +1188,7 @@ async def test_queue_ingest_job_service_defer_failure_marks_job_failed():
     failing_defer = AsyncMock(side_effect=RuntimeError("queue down"))
 
     with patch(
-        "app.ingest.tasks.ingest_service",
+        "app.processing.ingest.tasks.ingest_service",
         defer_async=failing_defer,
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -1207,7 +1207,7 @@ async def test_queue_ingest_job_raster_defer_failure_marks_job_failed(tmp_path):
 
     from fastapi import HTTPException
 
-    from app.ingest.service import queue_ingest_job
+    from app.processing.ingest.service import queue_ingest_job
 
     raster_file = tmp_path / "dem.tif"
     raster_file.write_bytes(b"fake-raster")
@@ -1227,7 +1227,7 @@ async def test_queue_ingest_job_raster_defer_failure_marks_job_failed(tmp_path):
     failing_defer = AsyncMock(side_effect=RuntimeError("raster queue dead"))
 
     with patch(
-        "app.ingest.tasks.ingest_raster",
+        "app.processing.ingest.tasks.ingest_raster",
         defer_async=failing_defer,
     ):
         with pytest.raises(HTTPException) as exc_info:

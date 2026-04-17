@@ -20,7 +20,7 @@ from shapely.geometry import (
     Polygon,
 )
 
-from app.vector.quicklook import (
+from app.processing.vector.quicklook import (
     _BG_COLOR,
     _blank_canvas,
     _compute_point_radius,
