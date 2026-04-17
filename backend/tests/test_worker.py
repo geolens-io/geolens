@@ -14,7 +14,7 @@ from httpx import ASGITransport, AsyncClient
 
 @pytest.fixture
 def health_app():
-    from app.worker_health import app
+    from app.observability.health.worker import app
 
     return app
 
@@ -128,7 +128,7 @@ def _make_mock_session(*result_lists):
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_marks_running_as_failed():
     """recover_stale_jobs should mark all running IngestJobs as failed."""
-    from app.worker import recover_stale_jobs
+    from app.platform.jobs.worker import recover_stale_jobs
 
     fake_job = MagicMock()
     fake_job.id = uuid4()
@@ -149,7 +149,7 @@ async def test_recover_stale_jobs_marks_running_as_failed():
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
     """recover_stale_jobs should mark old pending jobs as failed."""
-    from app.worker import recover_stale_jobs
+    from app.platform.jobs.worker import recover_stale_jobs
 
     fake_job = MagicMock()
     fake_job.id = uuid4()
@@ -170,7 +170,7 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_logs_individual_job_ids():
     """Each stale job should be logged with its individual job_id."""
-    from app.worker import recover_stale_jobs
+    from app.platform.jobs.worker import recover_stale_jobs
 
     job1 = MagicMock()
     job1.id = uuid4()
@@ -205,7 +205,7 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
 @pytest.mark.asyncio
 async def test_main_uses_shutdown_graceful_timeout():
     """main() should pass shutdown_graceful_timeout from WORKER_SHUTDOWN_TIMEOUT env."""
-    from app.worker import main
+    from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
     mock_open = AsyncMock()
@@ -233,7 +233,7 @@ async def test_main_uses_shutdown_graceful_timeout():
 @pytest.mark.asyncio
 async def test_main_uses_default_shutdown_timeout():
     """Without WORKER_SHUTDOWN_TIMEOUT, default to 30 seconds."""
-    from app.worker import main
+    from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
     mock_open = AsyncMock()
@@ -265,7 +265,7 @@ async def test_main_uses_default_shutdown_timeout():
 @pytest.mark.asyncio
 async def test_main_passes_install_signal_handlers_true():
     """main() should pass install_signal_handlers=True to run_worker_async."""
-    from app.worker import main
+    from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
     mock_open = AsyncMock()

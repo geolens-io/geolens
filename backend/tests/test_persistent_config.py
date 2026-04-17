@@ -14,7 +14,7 @@ async def _clean_settings(client: AsyncClient):
     yield
     # Remove any settings rows inserted during tests
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.modules.settings.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
@@ -45,7 +45,7 @@ async def test_get_returns_env_default_when_no_db_row(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         value = await REGISTRATION_ENABLED.get(db)
@@ -59,7 +59,7 @@ async def test_get_returns_db_value_when_row_exists(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         # Set a value in DB
@@ -77,7 +77,7 @@ async def test_get_returns_env_default_when_env_only(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         # Set value in DB first
@@ -95,7 +95,7 @@ async def test_set_raises_when_env_only(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
@@ -117,7 +117,7 @@ async def test_set_creates_audit_log_entry(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         # Get the real admin user id
@@ -155,7 +155,7 @@ async def test_set_invalidates_cache(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     # Ensure cache is initialized (may have been cleared by other tests)
     init_cache()
@@ -184,7 +184,7 @@ async def test_get_uses_cache_with_ttl(client: AsyncClient):
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     # Ensure cache is initialized (may have been cleared by other tests)
     init_cache()
@@ -242,7 +242,7 @@ async def test_log_level_side_effect(client: AsyncClient):
     from app.core.persistent_config import LOG_LEVEL
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     original_level = logging.getLogger().level
     try:
@@ -263,7 +263,7 @@ async def test_sync_rate_limit_accessor(client: AsyncClient):
     from app.core.persistent_config import LOGIN_RATE_LIMIT, get_cached_login_rate_limit
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         # Prime the sync cache by reading the value
@@ -731,7 +731,7 @@ async def test_llm_provider_from_persistent_config(
     """LLM_PROVIDER and LLM_MODEL are readable/writable via PersistentConfig."""
     from app.core.persistent_config import LLM_PROVIDER, LLM_MODEL
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     # Set provider and model
     await client.put(
@@ -826,7 +826,7 @@ async def test_tile_cache_ttl_available_via_persistent_config(
     """TILE_CACHE_TTL PersistentConfig instance returns the configured value."""
     from app.core.persistent_config import TILE_CACHE_TTL
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     await client.put(
         "/settings/",
@@ -852,7 +852,7 @@ async def test_bulk_settings_update_creates_per_field_audit_entries(
     from sqlalchemy import select, func
     from app.modules.audit.models import AuditLog
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     # Count existing audit entries for settings
     async for db in app.dependency_overrides[get_db]():
@@ -917,7 +917,7 @@ async def test_get_validates_unwrapped_value_against_type_adapter(
     Happy path: an int-typed config with an int-stored row returns the int.
     """
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import LOGIN_RATE_LIMIT
 
     async for db in app.dependency_overrides[get_db]():
@@ -937,7 +937,7 @@ async def test_get_falls_back_to_env_default_on_validation_error(
 
     from app.platform.cache import get_cache
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import _DEFAULT_LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT
     from app.modules.settings.models import AppSetting
 
@@ -980,7 +980,7 @@ async def test_get_does_not_cache_fallback_value(client: AsyncClient):
 
     from app.platform.cache import get_cache
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import LOGIN_RATE_LIMIT
     from app.modules.settings.models import AppSetting
 
@@ -1016,7 +1016,7 @@ async def test_log_level_config_subclass_validates_str(client: AsyncClient):
 
     from app.platform.cache import get_cache
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import LOG_LEVEL
     from app.modules.settings.models import AppSetting
 
@@ -1046,7 +1046,7 @@ async def test_get_all_registry_values_applies_validation(client: AsyncClient):
     Happy path: all DB-stored values are valid and batch-returned unchanged.
     """
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import (
         AI_ENABLED,
         LOGIN_RATE_LIMIT,
@@ -1070,7 +1070,7 @@ async def test_get_all_registry_values_falls_back_on_bad_row(client: AsyncClient
     from sqlalchemy import delete
 
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import (
         _DEFAULT_LOGIN_RATE_LIMIT,
         AI_ENABLED,

@@ -161,7 +161,7 @@ async def client(tmp_path):
 
     # Override the get_db dependency
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async def override_get_db():
         async with test_session_factory() as session:

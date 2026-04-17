@@ -1,1 +1,0 @@
-"""GeoLens middleware."""
