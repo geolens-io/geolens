@@ -49,7 +49,7 @@ import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers'
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
 import { WidgetHost, WidgetToolbar, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';

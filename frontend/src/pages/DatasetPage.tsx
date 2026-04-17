@@ -14,7 +14,7 @@ import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useAllSettings } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
-import { useDrawingStore } from '@/stores/drawing-store';
+import { useDrawingStore } from '@/components/drawing/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
 import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
 import { DatasetMap } from '@/components/dataset/DatasetMap';

@@ -8,7 +8,7 @@ const drawingState = vi.hoisted(() => ({
   selectedFeature: null as { gid: number; tdId: string; properties: Record<string, unknown> } | null,
 }));
 
-vi.mock('@/stores/drawing-store', () => ({
+vi.mock('@/components/drawing/drawing-store', () => ({
   useDrawingStore: (selector: (state: typeof drawingState) => unknown) => selector(drawingState),
 }));
 

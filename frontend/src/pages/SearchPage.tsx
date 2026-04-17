@@ -13,7 +13,7 @@ import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { useSearchResults } from '@/components/search/hooks/use-search';
-import { useSearchStore } from '@/stores/search-store';
+import { useSearchStore } from '@/components/search/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';

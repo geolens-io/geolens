@@ -1,7 +1,7 @@
 import type React from 'react';
 import { render, screen } from '@testing-library/react';
 import { LayoutGrid } from 'lucide-react';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { registerWidget, getWidgets } from '../registry';
 import { WidgetHost, usePartitionedWidgets } from '../WidgetHost';
 import type { WidgetContext } from '../types';

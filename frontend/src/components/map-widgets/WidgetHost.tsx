@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
 import { WidgetPanel } from './WidgetPanel';

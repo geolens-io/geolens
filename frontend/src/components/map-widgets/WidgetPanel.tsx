@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import type { WidgetDefinition } from './types';
 
 interface WidgetPanelProps {
