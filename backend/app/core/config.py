@@ -16,7 +16,7 @@ _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 class Settings(BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
-    postgres_host: str = "db"
+    postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "geolens"
     postgres_db_test: str = "geolens_test"

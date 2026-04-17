@@ -9,7 +9,7 @@ import pytest
 
 def _reset_registry():
     """Reset extension registry state between tests."""
-    import app.extensions as ext_mod
+    import app.platform.extensions as ext_mod
 
     ext_mod._extensions.clear()
     ext_mod._loaded = False
