@@ -40,6 +40,7 @@ dependencies = [
     # cryptography 46.0.7 patches a buffer-overflow bug affecting
     # non-contiguous buffers passed to certain APIs (Dependabot #29).
     "cryptography>=46.0.7",
+    "itsdangerous>=2.2.0",
 ]
 
 [dependency-groups]
