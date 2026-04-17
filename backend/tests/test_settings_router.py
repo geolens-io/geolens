@@ -127,7 +127,7 @@ async def test_put_settings_unauthenticated_returns_401(
 @pytest.mark.anyio
 async def test_get_tile_config_exposes_resolved_public_urls():
     """The public tile-config payload should expose the resolved app/API URLs."""
-    from app.settings import router as settings_router
+    from app.modules.settings import router as settings_router
 
     with (
         patch.object(

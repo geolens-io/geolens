@@ -170,7 +170,7 @@ async def test_generate_map_success(
     monkeypatch,
 ):
     """POST /ai/generate-map/ returns a map when LLM succeeds."""
-    from app.ai import router as ai_router
+    from app.processing.ai import router as ai_router
 
     fake_result = {
         "map_id": str(uuid.uuid4()),
