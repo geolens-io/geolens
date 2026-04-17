@@ -226,28 +226,28 @@ class TestVrtStatusEndpoint:
         assert "/datasets/{dataset_id}/vrt/status/" in paths
 
     def test_endpoint_source_contains_status_logic(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "VrtStatusResponse" in source
         assert "source_health" in source
 
     def test_endpoint_uses_storage_exists_for_health(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "storage" in source.lower()
         assert "exists" in source
 
     def test_endpoint_uses_asyncio_gather_for_parallel_checks(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "asyncio.gather" in source
 
     def test_endpoint_returns_404_for_non_vrt(self):
         """Verify the endpoint checks record_type == 'vrt_dataset'."""
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.get_vrt_status)
         assert "vrt_dataset" in source
@@ -263,7 +263,7 @@ class TestVrtGenerationsEndpoint:
         assert "/datasets/{dataset_id}/vrt/generations/" in paths
 
     def test_endpoint_source_contains_generation_logic(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.list_vrt_generations)
         assert "VrtGenerationListResponse" in source
@@ -271,7 +271,7 @@ class TestVrtGenerationsEndpoint:
         assert "offset" in source
 
     def test_endpoint_paginates_by_default(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.list_vrt_generations)
         assert "ORDER BY" in source or "order_by" in source
@@ -287,19 +287,19 @@ class TestVrtRegenerateEndpoint:
         assert "/datasets/{dataset_id}/vrt/regenerate/" in paths
 
     def test_endpoint_uses_advisory_lock(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
         assert "pg_try_advisory_xact_lock" in source
 
     def test_endpoint_returns_409_when_regenerating(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
         assert "409" in source or "409_CONFLICT" in source or "regenerating" in source
 
     def test_endpoint_creates_generation_record(self):
-        from app.datasets import router_vrt as router_mod
+        from app.modules.catalog.datasets.api import router_vrt as router_mod
 
         source = inspect.getsource(router_mod.regenerate_vrt_endpoint)
         assert "VrtGeneration" in source
@@ -317,26 +317,26 @@ class TestRegenerateVrtTaskIntegration:
     """Tests for VrtGeneration record lifecycle in regenerate_vrt task."""
 
     def test_task_references_vrt_generation_model(self):
-        from app.ingest import tasks as tasks_mod
+        from app.processing.ingest import tasks as tasks_mod
 
         source = inspect.getsource(tasks_mod.regenerate_vrt)
         assert "VrtGeneration" in source
 
     def test_task_accepts_triggered_by_parameter(self):
-        from app.ingest import tasks as tasks_mod
+        from app.processing.ingest import tasks as tasks_mod
 
         source = inspect.getsource(tasks_mod.regenerate_vrt)
         assert "triggered_by" in source
 
     def test_task_updates_generation_on_success(self):
-        from app.ingest import tasks as tasks_mod
+        from app.processing.ingest import tasks as tasks_mod
 
         source = inspect.getsource(tasks_mod.regenerate_vrt)
         assert "completed" in source
         assert "duration_seconds" in source
 
     def test_task_updates_generation_on_failure(self):
-        from app.ingest import tasks as tasks_mod
+        from app.processing.ingest import tasks as tasks_mod
 
         source = inspect.getsource(tasks_mod.regenerate_vrt)
         assert "failed" in source
@@ -347,13 +347,13 @@ class TestIngestRouterTriggeredBy:
     """Tests for triggered_by being passed through defer_async calls in ingest/router.py."""
 
     def test_add_source_passes_triggered_by(self):
-        from app.ingest import router as ingest_router_mod
+        from app.processing.ingest import router as ingest_router_mod
 
         source = inspect.getsource(ingest_router_mod.add_vrt_source)
         assert "triggered_by" in source
 
     def test_remove_source_passes_triggered_by(self):
-        from app.ingest import router as ingest_router_mod
+        from app.processing.ingest import router as ingest_router_mod
 
         source = inspect.getsource(ingest_router_mod.remove_vrt_source)
         assert "triggered_by" in source

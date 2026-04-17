@@ -367,7 +367,7 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
         return
 
     from app.core.config import settings as _settings
-    from app.ingest import ogr as _ogr
+    from app.processing.ingest import ogr as _ogr
 
     def _test_pg_conn_str() -> str:
         return (
