@@ -100,7 +100,8 @@ export function useLayerMapSync(
           // Compound opacity override (product of per-type and master opacity)
           if (map.getLayer(mapLayerId)) {
             if (adapterType === 'heatmap') {
-              map.setPaintProperty(mapLayerId, 'heatmap-opacity', (layer.opacity ?? 1) * 0.8);
+              const storedHeatmapOpacity = (newPaint['heatmap-opacity'] as number) ?? 0.8;
+              map.setPaintProperty(mapLayerId, 'heatmap-opacity', (layer.opacity ?? 1) * storedHeatmapOpacity);
             } else {
               const geomType = adapterType as 'fill' | 'line' | 'circle';
               map.setPaintProperty(mapLayerId, `${geomType}-opacity`, getCompoundOpacity(newPaint, geomType, layer.opacity ?? 1));
@@ -282,6 +283,11 @@ export function useLayerMapSync(
           const labelId = `layer-${layerId}-label`;
           if (map.getLayer(labelId)) {
             map.setFilter(labelId, expression);
+          }
+          // Also filter fill-extrusion companion layer
+          const extrusionId = `layer-${layerId}-extrusion`;
+          if (map.getLayer(extrusionId)) {
+            map.setFilter(extrusionId, expression);
           }
         },
       );

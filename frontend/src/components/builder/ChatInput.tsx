@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import { useState, useRef, useEffect, useCallback, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { MapLayerResponse } from '@/types/api';
 import { MentionDropdown, type MentionItem } from './MentionDropdown';
@@ -66,23 +66,32 @@ export function ChatInput({
   const listboxId = useId();
 
   // Build slash commands with i18n descriptions
-  const slashCommands: MentionItem[] = SLASH_COMMAND_IDS.map((id) => ({
-    id,
-    label: `/${id}`,
-    description: t(`chat.commands.${id}`),
-  }));
+  const slashCommands = useMemo<MentionItem[]>(() =>
+    SLASH_COMMAND_IDS.map((id) => ({
+      id,
+      label: `/${id}`,
+      description: t(`chat.commands.${id}`),
+    })),
+    [t],
+  );
 
   // Build layer items for dropdown
-  const layerItems: MentionItem[] = layers.map((l) => ({
-    id: l.id,
-    label: l.display_name ?? l.dataset_name,
-    description: l.dataset_geometry_type ?? undefined,
-  }));
+  const layerItems = useMemo<MentionItem[]>(() =>
+    layers.map((l) => ({
+      id: l.id,
+      label: l.display_name ?? l.dataset_name,
+      description: l.dataset_geometry_type ?? undefined,
+    })),
+    [layers],
+  );
 
   // Filtered items based on trigger
-  const filteredItems = triggerState
-    ? filterItems(triggerState.type === '@' ? layerItems : slashCommands, triggerState.query)
-    : [];
+  const filteredItems = useMemo(() =>
+    triggerState
+      ? filterItems(triggerState.type === '@' ? layerItems : slashCommands, triggerState.query)
+      : [],
+    [triggerState, layerItems, slashCommands],
+  );
 
   const dropdownOpen = triggerState !== null && filteredItems.length > 0;
 

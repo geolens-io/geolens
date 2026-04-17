@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
@@ -138,15 +138,29 @@ export function DataDrivenStyleEditor({
     columnForGraduated,
   );
 
+  // Extract narrow paint/config slices so effects don't re-run on every paint change
+  const colorPaintProp = useMemo(
+    () => layer.paint?.[getColorProperty(layer.dataset_geometry_type)],
+    [layer.paint, layer.dataset_geometry_type],
+  );
+  const sizePaintProp = useMemo(() => {
+    const rProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
+    const wProp = getSizeProperty(layer.dataset_geometry_type, 'width');
+    return rProp ? layer.paint?.[rProp] : wProp ? layer.paint?.[wProp] : undefined;
+  }, [layer.paint, layer.dataset_geometry_type]);
+  const styleConfig = layer.style_config;
+  const layerId = layer.id;
+  const geomType = layer.dataset_geometry_type;
+
   // Effect 1: Categorical styling with value-fetching
   useEffect(() => {
     if (!column || mode !== 'categorical' || !valuesData) return;
 
     const values = valuesData.values;
-    const colorProp = getColorProperty(layer.dataset_geometry_type);
+    const colorProp = getColorProperty(geomType);
 
     // Preserve existing per-category colors when column and ramp haven't changed
-    const ec = layer.style_config;
+    const ec = styleConfig;
     if (
       ec?.mode === 'categorical' &&
       ec.column === column &&
@@ -169,8 +183,8 @@ export function DataDrivenStyleEditor({
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
     const paint = { ...layer.paint, [colorProp]: expression };
-    onStyleConfigChange(layer.id, config, paint);
-  }, [column, mode, ramp, valuesData, layer.style_config, layer.dataset_geometry_type, layer.paint, layer.id, onStyleConfigChange]);
+    onStyleConfigChange(layerId, config, paint);
+  }, [column, mode, ramp, valuesData, styleConfig, geomType, colorPaintProp, layerId, layer.paint, onStyleConfigChange]);
 
   // Effect 2: Graduated color styling
   useEffect(() => {
@@ -184,7 +198,7 @@ export function DataDrivenStyleEditor({
     );
 
     // Preserve existing graduated colors when config hasn't changed
-    const ec = layer.style_config;
+    const ec = styleConfig;
     if (
       ec?.mode === 'graduated' &&
       ec.column === column &&
@@ -203,7 +217,7 @@ export function DataDrivenStyleEditor({
     if (ramp === 'custom') setRamp(effectiveRamp);
 
     const colors = getRampColors(effectiveRamp, effectiveClassCount);
-    const colorProp = getColorProperty(layer.dataset_geometry_type);
+    const colorProp = getColorProperty(geomType);
     const expression = buildGraduatedExpression(column, breaks, colors);
 
     const config: StyleConfig = {
@@ -217,8 +231,8 @@ export function DataDrivenStyleEditor({
       target: 'color',
     };
     const paint = { ...layer.paint, [colorProp]: expression };
-    onStyleConfigChange(layer.id, config, paint);
-  }, [column, mode, ramp, classCount, method, target, statsData, layer.style_config, layer.dataset_geometry_type, layer.paint, layer.id, onStyleConfigChange]);
+    onStyleConfigChange(layerId, config, paint);
+  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, layer.paint, onStyleConfigChange]);
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
@@ -232,7 +246,7 @@ export function DataDrivenStyleEditor({
     );
 
     // Guard: skip if existing config already matches
-    const ec = layer.style_config;
+    const ec = styleConfig;
     if (
       ec?.target === target &&
       ec.column === column &&
@@ -246,7 +260,7 @@ export function DataDrivenStyleEditor({
       return;
     }
 
-    const sizeProp = getSizeProperty(layer.dataset_geometry_type, target);
+    const sizeProp = getSizeProperty(geomType, target);
     if (!sizeProp) return;
 
     const sizes = computeSizes(sizeRange, effectiveClassCount);
@@ -265,8 +279,8 @@ export function DataDrivenStyleEditor({
     };
     // Keep existing color expression + add size expression
     const paint = { ...layer.paint, [sizeProp]: sizeExpression };
-    onStyleConfigChange(layer.id, config, paint);
-  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, layer.style_config, layer.dataset_geometry_type, layer.paint, layer.id, onStyleConfigChange]);
+    onStyleConfigChange(layerId, config, paint);
+  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, layer.paint, onStyleConfigChange]);
 
   function handleClear() {
     setColumn('');

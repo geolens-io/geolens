@@ -1,6 +1,7 @@
 """Streaming chat service: SSE event generators for Anthropic and OpenAI providers."""
 
 import json
+import time
 from collections.abc import AsyncGenerator
 
 import structlog
@@ -9,9 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.processing.ai.chat_service import (
     _collect_chat_action,
     _execute_chat_tool,
+    _validate_actions,
     build_chat_system_prompt,
 )
-from app.processing.ai.constants import MAX_TOOL_ROUNDS, tool_label
+from app.processing.ai.constants import MAX_STREAMING_WALL_CLOCK_SECONDS, MAX_TOOL_ROUNDS, tool_label
 from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 from app.processing.ai.llm_loop import (
     add_tool_cache_control,
@@ -20,7 +22,7 @@ from app.processing.ai.llm_loop import (
     build_history_messages,
     resolve_provider,
 )
-from app.processing.ai.schemas import ChatHistoryMessage, history_to_dicts
+from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, ChatMapLayer, history_to_dicts
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.modules.auth.models import User
 from app.core.config import settings
@@ -108,8 +110,13 @@ async def _stream_anthropic_chat(
     collected_actions: list[dict] = []
     total_input = 0
     total_output = 0
+    deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
     for round_num in range(MAX_TOOL_ROUNDS):
+        if time.monotonic() > deadline:
+            yield {"type": "error", "message": "Response took too long. Please try a simpler request."}
+            break
+
         buffered_tokens: list[str] = []
         has_tool_use = False
 
@@ -209,7 +216,14 @@ async def _stream_anthropic_chat(
     explanation = "".join(
         block.text for block in final_message.content if block.type == "text"
     )
-    yield {"type": "actions", "actions": collected_actions}
+
+    # Validate actions before yielding (mirrors non-streaming path)
+    actions = [ChatAction(**a) for a in collected_actions]
+    actions, dropped = _validate_actions(actions, layers)
+    if dropped:
+        explanation += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
+
+    yield {"type": "actions", "actions": [a.model_dump(exclude_none=True) for a in actions]}
     yield {"type": "done", "explanation": explanation}
 
 
@@ -233,8 +247,13 @@ async def _stream_openai_chat(
     messages.append({"role": "user", "content": message})
 
     collected_actions: list[dict] = []
+    deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
     for round_num in range(MAX_TOOL_ROUNDS):
+        if time.monotonic() > deadline:
+            yield {"type": "error", "message": "Response took too long. Please try a simpler request."}
+            break
+
         response_stream = await client.chat.completions.create(
             model=model,
             max_tokens=4096,
@@ -403,8 +422,15 @@ async def _stream_openai_chat(
                 yield {"type": "token", "text": part}
         break
 
-    yield {"type": "actions", "actions": collected_actions}
-    yield {"type": "done", "explanation": "".join(content_parts)}
+    # Validate actions before yielding (mirrors non-streaming path)
+    actions = [ChatAction(**a) for a in collected_actions]
+    actions, dropped = _validate_actions(actions, layers)
+    explanation_text = "".join(content_parts)
+    if dropped:
+        explanation_text += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
+
+    yield {"type": "actions", "actions": [a.model_dump(exclude_none=True) for a in actions]}
+    yield {"type": "done", "explanation": explanation_text}
 
 
 async def stream_chat_edit(

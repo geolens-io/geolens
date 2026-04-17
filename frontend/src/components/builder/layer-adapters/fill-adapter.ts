@@ -97,8 +97,9 @@ export const fillAdapter: LayerAdapter = {
       }
       // Sync fill-outline-color based on _stroke-disabled
       const strokeDisabled = !!rawPaint['_stroke-disabled'];
+      const outlineColor = (rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
       try {
-        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'transparent' : 'transparent');
+        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'transparent' : (outlineColor ?? 'transparent'));
       } catch { /* fill-outline-color may not be supported on all styles */ }
     }
     // Sync outline companion layer

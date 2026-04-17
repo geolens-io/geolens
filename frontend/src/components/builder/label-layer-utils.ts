@@ -43,6 +43,7 @@ export function buildLabelLayerSpec(opts: {
       'text-color': lc.textColor ?? MAP_COLORS.label.color,
       'text-halo-color': lc.haloColor ?? MAP_COLORS.label.halo,
       'text-halo-width': lc.haloWidth ?? 1.5,
+      'text-opacity': lc.textOpacity ?? 1,
     },
   } as AddLayerObject;
 }
@@ -75,5 +76,6 @@ export function syncLabelLayer(
   map.setPaintProperty(labelId, 'text-color', lc.textColor ?? MAP_COLORS.label.color);
   map.setPaintProperty(labelId, 'text-halo-color', lc.haloColor ?? MAP_COLORS.label.halo);
   map.setPaintProperty(labelId, 'text-halo-width', lc.haloWidth ?? 1.5);
+  map.setPaintProperty(labelId, 'text-opacity', lc.textOpacity ?? 1);
   map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
 }

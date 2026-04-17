@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, X, Code } from 'lucide-react';
 import type { FilterSpecification } from 'maplibre-gl';
@@ -77,8 +77,9 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
 function coerceValue(value: string, pgType: string): string | number | boolean {
   const colType = classifyColumnType(pgType);
   if (colType === 'number') {
+    if (value === '') return '';
     const n = Number(value);
-    return isNaN(n) ? value : n;
+    return isNaN(n) ? '' : n;
   }
   if (colType === 'boolean') {
     return value.toLowerCase() === 'true';
@@ -137,13 +138,57 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
   function parseSingle(e: unknown[]): FilterCondition | null {
     if (!Array.isArray(e) || e.length === 0) return null;
 
-    // is_null: ["!", ["has", field]]
+    // B-001: is_null full pattern: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
+    if (
+      e[0] === 'any' &&
+      e.length === 3 &&
+      Array.isArray(e[1]) && e[1][0] === '!' && Array.isArray(e[1][1]) && e[1][1][0] === 'has' &&
+      Array.isArray(e[2]) && e[2][0] === '==' && Array.isArray(e[2][1]) && e[2][1][0] === 'get' && e[2][2] === null
+    ) {
+      return {
+        id: crypto.randomUUID(),
+        field: e[1][1][1] as string,
+        operator: 'is_null',
+        value: '',
+      };
+    }
+
+    // is_null: ["!", ["has", field]] (legacy/short form)
     if (e[0] === '!' && Array.isArray(e[1]) && e[1][0] === 'has') {
       return {
         id: crypto.randomUUID(),
         field: e[1][1] as string,
         operator: 'is_null',
         value: '',
+      };
+    }
+
+    // B-002: not_in_list: ["!", ["in", ["get", f], ["literal", [...]]]]
+    if (
+      e[0] === '!' &&
+      Array.isArray(e[1]) && e[1][0] === 'in' &&
+      Array.isArray(e[1][1]) && e[1][1][0] === 'get' &&
+      Array.isArray(e[1][2]) && e[1][2][0] === 'literal'
+    ) {
+      return {
+        id: crypto.randomUUID(),
+        field: e[1][1][1] as string,
+        operator: 'not_in_list',
+        value: (e[1][2][1] as unknown[]).join(', '),
+      };
+    }
+
+    // B-002: in_list: ["in", ["get", f], ["literal", [...]]]
+    if (
+      e[0] === 'in' &&
+      Array.isArray(e[1]) && e[1][0] === 'get' &&
+      Array.isArray(e[2]) && e[2][0] === 'literal'
+    ) {
+      return {
+        id: crypto.randomUUID(),
+        field: e[1][1] as string,
+        operator: 'in_list',
+        value: (e[2][1] as unknown[]).join(', '),
       };
     }
 
@@ -154,6 +199,16 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
         field: e[2][1] as string,
         operator: 'contains',
         value: String(e[1]),
+      };
+    }
+
+    // B-003: has: ["has", field]
+    if (e[0] === 'has' && typeof e[1] === 'string') {
+      return {
+        id: crypto.randomUUID(),
+        field: e[1],
+        operator: 'has',
+        value: '',
       };
     }
 
@@ -206,6 +261,7 @@ export function LayerFilterEditor({
 }: LayerFilterEditorProps) {
   const { t } = useTranslation('builder');
   const lastEmittedFilterRef = useRef<unknown>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [conditions, setConditions] = useState<FilterCondition[]>([]);
   const [combinator, setCombinator] = useState<'all' | 'any'>('all');
   const [rawMode, setRawMode] = useState(false);
@@ -238,12 +294,33 @@ export function LayerFilterEditor({
     return col ? classifyColumnType(col.type) : 'other';
   }
 
+  // B-028: cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
+
   function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
     setConditions(updated);
     const newFilter = buildFilterExpression(updated, columnInfo, combo);
     lastEmittedFilterRef.current = newFilter;
     onFilterChange(newFilter);
   }
+
+  // B-028: debounced version for value input keystrokes
+  const debouncedEmit = useCallback(
+    (updated: FilterCondition[], combo: 'all' | 'any') => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      setConditions(updated);
+      debounceTimerRef.current = setTimeout(() => {
+        const newFilter = buildFilterExpression(updated, columnInfo, combo);
+        lastEmittedFilterRef.current = newFilter;
+        onFilterChange(newFilter);
+      }, 180);
+    },
+    [columnInfo, onFilterChange],
+  );
 
   function addCondition() {
     const newCond: FilterCondition = {
@@ -259,7 +336,7 @@ export function LayerFilterEditor({
     emitChange(conditions.filter((c) => c.id !== id));
   }
 
-  function updateCondition(id: string, patch: Partial<FilterCondition>) {
+  function updateCondition(id: string, patch: Partial<FilterCondition>, debounce = false) {
     const updated = conditions.map((c) => {
       if (c.id !== id) return c;
       const merged = { ...c, ...patch };
@@ -274,7 +351,11 @@ export function LayerFilterEditor({
 
       return merged;
     });
-    emitChange(updated);
+    if (debounce) {
+      debouncedEmit(updated, combinator);
+    } else {
+      emitChange(updated);
+    }
   }
 
   function handleCombinatorChange(value: string) {
@@ -437,7 +518,7 @@ export function LayerFilterEditor({
                     className="h-7 text-xs flex-1 min-w-0"
                     placeholder={t('filters.value')}
                     value={cond.value}
-                    onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
+                    onChange={(e) => updateCondition(cond.id, { value: e.target.value }, true)}
                   />
                 )}
 

@@ -3,6 +3,7 @@
 Handles CRUD operations for maps and map layers, plus default style generation.
 """
 
+import hashlib
 import logging
 import re
 import secrets
@@ -115,7 +116,7 @@ async def get_map_with_layers(
 ) -> tuple[Map | None, list[tuple], str | None, str | None]:
     """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
 
-    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values), ...], forked_from_name, owner_username)
+    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, is_3d), ...], forked_from_name, owner_username)
     or (None, [], None, None).
     """
     ForkedMap = aliased(Map)
@@ -147,6 +148,7 @@ async def get_map_with_layers(
             Dataset.feature_count,
             Dataset.sample_values,
             Record.record_type,
+            Dataset.is_3d,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -704,14 +706,19 @@ async def create_share_token(
         if not token_obj.is_active:
             token_obj.is_active = True
         return token_obj
+    raw_token = secrets.token_urlsafe(16)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     token_obj = MapShareToken(
         map_id=map_id,
-        token=secrets.token_urlsafe(16),
+        token=token_hash,
         created_by=created_by,
         expires_at=expires_at,
     )
     session.add(token_obj)
     await session.flush()
+    # Return raw token in the object so the API response contains the usable value.
+    # The DB stores the hash; the raw token is only available at creation time.
+    token_obj.token = raw_token
     return token_obj
 
 
@@ -769,9 +776,10 @@ async def get_shared_map(
     if user_roles is None:
         user_roles = set()
 
-    # Look up the share token
+    # Look up the share token by hash
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.token == token)
+        select(MapShareToken).where(MapShareToken.token == token_hash)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:

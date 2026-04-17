@@ -85,11 +85,11 @@ export function buildGraduatedExpression(
     );
   }
 
-  const expr: unknown[] = ['step', ['get', column], colors[0]];
+  const step: unknown[] = ['step', ['get', column], colors[0]];
   for (let i = 0; i < breaks.length; i++) {
-    expr.push(breaks[i], colors[i + 1]);
+    step.push(breaks[i], colors[i + 1]);
   }
-  return expr;
+  return ['case', ['==', ['get', column], null], '#cccccc', step];
 }
 
 /**

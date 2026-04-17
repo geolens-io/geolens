@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle } from 'lucide-react';
+import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
 import { checkMapVisibility } from '@/api/maps';
-import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
+import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import type { MapVisibility } from '@/types/api';
 
 function parseOrigins(input: string): string[] {
@@ -188,9 +188,15 @@ function ShareLinkSettings({
                       setDomainsValue(window.location.origin);
                     }
                     if (!checked && configDomains) {
-                      // Clear restrictions
+                      // B-016: Clear restrictions directly to avoid stale domainsValue
                       setDomainsValue('');
-                      handleSaveDomains();
+                      if (resolvedEmbedTokenId) {
+                        updateEmbedToken.mutateAsync({
+                          mapId,
+                          tokenId: resolvedEmbedTokenId,
+                          allowedOrigins: null,
+                        });
+                      }
                     }
                   }}
                   aria-label={t('share.restrictToDomains')}
@@ -259,6 +265,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
   const publishMap = usePublishMap();
   const createShareToken = useCreateShareToken();
   const createEmbedToken = useCreateEmbedToken();
+  const revokeEmbedToken = useRevokeEmbedToken();
 
   const [hasNonPublic, setHasNonPublic] = useState(false);
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
@@ -354,6 +361,23 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
     setEmbedTokenRaw(null);
     setDomainInput('');
     setHasNonPublic(false);
+  }
+
+  // B-017: Regenerate embed token when the raw value was lost (dialog reopen)
+  async function handleRegenerateEmbedToken() {
+    if (!activeEmbedToken) return;
+    try {
+      await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
+      const origins = parseOrigins(domainInput);
+      const tokenResult = await createEmbedToken.mutateAsync({
+        mapId,
+        allowedOrigins: origins.length > 0 ? origins : undefined,
+      });
+      setEmbedTokenRaw(tokenResult.raw_token);
+      toast.success(t('share.embedTokenRegenerated', { defaultValue: 'Embed token regenerated' }));
+    } catch {
+      toast.error(t('share.embedTokenFailed'));
+    }
   }
 
   function getShareUrl() {
@@ -563,6 +587,33 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                       <p className="text-xs text-foreground">
                         {t('share.embedTokenMissing', { defaultValue: 'This map contains non-public layers. Viewers may not be able to see all layers without an embed token.' })}
                       </p>
+                    </div>
+                  )}
+                  {/* B-017: Warn when embed token was created in a previous session */}
+                  {!embedTokenRaw && activeEmbedToken && (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <p className="text-xs text-foreground">
+                          {t('share.embedTokenNotAvailable', {
+                            defaultValue: 'The embed token was created in a previous session. Regenerate to get the embed code.',
+                          })}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={handleRegenerateEmbedToken}
+                          disabled={revokeEmbedToken.isPending || createEmbedToken.isPending}
+                        >
+                          {(revokeEmbedToken.isPending || createEmbedToken.isPending) ? (
+                            <Loader2 className="h-3 w-3 animate-spin me-1.5" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3 me-1.5" />
+                          )}
+                          {t('share.regenerate', { defaultValue: 'Regenerate' })}
+                        </Button>
+                      </div>
                     </div>
                   )}
                   <div className="space-y-1">

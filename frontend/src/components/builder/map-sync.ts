@@ -260,7 +260,9 @@ export function syncLayersToMap(
       const layerId = prefixed('layer',id, prefix);
       const outlineId = prefixed('outline',id, prefix);
       const labelId = prefixed('label',id, prefix);
+      const extrusionId = `${prefix ?? ''}layer-${id}-extrusion`;
       if (map.getLayer(labelId)) map.removeLayer(labelId);
+      if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
       if (map.getLayer(outlineId)) map.removeLayer(outlineId);
       if (map.getLayer(layerId)) map.removeLayer(layerId);
       if (map.getSource(sourceId)) map.removeSource(sourceId);
