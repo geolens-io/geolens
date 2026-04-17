@@ -251,6 +251,8 @@ async def generate_map_stream_endpoint(
             async for event in stream_generate_map(
                 db, user, user_roles, body.prompt, language=body.language
             ):
+                if await request.is_disconnected():
+                    break
                 yield ServerSentEvent(data=json.dumps(event), event=event["type"])
         except Exception:
             logger.exception("Map generation stream error")
@@ -359,6 +361,8 @@ async def chat_stream_endpoint(
                 language=body.language,
                 history=body.history or None,
             ):
+                if await request.is_disconnected():
+                    break
                 yield ServerSentEvent(data=json.dumps(event), event=event["type"])
         except Exception:
             logger.exception("Chat stream error")

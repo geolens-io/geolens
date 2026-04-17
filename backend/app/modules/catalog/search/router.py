@@ -55,6 +55,7 @@ from app.modules.catalog.search.service import (
     search_collections,
     search_datasets,
 )
+from pydantic import BaseModel as _BaseModel
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -193,8 +194,6 @@ async def _build_raster_assets(
 # ---------------------------------------------------------------------------
 # Search query params — injectable via Depends() to eliminate parameter sprawl
 # ---------------------------------------------------------------------------
-
-from pydantic import BaseModel as _BaseModel
 
 
 class SearchQueryParams(_BaseModel):

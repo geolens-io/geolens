@@ -239,6 +239,7 @@ async def get_dataset_collections(
         select(Collection)
         .join(CollectionDataset, CollectionDataset.collection_id == Collection.id)
         .where(CollectionDataset.dataset_id == dataset_id)
+        .limit(50)
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())

@@ -153,7 +153,7 @@ async def reupload_service_preview(
         )
 
     try:
-        validate_url_for_ssrf(request.url)
+        await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

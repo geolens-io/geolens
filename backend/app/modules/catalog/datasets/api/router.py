@@ -148,8 +148,8 @@ async def get_single_dataset(
             detail="Dataset not found",
         )
 
-    # Visibility check
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    # Visibility check — returns resolved user_roles to avoid duplicate DB query
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # Log dataset access for authenticated users only
     if user is not None:
@@ -169,7 +169,8 @@ async def get_single_dataset(
 
     base_url = await get_dataset_service_url(db, request=request)
     result = await get_dataset_detail(
-        db, dataset_id, user, base_url=base_url, collections_data=collections_data
+        db, dataset_id, user, base_url=base_url, collections_data=collections_data,
+        dataset=dataset, user_roles=user_roles,
     )
     if result is None:
         raise HTTPException(

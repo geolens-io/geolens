@@ -387,6 +387,8 @@ async def get_dataset_detail(
     *,
     base_url: str | None = None,
     collections_data: list[dict] | None = None,
+    dataset: "Dataset | None" = None,
+    user_roles: set[str] | None = None,
 ) -> "DatasetResponse | None":
     """Fetch full dataset detail including raster assets, STAC assets, and collections.
 
@@ -400,7 +402,8 @@ async def get_dataset_detail(
     from app.modules.catalog.datasets.domain.schemas import StacAsset
     from app.processing.raster.models import DatasetAsset, RasterAsset
 
-    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         return None
 
@@ -446,9 +449,10 @@ async def get_dataset_detail(
             size_bytes=da.size_bytes,
         )
 
-    from app.modules.auth.visibility import get_user_roles
+    if user_roles is None:
+        from app.modules.auth.visibility import get_user_roles
 
-    user_roles = await get_user_roles(db, user) if user is not None else set()
+        user_roles = await get_user_roles(db, user) if user is not None else set()
     is_admin = "admin" in user_roles
 
     return dataset_to_response(

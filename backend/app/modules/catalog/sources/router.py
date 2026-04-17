@@ -66,7 +66,7 @@ async def probe_service_url(
     """
     # Step 1: SSRF validation
     try:
-        validate_url_for_ssrf(request.url)
+        await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         logger.warning("SSRF blocked", url=request.url, reason=str(exc))
         await log_action(
@@ -233,7 +233,7 @@ async def preview_service_layer(
     """
     # Step 1: SSRF validation
     try:
-        validate_url_for_ssrf(request.url)
+        await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         logger.warning("SSRF blocked for preview", url=request.url, reason=str(exc))
         await log_action(

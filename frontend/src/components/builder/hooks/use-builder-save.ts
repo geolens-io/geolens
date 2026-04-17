@@ -103,6 +103,16 @@ function captureThumbnail(
   waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient));
 }
 
+function resolveWidgetsPayload(
+  mapId: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+): string[] | undefined {
+  const active = Array.from(useWidgetStore.getState().activeWidgets);
+  const cached = queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId));
+  if (cached?.widgets == null && active.length === 0) return undefined;
+  return active;
+}
+
 interface SaveState {
   mapId: string | undefined;
   localLayers: MapLayerResponse[];
@@ -145,13 +155,7 @@ export function useBuilderSave(state: SaveState) {
           zoom: zoom ?? null,
           bearing: bearing ?? 0,
           pitch: pitch ?? 0,
-          widgets: (() => {
-            const active = Array.from(useWidgetStore.getState().activeWidgets);
-            // Preserve null (use defaults) if map never had widgets saved and none are active
-            const cached = queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id));
-            if (cached?.widgets == null && active.length === 0) return undefined;
-            return active;
-          })(),
+          widgets: resolveWidgetsPayload(id, queryClient),
           layers: localLayers.map((l) => ({
             dataset_id: l.dataset_id,
             sort_order: l.sort_order,
