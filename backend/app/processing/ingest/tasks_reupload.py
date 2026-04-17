@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import structlog
 
 from sqlalchemy import select
 
@@ -40,7 +39,7 @@ async def reupload_file(
     from app.processing.ingest.metadata import _qtable
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.platform.jobs.models import IngestJob
-    from sqlalchemy import select, text
+    from sqlalchemy import text
     from sqlalchemy.orm import joinedload
 
     async with async_session() as session:
@@ -257,7 +256,7 @@ async def reupload_service(
     from app.processing.ingest.ogr import IngestionError, build_pg_conn_str, run_ogr2ogr_service
     from app.platform.jobs.models import IngestJob
     from app.modules.catalog.sources.preview import build_gdal_source
-    from sqlalchemy import select, text
+    from sqlalchemy import text
     from sqlalchemy.orm import joinedload
 
     auth_error_message = (

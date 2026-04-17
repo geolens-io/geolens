@@ -93,6 +93,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     feature_count: int | None
     sample_values: dict | None
     record_type: str | None
+    is_3d: bool | None
 
 
 class MapLayerResponse(BaseModel):
@@ -117,6 +118,7 @@ class MapLayerResponse(BaseModel):
     label_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
+    is_3d: bool | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

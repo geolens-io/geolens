@@ -1,5 +1,6 @@
 """SSRF validation, URL scheme checking, and IP resolution blocking."""
 
+import asyncio
 import ipaddress
 import socket
 from urllib.parse import urlparse
@@ -29,7 +30,7 @@ def _is_blocked_ip(
     )
 
 
-def validate_url_for_ssrf(url: str) -> None:
+async def validate_url_for_ssrf(url: str) -> None:
     """Validate a URL is safe to fetch (no SSRF).
 
     Checks:
@@ -49,8 +50,11 @@ def validate_url_for_ssrf(url: str) -> None:
         raise SSRFError("Invalid URL: no hostname found")
 
     # Resolve hostname to IP(s) before making any request
+    # Use asyncio.to_thread to avoid blocking the event loop on slow DNS
     try:
-        results = socket.getaddrinfo(hostname, parsed.port, proto=socket.IPPROTO_TCP)
+        results = await asyncio.to_thread(
+            socket.getaddrinfo, hostname, parsed.port, proto=socket.IPPROTO_TCP
+        )
     except socket.gaierror:
         raise SSRFError(f"Could not resolve hostname: {hostname}")
 

@@ -166,6 +166,7 @@ export interface DatasetUpdateRequest {
   owner_org?: string;
   quality_statement?: string;
   source_url?: string;
+  is_dem?: boolean | null;
 }
 
 // Record sub-resource types
@@ -854,7 +855,7 @@ export interface SharedLayerResponse {
   dataset_record_type?: string;
   is_dem?: boolean;
   is_3d?: boolean | null;
-  tile_url?: string;
+  tile_url: string;
   feature_count?: number | null;
 }
 

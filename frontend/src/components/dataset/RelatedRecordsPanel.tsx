@@ -102,6 +102,7 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
   const { data: relationships, isLoading, isError } = useQuery<DatasetRelationship[]>({
     queryKey: queryKeys.relationships.list(datasetId),
     queryFn: () => listRelationships(datasetId),
+    staleTime: 2 * 60_000,
   });
 
   if (isLoading) {

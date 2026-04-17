@@ -11,7 +11,6 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.db import async_session
 from app.processing.raster.cog import check_and_prepare_cog, extract_raster_metadata, sha256_file
 from app.processing.raster.quicklook import generate_quicklook
-from app.platform.storage import get_storage
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,

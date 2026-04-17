@@ -108,9 +108,10 @@ async def get_user_roles(db: AsyncSession, user: User) -> set[str]:
 
 async def check_dataset_access_or_anonymous(
     db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: User | None
-) -> None:
+) -> set[str]:
     """Enforce visibility for both authenticated and anonymous users.
 
+    Returns the resolved user_roles set (empty for anonymous).
     Anonymous users may only access public + published datasets.
     Authenticated users follow the full RBAC rules via check_dataset_access().
     """
@@ -120,14 +121,21 @@ async def check_dataset_access_or_anonymous(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
-        return
-    await check_dataset_access(db, dataset, dataset_id, user)
+        return set()
+    return await check_dataset_access(db, dataset, dataset_id, user)
 
 
 async def check_dataset_access(
-    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: User
-) -> None:
+    db: AsyncSession,
+    dataset: Any,
+    dataset_id: uuid.UUID,
+    user: User,
+    *,
+    user_roles: set[str] | None = None,
+) -> set[str]:
     """Enforce RBAC visibility on a single dataset. Raises 404 if access denied.
+
+    Returns the resolved user_roles set so callers can reuse it downstream.
 
     After refactor, visibility and created_by are on dataset.record.
 
@@ -139,9 +147,10 @@ async def check_dataset_access(
     """
     from app.modules.catalog.datasets.domain.models import DatasetGrant
 
-    user_roles = await get_user_roles(db, user)
+    if user_roles is None:
+        user_roles = await get_user_roles(db, user)
     if "admin" in user_roles:
-        return
+        return user_roles
 
     record = dataset.record
 
@@ -169,3 +178,5 @@ async def check_dataset_access(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
+
+    return user_roles

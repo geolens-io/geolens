@@ -15,15 +15,10 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procrastinate import App, PsycopgConnector
-from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.config import settings
-from app.core.db import async_session
 from app.processing.embeddings.helpers import defer_embedding
-from app.processing.raster.cog import check_and_prepare_cog, extract_raster_metadata, sha256_file
-from app.processing.raster.quicklook import generate_quicklook
-from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
 from app.platform.storage import get_storage
 
 if TYPE_CHECKING:
@@ -147,7 +142,6 @@ def _parse_temporal_fields(
     """
     from datetime import date as _date
 
-    import structlog
 
     logger = structlog.get_logger()
     parsed_start: date | None = None
@@ -190,7 +184,6 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
     upload's worth of events. Each task call clears any stale vars first so
     re-used workers cannot leak state from a prior job.
     """
-    import structlog
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(
@@ -339,7 +332,6 @@ async def _archive_original_file(
     queryable, the operator just loses the ``archive_failed``
     breadcrumb for this attempt.
     """
-    import structlog
 
     logger = structlog.get_logger()
     archive_key = f"originals/{dataset_id}/{Path(file_path).name}"
@@ -446,7 +438,6 @@ async def _cleanup_staging_on_failure(
     Shared by ``reupload_file`` and ``reupload_service`` which have
     structurally identical exception handlers.
     """
-    import structlog
     from sqlalchemy import text
 
     from app.processing.ingest.metadata import _qtable
@@ -745,7 +736,6 @@ async def _finalize_ingest(ctx: IngestContext):
     await invalidate_catalog_cache()
 
     # Generate embedding (non-fatal)
-    from app.processing.embeddings.helpers import defer_embedding
 
     await defer_embedding(dataset)
 

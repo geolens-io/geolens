@@ -447,10 +447,17 @@ async def preview_file(
     if um.get("file_type") == "raster":
         from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
 
-        meta, (compliant, reason) = await asyncio.gather(
-            asyncio.to_thread(extract_raster_metadata, file_path),
-            asyncio.to_thread(check_cog_compliance, file_path),
-        )
+        try:
+            meta, (compliant, reason) = await asyncio.gather(
+                asyncio.to_thread(extract_raster_metadata, file_path),
+                asyncio.to_thread(check_cog_compliance, file_path),
+            )
+        except Exception as exc:
+            logger.warning("raster_preview failed", job_id=str(job_id), error=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unable to preview raster file: {exc}",
+            )
         file_size: int | None = None
         try:
             import os
@@ -479,7 +486,14 @@ async def preview_file(
             temporal_start=meta.get("temporal_start"),
         )
 
-    info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
+    try:
+        info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
+    except Exception as exc:
+        logger.warning("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unable to preview file: {exc}",
+        )
 
     # Auto-detect geometry columns for non-spatial files (CSV/XLSX with lat/lng or WKT)
     detected_geom_cols = None
