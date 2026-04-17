@@ -73,19 +73,13 @@ function createMockMap(overrides: { loaded?: boolean } = {}) {
   };
 }
 
-interface SaveState {
-  mapId: string | undefined;
-  localLayers: MapLayerResponse[];
-  localBasemap: string;
-  showBasemapLabels: boolean;
-  localName: string;
-  localDescription: string;
-  mapInstanceRef: React.RefObject<ReturnType<typeof createMockMap> | null>;
-  setHasUnsavedChanges: (v: boolean) => void;
-  hasUnsavedChanges: boolean;
-  hasThumbnail?: boolean;
-}
+/** The real SaveState accepted by useBuilderSave. */
+type SaveState = Parameters<typeof useBuilderSave>[0];
 
+/**
+ * Test factory that returns a fully-typed SaveState with sensible defaults.
+ * Mock map instances are cast once here so call sites stay `as any`-free.
+ */
 function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
   return {
     mapId: 'map-1',
@@ -94,7 +88,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     showBasemapLabels: true,
     localName: 'Test Map',
     localDescription: 'A test',
-    mapInstanceRef: { current: createMockMap() },
+    mapInstanceRef: { current: createMockMap() } as SaveState['mapInstanceRef'],
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
     ...overrides,
@@ -137,8 +131,7 @@ describe('useBuilderSave', () => {
 
   it('handleSave calls updateMap.mutate with correct payload', () => {
     const state = makeSaveState();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const { result } = renderHook(() => useBuilderSave(state));
 
     act(() => {
       result.current.handleSave();
@@ -157,8 +150,7 @@ describe('useBuilderSave', () => {
 
   it('handleSave is a no-op when mapId is undefined', () => {
     const state = makeSaveState({ mapId: undefined });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const { result } = renderHook(() => useBuilderSave(state));
 
     act(() => {
       result.current.handleSave();
@@ -170,8 +162,7 @@ describe('useBuilderSave', () => {
   it('handleFork calls duplicateMutation.mutateAsync and navigates on success', async () => {
     mockMutateAsync.mockResolvedValue({ id: 'new-map-1', excluded_layer_count: 0 });
     const state = makeSaveState();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const { result } = renderHook(() => useBuilderSave(state));
 
     await act(async () => {
       await result.current.handleFork();
@@ -186,8 +177,7 @@ describe('useBuilderSave', () => {
   it('handleFork shows warning toast when excluded_layer_count > 0', async () => {
     mockMutateAsync.mockResolvedValue({ id: 'new-map-2', excluded_layer_count: 3 });
     const state = makeSaveState();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const { result } = renderHook(() => useBuilderSave(state));
 
     await act(async () => {
       await result.current.handleFork();
@@ -199,9 +189,8 @@ describe('useBuilderSave', () => {
 
   it('handleExportPNG captures immediately when map is loaded', () => {
     const mockMap = createMockMap({ loaded: true });
-    const state = makeSaveState({ mapInstanceRef: { current: mockMap } });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const state = makeSaveState({ mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'] });
+    const { result } = renderHook(() => useBuilderSave(state));
 
     act(() => {
       result.current.handleExportPNG();
@@ -214,7 +203,7 @@ describe('useBuilderSave', () => {
   it('Ctrl+S keydown calls handleSave', () => {
     const state = makeSaveState();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    renderHook(() => useBuilderSave(state as any));
+    renderHook(() => useBuilderSave(state));
 
     act(() => {
       window.dispatchEvent(
@@ -227,8 +216,7 @@ describe('useBuilderSave', () => {
 
   it('returns blocker from hook', () => {
     const state = makeSaveState();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const { result } = renderHook(() => useBuilderSave(state));
 
     expect(result.current.blocker).toBeDefined();
     expect(result.current.blocker.state).toBe('unblocked');
@@ -240,7 +228,7 @@ describe('useBuilderSave', () => {
 
     const state = makeSaveState({ hasUnsavedChanges: true });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { unmount } = renderHook(() => useBuilderSave(state as any));
+    const { unmount } = renderHook(() => useBuilderSave(state));
 
     expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
 
@@ -257,7 +245,7 @@ describe('useBuilderSave', () => {
 
     const state = makeSaveState({ hasUnsavedChanges: false });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    renderHook(() => useBuilderSave(state as any));
+    renderHook(() => useBuilderSave(state));
 
     const beforeUnloadCalls = addSpy.mock.calls.filter(
       ([event]) => event === 'beforeunload',
@@ -269,8 +257,7 @@ describe('useBuilderSave', () => {
 
   it('isSaving reflects updateMap.isPending state', () => {
     const state = makeSaveState();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { result } = renderHook(() => useBuilderSave(state as any));
+    const { result } = renderHook(() => useBuilderSave(state));
 
     // Default mock returns isPending: false
     expect(result.current.isSaving).toBe(false);
@@ -294,9 +281,8 @@ describe('useBuilderSave', () => {
     });
 
     function triggerSaveSuccess(mockMap: ReturnType<typeof createMockMap>) {
-      const state = makeSaveState({ mapInstanceRef: { current: mockMap } });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { result } = renderHook(() => useBuilderSave(state as any));
+      const state = makeSaveState({ mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'] });
+      const { result } = renderHook(() => useBuilderSave(state));
       act(() => { result.current.handleSave(); });
       // Call the onSuccess callback
       const [, opts] = mockMutate.mock.calls[0];
@@ -371,9 +357,8 @@ describe('useBuilderSave', () => {
   describe('handleExportPNG (idle handling)', () => {
     it('defers export via idle event when map is not loaded', () => {
       const mockMap = createMockMap({ loaded: false });
-      const state = makeSaveState({ mapInstanceRef: { current: mockMap } });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { result } = renderHook(() => useBuilderSave(state as any));
+      const state = makeSaveState({ mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'] });
+      const { result } = renderHook(() => useBuilderSave(state));
 
       act(() => { result.current.handleExportPNG(); });
 
@@ -399,11 +384,10 @@ describe('useBuilderSave', () => {
       const state = makeSaveState({
         hasThumbnail: false,
         localLayers: [makeLayer()],
-        mapInstanceRef: { current: mockMap },
+        mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'],
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { result } = renderHook(() => useBuilderSave(state as any));
+      const { result } = renderHook(() => useBuilderSave(state));
 
       act(() => {
         result.current.maybeAutoCaptureThumbnail(mockMap as never);

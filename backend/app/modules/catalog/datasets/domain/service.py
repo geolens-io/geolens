@@ -555,39 +555,48 @@ async def update_user_metadata(
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
 
-    # Extract fields — only set values are non-None
-    title = meta.title
-    summary = meta.summary
-    visibility = meta.visibility
-    license = meta.license
-    source_organization = meta.source_organization
-    data_vintage_start = meta.data_vintage_start
-    data_vintage_end = meta.data_vintage_end
-    lineage_summary = meta.lineage_summary
-    update_frequency = meta.update_frequency
-    usage_constraints = meta.usage_constraints
-    access_constraints = meta.access_constraints
-    sensitivity_classification = meta.sensitivity_classification
-    theme_category = meta.theme_category
-    record_status = meta.record_status
-    owner_org = meta.owner_org
-    quality_statement = meta.quality_statement
-    source_url = meta.source_url
-    language = meta.language
-
     record = dataset.record
     metadata_mutated = False
 
-    # Record fields (shared metadata)
-    if title is not None:
-        record.title = title
-        metadata_mutated = True
-    if summary is not None:
-        record.summary = summary
-        metadata_mutated = True
-    if visibility is not None:
-        # Block making a dataset non-public if it's used in public maps
-        if visibility != "public" and record.visibility == "public":
+    # --- Data-driven simple assignments (meta field -> record/dataset attr) ---
+    _RECORD_FIELD_MAP: dict[str, str] = {
+        "title": "title",
+        "summary": "summary",
+        "license": "license",
+        "source_organization": "source_organization",
+        "data_vintage_start": "temporal_start",
+        "data_vintage_end": "temporal_end",
+        "lineage_summary": "lineage_summary",
+        "update_frequency": "update_frequency",
+        "usage_constraints": "usage_constraints",
+        "access_constraints": "access_constraints",
+        "sensitivity_classification": "sensitivity_classification",
+        "theme_category": "theme_category",
+        "owner_org": "owner_org",
+        "language": "language",
+    }
+    _DATASET_FIELD_MAP: dict[str, str] = {
+        "quality_statement": "quality_statement",
+        "source_url": "source_url",
+    }
+
+    for meta_field, record_attr in _RECORD_FIELD_MAP.items():
+        value = getattr(meta, meta_field)
+        if value is not None:
+            setattr(record, record_attr, value)
+            metadata_mutated = True
+
+    for meta_field, dataset_attr in _DATASET_FIELD_MAP.items():
+        value = getattr(meta, meta_field)
+        if value is not None:
+            setattr(dataset, dataset_attr, value)
+            metadata_mutated = True
+
+    # --- Special-case fields requiring extra logic ---
+
+    # Visibility: block restricting a dataset used in public maps
+    if meta.visibility is not None:
+        if meta.visibility != "public" and record.visibility == "public":
             from app.modules.catalog.maps.service import find_public_maps_using_dataset
 
             public_maps = await find_public_maps_using_dataset(session, dataset_id)
@@ -595,42 +604,12 @@ async def update_user_metadata(
                 raise ValueError(
                     f"Cannot restrict visibility: dataset is used in public maps: {', '.join(public_maps)}"
                 )
-        record.visibility = visibility
+        record.visibility = meta.visibility
         metadata_mutated = True
-    if license is not None:
-        record.license = license
-        metadata_mutated = True
-    if source_organization is not None:
-        record.source_organization = source_organization
-        metadata_mutated = True
-    if data_vintage_start is not None:
-        record.temporal_start = data_vintage_start
-        metadata_mutated = True
-    if data_vintage_end is not None:
-        record.temporal_end = data_vintage_end
-        metadata_mutated = True
-    # ISO governance fields on record
-    if lineage_summary is not None:
-        record.lineage_summary = lineage_summary
-        metadata_mutated = True
-    if update_frequency is not None:
-        record.update_frequency = update_frequency
-        metadata_mutated = True
-    if usage_constraints is not None:
-        record.usage_constraints = usage_constraints
-        metadata_mutated = True
-    if access_constraints is not None:
-        record.access_constraints = access_constraints
-        metadata_mutated = True
-    if sensitivity_classification is not None:
-        record.sensitivity_classification = sensitivity_classification
-        metadata_mutated = True
-    if theme_category is not None:
-        record.theme_category = theme_category
-        metadata_mutated = True
-    if record_status is not None:
-        # Validation gate: only validate on transition TO published
-        if record_status == "published" and record.record_status != "published":
+
+    # Record status: validate on transition TO published
+    if meta.record_status is not None:
+        if meta.record_status == "published" and record.record_status != "published":
             from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH
 
             require_metadata = await REQUIRE_METADATA_FOR_PUBLISH.get(session)
@@ -642,24 +621,10 @@ async def update_user_metadata(
                     error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
                     raise ValueError(f"Cannot publish: {'; '.join(error_msgs)}")
             record.published_at = func.now()
-        record.record_status = record_status
-        metadata_mutated = True
-    if owner_org is not None:
-        record.owner_org = owner_org
-        metadata_mutated = True
-    if language is not None:
-        record.language = language
+        record.record_status = meta.record_status
         metadata_mutated = True
 
-    # Dataset-level fields
-    if quality_statement is not None:
-        dataset.quality_statement = quality_statement
-        metadata_mutated = True
-    if source_url is not None:
-        dataset.source_url = source_url
-        metadata_mutated = True
-
-    # Raster-specific fields
+    # Raster-specific: is_dem flag on RasterAsset
     if meta.is_dem is not None:
         from app.processing.raster.models import RasterAsset
 
@@ -676,7 +641,7 @@ async def update_user_metadata(
 
     # Check if embedding-relevant fields changed
     embedding_fields_changed = any(
-        v is not None for v in (title, summary, lineage_summary)
+        getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")
     )
 
     await session.flush()

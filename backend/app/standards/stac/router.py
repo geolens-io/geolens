@@ -6,6 +6,7 @@ consumption of published data only.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
+from app.core.db import async_session as session_factory
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url
@@ -306,74 +308,77 @@ async def get_collections(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # Batch spatial + temporal extent for all collections in a single query
-    extent_stmt = (
-        select(
-            CollectionDataset.collection_id,
-            func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
-            func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
-            func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
-            func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
-            func.min(Record.temporal_start),
-            func.max(Record.temporal_end),
-        )
-        .select_from(Record)
-        .join(Dataset, Dataset.record_id == Record.id)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .where(
-            *_published_raster_filters(),
-        )
-        .group_by(CollectionDataset.collection_id)
-    )
-    ext_rows = await db.execute(extent_stmt)
-    extent_map: dict[str, tuple] = {}
-    for row in ext_rows.all():
-        extent_map[str(row[0])] = row[1:]
+    # Three independent metadata queries -- run concurrently with separate
+    # sessions (async sessions are not safe to share across gather tasks).
 
-    # Batch-fetch keywords per collection
-    kw_stmt = (
-        select(
-            CollectionDataset.collection_id,
-            func.array_agg(func.distinct(RecordKeyword.keyword)),
+    async def _fetch_extents() -> dict[str, tuple]:
+        extent_stmt = (
+            select(
+                CollectionDataset.collection_id,
+                func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
+                func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
+                func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
+                func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
+                func.min(Record.temporal_start),
+                func.max(Record.temporal_end),
+            )
+            .select_from(Record)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .where(*_published_raster_filters())
+            .group_by(CollectionDataset.collection_id)
         )
-        .select_from(RecordKeyword)
-        .join(Record, RecordKeyword.record_id == Record.id)
-        .join(Dataset, Dataset.record_id == Record.id)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .where(
-            *_published_raster_filters(),
-        )
-        .group_by(CollectionDataset.collection_id)
-    )
-    kw_rows = await db.execute(kw_stmt)
-    keywords_map: dict[str, list[str]] = {}
-    for row in kw_rows.all():
-        kws = row[1]
-        if kws:
-            keywords_map[str(row[0])] = sorted([k for k in kws if k])
+        async with session_factory() as s:
+            rows = await s.execute(extent_stmt)
+            return {str(r[0]): r[1:] for r in rows.all()}
 
-    # Batch-fetch summaries: distinct epsg codes per collection
-    epsg_stmt = (
-        select(
-            CollectionDataset.collection_id,
-            func.array_agg(func.distinct(RasterAsset.epsg)),
+    async def _fetch_keywords() -> dict[str, list[str]]:
+        kw_stmt = (
+            select(
+                CollectionDataset.collection_id,
+                func.array_agg(func.distinct(RecordKeyword.keyword)),
+            )
+            .select_from(RecordKeyword)
+            .join(Record, RecordKeyword.record_id == Record.id)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .where(*_published_raster_filters())
+            .group_by(CollectionDataset.collection_id)
         )
-        .select_from(RasterAsset)
-        .join(Dataset, Dataset.id == RasterAsset.dataset_id)
-        .join(Record, Record.id == Dataset.record_id)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .where(
-            *_published_raster_filters(),
-            RasterAsset.epsg.isnot(None),
+        async with session_factory() as s:
+            rows = await s.execute(kw_stmt)
+            result: dict[str, list[str]] = {}
+            for row in rows.all():
+                kws = row[1]
+                if kws:
+                    result[str(row[0])] = sorted([k for k in kws if k])
+            return result
+
+    async def _fetch_epsg_codes() -> dict[str, list[int]]:
+        epsg_stmt = (
+            select(
+                CollectionDataset.collection_id,
+                func.array_agg(func.distinct(RasterAsset.epsg)),
+            )
+            .select_from(RasterAsset)
+            .join(Dataset, Dataset.id == RasterAsset.dataset_id)
+            .join(Record, Record.id == Dataset.record_id)
+            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .where(*_published_raster_filters(), RasterAsset.epsg.isnot(None))
+            .group_by(CollectionDataset.collection_id)
         )
-        .group_by(CollectionDataset.collection_id)
+        async with session_factory() as s:
+            rows = await s.execute(epsg_stmt)
+            result: dict[str, list[int]] = {}
+            for row in rows.all():
+                codes = row[1]
+                if codes:
+                    result[str(row[0])] = sorted([c for c in codes if c])
+            return result
+
+    extent_map, keywords_map, epsg_map = await asyncio.gather(
+        _fetch_extents(), _fetch_keywords(), _fetch_epsg_codes()
     )
-    epsg_rows = await db.execute(epsg_stmt)
-    epsg_map: dict[str, list[int]] = {}
-    for row in epsg_rows.all():
-        codes = row[1]
-        if codes:
-            epsg_map[str(row[0])] = sorted([c for c in codes if c])
 
     stac_collections = []
     for coll in collections:
@@ -426,57 +431,67 @@ async def get_collection(
             status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
         )
 
-    # Compute extent using the same ORM query as get_collections (single-collection)
-    extent_stmt = (
-        select(
-            func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
-            func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
-            func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
-            func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
-            func.min(Record.temporal_start),
-            func.max(Record.temporal_end),
+    # Three independent metadata queries -- run concurrently with separate sessions.
+
+    async def _fetch_extent() -> tuple | None:
+        extent_stmt = (
+            select(
+                func.ST_XMin(func.ST_Extent(Record.spatial_extent)),
+                func.ST_YMin(func.ST_Extent(Record.spatial_extent)),
+                func.ST_XMax(func.ST_Extent(Record.spatial_extent)),
+                func.ST_YMax(func.ST_Extent(Record.spatial_extent)),
+                func.min(Record.temporal_start),
+                func.max(Record.temporal_end),
+            )
+            .select_from(Record)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .where(
+                CollectionDataset.collection_id == collection_id,
+                *_published_raster_filters(),
+            )
         )
-        .select_from(Record)
-        .join(Dataset, Dataset.record_id == Record.id)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .where(
-            CollectionDataset.collection_id == collection_id,
-            *_published_raster_filters(),
+        async with session_factory() as s:
+            return (await s.execute(extent_stmt)).one_or_none()
+
+    async def _fetch_kw() -> list[str] | None:
+        kw_stmt = (
+            select(func.distinct(RecordKeyword.keyword))
+            .select_from(RecordKeyword)
+            .join(Record, RecordKeyword.record_id == Record.id)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .where(
+                CollectionDataset.collection_id == collection_id,
+                *_published_raster_filters(),
+            )
         )
+        async with session_factory() as s:
+            rows = await s.execute(kw_stmt)
+            result = sorted([r[0] for r in rows.all() if r[0]])
+            return result or None
+
+    async def _fetch_epsg() -> dict | None:
+        epsg_stmt = (
+            select(func.distinct(RasterAsset.epsg))
+            .join(Dataset, Dataset.id == RasterAsset.dataset_id)
+            .join(Record, Record.id == Dataset.record_id)
+            .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
+            .where(
+                CollectionDataset.collection_id == collection_id,
+                *_published_raster_filters(),
+                RasterAsset.epsg.isnot(None),
+            )
+        )
+        async with session_factory() as s:
+            rows = await s.execute(epsg_stmt)
+            codes = sorted([r[0] for r in rows.all() if r[0]])
+            return {"proj:epsg": codes} if codes else None
+
+    ext_row, coll_keywords, summaries = await asyncio.gather(
+        _fetch_extent(), _fetch_kw(), _fetch_epsg()
     )
-    ext_row = (await db.execute(extent_stmt)).one_or_none()
     spatial_extent, temporal_extent = _parse_extent_row(ext_row)
-
-    # Keywords for this collection
-    kw_stmt = (
-        select(func.distinct(RecordKeyword.keyword))
-        .select_from(RecordKeyword)
-        .join(Record, RecordKeyword.record_id == Record.id)
-        .join(Dataset, Dataset.record_id == Record.id)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .where(
-            CollectionDataset.collection_id == collection_id,
-            *_published_raster_filters(),
-        )
-    )
-    kw_result = await db.execute(kw_stmt)
-    coll_keywords = sorted([r[0] for r in kw_result.all() if r[0]]) or None
-
-    # Summaries: distinct EPSG codes
-    epsg_stmt = (
-        select(func.distinct(RasterAsset.epsg))
-        .join(Dataset, Dataset.id == RasterAsset.dataset_id)
-        .join(Record, Record.id == Dataset.record_id)
-        .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
-        .where(
-            CollectionDataset.collection_id == collection_id,
-            *_published_raster_filters(),
-            RasterAsset.epsg.isnot(None),
-        )
-    )
-    epsg_result = await db.execute(epsg_stmt)
-    epsg_codes = sorted([r[0] for r in epsg_result.all() if r[0]])
-    summaries = {"proj:epsg": epsg_codes} if epsg_codes else None
 
     return ogc_collection_to_stac_collection(
         str(coll.id),
@@ -559,10 +574,18 @@ async def get_collection_items(
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
 
-    # Bulk-fetch assets and raster metadata
+    # Bulk-fetch assets and raster metadata concurrently (separate sessions)
     ds_ids = [d.id for d in datasets]
-    asset_rows_map = await _fetch_dataset_asset_rows(db, ds_ids)
-    raster_meta_map = await _fetch_raster_meta(db, ds_ids)
+
+    async def _assets():
+        async with session_factory() as s:
+            return await _fetch_dataset_asset_rows(s, ds_ids)
+
+    async def _raster():
+        async with session_factory() as s:
+            return await _fetch_raster_meta(s, ds_ids)
+
+    asset_rows_map, raster_meta_map = await asyncio.gather(_assets(), _raster())
 
     features = []
     coll_id_str = str(collection_id)
@@ -632,8 +655,16 @@ async def _build_item_response(
     collection_id: str | None = None,
 ) -> JSONResponse:
     """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
-    asset_rows = await _fetch_dataset_asset_rows(db, [dataset.id])
-    raster_meta = await _fetch_raster_meta(db, [dataset.id])
+
+    async def _assets():
+        async with session_factory() as s:
+            return await _fetch_dataset_asset_rows(s, [dataset.id])
+
+    async def _raster():
+        async with session_factory() as s:
+            return await _fetch_raster_meta(s, [dataset.id])
+
+    asset_rows, raster_meta = await asyncio.gather(_assets(), _raster())
 
     item = await _dataset_to_stac_item(
         db,
@@ -921,20 +952,33 @@ async def _execute_search(
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
 
-    # Fetch asset rows, raster metadata, and collection membership in bulk
+    # Fetch asset rows, raster metadata, and collection membership concurrently
     ds_ids = [d.id for d in datasets]
-    asset_rows_map = await _fetch_dataset_asset_rows(db, ds_ids)
-    raster_meta_map = await _fetch_raster_meta(db, ds_ids)
 
-    # Bulk-fetch collection membership to avoid N+1 in _dataset_to_stac_item
-    collection_id_map: dict[str, str] = {}
-    if ds_ids:
+    async def _assets():
+        async with session_factory() as s:
+            return await _fetch_dataset_asset_rows(s, ds_ids)
+
+    async def _raster():
+        async with session_factory() as s:
+            return await _fetch_raster_meta(s, ds_ids)
+
+    async def _coll_membership() -> dict[str, str]:
+        if not ds_ids:
+            return {}
         cd_stmt = select(
             CollectionDataset.dataset_id, CollectionDataset.collection_id
         ).where(CollectionDataset.dataset_id.in_(ds_ids))
-        cd_result = await db.execute(cd_stmt)
-        for row in cd_result.all():
-            collection_id_map[str(row.dataset_id)] = str(row.collection_id)
+        async with session_factory() as s:
+            cd_result = await s.execute(cd_stmt)
+            return {
+                str(row.dataset_id): str(row.collection_id)
+                for row in cd_result.all()
+            }
+
+    asset_rows_map, raster_meta_map, collection_id_map = await asyncio.gather(
+        _assets(), _raster(), _coll_membership()
+    )
 
     # Convert to STAC Items
     features = []

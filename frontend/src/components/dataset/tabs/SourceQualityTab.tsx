@@ -5,7 +5,6 @@ import type { DatasetResponse } from '@/types/api';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useLineageDraft, useQualityStatementDraft } from '@/hooks/use-ai-metadata';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
