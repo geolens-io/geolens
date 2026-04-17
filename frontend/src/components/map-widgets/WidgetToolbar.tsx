@@ -1,7 +1,7 @@
 import { LayoutGrid } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
 

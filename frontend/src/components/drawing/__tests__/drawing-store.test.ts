@@ -1,4 +1,4 @@
-import { useDrawingStore } from '@/stores/drawing-store';
+import { useDrawingStore } from '@/components/drawing/drawing-store';
 
 const initialState = useDrawingStore.getState();
 

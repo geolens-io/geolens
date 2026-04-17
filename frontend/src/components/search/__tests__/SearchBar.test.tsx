@@ -1,6 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
-import { useSearchStore } from '@/stores/search-store';
+import { useSearchStore } from '@/components/search/search-store';
 import { SearchBar } from '../SearchBar';
 
 // Mock the debounce hook to return value immediately

@@ -5,7 +5,7 @@ import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { getThemeBasemap, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
-import { useDrawingStore } from '@/stores/drawing-store';
+import { useDrawingStore } from '@/components/drawing/drawing-store';
 import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
 import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/hooks/use-feature-editing';
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';

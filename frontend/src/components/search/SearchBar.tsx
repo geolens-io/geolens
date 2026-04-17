@@ -3,7 +3,7 @@ import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { useDebouncedValue } from '@/hooks/use-debounce';
-import { useSearchStore } from '@/stores/search-store';
+import { useSearchStore } from '@/components/search/search-store';
 import { cn } from '@/lib/utils';
 import { SearchTypeahead } from './SearchTypeahead';
 

@@ -1,4 +1,4 @@
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 
 const initialState = useWidgetStore.getState();
 
