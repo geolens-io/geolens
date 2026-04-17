@@ -1,6 +1,7 @@
 """Search and OGC API Records endpoints."""
 
 import json
+import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Literal
@@ -190,6 +191,145 @@ async def _build_raster_assets(
 
 
 # ---------------------------------------------------------------------------
+# Search query params — injectable via Depends() to eliminate parameter sprawl
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _BaseModel
+
+
+class SearchQueryParams(_BaseModel):
+    """Query parameters for the search endpoints, injectable via FastAPI Depends().
+
+    Handles raw HTTP query params; use :meth:`to_filters` to convert into the
+    service-layer ``SearchFilters`` dataclass (which expects pre-parsed bbox
+    and geometry_geojson).
+    """
+
+    q: str | None = Query(None, description="Full-text search query")
+    bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy")
+    keywords: list[str] | None = Query(None, description="Filter by keywords")
+    geometry_type: str | None = Query(None, description="Filter by geometry type")
+    srid: int | None = Query(None, description="Filter by SRID")
+    source_organization: str | None = Query(
+        None, description="Filter by source organization"
+    )
+    record_type: str | None = Query(
+        None, description="Filter by record type (vector_dataset, raster_dataset)"
+    )
+    date_from: date | None = Query(None, description="Filter created_at >=")
+    date_to: date | None = Query(None, description="Filter created_at <=")
+    vintage_start: date | None = Query(
+        None, description="Filter data_vintage_start >="
+    )
+    vintage_end: date | None = Query(None, description="Filter data_vintage_end <=")
+    sort_by: str = Query(
+        "relevance",
+        description="Sort: relevance, date_added, name, last_updated",
+    )
+    sort_desc: bool | None = Query(None, description="Sort direction override")
+    offset: int = Query(0, ge=0, description="Pagination offset")
+    limit: int = Query(10, ge=1, le=1000, description="Page size")
+    cql2_filter: str | None = Query(
+        None, alias="filter", description="CQL2 filter expression"
+    )
+    cql2_filter_lang: str = Query(
+        "cql2-text",
+        alias="filter-lang",
+        description="Filter language: cql2-text or cql2-json",
+    )
+    datetime_param: str | None = Query(
+        None,
+        alias="datetime",
+        description="OGC datetime interval: instant, start/end, ../end, start/..",
+    )
+    exclude_synthetic: bool = Query(
+        True, description="Exclude synthetic/test datasets"
+    )
+    spatial_predicate: Literal["intersects", "within"] = Query(
+        "intersects", description="Spatial predicate: intersects or within"
+    )
+    geometry: str | None = Query(
+        None, description="GeoJSON geometry for spatial filter"
+    )
+    collection_id: uuid.UUID | None = Query(
+        None, description="Filter by collection membership"
+    )
+
+    model_config = {"extra": "ignore"}
+
+    def to_filters(self) -> SearchFilters:
+        """Convert raw query params into a service-layer SearchFilters."""
+        geometry_geojson, bbox_parsed = _parse_spatial_params(
+            self.geometry, self.bbox
+        )
+        return SearchFilters(
+            q=self.q,
+            bbox=bbox_parsed,
+            keywords=self.keywords,
+            geometry_type=self.geometry_type,
+            srid=self.srid,
+            source_organization=self.source_organization,
+            record_type=self.record_type,
+            date_from=self.date_from,
+            date_to=self.date_to,
+            vintage_start=self.vintage_start,
+            vintage_end=self.vintage_end,
+            sort_by=self.sort_by,
+            sort_desc=self.sort_desc,
+            skip=self.offset,
+            limit=self.limit,
+            cql2_filter=self.cql2_filter,
+            cql2_filter_lang=self.cql2_filter_lang,
+            datetime_param=self.datetime_param,
+            exclude_synthetic=self.exclude_synthetic,
+            spatial_predicate=self.spatial_predicate,
+            geometry_geojson=geometry_geojson,
+            collection_id=self.collection_id,
+        )
+
+    def active_pagination_params(self) -> dict[str, str | list[str]]:
+        """Build a dict of non-default query params for pagination URLs."""
+        params: dict[str, str | list[str]] = {}
+        if self.q:
+            params["q"] = self.q
+        if self.geometry:
+            params["geometry"] = self.geometry
+        if self.bbox:
+            params["bbox"] = self.bbox
+        if self.keywords:
+            params["keywords"] = self.keywords
+        if self.geometry_type:
+            params["geometry_type"] = self.geometry_type
+        if self.srid is not None:
+            params["srid"] = str(self.srid)
+        if self.source_organization:
+            params["source_organization"] = self.source_organization
+        if self.record_type:
+            params["record_type"] = self.record_type
+        if self.collection_id:
+            params["collection_id"] = str(self.collection_id)
+        if self.date_from is not None:
+            params["date_from"] = self.date_from.isoformat()
+        if self.date_to is not None:
+            params["date_to"] = self.date_to.isoformat()
+        if self.vintage_start is not None:
+            params["vintage_start"] = self.vintage_start.isoformat()
+        if self.vintage_end is not None:
+            params["vintage_end"] = self.vintage_end.isoformat()
+        if self.sort_by != "relevance":
+            params["sort_by"] = self.sort_by
+        if self.datetime_param:
+            params["datetime"] = self.datetime_param
+        if not self.exclude_synthetic:
+            params["exclude_synthetic"] = "false"
+        if self.cql2_filter:
+            params["filter"] = self.cql2_filter
+        if self.cql2_filter_lang != "cql2-text":
+            params["filter-lang"] = self.cql2_filter_lang
+        return params
+
+
+# ---------------------------------------------------------------------------
 # Shared search handler
 # ---------------------------------------------------------------------------
 
@@ -198,64 +338,17 @@ async def _handle_search(
     db: AsyncSession,
     user: User | None,
     request: Request,
-    *,
-    q: str | None,
-    bbox: str | None,
-    keywords: list[str] | None,
-    geometry_type: str | None,
-    srid: int | None,
-    source_organization: str | None,
-    record_type: str | None = None,
-    date_from: date | None,
-    date_to: date | None,
-    vintage_start: date | None,
-    vintage_end: date | None,
-    sort_by: str,
-    sort_desc: bool | None = None,
-    offset: int,
-    limit: int,
-    cql2_filter: str | None = None,
-    cql2_filter_lang: str = "cql2-text",
-    datetime_param: str | None = None,
-    exclude_synthetic: bool = True,
-    spatial_predicate: Literal["intersects", "within"] = "intersects",
-    geometry: str | None = None,
-    collection_id: uuid.UUID | None = None,
+    params: SearchQueryParams,
 ) -> OGCFeatureCollectionResponse:
     """Parse parameters, run search, and return OGC FeatureCollection."""
     public_api_url = await get_public_api_url(db, request=request)
 
-    geometry_geojson, bbox_parsed = _parse_spatial_params(geometry, bbox)
+    filters = params.to_filters()
 
     if user is not None:
         user_roles = await get_user_roles(db, user)
     else:
         user_roles = set()
-
-    filters = SearchFilters(
-        q=q,
-        bbox=bbox_parsed,
-        keywords=keywords,
-        geometry_type=geometry_type,
-        srid=srid,
-        source_organization=source_organization,
-        record_type=record_type,
-        date_from=date_from,
-        date_to=date_to,
-        vintage_start=vintage_start,
-        vintage_end=vintage_end,
-        sort_by=sort_by,
-        sort_desc=sort_desc,
-        skip=offset,
-        limit=limit,
-        cql2_filter=cql2_filter,
-        cql2_filter_lang=cql2_filter_lang,
-        datetime_param=datetime_param,
-        exclude_synthetic=exclude_synthetic,
-        spatial_predicate=spatial_predicate,
-        geometry_geojson=geometry_geojson,
-        collection_id=collection_id,
-    )
 
     datasets, total = await search_datasets(
         db,
@@ -364,8 +457,16 @@ async def _handle_search(
 
     # Append collection results on first page when text search is active
     # Skip when filtering by a specific collection
-    if q and q.strip() and offset == 0 and not record_type and not collection_id:
-        coll_results = await search_collections(db, q, user, user_roles, limit=5)
+    if (
+        params.q
+        and params.q.strip()
+        and params.offset == 0
+        and not params.record_type
+        and not params.collection_id
+    ):
+        coll_results = await search_collections(
+            db, params.q, user, user_roles, limit=5
+        )
         for coll in coll_results:
             features.append(
                 {
@@ -393,46 +494,8 @@ async def _handle_search(
                 }
             )
 
-    # Build dict of active query parameters for pagination URLs
-    active_params: dict[str, str | list[str]] = {}
-    if q:
-        active_params["q"] = q
-    if geometry:
-        active_params["geometry"] = geometry
-    if bbox:
-        active_params["bbox"] = bbox
-    if keywords:
-        active_params["keywords"] = (
-            keywords  # list value, urlencode with doseq handles it
-        )
-    if geometry_type:
-        active_params["geometry_type"] = geometry_type
-    if srid is not None:
-        active_params["srid"] = str(srid)
-    if source_organization:
-        active_params["source_organization"] = source_organization
-    if record_type:
-        active_params["record_type"] = record_type
-    if collection_id:
-        active_params["collection_id"] = str(collection_id)
-    if date_from is not None:
-        active_params["date_from"] = date_from.isoformat()
-    if date_to is not None:
-        active_params["date_to"] = date_to.isoformat()
-    if vintage_start is not None:
-        active_params["vintage_start"] = vintage_start.isoformat()
-    if vintage_end is not None:
-        active_params["vintage_end"] = vintage_end.isoformat()
-    if sort_by != "relevance":
-        active_params["sort_by"] = sort_by
-    if datetime_param:
-        active_params["datetime"] = datetime_param
-    if not exclude_synthetic:
-        active_params["exclude_synthetic"] = "false"
-    if cql2_filter:
-        active_params["filter"] = cql2_filter
-    if cql2_filter_lang != "cql2-text":
-        active_params["filter-lang"] = cql2_filter_lang
+    # Build pagination links
+    active_params = params.active_pagination_params()
     base_path = "/collections/datasets/items"
 
     links = [
@@ -454,7 +517,7 @@ async def _handle_search(
     ]
 
     # Next link: more results beyond current page
-    if offset + limit < total:
+    if params.offset + params.limit < total:
         links.append(
             OGCRecordLink(
                 rel="next",
@@ -462,15 +525,15 @@ async def _handle_search(
                     public_api_url,
                     base_path,
                     active_params,
-                    offset=offset + limit,
-                    limit=limit,
+                    offset=params.offset + params.limit,
+                    limit=params.limit,
                 ),
                 type="application/geo+json",
             )
         )
 
     # Previous link: not on first page
-    if offset > 0:
+    if params.offset > 0:
         links.append(
             OGCRecordLink(
                 rel="prev",
@@ -478,8 +541,8 @@ async def _handle_search(
                     public_api_url,
                     base_path,
                     active_params,
-                    offset=max(0, offset - limit),
-                    limit=limit,
+                    offset=max(0, params.offset - params.limit),
+                    limit=params.limit,
                 ),
                 type="application/geo+json",
             )
@@ -567,74 +630,12 @@ async def search_facets_endpoint(
 @search_router.get("/datasets/", response_model=OGCFeatureCollectionResponse)
 async def search_datasets_endpoint(
     request: Request,
-    q: str | None = Query(None, description="Full-text search query"),
-    bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
-    keywords: list[str] | None = Query(None, description="Filter by keywords"),
-    geometry_type: str | None = Query(None, description="Filter by geometry type"),
-    srid: int | None = Query(None, description="Filter by SRID"),
-    source_organization: str | None = Query(
-        None, description="Filter by source organization"
-    ),
-    record_type: str | None = Query(
-        None, description="Filter by record type (vector_dataset, raster_dataset)"
-    ),
-    date_from: date | None = Query(None, description="Filter created_at >="),
-    date_to: date | None = Query(None, description="Filter created_at <="),
-    vintage_start: date | None = Query(
-        None, description="Filter data_vintage_start >="
-    ),
-    vintage_end: date | None = Query(None, description="Filter data_vintage_end <="),
-    sort_by: str = Query(
-        "relevance",
-        description="Sort: relevance, date_added, name, last_updated",
-    ),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(10, ge=1, le=1000, description="Page size"),
-    datetime_param: str | None = Query(
-        None,
-        alias="datetime",
-        description="OGC datetime interval: instant, start/end, ../end, start/..",
-    ),
-    exclude_synthetic: bool = Query(
-        True, description="Exclude synthetic/test datasets"
-    ),
-    spatial_predicate: Literal["intersects", "within"] = Query(
-        "intersects", description="Spatial predicate: intersects or within"
-    ),
-    geometry: str | None = Query(
-        None, description="GeoJSON geometry for spatial filter"
-    ),
-    collection_id: uuid.UUID | None = Query(
-        None, description="Filter by collection membership"
-    ),
+    params: SearchQueryParams = Depends(),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
-    return await _handle_search(
-        db,
-        user,
-        request,
-        q=q,
-        bbox=bbox,
-        keywords=keywords,
-        geometry_type=geometry_type,
-        srid=srid,
-        source_organization=source_organization,
-        record_type=record_type,
-        date_from=date_from,
-        date_to=date_to,
-        vintage_start=vintage_start,
-        vintage_end=vintage_end,
-        sort_by=sort_by,
-        offset=offset,
-        limit=limit,
-        datetime_param=datetime_param,
-        exclude_synthetic=exclude_synthetic,
-        spatial_predicate=spatial_predicate,
-        geometry=geometry,
-        collection_id=collection_id,
-    )
+    return await _handle_search(db, user, request, params)
 
 
 # ---------------------------------------------------------------------------
@@ -714,12 +715,71 @@ async def delete_saved_search_endpoint(
 collections_router = APIRouter(prefix="/collections", tags=["OGC Features"])
 
 
+# ---------------------------------------------------------------------------
+# TTL cache for collection metadata aggregates
+# ---------------------------------------------------------------------------
+
+_COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
+_COLLECTION_META_TTL = 60  # seconds
+
+
+def _invalidate_collection_meta_cache() -> None:
+    """Clear the collection metadata cache (useful after writes)."""
+    _COLLECTION_META_CACHE.clear()
+
+
+async def _distinct_aggregate(
+    db: AsyncSession,
+    column,
+    user: User | None,
+    user_roles: set[str],
+    *,
+    from_dataset: bool = True,
+    extra_joins: list | None = None,
+    extra_filters: list | None = None,
+) -> list:
+    """Run a distinct aggregate query with visibility filtering.
+
+    Args:
+        column: The column to select distinct values from.
+        from_dataset: When True, start from Dataset joined to Record (default).
+        extra_joins: Additional (target, onclause) join pairs.
+        extra_filters: Additional WHERE clauses.
+
+    Returns a sorted list of distinct non-null values.
+    """
+    stmt = select(func.distinct(column))
+    if from_dataset:
+        stmt = stmt.select_from(Dataset).join(Record, Dataset.record_id == Record.id)
+    for target, onclause in (extra_joins or []):
+        stmt = stmt.join(target, onclause)
+    for filt in extra_filters or []:
+        stmt = stmt.where(filt)
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    result = await db.execute(stmt)
+    return sorted([r[0] for r in result.all()])
+
+
 async def _build_collection_metadata(
     db: AsyncSession,
     user: User | None,
     public_api_url: str,
 ) -> dict:
-    """Build dynamic collection metadata with aggregated extents and summaries."""
+    """Build dynamic collection metadata with aggregated extents and summaries.
+
+    Results are cached for 60 seconds keyed by user-id (or 'anon') to avoid
+    redundant aggregate queries on every request.
+    """
+    cache_key = str(user.id) if user is not None else "anon"
+    cached = _COLLECTION_META_CACHE.get(cache_key)
+    if cached is not None:
+        ts, data = cached
+        if time.monotonic() - ts < _COLLECTION_META_TTL:
+            # Re-stamp links with current public_api_url (may differ per request)
+            data = dict(data)
+            data["links"] = _build_collection_links(public_api_url)
+            return data
+
     if user is not None:
         user_roles = await get_user_roles(db, user)
     else:
@@ -771,50 +831,26 @@ async def _build_collection_metadata(
     if temporal_extent is not None:
         extent["temporal"] = temporal_extent
 
-    # Summaries: geometry types
-    geo_stmt = (
-        select(func.distinct(Dataset.geometry_type))
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.geometry_type.isnot(None))
+    # Summaries via reusable aggregate helper
+    geometry_types = await _distinct_aggregate(
+        db, Dataset.geometry_type, user, user_roles,
+        extra_filters=[Dataset.geometry_type.isnot(None)],
     )
-    geo_stmt = apply_visibility_filter(geo_stmt, user, user_roles, Record, DatasetGrant)
-    geo_result = await db.execute(geo_stmt)
-    geometry_types = sorted([r[0] for r in geo_result.all()])
-
-    # Summaries: SRIDs
-    srid_stmt = (
-        select(func.distinct(Dataset.srid))
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.srid.isnot(None))
+    srids = await _distinct_aggregate(
+        db, Dataset.srid, user, user_roles,
+        extra_filters=[Dataset.srid.isnot(None)],
     )
-    srid_stmt = apply_visibility_filter(
-        srid_stmt, user, user_roles, Record, DatasetGrant
+    keywords_list = await _distinct_aggregate(
+        db, RecordKeyword.keyword, user, user_roles,
+        extra_joins=[(RecordKeyword, RecordKeyword.record_id == Record.id)],
     )
-    srid_result = await db.execute(srid_stmt)
-    srids = sorted([r[0] for r in srid_result.all()])
-
-    # Summaries: keywords (from record_keywords table)
-    kw_stmt = (
-        select(func.distinct(RecordKeyword.keyword))
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
-        .join(RecordKeyword, RecordKeyword.record_id == Record.id)
+    organizations = await _distinct_aggregate(
+        db, Record.source_organization, user, user_roles,
+        extra_filters=[
+            Record.source_organization.isnot(None),
+            Record.source_organization != "",
+        ],
     )
-    kw_stmt = apply_visibility_filter(kw_stmt, user, user_roles, Record, DatasetGrant)
-    kw_result = await db.execute(kw_stmt)
-    keywords_list = sorted([r[0] for r in kw_result.all()])
-
-    # Summaries: source organizations
-    org_stmt = (
-        select(func.distinct(Record.source_organization))
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Record.source_organization.isnot(None))
-        .where(Record.source_organization != "")
-    )
-    org_stmt = apply_visibility_filter(org_stmt, user, user_roles, Record, DatasetGrant)
-    org_result = await db.execute(org_stmt)
-    organizations = sorted([r[0] for r in org_result.all()])
 
     # Build summaries
     summaries = {}
@@ -833,56 +869,66 @@ async def _build_collection_metadata(
         "title": "GeoLens Dataset Catalog",
         "description": "Searchable catalog of geospatial datasets managed by GeoLens",
         "itemType": "record",
-        "links": [
-            {
-                "rel": "self",
-                "href": build_url("/collections/datasets", base_url=public_api_url),
-                "type": "application/json",
-            },
-            {
-                "rel": "items",
-                "href": build_url(
-                    "/collections/datasets/items",
-                    base_url=public_api_url,
-                ),
-                "type": "application/geo+json",
-            },
-            {
-                "rel": "root",
-                "href": build_url("/", base_url=public_api_url),
-                "type": "application/json",
-            },
-            {
-                "rel": "http://www.opengis.net/def/rel/ogc/1.0/queryables",
-                "href": build_url(
-                    "/collections/datasets/queryables",
-                    base_url=public_api_url,
-                ),
-                "type": "application/schema+json",
-                "title": "Queryable properties",
-            },
-            {
-                "rel": "http://www.opengis.net/def/rel/ogc/1.0/schema",
-                "href": build_url(
-                    "/collections/datasets/schema",
-                    base_url=public_api_url,
-                ),
-                "type": "application/schema+json",
-                "title": "Record schema",
-            },
-        ],
+        "links": _build_collection_links(public_api_url),
     }
     if extent:
         collection["extent"] = extent
     if summaries:
         collection["summaries"] = summaries
 
+    # Store in cache
+    _COLLECTION_META_CACHE[cache_key] = (time.monotonic(), collection)
+
     return collection
+
+
+def _build_collection_links(public_api_url: str) -> list[dict]:
+    """Build the standard links array for the datasets collection."""
+    return [
+        {
+            "rel": "self",
+            "href": build_url("/collections/datasets", base_url=public_api_url),
+            "type": "application/json",
+        },
+        {
+            "rel": "items",
+            "href": build_url(
+                "/collections/datasets/items",
+                base_url=public_api_url,
+            ),
+            "type": "application/geo+json",
+        },
+        {
+            "rel": "root",
+            "href": build_url("/", base_url=public_api_url),
+            "type": "application/json",
+        },
+        {
+            "rel": "http://www.opengis.net/def/rel/ogc/1.0/queryables",
+            "href": build_url(
+                "/collections/datasets/queryables",
+                base_url=public_api_url,
+            ),
+            "type": "application/schema+json",
+            "title": "Queryable properties",
+        },
+        {
+            "rel": "http://www.opengis.net/def/rel/ogc/1.0/schema",
+            "href": build_url(
+                "/collections/datasets/schema",
+                base_url=public_api_url,
+            ),
+            "type": "application/schema+json",
+            "title": "Record schema",
+        },
+    ]
 
 
 @collections_router.get("", response_model=OGCCollectionsResponse)
 async def list_collections(
     request: Request,
+    offset: int = Query(0, ge=0, description="Pagination offset for per-dataset collections"),
+    limit: int = Query(200, ge=1, le=1000, description="Max per-dataset collections to return"),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCCollectionsResponse:
@@ -900,13 +946,18 @@ async def list_collections(
 
     from sqlalchemy.orm import joinedload as _jl
 
-    ds_stmt = (
+    ds_base = (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(_jl(Dataset.record))
     )
-    ds_stmt = apply_visibility_filter(ds_stmt, user, user_roles, Record, DatasetGrant)
-    ds_stmt = ds_stmt.limit(200)
+    ds_base = apply_visibility_filter(ds_base, user, user_roles, Record, DatasetGrant)
+
+    # Total count for pagination links
+    count_stmt = select(func.count()).select_from(ds_base.subquery())
+    total_datasets = (await db.execute(count_stmt)).scalar_one()
+
+    ds_stmt = ds_base.offset(offset).limit(limit)
     ds_result = await db.execute(ds_stmt)
     datasets = ds_result.scalars().unique().all()
 
@@ -971,20 +1022,46 @@ async def list_collections(
             entry["extent"] = extent
         dataset_collections.append(entry)
 
+    # Build OGC-compliant pagination links
+    nav_links: list[OGCRecordLink] = [
+        OGCRecordLink(
+            rel="self",
+            href=build_url("/collections", base_url=public_api_url),
+            type="application/json",
+        ),
+        OGCRecordLink(
+            rel="root",
+            href=build_url("/", base_url=public_api_url),
+            type="application/json",
+        ),
+    ]
+    base_path = "/collections"
+    if offset + limit < total_datasets:
+        nav_links.append(
+            OGCRecordLink(
+                rel="next",
+                href=_build_pagination_url(
+                    public_api_url, base_path, {},
+                    offset=offset + limit, limit=limit,
+                ),
+                type="application/json",
+            )
+        )
+    if offset > 0:
+        nav_links.append(
+            OGCRecordLink(
+                rel="prev",
+                href=_build_pagination_url(
+                    public_api_url, base_path, {},
+                    offset=max(0, offset - limit), limit=limit,
+                ),
+                type="application/json",
+            )
+        )
+
     return OGCCollectionsResponse(
         collections=[catalog_collection] + dataset_collections,
-        links=[
-            OGCRecordLink(
-                rel="self",
-                href=build_url("/collections", base_url=public_api_url),
-                type="application/json",
-            ),
-            OGCRecordLink(
-                rel="root",
-                href=build_url("/", base_url=public_api_url),
-                type="application/json",
-            ),
-        ],
+        links=nav_links,
     )
 
 
@@ -1138,46 +1215,11 @@ async def get_sortables(
 @collections_router.get("/datasets/items")
 async def collection_items(
     request: Request,
-    q: str | None = Query(None),
-    bbox: str | None = Query(None),
-    keywords: list[str] | None = Query(None),
-    geometry_type: str | None = Query(None),
-    srid: int | None = Query(None),
-    source_organization: str | None = Query(None),
-    record_type: str | None = Query(None),
+    params: SearchQueryParams = Depends(),
     type_param: str | None = Query(
         None, alias="type", description="OGC record type filter"
     ),
-    date_from: date | None = Query(None),
-    date_to: date | None = Query(None),
-    vintage_start: date | None = Query(None),
-    vintage_end: date | None = Query(None),
-    sort_by: str = Query("relevance"),
     sortby: str | None = Query(None, description="OGC sortby: +field or -field"),
-    offset: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=1000),
-    cql_filter: str | None = Query(
-        None, alias="filter", description="CQL2 filter expression"
-    ),
-    filter_lang: str = Query(
-        "cql2-text",
-        alias="filter-lang",
-        description="Filter language: cql2-text or cql2-json",
-    ),
-    datetime_param: str | None = Query(
-        None,
-        alias="datetime",
-        description="OGC datetime interval: instant, start/end, ../end, start/..",
-    ),
-    exclude_synthetic: bool = Query(
-        True, description="Exclude synthetic/test datasets"
-    ),
-    spatial_predicate: Literal["intersects", "within"] = Query(
-        "intersects", description="Spatial predicate: intersects or within"
-    ),
-    geometry: str | None = Query(
-        None, description="GeoJSON geometry for spatial filter"
-    ),
     external_id: str | None = Query(
         None,
         alias="externalId",
@@ -1191,44 +1233,20 @@ async def collection_items(
     if external_id:
         return await _lookup_by_external_id(db, external_id, request)
 
-    # OGC type param -> record_type
-    if type_param and not record_type:
-        record_type = type_param
-
-    # OGC sortby -> internal sort_by mapping (sortby takes precedence)
-    sort_desc: bool | None = None
+    # Apply OGC-specific overrides via model_copy to keep params immutable
+    overrides: dict = {}
+    if type_param and not params.record_type:
+        overrides["record_type"] = type_param
     if sortby is not None:
         parsed = _parse_ogc_sortby(sortby)
         if isinstance(parsed, JSONResponse):
             return parsed
-        sort_by, sort_desc = parsed
+        overrides["sort_by"] = parsed[0]
+        overrides["sort_desc"] = parsed[1]
 
-    result = await _handle_search(
-        db,
-        user,
-        request,
-        q=q,
-        bbox=bbox,
-        keywords=keywords,
-        geometry_type=geometry_type,
-        srid=srid,
-        source_organization=source_organization,
-        record_type=record_type,
-        date_from=date_from,
-        date_to=date_to,
-        vintage_start=vintage_start,
-        vintage_end=vintage_end,
-        sort_by=sort_by,
-        sort_desc=sort_desc,
-        offset=offset,
-        limit=limit,
-        cql2_filter=cql_filter,
-        cql2_filter_lang=filter_lang,
-        datetime_param=datetime_param,
-        exclude_synthetic=exclude_synthetic,
-        spatial_predicate=spatial_predicate,
-        geometry=geometry,
-    )
+    effective_params = params.model_copy(update=overrides) if overrides else params
+
+    result = await _handle_search(db, user, request, effective_params)
     return JSONResponse(
         content=result.model_dump(mode="json"),
         media_type="application/geo+json",

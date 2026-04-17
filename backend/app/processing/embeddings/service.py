@@ -65,20 +65,42 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 
     client = build_openai_client(base_url)
 
-    try:
-        response = await asyncio.to_thread(
-            client.embeddings.create,
-            model=model,
-            input=text,
-            dimensions=dims,
-        )
-    except Exception as exc:
-        logger.error(
-            "Embedding API call failed", error=str(exc), model=model, exc_info=True
-        )
-        raise EmbeddingUnavailableError(f"Embedding API call failed: {exc}") from exc
+    max_attempts = 2
+    backoff = 2.0
+    last_exc: Exception | None = None
 
-    return response.data[0].embedding
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = await asyncio.to_thread(
+                client.embeddings.create,
+                model=model,
+                input=text,
+                dimensions=dims,
+            )
+            return response.data[0].embedding
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                logger.debug(
+                    "Embedding API call failed, retrying",
+                    attempt=attempt,
+                    backoff=backoff,
+                    error=str(exc),
+                    model=model,
+                )
+                await asyncio.sleep(backoff)
+            else:
+                logger.error(
+                    "Embedding API call failed after retries",
+                    error=str(exc),
+                    model=model,
+                    attempts=max_attempts,
+                    exc_info=True,
+                )
+
+    raise EmbeddingUnavailableError(
+        f"Embedding API call failed: {last_exc}"
+    ) from last_exc
 
 
 async def probe_embedding_dimensions(session: AsyncSession) -> int:
@@ -100,16 +122,41 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
 
     client = build_openai_client(base_url)
 
-    try:
-        response = await asyncio.to_thread(
-            client.embeddings.create,
-            model=model,
-            input="dimension probe",
-        )
-    except Exception as exc:
-        raise EmbeddingUnavailableError(f"Embedding probe failed: {exc}") from exc
+    max_attempts = 2
+    backoff = 2.0
+    last_exc: Exception | None = None
 
-    return len(response.data[0].embedding)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = await asyncio.to_thread(
+                client.embeddings.create,
+                model=model,
+                input="dimension probe",
+            )
+            return len(response.data[0].embedding)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                logger.debug(
+                    "Embedding probe failed, retrying",
+                    attempt=attempt,
+                    backoff=backoff,
+                    error=str(exc),
+                    model=model,
+                )
+                await asyncio.sleep(backoff)
+            else:
+                logger.error(
+                    "Embedding probe failed after retries",
+                    error=str(exc),
+                    model=model,
+                    attempts=max_attempts,
+                    exc_info=True,
+                )
+
+    raise EmbeddingUnavailableError(
+        f"Embedding probe failed: {last_exc}"
+    ) from last_exc
 
 
 # ---------------------------------------------------------------------------

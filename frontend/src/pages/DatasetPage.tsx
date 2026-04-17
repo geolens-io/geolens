@@ -11,6 +11,7 @@ import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
 import { useDatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
+import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useAllSettings } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
@@ -312,12 +313,10 @@ export function DatasetPage() {
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const selectedFeatureGid = useDrawingStore((s) => s.selectedFeature?.gid ?? null);
-  const [readOnlyFeatureGid, setReadOnlyFeatureGid] = useState<number | null>(null);
+  const { effectiveGid, setReadOnlyFeatureGid } = useFeatureGid();
   const [isHeroExpanded, setIsHeroExpanded] = useState(true);
   const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
   const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
-  const effectiveGid = selectedFeatureGid ?? readOnlyFeatureGid;
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
   const capabilities = useDatasetEditCapabilities();
@@ -354,13 +353,6 @@ export function DatasetPage() {
   // 404 is a normal case — the dataset was registered from an existing table
   // or created via a non-ingest path.
   const { data: datasetJob } = useDatasetJobStatus(id ?? null);
-
-  // Clear read-only selection when editing mode activates
-  useEffect(() => {
-    if (selectedFeatureGid != null) {
-      setReadOnlyFeatureGid(null);
-    }
-  }, [selectedFeatureGid]);
 
   const handleTabChange = useCallback((value: string) => {
     setActiveTab(value);

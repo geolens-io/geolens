@@ -21,7 +21,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
       setHeroState('error');
     }, 10_000);
     return () => clearTimeout(timer);
-  }, [heroState, isRasterOrVrt]);
+  }, [heroState, isRasterOrVrt, datasetId]);
 
   // Retry handler for raster/VRT hero error state
   const handleRetry = useCallback(() => {
@@ -42,7 +42,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     if (isRasterOrVrt && !hasTileUrl) {
       setHeroState('loaded');
     }
-  }, [datasetId, recordType, hasTileUrl]);
+  }, [datasetId, recordType, hasTileUrl, isRasterOrVrt]);
 
   return {
     isRasterOrVrt,
