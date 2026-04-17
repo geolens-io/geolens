@@ -4,7 +4,7 @@ import pytest
 
 from app.core.config import settings
 from app.processing.export.service import export_dataset
-from app.runtime.staging import StagingRuntimeError, ensure_staging_ready
+from app.core.runtime.staging import StagingRuntimeError, ensure_staging_ready
 
 
 def test_ensure_staging_ready_creates_directory_and_probe_file(tmp_path: Path) -> None:
@@ -30,7 +30,7 @@ def test_ensure_staging_ready_raises_with_failing_path_on_probe_error(
         raise PermissionError("permission denied")
 
     monkeypatch.setattr(
-        "app.runtime.staging._probe_writable_dir", _raise_permission_error
+        "app.core.runtime.staging._probe_writable_dir", _raise_permission_error
     )
 
     with pytest.raises(StagingRuntimeError) as exc_info:
