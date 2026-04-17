@@ -26,7 +26,7 @@ from app.modules.auth.models import User
 from app.modules.auth.visibility import get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
-from app.utils.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox
 from app.modules.catalog.maps.schemas import (
     DatasetMetaKwargs,
     DuplicateMapResponse,

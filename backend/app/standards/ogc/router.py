@@ -23,7 +23,7 @@ from app.standards.ogc.schemas import (
     OGCSingleFeatureResponse,
 )
 from app.standards.ogc.utils import build_url
-from app.utils.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox
 
 ogc_router = APIRouter(tags=["OGC Features"])
 

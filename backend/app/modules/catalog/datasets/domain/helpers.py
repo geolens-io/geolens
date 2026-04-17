@@ -18,7 +18,7 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.utils.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox
 
 
 async def _load_actor_identities(

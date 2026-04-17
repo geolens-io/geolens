@@ -25,10 +25,9 @@ from app.core.persistent_config import (
     EMBEDDING_DIMS,
     ENABLED_WIDGETS,
     MAP_DEFAULTS,
-    _is_env_only,
     _registry,
 )
-from app.core.public_urls import get_public_api_url, get_public_app_url
+from app.core.public_urls import _is_env_only, get_public_api_url, get_public_app_url
 from app.modules.settings.models import AppSetting
 from app.modules.settings.schemas import (
     SETTING_VALIDATORS,

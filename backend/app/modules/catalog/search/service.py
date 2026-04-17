@@ -44,7 +44,7 @@ from app.processing.embeddings.service import EmbeddingUnavailableError, generat
 from app.standards.ogc.utils import build_url
 from app.core.persistent_config import EMBEDDING_MODEL, SEMANTIC_SEARCH_ENABLED
 from app.modules.catalog.sources.provenance import derive_last_edited
-from app.utils.geo import make_bbox_filter
+from app.core.geo import make_bbox_filter
 
 logger = logging.getLogger(__name__)
 
