@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -53,14 +53,24 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
     return PLACEMENT_OPTIONS.filter(p => p.value === 'point');
   }, [geometryType]);
 
+  // B-021: Preserve label config when toggling off so it can be restored
+  const savedConfigRef = useRef<LabelConfig | null>(null);
+
   function handleToggle(checked: boolean) {
     if (checked) {
-      onLabelChange({
-        ...DEFAULTS,
-        column: columns[0]?.name ?? '',
-        placement: isLine ? 'line' : 'point',
-      });
+      // Restore saved config or use defaults
+      if (savedConfigRef.current) {
+        onLabelChange(savedConfigRef.current);
+      } else {
+        onLabelChange({
+          ...DEFAULTS,
+          column: columns[0]?.name ?? '',
+          placement: isLine ? 'line' : 'point',
+        });
+      }
     } else {
+      // Save before clearing
+      savedConfigRef.current = labelConfig ?? null;
       onLabelChange(null);
     }
   }
@@ -124,6 +134,22 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
             color={labelConfig.textColor ?? '#111827'}
             onChange={(hex) => update({ textColor: hex })}
           />
+
+          {/* Text opacity */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground w-20">{t('labels.textOpacity', { defaultValue: 'Text opacity' })}</span>
+            <Slider
+              value={[labelConfig.textOpacity ?? 1]}
+              min={0}
+              max={1}
+              step={0.05}
+              onValueChange={([v]) => update({ textOpacity: v })}
+              className="flex-1"
+            />
+            <span className="text-xs text-muted-foreground w-10 text-end">
+              {Math.round((labelConfig.textOpacity ?? 1) * 100)}%
+            </span>
+          </div>
 
           <StyleColorPicker
             label={t('labels.haloColor')}

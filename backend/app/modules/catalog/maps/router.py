@@ -44,6 +44,7 @@ from app.modules.catalog.maps.schemas import (
     VisibilityCheckResponse,
 )
 from app.modules.catalog.maps.service import (
+    _bulk_check_dataset_access,
     add_layer,
     check_map_ownership,
     create_map,
@@ -97,6 +98,7 @@ def _build_layer_response(
         label_config=layer.label_config,
         style_config=layer.style_config,
         show_in_legend=layer.show_in_legend,
+        is_3d=meta.get("is_3d"),
     )
 
 
@@ -114,9 +116,10 @@ def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
                 feature_count=feat_count,
                 sample_values=samples,
                 record_type=rec_type,
+                is_3d=is_3d,
             ),
         )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type in layer_tuples
+        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type, is_3d in layer_tuples
     ]
 
 
@@ -721,6 +724,15 @@ async def add_layer_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+
+    # Verify the user can access the target dataset
+    user_roles = await get_user_roles(db, user)
+    accessible = await _bulk_check_dataset_access(db, [body.dataset_id], user, user_roles)
+    if body.dataset_id not in accessible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot access this dataset",
+        )
 
     layer = await add_layer(
         db,

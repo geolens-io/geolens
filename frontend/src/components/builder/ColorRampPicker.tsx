@@ -17,9 +17,10 @@ interface ColorRampPickerProps {
   onChange: (name: string) => void;
   mode: 'categorical' | 'graduated';
   customColors?: string[];
+  count?: number;
 }
 
-export function ColorRampPicker({ rampName, onChange, mode, customColors }: ColorRampPickerProps) {
+export function ColorRampPicker({ rampName, onChange, mode, customColors, count }: ColorRampPickerProps) {
   const { t } = useTranslation('builder');
   const ramps = mode === 'categorical' ? CATEGORICAL_RAMPS : GRADUATED_RAMPS;
 
@@ -40,7 +41,7 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors }: Colo
         </div>
       )}
       {ramps.map((ramp) => {
-        const colors = getRampColors(ramp.name, 7);
+        const colors = getRampColors(ramp.name, count ?? 7);
         const isSelected = ramp.name === rampName;
         return (
           <button

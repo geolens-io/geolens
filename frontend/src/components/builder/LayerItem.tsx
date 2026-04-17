@@ -70,8 +70,8 @@ function getLabelSummary(layer: MapLayerResponse): string | null {
 
 interface LayerItemProps {
   layer: MapLayerResponse;
-  index: number;
-  totalLayers: number;
+  isFirst: boolean;
+  isLast: boolean;
   isExpanded: boolean;
   activeTab: 'style' | 'filter' | 'labels' | null;
   onToggleExpand: (id: string) => void;
@@ -94,8 +94,8 @@ interface LayerItemProps {
 
 export const LayerItem = memo(function LayerItem({
   layer,
-  index,
-  totalLayers,
+  isFirst,
+  isLast,
   isExpanded,
   activeTab,
   onToggleExpand,
@@ -283,14 +283,14 @@ export const LayerItem = memo(function LayerItem({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onMoveUp(layer.id)}
-              disabled={index === 0}
+              disabled={isFirst}
             >
               <ArrowUp className="h-3.5 w-3.5 me-2" />
               {t('layerItem.moveUp')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onMoveDown(layer.id)}
-              disabled={index === totalLayers - 1}
+              disabled={isLast}
             >
               <ArrowDown className="h-3.5 w-3.5 me-2" />
               {t('layerItem.moveDown')}

@@ -42,7 +42,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
   const debouncedChange = useCallback((c: string) => {
     setLocalColor(c);
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => onChange(c), 50);
+    timerRef.current = setTimeout(() => onChange(c), 100);
   }, [onChange]);
 
   function handleInputChange(hex: string) {

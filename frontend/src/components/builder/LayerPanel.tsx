@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -45,7 +45,7 @@ interface LayerPanelProps {
   inspectorMode?: boolean;
 }
 
-export function LayerPanel({
+export const LayerPanel = memo(function LayerPanel({
   layers,
   expandedLayerId,
   activeTab,
@@ -139,8 +139,8 @@ export function LayerPanel({
                 <LayerItem
                   key={layer.id}
                   layer={layer}
-                  index={idx}
-                  totalLayers={layers.length}
+                  isFirst={idx === 0}
+                  isLast={idx === layers.length - 1}
                   isExpanded={expandedLayerId === layer.id}
                   activeTab={expandedLayerId === layer.id ? activeTab : null}
                   onToggleExpand={onToggleExpand}
@@ -167,4 +167,4 @@ export function LayerPanel({
       )}
     </div>
   );
-}
+});

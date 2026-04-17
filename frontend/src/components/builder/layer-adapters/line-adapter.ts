@@ -44,6 +44,10 @@ export const lineAdapter: LayerAdapter = {
     if (!map.getLayer(layerId)) return;
     syncVectorPaint(map, layerId, rawPaint);
     map.setPaintProperty(layerId, 'line-opacity', getCompoundOpacity(rawPaint, 'line', opacity ?? 1));
+    const dasharray = input.layout?.['line-dasharray'];
+    if (map.getLayer(layerId)) {
+      map.setPaintProperty(layerId, 'line-dasharray', dasharray ?? undefined);
+    }
     if (filter && Array.isArray(filter) && filter.length > 0) {
       map.setFilter(layerId, filter);
     } else {

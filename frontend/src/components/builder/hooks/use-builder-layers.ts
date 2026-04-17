@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { getLayerType } from '@/components/builder/map-sync';
+import { getLayerType, reorderDataLayers } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -129,16 +129,37 @@ export function useBuilderLayers(
       [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
+
+    // Imperatively reorder MapLibre layers so the visual change is immediate
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      const currentLayers = layersRef.current;
+      const idx = currentLayers.findIndex((l) => l.id === layerId);
+      if ((direction === 'up' && idx > 0) || (direction === 'down' && idx < currentLayers.length - 1)) {
+        const next = [...currentLayers];
+        const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+        [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+        reorderDataLayers(map, next);
+      }
+    }
+
     setHasUnsavedChanges(true);
-  }, []);
+  }, [mapInstanceRef]);
 
   const handleMoveUp = useCallback((layerId: string) => handleMove(layerId, 'up'), [handleMove]);
   const handleMoveDown = useCallback((layerId: string) => handleMove(layerId, 'down'), [handleMove]);
 
   const handleReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
     setLocalLayers(reorderedLayers.map((l, i) => ({ ...l, sort_order: i })));
+
+    // Imperatively reorder MapLibre layers so the visual change is immediate
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      reorderDataLayers(map, reorderedLayers);
+    }
+
     setHasUnsavedChanges(true);
-  }, []);
+  }, [mapInstanceRef]);
 
   const handleDisplayNameChange = useCallback((layerId: string, newName: string | null) => {
     const normalized = newName?.trim() || null;

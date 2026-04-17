@@ -30,7 +30,11 @@ export function simplifyPaint(paint: Record<string, unknown>): Record<string, un
     if (typeof value === 'boolean') { result[key] = value; continue; }
     if (Array.isArray(value) && value.length >= 3) {
       const op = value[0];
-      const fallback = op === 'match' ? value[value.length - 1] : value[2];
+      const fallback = op === 'match'
+        ? value[value.length - 1]
+        : op === 'interpolate'
+          ? value[4]  // first output stop value after [method, input, stop0, output0]
+          : value[2]; // step: first output after [input, default]
       result[key] = typeof fallback === 'string' || typeof fallback === 'number'
         ? fallback
         : undefined;

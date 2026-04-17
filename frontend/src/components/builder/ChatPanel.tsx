@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, Loader2, RotateCcw, SendHorizontal, Square } from 'lucide-react';
+import { AlertCircle, Loader2, RotateCcw, SendHorizontal, Square, Undo2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
@@ -81,6 +82,8 @@ export function ChatPanel({
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // B-011: Single-level undo for chat-initiated map mutations
+  const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; messageIndex: number } | null>(null);
 
   // Persist chat history to sessionStorage
   useEffect(() => {
@@ -131,6 +134,30 @@ export function ChatPanel({
       );
     }
   }
+
+  // B-011: Restore layers from the last snapshot
+  const handleUndo = useCallback(() => {
+    const snapshot = lastSnapshotRef.current;
+    if (!snapshot) return;
+    for (const layer of snapshot.layers) {
+      // Restore paint
+      if (layer.paint) onPaintChange(layer.id, layer.paint);
+      // Restore filter
+      onFilterChange(layer.id, layer.filter ?? null);
+      // Restore label config
+      onLabelChange(layer.id, layer.label_config ?? null);
+      // Restore visibility
+      onToggleVisibility(layer.id, layer.visible);
+      // Restore style config
+      if (layer.style_config) {
+        onStyleConfigChange(layer.id, layer.style_config, layer.paint);
+      }
+      // Restore opacity
+      if (onOpacityChange) onOpacityChange(layer.id, layer.opacity);
+    }
+    lastSnapshotRef.current = null;
+    toast.success(t('chat.undoApplied', { defaultValue: 'Changes undone' }));
+  }, [onPaintChange, onFilterChange, onLabelChange, onToggleVisibility, onStyleConfigChange, onOpacityChange, t]);
 
   function handleChatAction(action: ChatAction) {
     switch (action.type) {
@@ -222,6 +249,10 @@ export function ChatPanel({
             setToolProgress(null);
             break;
           case 'actions':
+            // B-011: Snapshot layers before first mutation
+            if (pendingActions.length === 0) {
+              lastSnapshotRef.current = { layers: [...layers], messageIndex: messages.length };
+            }
             for (const action of data.actions as ChatAction[]) {
               if (action.type === 'show_query_result') {
                 dispatchQueryResult(action);
@@ -229,6 +260,22 @@ export function ChatPanel({
               }
               handleChatAction(action);
               pendingActions.push(action);
+              // B-023: Clean stale layer refs from session history after remove_layer
+              if (action.type === 'remove_layer' && action.layer_id) {
+                const removedId = action.layer_id;
+                const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
+                if (stored) {
+                  try {
+                    const history = JSON.parse(stored);
+                    const filtered = history.filter((msg: Record<string, unknown>) => {
+                      const acts = msg.actions as ChatAction[] | undefined;
+                      if (!acts) return true;
+                      return !acts.some((a) => a.layer_id === removedId);
+                    });
+                    sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(filtered));
+                  } catch { /* ignore parse errors */ }
+                }
+              }
             }
             break;
           case 'done': {
@@ -297,7 +344,29 @@ export function ChatPanel({
         // No actions applied yet — safe to retry via non-streaming
         try {
           const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, history);
-          for (const action of response.actions) handleChatAction(action);
+          // B-011: Snapshot layers before non-streaming fallback mutations
+          if (response.actions.length > 0) {
+            lastSnapshotRef.current = { layers: [...layers], messageIndex: messages.length };
+          }
+          for (const action of response.actions) {
+            handleChatAction(action);
+            // B-023: Clean stale layer refs after remove_layer
+            if (action.type === 'remove_layer' && action.layer_id) {
+              const removedId = action.layer_id;
+              const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
+              if (stored) {
+                try {
+                  const history2 = JSON.parse(stored);
+                  const filtered = history2.filter((msg: Record<string, unknown>) => {
+                    const acts = msg.actions as ChatAction[] | undefined;
+                    if (!acts) return true;
+                    return !acts.some((a) => a.layer_id === removedId);
+                  });
+                  sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(filtered));
+                } catch { /* ignore parse errors */ }
+              }
+            }
+          }
           setMessages((prev) => [
             ...prev,
             {
@@ -394,9 +463,24 @@ export function ChatPanel({
               >
                 <p className="whitespace-pre-wrap">{msg.content}</p>
                 {msg.actions && msg.actions.length > 0 && (
-                  <p className="text-xs mt-1 text-muted-foreground">
-                    {t('chat.appliedChanges', { count: msg.actions.length })}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-xs text-muted-foreground">
+                      {t('chat.appliedChanges', { count: msg.actions.length })}
+                    </p>
+                    {/* B-011: Undo button — shown only for the last AI action */}
+                    {lastSnapshotRef.current?.messageIndex !== undefined &&
+                      messages.indexOf(msg) === messages.length - 1 &&
+                      msg.role === 'assistant' && (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={handleUndo}
+                      >
+                        <Undo2 className="h-3 w-3" />
+                        {t('chat.undo', { defaultValue: 'Undo' })}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
