@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from app.services.arcgis import ArcGISTokenError, probe_arcgis_service
-from app.services.preview import build_gdal_source
+from app.modules.catalog.sources.arcgis import ArcGISTokenError, probe_arcgis_service
+from app.modules.catalog.sources.preview import build_gdal_source
 
 
 def _make_mock_response(json_data: dict, status_code: int = 200) -> MagicMock:

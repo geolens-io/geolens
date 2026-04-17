@@ -136,11 +136,11 @@ async def test_get_tile_config_exposes_resolved_public_urls():
             SimpleNamespace(cdn_base_url="https://cdn.example.com"),
         ),
         patch(
-            "app.settings.router.get_public_app_url",
+            "app.modules.settings.router.get_public_app_url",
             AsyncMock(return_value="https://catalog.example.com"),
         ),
         patch(
-            "app.settings.router.get_public_api_url",
+            "app.modules.settings.router.get_public_api_url",
             AsyncMock(return_value="https://catalog.example.com/api"),
         ),
     ):

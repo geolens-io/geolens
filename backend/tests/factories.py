@@ -18,8 +18,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 
 async def get_user_id(session: AsyncSession, username: str) -> uuid.UUID:

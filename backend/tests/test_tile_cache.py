@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import fakeredis.aioredis
 import pytest
 
-from app.cache.tile_cache import TileCacheProvider
+from app.platform.cache.tile_cache import TileCacheProvider
 
 
 # --- Fixtures ---
@@ -18,7 +18,7 @@ def tile_cache():
     provider = TileCacheProvider.__new__(TileCacheProvider)
     provider._client = fakeredis.aioredis.FakeRedis(decode_responses=False)
     # Reset Prometheus counters for isolation
-    from app.cache.tile_cache import tile_cache_hits, tile_cache_misses
+    from app.platform.cache.tile_cache import tile_cache_hits, tile_cache_misses
 
     tile_cache_hits._value.set(0)
     tile_cache_misses._value.set(0)
@@ -31,7 +31,7 @@ def tile_cache():
 @pytest.mark.asyncio
 async def test_tile_cache_get_miss(tile_cache):
     """Cache miss returns None and increments miss counter."""
-    from app.cache.tile_cache import tile_cache_misses
+    from app.platform.cache.tile_cache import tile_cache_misses
 
     result = await tile_cache.get("test_table", 5, 10, 15)
     assert result is None
@@ -41,7 +41,7 @@ async def test_tile_cache_get_miss(tile_cache):
 @pytest.mark.asyncio
 async def test_tile_cache_set_and_get(tile_cache):
     """Binary round-trip: set stores bytes, get returns exact bytes."""
-    from app.cache.tile_cache import tile_cache_hits
+    from app.platform.cache.tile_cache import tile_cache_hits
 
     raw = b"\x00\x01\x02\x03binary tile data"
     compressed = gzip.compress(raw)
@@ -54,7 +54,7 @@ async def test_tile_cache_set_and_get(tile_cache):
 @pytest.mark.asyncio
 async def test_tile_cache_hit_increments_counter(tile_cache):
     """Successive hits increment the hit counter."""
-    from app.cache.tile_cache import tile_cache_hits
+    from app.platform.cache.tile_cache import tile_cache_hits
 
     data = gzip.compress(b"tile")
     await tile_cache.set("t", 1, 2, 3, data, ttl=60)
@@ -66,7 +66,7 @@ async def test_tile_cache_hit_increments_counter(tile_cache):
 @pytest.mark.asyncio
 async def test_tile_cache_miss_increments_counter(tile_cache):
     """Successive misses increment the miss counter."""
-    from app.cache.tile_cache import tile_cache_misses
+    from app.platform.cache.tile_cache import tile_cache_misses
 
     await tile_cache.get("t", 1, 2, 3)
     await tile_cache.get("t", 4, 5, 6)
@@ -79,7 +79,7 @@ async def test_tile_cache_miss_increments_counter(tile_cache):
 @pytest.mark.asyncio
 async def test_tile_cache_get_returns_none_on_redis_failure():
     """Redis failure on get returns None (graceful degradation)."""
-    from app.cache.tile_cache import tile_cache_misses
+    from app.platform.cache.tile_cache import tile_cache_misses
 
     tile_cache_misses._value.set(0)
 
@@ -154,7 +154,7 @@ def test_get_tile_cache_returns_none_when_redis_not_set():
     """get_tile_cache() returns None when redis_url is not configured."""
     from unittest.mock import patch
 
-    from app.cache import provider as cache_provider
+    from app.platform.cache import provider as cache_provider
 
     old = cache_provider._tile_cache
     try:
@@ -171,7 +171,7 @@ def test_get_tile_cache_returns_provider_when_redis_set():
     """get_tile_cache() returns TileCacheProvider when redis_url is configured."""
     from unittest.mock import patch
 
-    from app.cache import provider as cache_provider
+    from app.platform.cache import provider as cache_provider
 
     old = cache_provider._tile_cache
     try:
@@ -190,14 +190,14 @@ def test_get_tile_cache_returns_provider_when_redis_set():
 
 def test_settings_db_pool_size_default():
     """Settings.db_pool_size defaults to 10."""
-    from app.config import settings
+    from app.core.config import settings
 
     assert settings.db_pool_size == 10
 
 
 def test_settings_tile_pool_max_size_default():
     """Settings.tile_pool_max_size defaults to 10."""
-    from app.config import settings
+    from app.core.config import settings
 
     assert settings.tile_pool_max_size == 10
 
@@ -206,7 +206,7 @@ def test_settings_db_pool_size_env_override(monkeypatch):
     """DB_POOL_SIZE env var overrides db_pool_size default."""
     monkeypatch.setenv("DB_POOL_SIZE", "25")
     # Re-create settings to pick up env var
-    from app.config import Settings
+    from app.core.config import Settings
 
     s = Settings(
         postgres_password="test",
@@ -220,7 +220,7 @@ def test_settings_db_pool_size_env_override(monkeypatch):
 def test_settings_tile_pool_max_size_env_override(monkeypatch):
     """TILE_POOL_MAX_SIZE env var overrides tile_pool_max_size default."""
     monkeypatch.setenv("TILE_POOL_MAX_SIZE", "20")
-    from app.config import Settings
+    from app.core.config import Settings
 
     s = Settings(
         postgres_password="test",

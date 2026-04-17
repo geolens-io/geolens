@@ -14,8 +14,8 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import create_dataset, get_user_id
 
@@ -981,8 +981,8 @@ class TestShareToken:
 
         # Create an embed token for the map (requires layers for dataset scope).
         # Use the ORM directly to create a minimal dataset + layer for the embed token.
-        from app.datasets.models import Dataset, Record
-        from app.maps.models import MapLayer
+        from app.modules.catalog.datasets.domain.models import Dataset, Record
+        from app.modules.catalog.maps.models import MapLayer
 
         record = Record(
             title="Cascade Test DS",
@@ -1506,7 +1506,7 @@ class TestSearchSortFilterAuthor:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """created_by_username is null when user account deleted (LEFT JOIN)."""
-        from app.maps.models import Map
+        from app.modules.catalog.maps.models import Map
         from sqlalchemy import text
 
         # Create a temporary user

@@ -102,7 +102,7 @@ services:
       - ./backend/tests:/app/tests
       - upload_staging:/app/staging
     command: >
-      sh -c "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app"
+      sh -c "uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app"
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
       PYTHONPATH: /app

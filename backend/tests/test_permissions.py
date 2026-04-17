@@ -12,7 +12,7 @@ class TestDefaultPermissions:
     """PERM-01: Default permission matrix matches current role behavior."""
 
     def test_default_permissions_viewer(self):
-        from app.auth.permissions import DEFAULT_ROLE_PERMISSIONS
+        from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
 
         viewer = DEFAULT_ROLE_PERMISSIONS["viewer"]
         assert viewer["export"] is True
@@ -24,7 +24,7 @@ class TestDefaultPermissions:
         assert viewer["manage_settings"] is False
 
     def test_default_permissions_editor(self):
-        from app.auth.permissions import DEFAULT_ROLE_PERMISSIONS
+        from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
 
         editor = DEFAULT_ROLE_PERMISSIONS["editor"]
         assert editor["upload"] is True
@@ -37,14 +37,14 @@ class TestDefaultPermissions:
         assert editor["manage_settings"] is False
 
     def test_default_permissions_admin(self):
-        from app.auth.permissions import DEFAULT_ROLE_PERMISSIONS
+        from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
 
         admin = DEFAULT_ROLE_PERMISSIONS["admin"]
         for cap in admin.values():
             assert cap is True
 
     def test_all_capabilities_complete(self):
-        from app.auth.permissions import ALL_CAPABILITIES
+        from app.modules.auth.permissions import ALL_CAPABILITIES
 
         assert len(ALL_CAPABILITIES) == 8
         expected = {
@@ -66,7 +66,7 @@ class TestGetEffectivePermissions:
     @pytest.mark.anyio
     async def test_get_effective_permissions_defaults(self, client, test_db_session):
         """When no DB override exists, returns DEFAULT_ROLE_PERMISSIONS."""
-        from app.auth.permissions import (
+        from app.modules.auth.permissions import (
             DEFAULT_ROLE_PERMISSIONS,
             get_effective_permissions,
         )
@@ -79,7 +79,7 @@ class TestGetEffectivePermissions:
         self, client, admin_auth_header, test_db_session
     ):
         """After setting custom matrix via settings API, get_effective_permissions returns merged result."""
-        from app.auth.permissions import get_effective_permissions
+        from app.modules.auth.permissions import get_effective_permissions
 
         # Override: give viewer upload=True
         custom = {

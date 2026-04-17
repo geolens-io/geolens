@@ -1,0 +1,2 @@
+"""Catalog collections namespace."""
+

@@ -10,15 +10,15 @@ import asyncio
 
 import pytest
 
-from app.ingest.metadata import _sql_quote_ident
-from app.ingest.ogr import (
+from app.processing.ingest.metadata import _sql_quote_ident
+from app.processing.ingest.ogr import (
     _extract_common_layer_metadata,
     extract_srid_from_json,
     _parse_text_ogrinfo,
     _resolve_source_path,
     detect_geometry_columns,
 )
-from app.ingest.tasks import (
+from app.processing.ingest.tasks import (
     _append_job_warning,
     _bind_task_log_context,
     _parse_temporal_fields,
@@ -201,7 +201,7 @@ class TestDetectDbfTruncationCollisions:
     """
 
     def test_detects_collision(self):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
 
         cols = [
             {"name": "population_2020", "type": "Integer"},
@@ -215,7 +215,7 @@ class TestDetectDbfTruncationCollisions:
         assert result[0]["truncated"] == "population"
 
     def test_no_collision_when_names_differ_in_first_10(self):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
 
         cols = [
             {"name": "pop_2020", "type": "Integer"},
@@ -226,18 +226,18 @@ class TestDetectDbfTruncationCollisions:
         assert result == []
 
     def test_empty_input(self):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
 
         assert detect_dbf_truncation_collisions([]) == []
 
     def test_single_column_not_a_collision(self):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
 
         cols = [{"name": "population_2020", "type": "Integer"}]
         assert detect_dbf_truncation_collisions(cols) == []
 
     def test_truncation_is_case_insensitive(self):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
 
         # GDAL LAUNDER=YES lowercases names; the helper also lowercases
         cols = [
@@ -249,7 +249,7 @@ class TestDetectDbfTruncationCollisions:
         assert sorted(result[0]["originals"]) == ["Population_2020", "population_2021"]
 
     def test_multiple_collision_groups(self):
-        from app.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
 
         cols = [
             {"name": "population_2020", "type": "Integer"},
@@ -468,7 +468,7 @@ class TestAppendJobWarning:
     """
 
     def test_appends_to_empty_user_metadata(self):
-        from app.ingest.warnings import make_reserved_rename_warning
+        from app.processing.ingest.warnings import make_reserved_rename_warning
 
         job = _FakeJob(user_metadata=None)
         warning = make_reserved_rename_warning(
@@ -485,7 +485,7 @@ class TestAppendJobWarning:
         }
 
     def test_appends_to_existing_metadata_without_warnings(self):
-        from app.ingest.warnings import make_dbf_truncation_warning
+        from app.processing.ingest.warnings import make_dbf_truncation_warning
 
         job = _FakeJob(user_metadata={"title": "Roads", "visibility": "public"})
         _append_job_warning(job, make_dbf_truncation_warning([]))
@@ -496,7 +496,7 @@ class TestAppendJobWarning:
         ]
 
     def test_appends_to_existing_warnings_list(self):
-        from app.ingest.warnings import (
+        from app.processing.ingest.warnings import (
             make_dbf_truncation_warning,
             make_reserved_rename_warning,
         )
@@ -511,7 +511,7 @@ class TestAppendJobWarning:
         assert job.user_metadata["warnings"][1]["kind"] == "dbf_truncation_collision"
 
     def test_preserves_unrelated_metadata_keys(self):
-        from app.ingest.warnings import (
+        from app.processing.ingest.warnings import (
             make_dbf_truncation_warning,
             make_reserved_rename_warning,
         )
@@ -535,7 +535,7 @@ class TestAppendJobWarning:
         ]
 
     def test_does_not_mutate_original_user_metadata_dict_identity(self):
-        from app.ingest.warnings import make_dbf_truncation_warning
+        from app.processing.ingest.warnings import make_dbf_truncation_warning
 
         # The helper replaces user_metadata with a new dict so SQLAlchemy
         # JSONB change-detection sees a dirty attribute.
@@ -554,8 +554,8 @@ class TestIngestWarningProducers:
     """TYPE-1: ensure the producer helpers emit shapes the Pydantic models accept."""
 
     def test_reserved_rename_producer_round_trips_through_pydantic(self):
-        from app.ingest.warnings import make_reserved_rename_warning
-        from app.jobs.schemas import ReservedRenameWarning
+        from app.processing.ingest.warnings import make_reserved_rename_warning
+        from app.platform.jobs.schemas import ReservedRenameWarning
 
         warning = make_reserved_rename_warning(
             [
@@ -570,8 +570,8 @@ class TestIngestWarningProducers:
         assert validated.details[1].renamed == "src_fid"
 
     def test_dbf_truncation_producer_round_trips_through_pydantic(self):
-        from app.ingest.warnings import make_dbf_truncation_warning
-        from app.jobs.schemas import DbfTruncationCollisionWarning
+        from app.processing.ingest.warnings import make_dbf_truncation_warning
+        from app.platform.jobs.schemas import DbfTruncationCollisionWarning
 
         warning = make_dbf_truncation_warning(
             [
@@ -591,7 +591,7 @@ class TestIngestWarningProducers:
 
     def test_reserved_rename_producer_coerces_missing_fields(self):
         """Missing original/renamed keys fall back to empty strings, not KeyError."""
-        from app.ingest.warnings import make_reserved_rename_warning
+        from app.processing.ingest.warnings import make_reserved_rename_warning
 
         warning = make_reserved_rename_warning([{"original": "gid"}])
         assert warning["details"][0]["original"] == "gid"
@@ -605,7 +605,7 @@ class TestRunServiceImportWithWfsFallback:
         return asyncio.get_event_loop().run_until_complete(coro)
 
     def test_success_on_first_try_no_retry(self):
-        from app.ingest.ogr import IngestionError  # noqa: F401
+        from app.processing.ingest.ogr import IngestionError  # noqa: F401
 
         calls = []
 
@@ -616,7 +616,7 @@ class TestRunServiceImportWithWfsFallback:
         assert calls == ["workspace:roads"]
 
     def test_retries_with_unqualified_layer_on_ingestion_error(self):
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         calls = []
 
@@ -629,7 +629,7 @@ class TestRunServiceImportWithWfsFallback:
         assert calls == ["workspace:roads", "roads"]
 
     def test_reraises_when_layer_has_no_namespace(self):
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         async def import_fn(layer_name: str) -> None:
             raise IngestionError("any error")
@@ -638,7 +638,7 @@ class TestRunServiceImportWithWfsFallback:
             asyncio.run(_run_service_import_with_wfs_fallback(import_fn, "roads"))
 
     def test_reraises_when_both_attempts_fail(self):
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         calls = []
 
@@ -654,7 +654,7 @@ class TestRunServiceImportWithWfsFallback:
         assert calls == ["workspace:roads", "roads"]
 
     def test_auth_error_message_raised_on_no_namespace_auth_failure(self):
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         async def import_fn(layer_name: str) -> None:
             raise IngestionError("HTTP 401 Unauthorized")
@@ -670,7 +670,7 @@ class TestRunServiceImportWithWfsFallback:
             )
 
     def test_auth_error_message_raised_on_retry_auth_failure(self):
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         async def import_fn(layer_name: str) -> None:
             raise IngestionError("HTTP 403 Forbidden")
@@ -688,7 +688,7 @@ class TestRunServiceImportWithWfsFallback:
     def test_auth_error_suppressed_when_token_provided(self):
         # If the caller DID provide a token and it still fails, the auth
         # message is NOT substituted — the user already tried a token.
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         async def import_fn(layer_name: str) -> None:
             raise IngestionError("HTTP 401 Unauthorized")
@@ -704,7 +704,7 @@ class TestRunServiceImportWithWfsFallback:
             )
 
     def test_auth_error_message_not_used_on_non_auth_error(self):
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         async def import_fn(layer_name: str) -> None:
             raise IngestionError("Connection refused")

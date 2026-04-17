@@ -4,9 +4,9 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from app.storage.s3 import S3StorageProvider
-from app.storage.local import LocalStorageProvider
-from app.ingest.schemas import (
+from app.platform.storage.s3 import S3StorageProvider
+from app.platform.storage.local import LocalStorageProvider
+from app.processing.ingest.schemas import (
     PresignedUploadRequest,
     PresignedUploadResponse,
     PresignedCompleteRequest,

@@ -59,8 +59,8 @@ async def _load_fixture(
       raw_column_names      — list[str] from information_schema.columns
       srid                  — detected SRID (may be None for non-spatial)
     """
-    from app.ingest.metadata import get_column_info
-    from app.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
+    from app.processing.ingest.metadata import get_column_info
+    from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
 
     source = str(FIXTURES / fixture_name)
     info = await run_ogrinfo(source)
@@ -159,7 +159,7 @@ class TestReservedNameAutoRename:
 
     async def test_reserved_names_renamed_to_src_prefix(self, test_db_session):
         """After rename_reserved_columns(), src_* columns exist in the table."""
-        from app.ingest.metadata import rename_reserved_columns
+        from app.processing.ingest.metadata import rename_reserved_columns
 
         table = _table_id("tst_reserved")
         try:
@@ -211,7 +211,7 @@ class TestReservedNameAutoRename:
         add_4326_column() creates a fresh geom_4326 geometry column without
         collision.
         """
-        from app.ingest.metadata import (
+        from app.processing.ingest.metadata import (
             add_4326_column,
             ensure_geom_column,
             rename_reserved_columns,
@@ -252,7 +252,7 @@ class TestReservedNameAutoRename:
         get_column_info excludes {'gid', 'geom', 'geom_4326'} — the pipeline-
         internal names. It must NOT exclude 'src_gid', 'src_geom_4326', etc.
         """
-        from app.ingest.metadata import get_column_info, rename_reserved_columns
+        from app.processing.ingest.metadata import get_column_info, rename_reserved_columns
 
         table = _table_id("tst_vis")
         try:
@@ -282,7 +282,7 @@ class TestReservedNameAutoRename:
         then ensure_geom_column() renames the placeholder to `geom`. Both the
         source attribute and the pipeline geometry column coexist.
         """
-        from app.ingest.metadata import ensure_geom_column, rename_reserved_columns
+        from app.processing.ingest.metadata import ensure_geom_column, rename_reserved_columns
 
         table = _table_id("tst_srcgeom")
         try:
@@ -358,7 +358,7 @@ class TestUnicodeSampleValues:
         source. The assertion is: whatever names land in column_info, every
         non-geometry column with non-null data must have sample values.
         """
-        from app.ingest.metadata import get_column_info, get_sample_values
+        from app.processing.ingest.metadata import get_column_info, get_sample_values
 
         table = _table_id("tst_unicode")
         try:
@@ -382,7 +382,7 @@ class TestUnicodeSampleValues:
 
     async def test_ascii_control_column_has_sample_values(self, test_db_session):
         """Control: the plain ASCII column name_ascii must also have samples."""
-        from app.ingest.metadata import get_column_info, get_sample_values
+        from app.processing.ingest.metadata import get_column_info, get_sample_values
 
         table = _table_id("tst_ascii_ctrl")
         try:
@@ -419,7 +419,7 @@ class TestSparseColumnSampleValues:
 
     async def test_sparse_column_yields_at_least_one_sample(self, test_db_session):
         """A 99.95%-null column must still have sample values with default sample_size."""
-        from app.ingest.metadata import get_sample_values
+        from app.processing.ingest.metadata import get_sample_values
 
         table = _table_id("tst_sparse")
         try:
@@ -476,7 +476,7 @@ class TestSparseColumnSampleValues:
         Ensures the bump did not accidentally change behavior for the
         common case where LIMIT 10 is the binding constraint.
         """
-        from app.ingest.metadata import get_sample_values
+        from app.processing.ingest.metadata import get_sample_values
 
         table = _table_id("tst_dense_ctrl")
         try:
@@ -528,7 +528,7 @@ class TestDbfTruncationCollision:
 
     async def test_shapefile_zip_ogrinfo_preview_returns_columns(self, test_db_session):
         """run_ogrinfo_preview parses the DBF column list from the zip fixture."""
-        from app.ingest.ogr import run_ogrinfo_preview
+        from app.processing.ingest.ogr import run_ogrinfo_preview
 
         preview = await run_ogrinfo_preview(
             str(FIXTURES / "dbf_collision.zip"), sample_limit=0
@@ -553,8 +553,8 @@ class TestDbfTruncationCollision:
         This test verifies the detection path executes without error and the
         helper does not crash on real fixture data.
         """
-        from app.ingest.metadata import detect_dbf_truncation_collisions
-        from app.ingest.ogr import run_ogrinfo_preview
+        from app.processing.ingest.metadata import detect_dbf_truncation_collisions
+        from app.processing.ingest.ogr import run_ogrinfo_preview
 
         preview = await run_ogrinfo_preview(
             str(FIXTURES / "dbf_collision.zip"), sample_limit=0

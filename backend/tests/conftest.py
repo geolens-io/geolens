@@ -7,10 +7,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.auth.models import Role, User, UserRole
-from app.auth.providers.local import hash_password
-from app.cache import init_cache
-from app.config import settings
+from app.modules.auth.models import Role, User, UserRole
+from app.modules.auth.providers.local import hash_password
+from app.platform.cache import init_cache
+from app.core.config import settings
 
 # Shared test geometries
 EMPTY_FEATURE_COLLECTION = {
@@ -146,24 +146,21 @@ async def client(tmp_path):
     test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
 
     # Patch the database module so lifespan seed functions use our engine
-    import app.database as db_module
+    import app.core.db as db_module
 
     original_engine = db_module.engine
     original_session = db_module.async_session
     db_module.engine = test_engine
     db_module.async_session = test_session_factory
 
-    # Also patch main module's imported references
-    import app.main as main_module
-    import app.health.service as health_service_module
+    # Patch health service module's engine reference
+    import app.observability.health.service as health_service_module
 
-    main_module.engine = test_engine
-    main_module.async_session = test_session_factory
     original_health_engine = health_service_module.engine
     health_service_module.engine = test_engine
 
     # Override the get_db dependency
-    from app.dependencies import get_db
+    from app.core.dependencies import get_db
     from app.main import app
 
     async def override_get_db():
@@ -175,15 +172,15 @@ async def client(tmp_path):
     # Initialize singleton cache provider for settings reads/writes in request paths.
     # Lifespan is not guaranteed in this ASGITransport test setup.
     init_cache()
-    import app.storage.provider as storage_provider_module
-    from app.storage.local import LocalStorageProvider
+    import app.platform.storage.provider as storage_provider_module
+    from app.platform.storage.local import LocalStorageProvider
 
     original_storage = storage_provider_module._storage
     storage_provider_module._storage = LocalStorageProvider(base_dir=str(staging_dir))
     structlog.contextvars.bind_contextvars(service="api")
 
     # Disable rate limiter during tests
-    from app.auth.router import limiter
+    from app.modules.auth.router import limiter
 
     limiter.enabled = False
 
@@ -198,8 +195,6 @@ async def client(tmp_path):
     app.dependency_overrides.clear()
     db_module.engine = original_engine
     db_module.async_session = original_session
-    main_module.engine = original_engine
-    main_module.async_session = original_session
     health_service_module.engine = original_health_engine
     storage_provider_module._storage = original_storage
     settings.upload_staging_dir = original_upload_staging_dir
@@ -324,7 +319,7 @@ async def test_db_session(client: AsyncClient):
     Uses the same session factory that the client fixture patches into the app,
     so records inserted here are visible to request handlers.
     """
-    import app.database as db_module
+    import app.core.db as db_module
 
     async with db_module.async_session() as session:
         yield session
@@ -371,7 +366,7 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
     if "requires_ogr2ogr" not in request.keywords:
         return
 
-    from app.config import settings as _settings
+    from app.core.config import settings as _settings
     from app.ingest import ogr as _ogr
 
     def _test_pg_conn_str() -> str:

@@ -17,10 +17,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.datasets.models import Dataset, Record
-from app.datasets.service import compute_schema_diff
-from app.jobs.models import IngestJob
-from app.services.security import SSRFError
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.service import compute_schema_diff
+from app.platform.jobs.models import IngestJob
+from app.modules.catalog.sources.security import SSRFError
 
 from tests.factories import get_user_id
 
@@ -75,7 +75,7 @@ async def _create_dataset(
 @pytest.fixture(autouse=True)
 def mock_reupload_task():
     """Prevent procrastinate task deferral in reupload tests."""
-    with patch("app.datasets.router_reupload.reupload_file") as mock_task:
+    with patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_task:
         # Default queue path
         mock_task.defer_async = AsyncMock(return_value=None)
         # Priority queue path (reupload_file.configure(...).defer_async(...))
@@ -106,7 +106,7 @@ def mock_reupload_file_save():
         return out_path
 
     with patch(
-        "app.datasets.router_reupload.save_upload_file", new_callable=AsyncMock
+        "app.modules.catalog.datasets.api.router_reupload.save_upload_file", new_callable=AsyncMock
     ) as mock_save:
         mock_save.side_effect = _fake_save
         yield mock_save
@@ -116,7 +116,7 @@ def mock_reupload_file_save():
 def mock_ogrinfo_preview():
     """Mock ogrinfo preview to return predictable data."""
     with patch(
-        "app.datasets.router_reupload.run_ogrinfo_preview", new_callable=AsyncMock
+        "app.modules.catalog.datasets.api.router_reupload.run_ogrinfo_preview", new_callable=AsyncMock
     ) as mock_preview:
         mock_preview.return_value = {
             "srid": 4326,
@@ -304,10 +304,10 @@ class TestServiceReuploadPreview:
 
         with (
             patch(
-                "app.datasets.router_reupload.build_gdal_source"
+                "app.modules.catalog.datasets.api.router_reupload.build_gdal_source"
             ) as mock_build_source,
             patch(
-                "app.datasets.router_reupload.run_service_preview",
+                "app.modules.catalog.datasets.api.router_reupload.run_service_preview",
                 new_callable=AsyncMock,
             ) as mock_run_preview,
         ):
@@ -404,16 +404,16 @@ class TestServiceReuploadPreview:
 
         with (
             patch(
-                "app.datasets.router_reupload.validate_url_for_ssrf",
+                "app.modules.catalog.datasets.api.router_reupload.validate_url_for_ssrf",
                 side_effect=SSRFError(
                     "URLs targeting private/internal networks are not allowed"
                 ),
             ) as mock_ssrf,
             patch(
-                "app.datasets.router_reupload.build_gdal_source"
+                "app.modules.catalog.datasets.api.router_reupload.build_gdal_source"
             ) as mock_build_source,
             patch(
-                "app.datasets.router_reupload.run_service_preview",
+                "app.modules.catalog.datasets.api.router_reupload.run_service_preview",
                 new_callable=AsyncMock,
             ) as mock_run_preview,
         ):
@@ -568,7 +568,7 @@ class TestVersionsEndpoint:
         test_db_session,
     ):
         """After inserting a version record, GET /datasets/{id}/versions returns it."""
-        from app.collections.models import DatasetVersion
+        from app.modules.catalog.collections.models import DatasetVersion
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)

@@ -12,14 +12,14 @@ from sqlalchemy import select
 
 class TestSecretEncryption:
     def test_encrypt_returns_different_string(self):
-        from app.auth.oauth.encryption import encrypt_secret
+        from app.modules.auth.oauth.encryption import encrypt_secret
 
         result = encrypt_secret("my-secret")
         assert result != "my-secret"
         assert len(result) > 0
 
     def test_decrypt_roundtrip(self):
-        from app.auth.oauth.encryption import decrypt_secret, encrypt_secret
+        from app.modules.auth.oauth.encryption import decrypt_secret, encrypt_secret
 
         original = "my-secret"
         encrypted = encrypt_secret(original)
@@ -27,8 +27,8 @@ class TestSecretEncryption:
 
     def test_encryption_key_derived_via_hkdf(self):
         """Key derivation uses HKDF, not raw JWT secret."""
-        from app.auth.oauth.encryption import _get_fernet
-        from app.config import settings
+        from app.modules.auth.oauth.encryption import _get_fernet
+        from app.core.config import settings
 
         fernet = _get_fernet()
         # The Fernet key should NOT be a simple encoding of jwt_secret_key
@@ -47,7 +47,7 @@ class TestSecretEncryption:
 
 class TestOAuthProviderModel:
     def test_has_required_columns(self):
-        from app.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.models import OAuthProvider
 
         mapper = OAuthProvider.__table__
         col_names = {c.name for c in mapper.columns}
@@ -75,7 +75,7 @@ class TestOAuthProviderModel:
 
 class TestOAuthAccountModel:
     def test_has_unique_constraint(self):
-        from app.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.models import OAuthAccount
 
         table = OAuthAccount.__table__
         constraints = [
@@ -84,7 +84,7 @@ class TestOAuthAccountModel:
         assert "uq_oauth_account_provider_subject" in constraints
 
     def test_has_provider_and_user_fks(self):
-        from app.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.models import OAuthAccount
 
         col_names = {c.name for c in OAuthAccount.__table__.columns}
         assert "provider_id" in col_names
@@ -94,13 +94,13 @@ class TestOAuthAccountModel:
 
 class TestUserAuthProviderColumn:
     def test_user_has_auth_provider(self):
-        from app.auth.models import User
+        from app.modules.auth.models import User
 
         col_names = {c.name for c in User.__table__.columns}
         assert "auth_provider" in col_names
 
     def test_auth_provider_defaults_to_local(self):
-        from app.auth.models import User
+        from app.modules.auth.models import User
 
         col = User.__table__.c.auth_provider
         assert col.server_default is not None
@@ -116,8 +116,8 @@ class TestOAuthProviderCRUD:
     """Test provider CRUD operations via service layer."""
 
     async def test_create_provider_encrypts_secret(self, client, test_db_session):
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         data = OAuthProviderCreate(
             slug="test-google",
@@ -136,8 +136,8 @@ class TestOAuthProviderCRUD:
         assert len(provider.client_secret_encrypted) > 0
 
     async def test_get_provider_by_slug(self, client, test_db_session):
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider, get_provider_by_slug
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider, get_provider_by_slug
 
         data = OAuthProviderCreate(
             slug=f"slug-test-{uuid.uuid4().hex[:6]}",
@@ -154,15 +154,15 @@ class TestOAuthProviderCRUD:
         assert found.slug == data.slug
 
     async def test_get_provider_by_slug_not_found(self, client, test_db_session):
-        from app.auth.oauth.service import get_provider_by_slug
+        from app.modules.auth.oauth.service import get_provider_by_slug
 
         result = await get_provider_by_slug(test_db_session, "nonexistent")
         assert result is None
 
     async def test_update_provider_re_encrypts_secret(self, client, test_db_session):
-        from app.auth.oauth.encryption import decrypt_secret
-        from app.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
-        from app.auth.oauth.service import create_provider, update_provider
+        from app.modules.auth.oauth.encryption import decrypt_secret
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
+        from app.modules.auth.oauth.service import create_provider, update_provider
 
         data = OAuthProviderCreate(
             slug=f"update-test-{uuid.uuid4().hex[:6]}",
@@ -185,8 +185,8 @@ class TestOAuthProviderCRUD:
         assert decrypt_secret(updated.client_secret_encrypted) == "new-secret"
 
     async def test_delete_provider(self, client, test_db_session):
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import (
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import (
             create_provider,
             delete_provider,
             get_provider_by_slug,
@@ -207,8 +207,8 @@ class TestOAuthProviderCRUD:
         assert result is None
 
     async def test_list_enabled_providers(self, client, test_db_session):
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider, list_providers
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider, list_providers
 
         suffix = uuid.uuid4().hex[:6]
         # Create enabled provider
@@ -240,9 +240,9 @@ class TestOAuthProviderCRUD:
 
     async def test_crud_lifecycle(self, client, test_db_session):
         """Full CRUD lifecycle: create -> read -> update -> delete."""
-        from app.auth.oauth.encryption import decrypt_secret
-        from app.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
-        from app.auth.oauth.service import (
+        from app.modules.auth.oauth.encryption import decrypt_secret
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
+        from app.modules.auth.oauth.service import (
             create_provider,
             delete_provider,
             get_provider_by_slug,
@@ -284,9 +284,9 @@ class TestOAuthProviderCRUD:
 
     async def test_encryption_roundtrip_in_crud(self, client, test_db_session):
         """Verify encrypt/decrypt works through the full CRUD path."""
-        from app.auth.oauth.encryption import decrypt_secret
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.encryption import decrypt_secret
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         secret = "my-super-secret-client-key-12345"
         provider = await create_provider(
@@ -313,7 +313,7 @@ class TestOAuthProviderCRUD:
 
 class TestOAuthSchemas:
     def test_response_excludes_client_secret(self):
-        from app.auth.oauth.schemas import OAuthProviderResponse
+        from app.modules.auth.oauth.schemas import OAuthProviderResponse
 
         field_names = set(OAuthProviderResponse.model_fields.keys())
         assert "client_secret" not in field_names
@@ -321,7 +321,7 @@ class TestOAuthSchemas:
         assert "client_id" in field_names
 
     def test_public_schema_minimal(self):
-        from app.auth.oauth.schemas import OAuthProviderPublic
+        from app.modules.auth.oauth.schemas import OAuthProviderPublic
 
         field_names = set(OAuthProviderPublic.model_fields.keys())
         assert field_names == {"slug", "display_name", "provider_type"}
@@ -337,8 +337,8 @@ class TestFindOrCreateOAuthUser:
 
     async def _create_test_provider(self, db, **overrides):
         """Helper: create an OAuthProvider in the test DB."""
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         defaults = dict(
@@ -355,7 +355,7 @@ class TestFindOrCreateOAuthUser:
 
     async def test_auto_create_user(self, client, test_db_session):
         """OAUTH-05: New email auto-creates user with default role and auth_provider='oauth'."""
-        from app.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
 
         provider = await self._create_test_provider(test_db_session)
         await test_db_session.commit()
@@ -381,10 +381,10 @@ class TestFindOrCreateOAuthUser:
 
     async def test_email_linking(self, client, test_db_session):
         """OAUTH-06: OAuth login with existing email links to existing user."""
-        from app.auth.models import User
-        from app.auth.oauth.models import OAuthAccount
-        from app.auth.oauth.service import find_or_create_oauth_user
-        from app.auth.providers.local import hash_password
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.providers.local import hash_password
 
         email = f"existing-{uuid.uuid4().hex[:6]}@example.com"
 
@@ -428,7 +428,7 @@ class TestFindOrCreateOAuthUser:
 
     async def test_existing_oauth_link_returns_user(self, client, test_db_session):
         """Returning OAuth user with existing link returns the linked user directly."""
-        from app.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
 
         provider = await self._create_test_provider(test_db_session)
         await test_db_session.commit()
@@ -451,7 +451,7 @@ class TestFindOrCreateOAuthUser:
 
     async def test_group_role_mapping(self, client, test_db_session):
         """OAUTH-07: Group claims in userinfo map to GeoLens roles."""
-        from app.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
 
         provider = await self._create_test_provider(
             test_db_session,
@@ -475,9 +475,9 @@ class TestFindOrCreateOAuthUser:
 
     async def test_username_collision_handled(self, client, test_db_session):
         """Auto-generated username handles collisions by appending random suffix."""
-        from app.auth.models import User
-        from app.auth.oauth.service import find_or_create_oauth_user
-        from app.auth.providers.local import hash_password
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.providers.local import hash_password
 
         # Create a user with the username that would be derived from email
         base_username = f"collision-{uuid.uuid4().hex[:4]}"
@@ -512,8 +512,8 @@ class TestOAuthLoginEndpoint:
 
     async def test_oauth_login_redirect(self, client, test_db_session):
         """OAUTH-04: Login endpoint returns redirect to IdP."""
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         data = OAuthProviderCreate(
@@ -555,8 +555,8 @@ class TestOAuthCallbackCSRF:
 
     async def test_callback_missing_state_returns_error(self, client, test_db_session):
         """OAuth callback with no state/code params returns error redirect, not account takeover."""
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         await create_provider(
@@ -587,8 +587,8 @@ class TestOAuthCallbackCSRF:
 
     async def test_callback_invalid_code_returns_error(self, client, test_db_session):
         """OAuth callback with an invalid authorization code returns error redirect."""
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         await create_provider(
@@ -622,8 +622,8 @@ class TestOAuthProvidersEndpoint:
 
     async def test_list_enabled_providers(self, client, test_db_session):
         """Only enabled providers are returned."""
-        from app.auth.oauth.schemas import OAuthProviderCreate
-        from app.auth.oauth.service import create_provider
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         # Create enabled

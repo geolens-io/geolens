@@ -38,7 +38,7 @@ async def test_health_ready_returns_200_when_db_reachable(health_app):
     mock_engine = MagicMock()
     mock_engine.connect.return_value = mock_conn
 
-    with patch("app.worker_health._get_engine", return_value=mock_engine):
+    with patch("app.observability.health.worker._get_engine", return_value=mock_engine):
         transport = ASGITransport(app=health_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/health/ready")
@@ -53,7 +53,7 @@ async def test_health_ready_returns_503_when_db_unreachable(health_app):
     mock_engine = MagicMock()
     mock_engine.connect.side_effect = Exception("connection refused")
 
-    with patch("app.worker_health._get_engine", return_value=mock_engine):
+    with patch("app.observability.health.worker._get_engine", return_value=mock_engine):
         transport = ASGITransport(app=health_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/health/ready")
@@ -67,10 +67,10 @@ async def test_health_ready_returns_503_when_db_unreachable(health_app):
 @pytest.mark.asyncio
 async def test_metrics_endpoint_returns_prometheus_output(health_app):
     with patch(
-        "app.worker_health.generate_latest", return_value=b"# HELP fake_metric\n"
+        "app.observability.health.worker.generate_latest", return_value=b"# HELP fake_metric\n"
     ):
         with patch(
-            "app.worker_health.CONTENT_TYPE_LATEST", "text/plain; version=0.0.4"
+            "app.observability.health.worker.CONTENT_TYPE_LATEST", "text/plain; version=0.0.4"
         ):
             transport = ASGITransport(app=health_app)
             async with AsyncClient(
@@ -217,11 +217,11 @@ async def test_main_uses_shutdown_graceful_timeout():
     with (
         patch("app.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.worker.ensure_staging_ready"),
-        patch("app.storage.init_storage"),
-        patch("app.cache.init_cache"),
-        patch("app.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
+        patch("app.platform.storage.init_storage"),
+        patch("app.platform.cache.init_cache"),
+        patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
         patch("app.worker.run_health_server", new_callable=AsyncMock),
-        patch("app.ingest.tasks.task_app", mock_task_app),
+        patch("app.processing.ingest.tasks.task_app", mock_task_app),
         patch.dict("os.environ", {"WORKER_SHUTDOWN_TIMEOUT": "45"}),
     ):
         await main()
@@ -245,11 +245,11 @@ async def test_main_uses_default_shutdown_timeout():
     with (
         patch("app.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.worker.ensure_staging_ready"),
-        patch("app.storage.init_storage"),
-        patch("app.cache.init_cache"),
-        patch("app.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
+        patch("app.platform.storage.init_storage"),
+        patch("app.platform.cache.init_cache"),
+        patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
         patch("app.worker.run_health_server", new_callable=AsyncMock),
-        patch("app.ingest.tasks.task_app", mock_task_app),
+        patch("app.processing.ingest.tasks.task_app", mock_task_app),
         patch.dict("os.environ", {}, clear=False),
     ):
         # Ensure WORKER_SHUTDOWN_TIMEOUT is not set
@@ -277,11 +277,11 @@ async def test_main_passes_install_signal_handlers_true():
     with (
         patch("app.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.worker.ensure_staging_ready"),
-        patch("app.storage.init_storage"),
-        patch("app.cache.init_cache"),
-        patch("app.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
+        patch("app.platform.storage.init_storage"),
+        patch("app.platform.cache.init_cache"),
+        patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
         patch("app.worker.run_health_server", new_callable=AsyncMock),
-        patch("app.ingest.tasks.task_app", mock_task_app),
+        patch("app.processing.ingest.tasks.task_app", mock_task_app),
     ):
         await main()
 

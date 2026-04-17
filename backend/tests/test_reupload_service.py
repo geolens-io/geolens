@@ -7,11 +7,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.collections.models import DatasetVersion
-from app.datasets.models import Dataset, Record
-from app.ingest.ogr import IngestionError
-from app.ingest.tasks import reupload_service
-from app.jobs.models import IngestJob
+from app.modules.catalog.collections.models import DatasetVersion
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.processing.ingest.ogr import IngestionError
+from app.processing.ingest.tasks import reupload_service
+from app.platform.jobs.models import IngestJob
 
 from tests.factories import get_user_id
 
@@ -101,9 +101,9 @@ class TestServiceReuploadCommitDispatch:
 
         with (
             patch(
-                "app.datasets.router_reupload.reupload_service"
+                "app.modules.catalog.datasets.api.router_reupload.reupload_service"
             ) as mock_reupload_service,
-            patch("app.datasets.router_reupload.reupload_file") as mock_reupload_file,
+            patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_reupload_file,
         ):
             mock_reupload_service.defer_async = AsyncMock(return_value=None)
             mock_reupload_file.defer_async = AsyncMock(return_value=None)
@@ -171,7 +171,7 @@ class TestServiceReuploadWorker:
             timeout: float = 1800.0,
             token: str | None = None,
         ) -> None:
-            import app.database as db_module
+            import app.core.db as db_module
 
             async with db_module.async_session() as session:
                 await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
@@ -206,47 +206,47 @@ class TestServiceReuploadWorker:
 
         with (
             patch(
-                "app.services.preview.build_gdal_source",
+                "app.modules.catalog.sources.preview.build_gdal_source",
                 return_value=("WFS:https://services.example.com/wfs", "roads"),
             ),
             patch(
-                "app.ingest.ogr.run_ogr2ogr_service", new_callable=AsyncMock
+                "app.processing.ingest.ogr.run_ogr2ogr_service", new_callable=AsyncMock
             ) as mock_run_ogr2ogr_service,
             patch(
-                "app.ingest.metadata.ensure_geom_column",
+                "app.processing.ingest.metadata.ensure_geom_column",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "app.ingest.metadata.clip_to_mercator_bounds",
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
                 new_callable=AsyncMock,
             ) as mock_clip,
             patch(
-                "app.ingest.metadata.add_4326_column",
+                "app.processing.ingest.metadata.add_4326_column",
                 new_callable=AsyncMock,
             ) as mock_add_4326,
             patch(
-                "app.ingest.metadata.grant_reader_access",
+                "app.processing.ingest.metadata.grant_reader_access",
                 new_callable=AsyncMock,
             ) as mock_grant,
             patch(
-                "app.ingest.metadata.extract_metadata",
+                "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
             ) as mock_extract_metadata,
             patch(
-                "app.ingest.metadata.get_sample_values",
+                "app.processing.ingest.metadata.get_sample_values",
                 new_callable=AsyncMock,
             ) as mock_sample_values,
             patch(
-                "app.ingest.metadata.refresh_attribute_metadata",
+                "app.processing.ingest.metadata.refresh_attribute_metadata",
                 new_callable=AsyncMock,
             ) as mock_refresh_attributes,
             patch(
-                "app.ingest.metadata.compute_quality_score",
+                "app.processing.ingest.metadata.compute_quality_score",
                 new_callable=AsyncMock,
             ) as mock_quality_score,
             patch(
-                "app.ingest.tasks.invalidate_catalog_cache",
+                "app.processing.ingest.tasks.invalidate_catalog_cache",
                 new_callable=AsyncMock,
             ) as mock_invalidate_catalog,
         ):
@@ -334,11 +334,11 @@ class TestServiceReuploadWorker:
 
         with (
             patch(
-                "app.services.preview.build_gdal_source",
+                "app.modules.catalog.sources.preview.build_gdal_source",
                 return_value=("WFS:https://protected.example.com/wfs", "roads"),
             ),
             patch(
-                "app.ingest.ogr.run_ogr2ogr_service",
+                "app.processing.ingest.ogr.run_ogr2ogr_service",
                 new_callable=AsyncMock,
             ) as mock_run_ogr2ogr_service,
         ):

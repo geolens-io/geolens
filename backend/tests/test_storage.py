@@ -7,8 +7,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from app.storage.local import LocalStorageProvider
-from app.storage.s3 import S3StorageProvider
+from app.platform.storage.local import LocalStorageProvider
+from app.platform.storage.s3 import S3StorageProvider
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ async def test_s3_list(s3_provider: S3StorageProvider):
 @pytest.mark.asyncio
 async def test_get_storage_not_initialized():
     """get_storage() raises RuntimeError before init_storage() is called."""
-    import app.storage.provider as provider_mod
+    import app.platform.storage.provider as provider_mod
 
     original = provider_mod._storage
     try:
@@ -203,14 +203,14 @@ async def test_get_storage_not_initialized():
 @pytest.mark.asyncio
 async def test_init_storage_local(monkeypatch, tmp_path: Path):
     """init_storage() with storage_provider='local' creates LocalStorageProvider."""
-    import app.storage.provider as provider_mod
+    import app.platform.storage.provider as provider_mod
 
     original = provider_mod._storage
     try:
         provider_mod._storage = None
 
         # Monkeypatch settings to use local provider
-        from app.config import settings
+        from app.core.config import settings
 
         monkeypatch.setattr(settings, "storage_provider", "local")
         monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))

@@ -6,8 +6,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
-from app.collections.models import Collection
-from app.datasets.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.collections.models import Collection
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 
 from tests.factories import get_user_id
 

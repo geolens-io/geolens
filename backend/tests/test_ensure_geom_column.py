@@ -24,7 +24,7 @@ class TestEnsureGeomColumn:
 
     async def test_renames_wkb_geometry_to_geom(self):
         """When geometry column is 'wkb_geometry', rename to 'geom'."""
-        from app.ingest.metadata import ensure_geom_column
+        from app.processing.ingest.metadata import ensure_geom_column
 
         await self.session.execute(
             text(
@@ -49,7 +49,7 @@ class TestEnsureGeomColumn:
 
     async def test_noop_when_already_geom(self):
         """When geometry column is already 'geom', do nothing."""
-        from app.ingest.metadata import ensure_geom_column
+        from app.processing.ingest.metadata import ensure_geom_column
 
         await self.session.execute(
             text(
@@ -74,7 +74,7 @@ class TestEnsureGeomColumn:
 
     async def test_noop_for_non_spatial_table(self):
         """When table has no geometry column, do nothing (no error)."""
-        from app.ingest.metadata import ensure_geom_column
+        from app.processing.ingest.metadata import ensure_geom_column
 
         await self.session.execute(
             text(

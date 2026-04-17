@@ -17,19 +17,19 @@ from sqlalchemy import delete
 async def _clean_settings(client: AsyncClient):
     """Clean up any DB settings overrides after each test."""
     yield
-    from app.dependencies import get_db
+    from app.core.dependencies import get_db
     from app.main import app
-    from app.settings.models import AppSetting
+    from app.modules.settings.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         await db.execute(delete(AppSetting))
         await db.commit()
 
-    from app.cache import get_cache
+    from app.platform.cache import get_cache
 
     try:
         cache = get_cache()
-        from app.persistent_config import _registry
+        from app.core.persistent_config import _registry
 
         for cfg in _registry:
             await cache.delete(f"config:{cfg.key}")
@@ -64,8 +64,8 @@ def _make_fake_dataset(*, with_samples: bool = True):
 @pytest.mark.anyio
 async def test_should_send_sample_values_default_true(client: AsyncClient):
     """Default value for ai_send_sample_values is True."""
-    from app.ai.service import _should_send_sample_values
-    from app.dependencies import get_db
+    from app.processing.ai.service import _should_send_sample_values
+    from app.core.dependencies import get_db
     from app.main import app
 
     async for db in app.dependency_overrides[get_db]():
@@ -76,9 +76,9 @@ async def test_should_send_sample_values_default_true(client: AsyncClient):
 @pytest.mark.anyio
 async def test_should_send_sample_values_respects_toggle(client: AsyncClient):
     """When ai_send_sample_values is set to False, the function returns False."""
-    from app.ai.service import _should_send_sample_values
-    from app.persistent_config import AI_SEND_SAMPLE_VALUES
-    from app.dependencies import get_db
+    from app.processing.ai.service import _should_send_sample_values
+    from app.core.persistent_config import AI_SEND_SAMPLE_VALUES
+    from app.core.dependencies import get_db
     from app.main import app
 
     async for db in app.dependency_overrides[get_db]():
@@ -95,15 +95,15 @@ async def test_should_send_sample_values_respects_toggle(client: AsyncClient):
 @pytest.mark.anyio
 async def test_search_tool_includes_samples_when_enabled(client: AsyncClient):
     """_execute_search_tool includes sample_values when send_sample_values=True."""
-    from app.ai.service import _execute_search_tool
-    from app.dependencies import get_db
+    from app.processing.ai.service import _execute_search_tool
+    from app.core.dependencies import get_db
     from app.main import app
 
     fake_ds = _make_fake_dataset(with_samples=True)
 
     async for db in app.dependency_overrides[get_db]():
         with patch(
-            "app.ai.service.search_datasets", new_callable=AsyncMock
+            "app.processing.ai.service.search_datasets", new_callable=AsyncMock
         ) as mock_search:
             mock_search.return_value = ([fake_ds], 1)
             results = await _execute_search_tool(
@@ -122,15 +122,15 @@ async def test_search_tool_includes_samples_when_enabled(client: AsyncClient):
 @pytest.mark.anyio
 async def test_search_tool_omits_samples_when_disabled(client: AsyncClient):
     """_execute_search_tool omits sample_values when send_sample_values=False."""
-    from app.ai.service import _execute_search_tool
-    from app.dependencies import get_db
+    from app.processing.ai.service import _execute_search_tool
+    from app.core.dependencies import get_db
     from app.main import app
 
     fake_ds = _make_fake_dataset(with_samples=True)
 
     async for db in app.dependency_overrides[get_db]():
         with patch(
-            "app.ai.service.search_datasets", new_callable=AsyncMock
+            "app.processing.ai.service.search_datasets", new_callable=AsyncMock
         ) as mock_search:
             mock_search.return_value = ([fake_ds], 1)
             results = await _execute_search_tool(

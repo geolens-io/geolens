@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.health.service import _probe, check_health
-from app.admin.schemas import (
+from app.observability.health.service import _probe, check_health
+from app.modules.admin.schemas import (
     InfrastructureConfig,
     InfrastructureResponse,
     ProviderHealth,
@@ -47,7 +47,7 @@ async def test_probe_timeout():
     async def slow_coro():
         await asyncio.sleep(60)
 
-    with patch("app.health.service.HEALTH_TIMEOUT", 0.1):
+    with patch("app.observability.health.service.HEALTH_TIMEOUT", 0.1):
         result = await _probe("test", slow_coro())
     assert result["status"] == "error"
     assert result["latency_ms"] >= 0
@@ -61,9 +61,9 @@ async def test_check_health_all_healthy():
         pass
 
     with (
-        patch("app.health.service._check_database", new=noop),
-        patch("app.health.service._check_storage", new=noop),
-        patch("app.health.service._check_cache", new=noop),
+        patch("app.observability.health.service._check_database", new=noop),
+        patch("app.observability.health.service._check_storage", new=noop),
+        patch("app.observability.health.service._check_cache", new=noop),
     ):
         result = await check_health()
 
@@ -84,9 +84,9 @@ async def test_check_health_degraded():
         raise RuntimeError("db down")
 
     with (
-        patch("app.health.service._check_database", new=fail),
-        patch("app.health.service._check_storage", new=noop),
-        patch("app.health.service._check_cache", new=noop),
+        patch("app.observability.health.service._check_database", new=fail),
+        patch("app.observability.health.service._check_storage", new=noop),
+        patch("app.observability.health.service._check_cache", new=noop),
     ):
         result = await check_health()
 

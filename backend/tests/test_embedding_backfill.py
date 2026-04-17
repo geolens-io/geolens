@@ -39,7 +39,7 @@ class TestBackfillEmbeddings:
     @pytest.mark.asyncio
     async def test_processes_records_without_embeddings(self):
         """Records without embeddings should be processed via generate_and_store_embedding."""
-        from app.embeddings.backfill import backfill_embeddings
+        from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="Dataset A")
         r2 = _make_record(title="Dataset B")
@@ -48,7 +48,7 @@ class TestBackfillEmbeddings:
         session.execute = AsyncMock(return_value=_make_query_result([r1, r2]))
 
         with patch(
-            "app.embeddings.backfill.generate_and_store_embedding",
+            "app.processing.embeddings.backfill.generate_and_store_embedding",
             new_callable=AsyncMock,
         ) as mock_gen:
             mock_gen.return_value = True
@@ -62,7 +62,7 @@ class TestBackfillEmbeddings:
     @pytest.mark.asyncio
     async def test_individual_errors_do_not_stop_backfill(self):
         """If one record fails, the backfill should continue to the next."""
-        from app.embeddings.backfill import backfill_embeddings
+        from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="Fails")
         r2 = _make_record(title="Succeeds")
@@ -71,7 +71,7 @@ class TestBackfillEmbeddings:
         session.execute = AsyncMock(return_value=_make_query_result([r1, r2]))
 
         with patch(
-            "app.embeddings.backfill.generate_and_store_embedding",
+            "app.processing.embeddings.backfill.generate_and_store_embedding",
             new_callable=AsyncMock,
         ) as mock_gen:
             mock_gen.side_effect = [RuntimeError("API error"), True]
@@ -84,13 +84,13 @@ class TestBackfillEmbeddings:
     @pytest.mark.asyncio
     async def test_returns_correct_counts(self):
         """Progress dict has processed, created, skipped, errors keys."""
-        from app.embeddings.backfill import backfill_embeddings
+        from app.processing.embeddings.backfill import backfill_embeddings
 
         session = AsyncMock()
         session.execute = AsyncMock(return_value=_make_query_result([]))
 
         with patch(
-            "app.embeddings.backfill.generate_and_store_embedding",
+            "app.processing.embeddings.backfill.generate_and_store_embedding",
             new_callable=AsyncMock,
         ):
             result = await backfill_embeddings(session)
@@ -100,7 +100,7 @@ class TestBackfillEmbeddings:
     @pytest.mark.asyncio
     async def test_skips_when_generate_returns_false(self):
         """When generate_and_store_embedding returns False, record counts as skipped."""
-        from app.embeddings.backfill import backfill_embeddings
+        from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="Skipped")
 
@@ -108,7 +108,7 @@ class TestBackfillEmbeddings:
         session.execute = AsyncMock(return_value=_make_query_result([r1]))
 
         with patch(
-            "app.embeddings.backfill.generate_and_store_embedding",
+            "app.processing.embeddings.backfill.generate_and_store_embedding",
             new_callable=AsyncMock,
         ) as mock_gen:
             mock_gen.return_value = False
@@ -120,7 +120,7 @@ class TestBackfillEmbeddings:
     @pytest.mark.asyncio
     async def test_extracts_keyword_strings(self):
         """Keywords should be extracted as strings from RecordKeyword objects."""
-        from app.embeddings.backfill import backfill_embeddings
+        from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="With Keywords", keywords=["water", "hydrology"])
 
@@ -128,7 +128,7 @@ class TestBackfillEmbeddings:
         session.execute = AsyncMock(return_value=_make_query_result([r1]))
 
         with patch(
-            "app.embeddings.backfill.generate_and_store_embedding",
+            "app.processing.embeddings.backfill.generate_and_store_embedding",
             new_callable=AsyncMock,
         ) as mock_gen:
             mock_gen.return_value = True

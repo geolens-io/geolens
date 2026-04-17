@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 import fakeredis.aioredis
 import pytest
 
-from app.cache.memory import InMemoryCacheProvider
-from app.cache.redis import RedisCacheProvider
-from app.cache.tiles import invalidate_catalog_cache  # noqa: F401
+from app.platform.cache.memory import InMemoryCacheProvider
+from app.platform.cache.redis import RedisCacheProvider
+from app.platform.cache.tiles import invalidate_catalog_cache  # noqa: F401
 
 
 # --- InMemoryCacheProvider tests ---
@@ -148,8 +148,8 @@ async def test_redis_graceful_set_on_failure():
 
 def test_init_cache_memory():
     """init_cache creates InMemoryCacheProvider when redis_url is None."""
-    from app.cache import provider as cache_provider
-    from app.cache.memory import InMemoryCacheProvider as CurrentInMemoryCacheProvider
+    from app.platform.cache import provider as cache_provider
+    from app.platform.cache.memory import InMemoryCacheProvider as CurrentInMemoryCacheProvider
 
     old = cache_provider._cache_provider
     try:

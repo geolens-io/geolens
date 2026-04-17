@@ -15,7 +15,7 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from app.datasets.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 
 from tests.factories import get_user_id
 
@@ -94,7 +94,7 @@ async def _create_dataset_with_quality(
 async def test_compute_quality_score_complete_dataset(test_db_session):
     """A dataset with all optional metadata fields filled scores high on
     metadata_completeness and crs_defined."""
-    from app.ingest.metadata import compute_quality_score as _compute
+    from app.processing.ingest.metadata import compute_quality_score as _compute
 
     admin_id = await get_user_id(test_db_session, "admin")
 
@@ -154,7 +154,7 @@ async def test_compute_quality_score_complete_dataset(test_db_session):
 async def test_compute_quality_score_minimal_dataset(test_db_session):
     """A dataset with only required fields scores low on metadata_completeness
     and 0 on crs_defined if srid is None."""
-    from app.ingest.metadata import compute_quality_score as _compute
+    from app.processing.ingest.metadata import compute_quality_score as _compute
 
     admin_id = await get_user_id(test_db_session, "admin")
 
@@ -288,7 +288,7 @@ async def test_attribute_completeness_uses_single_query(test_db_session):
     """
     from sqlalchemy import text
 
-    from app.ingest.metadata import compute_quality_score as _compute
+    from app.processing.ingest.metadata import compute_quality_score as _compute
 
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_dataset_with_quality(
@@ -412,7 +412,7 @@ async def test_compute_quality_score_table_record(test_db_session):
       - geometry_validity: None (not applicable)
       - crs_defined: None (not applicable)
     """
-    from app.ingest.metadata import compute_quality_score as _compute
+    from app.processing.ingest.metadata import compute_quality_score as _compute
 
     admin_id = await get_user_id(test_db_session, "admin")
 
@@ -422,7 +422,7 @@ async def test_compute_quality_score_table_record(test_db_session):
 
     from sqlalchemy import text
 
-    from app.datasets.models import Dataset, Record, RecordKeyword
+    from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 
     table_name = f"tbl_{uuid.uuid4().hex[:12]}"
     record = Record(

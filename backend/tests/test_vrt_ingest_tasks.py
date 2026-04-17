@@ -2,9 +2,9 @@ import uuid
 
 from sqlalchemy import select
 
-from app.auth.models import User
-from app.config import settings
-from app.ingest.tasks import create_vrt_dataset
+from app.modules.auth.models import User
+from app.core.config import settings
+from app.processing.ingest.tasks import create_vrt_dataset
 
 
 async def _get_admin_id(session) -> uuid.UUID:

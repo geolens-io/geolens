@@ -14,7 +14,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.datasets.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 
