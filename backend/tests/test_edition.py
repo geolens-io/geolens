@@ -25,14 +25,14 @@ def _clean_edition():
 class TestEditionDetection:
     def test_edition_defaults_community(self):
         """get_edition() returns community before init."""
-        from app.edition import get_edition
+        from app.core.edition import get_edition
 
         info = get_edition()
         assert info.edition == "community"
 
     def test_edition_env_override_enterprise(self):
         """With GEOLENS_EDITION=enterprise, init_edition sets enterprise."""
-        from app.edition import get_edition, init_edition
+        from app.core.edition import get_edition, init_edition
 
         with patch.dict("os.environ", {"GEOLENS_EDITION": "enterprise"}):
             init_edition([])
@@ -41,7 +41,7 @@ class TestEditionDetection:
 
     def test_edition_env_override_community(self):
         """With GEOLENS_EDITION=community + extensions, init_edition sets community."""
-        from app.edition import get_edition, init_edition
+        from app.core.edition import get_edition, init_edition
 
         with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
             init_edition(["some_ext"])
@@ -50,7 +50,7 @@ class TestEditionDetection:
 
     def test_edition_auto_detect_enterprise(self):
         """With no env var + non-empty extensions, edition=enterprise."""
-        from app.edition import get_edition, init_edition
+        from app.core.edition import get_edition, init_edition
 
         with patch.dict("os.environ", {}, clear=False):
             # Ensure GEOLENS_EDITION is not set
@@ -63,7 +63,7 @@ class TestEditionDetection:
 
     def test_edition_auto_detect_community(self):
         """With no env var + empty extensions, edition=community."""
-        from app.edition import get_edition, init_edition
+        from app.core.edition import get_edition, init_edition
 
         with patch.dict("os.environ", {}, clear=False):
             import os
@@ -75,7 +75,7 @@ class TestEditionDetection:
 
     def test_is_enterprise(self):
         """is_enterprise() returns True only when edition is enterprise."""
-        from app.edition import init_edition, is_enterprise
+        from app.core.edition import init_edition, is_enterprise
 
         with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
             init_edition([])
@@ -91,8 +91,8 @@ class TestEditionDetection:
 class TestEnterpriseGuard:
     def test_require_enterprise_raises_404(self):
         """require_enterprise() raises HTTPException(404) when community."""
-        from app.edition import init_edition
-        from app.extensions.guards import require_enterprise
+        from app.core.edition import init_edition
+        from app.platform.extensions.guards import require_enterprise
 
         with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
             init_edition([])
@@ -104,8 +104,8 @@ class TestEnterpriseGuard:
 
     def test_enterprise_gate_no_detail_body(self):
         """Enterprise gate 404 response must not leak edition/upgrade info."""
-        from app.edition import init_edition
-        from app.extensions.guards import require_enterprise
+        from app.core.edition import init_edition
+        from app.platform.extensions.guards import require_enterprise
 
         with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
             init_edition([])

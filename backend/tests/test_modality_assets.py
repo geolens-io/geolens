@@ -6,7 +6,7 @@ Uses SimpleNamespace mocks for Dataset and Record objects.
 
 from types import SimpleNamespace
 
-from app.search.service import build_assets
+from app.modules.catalog.search.service import build_assets
 
 
 def _make_dataset(

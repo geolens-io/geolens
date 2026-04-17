@@ -11,7 +11,7 @@ from typing import Optional
 from unittest.mock import MagicMock, patch
 
 
-from app.raster.validation import SourceValidationError, validate_sources
+from app.processing.raster.validation import SourceValidationError, validate_sources
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ class TestCrsCheck:
         sources = [FakeRasterAsset(), FakeRasterAsset()]
         mock_crs = self._make_mock_crs(equal=True)
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.return_value = mock_crs
             errors = validate_sources("mosaic", sources)
 
@@ -70,7 +70,7 @@ class TestCrsCheck:
         other_crs = MagicMock()
         ref_crs.equals.return_value = False
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.side_effect = [ref_crs, other_crs]
             errors = validate_sources("mosaic", sources)
 
@@ -86,7 +86,7 @@ class TestCrsCheck:
             FakeRasterAsset(crs_wkt=None),
         ]
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             errors = validate_sources("mosaic", sources)
 
         crs_errors = [e for e in errors if e.code == "crs_mismatch"]
@@ -99,7 +99,7 @@ class TestCrsCheck:
         ref_crs = MagicMock()
         ref_crs.equals.return_value = False
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.return_value = ref_crs
             errors = validate_sources("band_stack", sources)
 
@@ -117,14 +117,14 @@ class TestBandCountCheck:
 
     def test_matching_band_count_no_errors(self):
         sources = [FakeRasterAsset(band_count=3), FakeRasterAsset(band_count=3)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         bc_errors = [e for e in errors if e.code == "band_count_mismatch"]
         assert bc_errors == []
 
     def test_mismatched_band_count_mosaic_error(self):
         sources = [FakeRasterAsset(band_count=3), FakeRasterAsset(band_count=1)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         bc_errors = [e for e in errors if e.code == "band_count_mismatch"]
         assert len(bc_errors) == 1
@@ -134,7 +134,7 @@ class TestBandCountCheck:
     def test_band_count_not_checked_for_band_stack(self):
         """band_count_mismatch should never appear for band_stack."""
         sources = [FakeRasterAsset(band_count=3), FakeRasterAsset(band_count=1)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         bc_errors = [e for e in errors if e.code == "band_count_mismatch"]
         assert bc_errors == []
@@ -150,14 +150,14 @@ class TestSingleBandCheck:
 
     def test_single_band_sources_pass(self):
         sources = [FakeRasterAsset(band_count=1), FakeRasterAsset(band_count=1)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         sb_errors = [e for e in errors if e.code == "single_band_required"]
         assert sb_errors == []
 
     def test_multi_band_source_fails(self):
         sources = [FakeRasterAsset(band_count=1), FakeRasterAsset(band_count=3)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         sb_errors = [e for e in errors if e.code == "single_band_required"]
         assert len(sb_errors) == 1
@@ -166,7 +166,7 @@ class TestSingleBandCheck:
 
     def test_single_band_not_checked_for_mosaic(self):
         sources = [FakeRasterAsset(band_count=3), FakeRasterAsset(band_count=3)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         sb_errors = [e for e in errors if e.code == "single_band_required"]
         assert sb_errors == []
@@ -182,14 +182,14 @@ class TestDtypeCheck:
 
     def test_matching_dtype_no_errors(self):
         sources = [FakeRasterAsset(dtype="float32"), FakeRasterAsset(dtype="float32")]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         dt_errors = [e for e in errors if e.code == "dtype_mismatch"]
         assert dt_errors == []
 
     def test_mismatched_dtype_error(self):
         sources = [FakeRasterAsset(dtype="uint8"), FakeRasterAsset(dtype="float32")]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         dt_errors = [e for e in errors if e.code == "dtype_mismatch"]
         assert len(dt_errors) == 1
@@ -198,7 +198,7 @@ class TestDtypeCheck:
 
     def test_dtype_checked_for_band_stack(self):
         sources = [FakeRasterAsset(dtype="uint8"), FakeRasterAsset(dtype="float32")]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         dt_errors = [e for e in errors if e.code == "dtype_mismatch"]
         assert len(dt_errors) == 1
@@ -214,14 +214,14 @@ class TestNodataCheck:
 
     def test_all_none_nodata_passes(self):
         sources = [FakeRasterAsset(nodata=None), FakeRasterAsset(nodata=None)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         nd_errors = [e for e in errors if e.code == "nodata_inconsistent"]
         assert nd_errors == []
 
     def test_all_defined_nodata_passes(self):
         sources = [FakeRasterAsset(nodata="-9999"), FakeRasterAsset(nodata="0")]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         nd_errors = [e for e in errors if e.code == "nodata_inconsistent"]
         assert nd_errors == []
@@ -229,7 +229,7 @@ class TestNodataCheck:
     def test_mixed_nodata_fails(self):
         """First source has nodata, second does not."""
         sources = [FakeRasterAsset(nodata="-9999"), FakeRasterAsset(nodata=None)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         nd_errors = [e for e in errors if e.code == "nodata_inconsistent"]
         assert len(nd_errors) == 1
@@ -239,14 +239,14 @@ class TestNodataCheck:
     def test_mixed_nodata_reverse_fails(self):
         """First source has no nodata, second does."""
         sources = [FakeRasterAsset(nodata=None), FakeRasterAsset(nodata="-9999")]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         nd_errors = [e for e in errors if e.code == "nodata_inconsistent"]
         assert len(nd_errors) == 1
 
     def test_nodata_checked_for_band_stack(self):
         sources = [FakeRasterAsset(nodata="-9999"), FakeRasterAsset(nodata=None)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         nd_errors = [e for e in errors if e.code == "nodata_inconsistent"]
         assert len(nd_errors) == 1
@@ -262,7 +262,7 @@ class TestRotationCheck:
 
     def test_non_rotated_no_errors(self):
         sources = [FakeRasterAsset(is_rotated=False), FakeRasterAsset(is_rotated=False)]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         rot_errors = [e for e in errors if e.code == "rotated_raster"]
         assert rot_errors == []
@@ -270,7 +270,7 @@ class TestRotationCheck:
     def test_rotated_source_fails(self):
         src_rotated = FakeRasterAsset(is_rotated=True)
         sources = [FakeRasterAsset(is_rotated=False), src_rotated]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         rot_errors = [e for e in errors if e.code == "rotated_raster"]
         assert len(rot_errors) == 1
@@ -280,7 +280,7 @@ class TestRotationCheck:
     def test_rotation_checked_for_band_stack(self):
         src_rotated = FakeRasterAsset(is_rotated=True)
         sources = [FakeRasterAsset(is_rotated=False), src_rotated]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         rot_errors = [e for e in errors if e.code == "rotated_raster"]
         assert len(rot_errors) == 1
@@ -289,7 +289,7 @@ class TestRotationCheck:
         """Rotation check applies to ALL sources including the first."""
         src1 = FakeRasterAsset(is_rotated=True)
         src2 = FakeRasterAsset(is_rotated=False)
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", [src1, src2])
         rot_errors = [e for e in errors if e.code == "rotated_raster"]
         assert len(rot_errors) == 1
@@ -309,7 +309,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(width=256, height=256, res_x=1.0, res_y=1.0),
             FakeRasterAsset(width=256, height=256, res_x=1.0, res_y=1.0),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert grid_errors == []
@@ -319,7 +319,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(width=256, height=256),
             FakeRasterAsset(width=512, height=256),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert len(grid_errors) == 1
@@ -330,7 +330,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(width=256, height=256),
             FakeRasterAsset(width=256, height=512),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert len(grid_errors) == 1
@@ -341,7 +341,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(res_x=1.0, res_y=1.0),
             FakeRasterAsset(res_x=2.0, res_y=1.0),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert len(grid_errors) == 1
@@ -352,7 +352,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(res_x=1.0, res_y=1.0),
             FakeRasterAsset(res_x=1.0, res_y=2.0),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert len(grid_errors) == 1
@@ -364,7 +364,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(res_x=1.0, res_y=1.0),
             FakeRasterAsset(res_x=1.0 + 1e-11, res_y=1.0),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert grid_errors == []
@@ -375,7 +375,7 @@ class TestGridAlignmentCheck:
             FakeRasterAsset(width=256, height=256),
             FakeRasterAsset(width=512, height=512),
         ]
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", sources)
         grid_errors = [e for e in errors if e.code == "grid_misaligned"]
         assert grid_errors == []
@@ -397,7 +397,7 @@ class TestAllChecksRun:
         ref_crs = MagicMock()
         ref_crs.equals.return_value = False
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.return_value = ref_crs
             errors = validate_sources("mosaic", [src_ref, src_bad])
 
@@ -432,7 +432,7 @@ class TestAllChecksRun:
         ref_crs = MagicMock()
         ref_crs.equals.return_value = False
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.return_value = ref_crs
             errors = validate_sources("band_stack", [src_ref, src_bad])
 
@@ -459,7 +459,7 @@ class TestValidSources:
         mock_crs = MagicMock()
         mock_crs.equals.return_value = True
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.return_value = mock_crs
             errors = validate_sources("mosaic", sources)
 
@@ -491,7 +491,7 @@ class TestValidSources:
         mock_crs = MagicMock()
         mock_crs.equals.return_value = True
 
-        with patch("app.raster.validation.rasterio") as mock_rasterio:
+        with patch("app.processing.raster.validation.rasterio") as mock_rasterio:
             mock_rasterio.CRS.from_wkt.return_value = mock_crs
             errors = validate_sources("band_stack", sources)
 
@@ -507,17 +507,17 @@ class TestEdgeCases:
     """Edge cases: 0 or 1 sources return empty list."""
 
     def test_zero_sources(self):
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", [])
         assert errors == []
 
     def test_one_source(self):
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("mosaic", [FakeRasterAsset()])
         assert errors == []
 
     def test_one_source_band_stack(self):
-        with patch("app.raster.validation.rasterio"):
+        with patch("app.processing.raster.validation.rasterio"):
             errors = validate_sources("band_stack", [FakeRasterAsset()])
         assert errors == []
 

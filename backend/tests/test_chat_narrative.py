@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.ai.chat_service import (
+from app.processing.ai.chat_service import (
     ERROR_MESSAGES,
     _handle_query_data,
     _execute_chat_tool,
     build_chat_system_prompt,
 )
-from app.ai.schemas import ChatMapLayer
-from app.sandbox.schemas import SandboxError, SandboxResult
+from app.processing.ai.schemas import ChatMapLayer
+from app.platform.sandbox.schemas import SandboxError, SandboxResult
 
 
 def _make_layer(**overrides) -> ChatMapLayer:
@@ -82,12 +82,12 @@ async def test_empty_result_handling():
 
     with (
         patch(
-            "app.ai.chat_service.generate_sql",
+            "app.processing.ai.chat_service.generate_sql",
             new_callable=AsyncMock,
             return_value="SELECT 1",
         ),
         patch(
-            "app.ai.chat_service.validate_and_execute",
+            "app.processing.ai.chat_service.validate_and_execute",
             new_callable=AsyncMock,
             return_value=empty_result,
         ),
@@ -110,7 +110,7 @@ async def test_empty_result_handling():
 async def test_sandbox_error_uses_mapped_message():
     """_execute_chat_tool returns the mapped actionable message for SandboxError."""
     with patch(
-        "app.ai.chat_service._handle_query_data",
+        "app.processing.ai.chat_service._handle_query_data",
         new_callable=AsyncMock,
         side_effect=SandboxError("query_timeout", "raw timeout message"),
     ):

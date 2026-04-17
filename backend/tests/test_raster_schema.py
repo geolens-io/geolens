@@ -16,10 +16,10 @@ import pytest
 import sqlalchemy.exc
 from sqlalchemy import select, text
 
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
-from app.maps.models import Map, MapLayer
-from app.raster.models import RasterAsset
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.processing.raster.models import RasterAsset
 
 
 # ---------------------------------------------------------------------------

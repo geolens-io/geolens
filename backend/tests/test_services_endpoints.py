@@ -15,9 +15,9 @@ import httpx
 import pytest
 from httpx import AsyncClient
 
-from app.services.probe import ServiceNotRecognized
-from app.services.schemas import LayerInfo, ProbeResponse
-from app.services.security import SSRFError
+from app.modules.catalog.sources.probe import ServiceNotRecognized
+from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
+from app.modules.catalog.sources.security import SSRFError
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ from app.services.security import SSRFError
 @pytest.fixture
 def mock_validate_ssrf():
     """Patch SSRF validation to allow all URLs by default."""
-    with patch("app.services.router.validate_url_for_ssrf") as mock:
+    with patch("app.modules.catalog.sources.router.validate_url_for_ssrf") as mock:
         yield mock
 
 
@@ -36,7 +36,7 @@ def mock_validate_ssrf():
 def mock_detect_service():
     """Patch detect_service_type to return a canned WFS response."""
     with patch(
-        "app.services.router.detect_service_type", new_callable=AsyncMock
+        "app.modules.catalog.sources.router.detect_service_type", new_callable=AsyncMock
     ) as mock:
         mock.return_value = ProbeResponse(
             service_type="WFS 2.0.0",
@@ -64,7 +64,7 @@ def mock_detect_service():
 @pytest.fixture
 def mock_build_gdal_source():
     """Patch build_gdal_source to return a fake GDAL source string."""
-    with patch("app.services.router.build_gdal_source") as mock:
+    with patch("app.modules.catalog.sources.router.build_gdal_source") as mock:
         mock.return_value = ("WFS:https://example.com/wfs", "buildings")
         yield mock
 
@@ -73,7 +73,7 @@ def mock_build_gdal_source():
 def mock_run_preview():
     """Patch run_service_preview to return canned preview data."""
     with patch(
-        "app.services.router.run_service_preview", new_callable=AsyncMock
+        "app.modules.catalog.sources.router.run_service_preview", new_callable=AsyncMock
     ) as mock:
         mock.return_value = {
             "srid": 4326,
@@ -157,7 +157,7 @@ class TestProbeEndpoint:
     ):
         """POST /services/probe/ with private IP is rejected (400)."""
         with patch(
-            "app.services.router.validate_url_for_ssrf",
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
             side_effect=SSRFError(
                 "URLs targeting private/internal networks are not allowed"
             ),
@@ -175,7 +175,7 @@ class TestProbeEndpoint:
     ):
         """POST /services/probe/ targeting localhost is rejected."""
         with patch(
-            "app.services.router.validate_url_for_ssrf",
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
             side_effect=SSRFError(
                 "URLs targeting private/internal networks are not allowed"
             ),
@@ -195,7 +195,7 @@ class TestProbeEndpoint:
     ):
         """POST /services/probe/ that times out returns 504."""
         with patch(
-            "app.services.router.detect_service_type",
+            "app.modules.catalog.sources.router.detect_service_type",
             new_callable=AsyncMock,
             side_effect=httpx.TimeoutException("timed out"),
         ):
@@ -217,7 +217,7 @@ class TestProbeEndpoint:
         mock_response.status_code = 401
         mock_request = MagicMock()
         with patch(
-            "app.services.router.detect_service_type",
+            "app.modules.catalog.sources.router.detect_service_type",
             new_callable=AsyncMock,
             side_effect=httpx.HTTPStatusError(
                 "Unauthorized", request=mock_request, response=mock_response
@@ -242,7 +242,7 @@ class TestProbeEndpoint:
         mock_response.status_code = 500
         mock_request = MagicMock()
         with patch(
-            "app.services.router.detect_service_type",
+            "app.modules.catalog.sources.router.detect_service_type",
             new_callable=AsyncMock,
             side_effect=httpx.HTTPStatusError(
                 "Server Error", request=mock_request, response=mock_response
@@ -263,7 +263,7 @@ class TestProbeEndpoint:
     ):
         """POST /services/probe/ with unreachable host returns 502."""
         with patch(
-            "app.services.router.detect_service_type",
+            "app.modules.catalog.sources.router.detect_service_type",
             new_callable=AsyncMock,
             side_effect=httpx.ConnectError("Connection refused"),
         ):
@@ -282,7 +282,7 @@ class TestProbeEndpoint:
     ):
         """POST /services/probe/ with unrecognized service returns 422."""
         with patch(
-            "app.services.router.detect_service_type",
+            "app.modules.catalog.sources.router.detect_service_type",
             new_callable=AsyncMock,
             side_effect=ServiceNotRecognized(),
         ):
@@ -377,7 +377,7 @@ class TestPreviewEndpoint:
     ):
         """POST /services/preview/ with private IP is rejected."""
         with patch(
-            "app.services.router.validate_url_for_ssrf",
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
             side_effect=SSRFError(
                 "URLs targeting private/internal networks are not allowed"
             ),
@@ -402,7 +402,7 @@ class TestPreviewEndpoint:
     ):
         """POST /services/preview/ with unsupported service type returns 400."""
         with patch(
-            "app.services.router.build_gdal_source",
+            "app.modules.catalog.sources.router.build_gdal_source",
             side_effect=ValueError("Unsupported service type: FTP"),
         ):
             resp = await client.post(
@@ -424,10 +424,10 @@ class TestPreviewEndpoint:
         mock_build_gdal_source,
     ):
         """POST /services/preview/ when ogrinfo fails returns 502."""
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         with patch(
-            "app.services.router.run_service_preview",
+            "app.modules.catalog.sources.router.run_service_preview",
             new_callable=AsyncMock,
             side_effect=IngestionError("ogrinfo failed"),
         ):
@@ -451,7 +451,7 @@ class TestPreviewEndpoint:
     ):
         """POST /services/preview/ with unexpected error returns 500."""
         with patch(
-            "app.services.router.run_service_preview",
+            "app.modules.catalog.sources.router.run_service_preview",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Something broke"),
         ):
@@ -518,7 +518,7 @@ class TestPreviewEndpoint:
     ):
         """POST /services/preview/ for ArcGIS without layer_id returns 400."""
         with patch(
-            "app.services.router.build_gdal_source",
+            "app.modules.catalog.sources.router.build_gdal_source",
             side_effect=ValueError("ArcGIS layer preview requires a layer ID"),
         ):
             resp = await client.post(
@@ -541,7 +541,7 @@ class TestPreviewEndpoint:
         mock_build_gdal_source,
     ):
         """POST /services/preview/ retries with unqualified name on WFS namespace failure."""
-        from app.ingest.ogr import IngestionError
+        from app.processing.ingest.ogr import IngestionError
 
         call_count = 0
 
@@ -560,7 +560,7 @@ class TestPreviewEndpoint:
             }
 
         with patch(
-            "app.services.router.run_service_preview",
+            "app.modules.catalog.sources.router.run_service_preview",
             new_callable=AsyncMock,
             side_effect=side_effect,
         ):
@@ -587,7 +587,7 @@ class TestSSRFValidation:
 
     def test_ssrf_rejects_private_ip(self):
         """Private IPs (10.x, 172.16.x, 192.168.x) are blocked."""
-        from app.services.security import validate_url_for_ssrf
+        from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         for url in [
             "http://10.0.0.1/wfs",
@@ -599,14 +599,14 @@ class TestSSRFValidation:
 
     def test_ssrf_rejects_localhost(self):
         """Localhost and 127.x addresses are blocked."""
-        from app.services.security import validate_url_for_ssrf
+        from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         with pytest.raises(SSRFError):
             validate_url_for_ssrf("http://127.0.0.1/wfs")
 
     def test_ssrf_rejects_bad_scheme(self):
         """Non-http(s) schemes are blocked."""
-        from app.services.security import validate_url_for_ssrf
+        from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         for url in ["ftp://example.com/data", "file:///etc/passwd"]:
             with pytest.raises(SSRFError):
@@ -614,7 +614,7 @@ class TestSSRFValidation:
 
     def test_ssrf_rejects_no_hostname(self):
         """URLs without a hostname are blocked."""
-        from app.services.security import validate_url_for_ssrf
+        from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         with pytest.raises(SSRFError):
             validate_url_for_ssrf("http:///path")
@@ -635,7 +635,7 @@ async def _create_arcgis_dataset(
 ):
     """Insert a Dataset simulating a previously registered ArcGIS FeatureServer layer."""
     import uuid as _uuid
-    from app.datasets.models import Dataset, Record
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
 
     table_name = f"ds_{_uuid.uuid4().hex[:12]}"
     record = Record(

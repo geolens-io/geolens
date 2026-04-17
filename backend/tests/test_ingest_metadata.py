@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from app.ingest.metadata import (
+from app.processing.ingest.metadata import (
     _parse_box3d_z_bounds,
     detect_3d_metadata,
     promote_z_to_elev,

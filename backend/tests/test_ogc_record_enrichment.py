@@ -16,7 +16,7 @@ import uuid
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from app.datasets.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 
@@ -404,7 +404,7 @@ async def test_record_has_distributions_list(client: AsyncClient, test_db_sessio
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dataset(session, created_by=admin_id, name="Dist Test")
     # Add a distribution via the DB
-    from app.datasets.models import RecordDistribution
+    from app.modules.catalog.datasets.domain.models import RecordDistribution
 
     dist = RecordDistribution(
         record_id=ds.record_id,

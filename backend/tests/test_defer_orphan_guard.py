@@ -43,7 +43,7 @@ class TestDeferWithOrphanGuard:
         """On a successful defer, rollback must not run and db.commit stays untouched."""
 
         async def _check():
-            from app.jobs.defer_guard import defer_with_orphan_guard
+            from app.platform.jobs.defer_guard import defer_with_orphan_guard
 
             mock_db = AsyncMock()
             mock_db.commit = AsyncMock()
@@ -69,7 +69,7 @@ class TestDeferWithOrphanGuard:
         """Defer raising must: run rollback, commit it, and propagate as HTTP 503."""
 
         async def _check():
-            from app.jobs.defer_guard import defer_with_orphan_guard
+            from app.platform.jobs.defer_guard import defer_with_orphan_guard
 
             mock_db = AsyncMock()
             mock_db.commit = AsyncMock()
@@ -100,7 +100,7 @@ class TestDeferWithOrphanGuard:
         """If rollback itself raises, helper still surfaces the 503 to the client."""
 
         async def _check():
-            from app.jobs.defer_guard import defer_with_orphan_guard
+            from app.platform.jobs.defer_guard import defer_with_orphan_guard
 
             mock_db = AsyncMock()
             mock_db.commit = AsyncMock()
@@ -123,7 +123,7 @@ class TestDeferWithOrphanGuard:
         """Convenience rollback helper mutates the IngestJob in-place."""
 
         async def _check():
-            from app.jobs.defer_guard import make_ingest_job_failed_rollback
+            from app.platform.jobs.defer_guard import make_ingest_job_failed_rollback
 
             job = MagicMock()
             job.status = "pending"
@@ -186,8 +186,8 @@ class TestReuploadOrphanGuard:
         """RESILIENCE-2 extension: service reupload defer crash → 503 + failed job."""
 
         async def _check():
-            from app.datasets.router_reupload import reupload_commit
-            from app.datasets.schemas import ReuploadCommitRequest
+            from app.modules.catalog.datasets.api.router_reupload import reupload_commit
+            from app.modules.catalog.datasets.domain.schemas import ReuploadCommitRequest
 
             dataset_id = uuid.uuid4()
             job = _make_reupload_job(source_url="https://example.com/arcgis/0")
@@ -205,10 +205,10 @@ class TestReuploadOrphanGuard:
 
             with (
                 patch(
-                    "app.datasets.router_reupload.get_dataset",
+                    "app.modules.catalog.datasets.api.router_reupload.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
-                patch("app.datasets.router_reupload.reupload_service") as mock_task,
+                patch("app.modules.catalog.datasets.api.router_reupload.reupload_service") as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -227,8 +227,8 @@ class TestReuploadOrphanGuard:
         """Priority-queue reupload defer crash → 503 + failed job."""
 
         async def _check():
-            from app.datasets.router_reupload import reupload_commit
-            from app.datasets.schemas import ReuploadCommitRequest
+            from app.modules.catalog.datasets.api.router_reupload import reupload_commit
+            from app.modules.catalog.datasets.domain.schemas import ReuploadCommitRequest
 
             upload_file = tmp_path / "tiny.geojson"
             upload_file.write_text('{"type":"FeatureCollection","features":[]}')
@@ -246,10 +246,10 @@ class TestReuploadOrphanGuard:
 
             with (
                 patch(
-                    "app.datasets.router_reupload.get_dataset",
+                    "app.modules.catalog.datasets.api.router_reupload.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
-                patch("app.datasets.router_reupload.reupload_file") as mock_task,
+                patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_task,
             ):
                 priority_task = MagicMock()
                 priority_task.defer_async = failing_defer
@@ -270,8 +270,8 @@ class TestReuploadOrphanGuard:
         """Default-queue reupload (no local file) defer crash → 503 + failed job."""
 
         async def _check():
-            from app.datasets.router_reupload import reupload_commit
-            from app.datasets.schemas import ReuploadCommitRequest
+            from app.modules.catalog.datasets.api.router_reupload import reupload_commit
+            from app.modules.catalog.datasets.domain.schemas import ReuploadCommitRequest
 
             # Non-local path (S3-ish) — triggers the default-queue branch.
             dataset_id = uuid.uuid4()
@@ -287,10 +287,10 @@ class TestReuploadOrphanGuard:
 
             with (
                 patch(
-                    "app.datasets.router_reupload.get_dataset",
+                    "app.modules.catalog.datasets.api.router_reupload.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
-                patch("app.datasets.router_reupload.reupload_file") as mock_task,
+                patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -327,8 +327,8 @@ class TestVrtSourceOrphanGuard:
         the inserted source link, mark the IngestJob failed, and raise 503."""
 
         async def _check():
-            from app.ingest.router import add_vrt_source
-            from app.ingest.schemas import VrtAddSourceRequest
+            from app.processing.ingest.router import add_vrt_source
+            from app.processing.ingest.schemas import VrtAddSourceRequest
 
             dataset_id = uuid.uuid4()
             source_id = uuid.uuid4()
@@ -396,11 +396,11 @@ class TestVrtSourceOrphanGuard:
 
             with (
                 patch(
-                    "app.ingest.router.create_ingest_job",
+                    "app.processing.ingest.router.create_ingest_job",
                     new=mock_create_ingest_job,
                 ),
-                patch("app.ingest.router.validate_sources", return_value=[]),
-                patch("app.ingest.router.regenerate_vrt") as mock_task,
+                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -425,7 +425,7 @@ class TestVrtSourceOrphanGuard:
         and raise 503."""
 
         async def _check():
-            from app.ingest.router import remove_vrt_source
+            from app.processing.ingest.router import remove_vrt_source
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -483,10 +483,10 @@ class TestVrtSourceOrphanGuard:
 
             with (
                 patch(
-                    "app.ingest.router.create_ingest_job",
+                    "app.processing.ingest.router.create_ingest_job",
                     new=mock_create_ingest_job,
                 ),
-                patch("app.ingest.router.regenerate_vrt") as mock_task,
+                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -523,7 +523,7 @@ class TestDatasetsVrtOrphanGuard:
         state, mark ``VrtGeneration`` + ``IngestJob`` failed, raise 503."""
 
         async def _check():
-            from app.datasets.router_vrt import regenerate_vrt_endpoint
+            from app.modules.catalog.datasets.api.router_vrt import regenerate_vrt_endpoint
 
             dataset_id = uuid.uuid4()
             mock_user = MagicMock()
@@ -593,22 +593,22 @@ class TestDatasetsVrtOrphanGuard:
 
             with (
                 patch(
-                    "app.datasets.router_vrt.get_dataset",
+                    "app.modules.catalog.datasets.api.router_vrt.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.datasets.router_vrt.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_vrt.check_dataset_access",
                     new=AsyncMock(),
                 ),
                 patch(
-                    "app.ingest.service.create_ingest_job",
+                    "app.processing.ingest.service.create_ingest_job",
                     new=mock_create_ingest_job,
                 ),
                 patch(
-                    "app.raster.models.VrtGeneration",
+                    "app.processing.raster.models.VrtGeneration",
                     side_effect=mock_vrt_generation_ctor,
                 ),
-                patch("app.ingest.tasks.regenerate_vrt") as mock_task,
+                patch("app.processing.ingest.tasks.regenerate_vrt") as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:

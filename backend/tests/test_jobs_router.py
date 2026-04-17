@@ -11,7 +11,7 @@ from sqlalchemy import text
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.jobs.models import IngestJob
+from app.platform.jobs.models import IngestJob
 
 from tests.factories import get_user_id
 

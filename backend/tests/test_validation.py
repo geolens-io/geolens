@@ -15,7 +15,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select, text, update
 
-from app.datasets.models import (
+from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
     RecordContact,
@@ -218,7 +218,7 @@ async def test_publish_blocked_when_hard_validation_fails(
     test_db_session,
 ):
     """PATCH with record_status=published on incomplete record returns 422 when require_metadata is ON."""
-    from app.settings.models import AppSetting
+    from app.modules.settings.models import AppSetting
 
     admin_id = await get_user_id(test_db_session, "admin")
 
@@ -323,7 +323,7 @@ async def test_quality_score_includes_iso_fields(test_db_session):
 
     Having keywords (RecordKeyword entries) should increase the score.
     """
-    from app.ingest.metadata import compute_quality_score as _compute
+    from app.processing.ingest.metadata import compute_quality_score as _compute
 
     admin_id = await get_user_id(test_db_session, "admin")
 

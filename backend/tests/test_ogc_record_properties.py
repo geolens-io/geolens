@@ -17,7 +17,7 @@ from datetime import date
 
 import pytest
 from httpx import AsyncClient
-from app.datasets.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
 
@@ -229,7 +229,7 @@ async def test_record_contacts_from_record_contacts_table(
     client: AsyncClient, test_db_session
 ):
     """Contacts in OGC response come from the record_contacts table."""
-    from app.datasets.models import RecordContact
+    from app.modules.catalog.datasets.domain.models import RecordContact
 
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -425,7 +425,7 @@ async def _create_table_dataset(
     """Insert a Record + Dataset pair for a non-spatial table record."""
     import uuid
 
-    from app.datasets.models import Dataset, Record
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
 
     table_name = f"tbl_{uuid.uuid4().hex[:12]}"
     record = Record(

@@ -84,7 +84,7 @@ def _create_test_csv(tmp_path: Path) -> Path:
 @pytest.fixture
 async def test_job(test_db_session):
     """Create a minimal IngestJob record for testing."""
-    from app.jobs.models import IngestJob
+    from app.platform.jobs.models import IngestJob
 
     job = IngestJob(
         source_filename="test_points.geojson",
@@ -99,7 +99,7 @@ async def test_job(test_db_session):
 @pytest.fixture
 async def test_job_csv(test_db_session):
     """Create a minimal IngestJob record for CSV testing."""
-    from app.jobs.models import IngestJob
+    from app.platform.jobs.models import IngestJob
 
     job = IngestJob(
         source_filename="test_data.csv",
@@ -124,8 +124,8 @@ class TestStagingPipelineIntegration:
         self, test_db_session, test_job, tmp_path
     ):
         """Spatial GeoJSON loads through the helper with correct metadata and geom_4326."""
-        from app.ingest.ogr import run_ogrinfo
-        from app.ingest.tasks import _ingest_vector_into_staging
+        from app.processing.ingest.ogr import run_ogrinfo
+        from app.processing.ingest.tasks import _ingest_vector_into_staging
 
         file_path = str(_create_test_geojson(tmp_path))
         table_name = _table_id("test_staging")
@@ -184,8 +184,8 @@ class TestStagingPipelineIntegration:
         self, test_db_session, test_job, tmp_path
     ):
         """Staging table (reupload pattern) is created with correct data."""
-        from app.ingest.ogr import run_ogrinfo
-        from app.ingest.tasks import _ingest_vector_into_staging
+        from app.processing.ingest.ogr import run_ogrinfo
+        from app.processing.ingest.tasks import _ingest_vector_into_staging
 
         file_path = str(_create_test_geojson(tmp_path))
         # Reupload-style: staging suffix appended to a base name
@@ -243,8 +243,8 @@ class TestStagingPipelineIntegration:
 
     async def test_nonspatial_csv_path(self, test_db_session, test_job_csv, tmp_path):
         """Non-spatial CSV loads without geometry columns."""
-        from app.ingest.ogr import run_ogrinfo
-        from app.ingest.tasks import _ingest_vector_into_staging
+        from app.processing.ingest.ogr import run_ogrinfo
+        from app.processing.ingest.tasks import _ingest_vector_into_staging
 
         file_path = str(_create_test_csv(tmp_path))
         table_name = _table_id("test_nonspatial")

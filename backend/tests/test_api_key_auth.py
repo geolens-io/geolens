@@ -12,7 +12,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from app.config import settings
+from app.core.config import settings
 from tests.conftest import _create_test_user, get_auth_header
 
 ADMIN_USER = settings.geolens_admin_username

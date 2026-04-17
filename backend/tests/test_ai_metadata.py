@@ -14,16 +14,16 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
-from app.ai.metadata_schemas import (
+from app.processing.ai.metadata_schemas import (
     KeywordSuggestionsResponse,
     LineageDraftResponse,
     MetadataAssistRequest,
     SummaryDraftResponse,
 )
-from app.auth.models import User
-from app.datasets.models import Dataset, Record
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-from app.config import settings
+from app.core.config import settings
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ def test_schema_models_importable():
 @pytest.mark.asyncio
 async def test_service_functions_importable():
     """Verify service functions can be imported."""
-    from app.ai.metadata_service import (
+    from app.processing.ai.metadata_service import (
         generate_keyword_suggestions,
         generate_lineage_draft,
         generate_summary_draft,
@@ -142,12 +142,12 @@ async def test_summary_endpoint_returns_draft(
 
     with (
         patch(
-            "app.ai.router.generate_summary_draft",
+            "app.processing.ai.router.generate_summary_draft",
             new_callable=AsyncMock,
             return_value=mock_response,
         ),
         patch(
-            "app.ai.router._check_ai_available",
+            "app.processing.ai.router._check_ai_available",
             new_callable=AsyncMock,
         ),
     ):
@@ -184,12 +184,12 @@ async def test_keywords_endpoint_returns_suggestions(
 
     with (
         patch(
-            "app.ai.router.generate_keyword_suggestions",
+            "app.processing.ai.router.generate_keyword_suggestions",
             new_callable=AsyncMock,
             return_value=mock_response,
         ),
         patch(
-            "app.ai.router._check_ai_available",
+            "app.processing.ai.router._check_ai_available",
             new_callable=AsyncMock,
         ),
     ):
@@ -221,12 +221,12 @@ async def test_lineage_endpoint_returns_draft(
 
     with (
         patch(
-            "app.ai.router.generate_lineage_draft",
+            "app.processing.ai.router.generate_lineage_draft",
             new_callable=AsyncMock,
             return_value=mock_response,
         ),
         patch(
-            "app.ai.router._check_ai_available",
+            "app.processing.ai.router._check_ai_available",
             new_callable=AsyncMock,
         ),
     ):
@@ -257,7 +257,7 @@ async def test_returns_403_when_ai_disabled(
         )
 
     with patch(
-        "app.ai.router._check_ai_available",
+        "app.processing.ai.router._check_ai_available",
         new_callable=AsyncMock,
         side_effect=_raise_ai_disabled,
     ):
@@ -286,7 +286,7 @@ async def test_returns_503_when_no_api_key(
         )
 
     with patch(
-        "app.ai.router._check_ai_available",
+        "app.processing.ai.router._check_ai_available",
         new_callable=AsyncMock,
         side_effect=_raise_not_configured,
     ):
@@ -320,11 +320,11 @@ async def test_returns_422_invalid_dataset(
 
     with (
         patch(
-            "app.ai.router._check_ai_available",
+            "app.processing.ai.router._check_ai_available",
             new_callable=AsyncMock,
         ),
         patch(
-            "app.ai.router.generate_summary_draft",
+            "app.processing.ai.router.generate_summary_draft",
             new_callable=AsyncMock,
             side_effect=ValueError("Dataset not found"),
         ),

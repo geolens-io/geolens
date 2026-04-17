@@ -7,7 +7,7 @@ Integration tests for construct_point_geometry / construct_wkt_geometry (require
 import pytest
 from sqlalchemy import text
 
-from app.ingest.ogr import detect_geometry_columns
+from app.processing.ingest.ogr import detect_geometry_columns
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ class TestConstructPointGeometry:
         """Ensure DB is available (client fixture handles setup)."""
 
     async def test_creates_point_geometry(self, test_db_session):
-        from app.ingest.metadata import construct_point_geometry
+        from app.processing.ingest.metadata import construct_point_geometry
 
         table = "test_point_geom"
         try:
@@ -170,7 +170,7 @@ class TestConstructPointGeometry:
             await test_db_session.commit()
 
     async def test_skips_null_coordinates(self, test_db_session):
-        from app.ingest.metadata import construct_point_geometry
+        from app.processing.ingest.metadata import construct_point_geometry
 
         table = "test_point_nulls"
         try:
@@ -201,7 +201,7 @@ class TestConstructPointGeometry:
             await test_db_session.commit()
 
     async def test_rejects_invalid_column_name(self, test_db_session):
-        from app.ingest.metadata import construct_point_geometry
+        from app.processing.ingest.metadata import construct_point_geometry
 
         with pytest.raises(ValueError, match="Invalid column name"):
             await construct_point_geometry(
@@ -210,7 +210,7 @@ class TestConstructPointGeometry:
 
     async def test_rejects_uppercase_column_name(self, test_db_session):
         """Uppercase column names are rejected by validation regex."""
-        from app.ingest.metadata import construct_point_geometry
+        from app.processing.ingest.metadata import construct_point_geometry
 
         with pytest.raises(ValueError, match="Invalid column name"):
             await construct_point_geometry(
@@ -229,7 +229,7 @@ class TestConstructWktGeometry:
         """Ensure DB is available."""
 
     async def test_creates_geometry_from_wkt(self, test_db_session):
-        from app.ingest.metadata import construct_wkt_geometry
+        from app.processing.ingest.metadata import construct_wkt_geometry
 
         table = "test_wkt_geom"
         try:
@@ -271,7 +271,7 @@ class TestConstructWktGeometry:
             await test_db_session.commit()
 
     async def test_skips_null_wkt(self, test_db_session):
-        from app.ingest.metadata import construct_wkt_geometry
+        from app.processing.ingest.metadata import construct_wkt_geometry
 
         table = "test_wkt_nulls"
         try:

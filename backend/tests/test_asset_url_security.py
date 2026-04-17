@@ -14,7 +14,7 @@ Verifies:
 from unittest.mock import MagicMock
 
 
-from app.assets.urls import resolve_asset_url, _extract_storage_key
+from app.platform.assets.urls import resolve_asset_url, _extract_storage_key
 
 
 PUBLIC_API_URL = "http://localhost:8000"

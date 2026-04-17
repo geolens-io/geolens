@@ -15,8 +15,8 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.models import User
-from app.datasets.models import (
+from app.modules.auth.models import User
+from app.modules.catalog.datasets.domain.models import (
     Dataset,
     RecordContact,
     RecordDistribution,
@@ -39,7 +39,7 @@ async def _create_dataset_with_distributions(
     table_name: str | None = None,
 ) -> Dataset:
     """Create a dataset using the service layer (includes auto-generated distributions)."""
-    from app.datasets.service import create_dataset
+    from app.modules.catalog.datasets.domain.service import create_dataset
 
     if table_name is None:
         table_name = f"ds_{uuid.uuid4().hex[:12]}"
@@ -807,7 +807,7 @@ class TestDistributions:
         test_db_session: AsyncSession,
     ):
         """Calling generate_distributions twice produces no duplicates."""
-        from app.records.service import generate_distributions
+        from app.modules.catalog.records.service import generate_distributions
 
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)

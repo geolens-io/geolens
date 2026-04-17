@@ -15,10 +15,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-import app.tiles.pool as pool_module
-from app.auth.models import User
-from app.config import settings
-from app.datasets.models import Dataset, Record
+import app.processing.tiles.pool as pool_module
+from app.modules.auth.models import User
+from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 # ---------------------------------------------------------------------------
 # Thresholds: 3x Phase 181 p95 values (generous to avoid flake)
@@ -129,7 +129,7 @@ async def _perf_tile_pool(_perf_dataset):
     rather than settings, because other test modules may pollute env vars
     during collection.
     """
-    import app.database as db_module
+    import app.core.db as db_module
 
     sa_url = db_module.engine.url.render_as_string(hide_password=False)
     dsn = sa_url.replace("postgresql+asyncpg://", "postgresql://")

@@ -22,11 +22,11 @@ import rasterio
 from sqlalchemy import select
 from rasterio.transform import from_origin
 
-from app.auth.models import User
-from app.config import settings
-from app.datasets.models import Dataset, Record
-from app.raster.models import RasterAsset
-from app.raster.vrt import build_vrt
+from app.modules.auth.models import User
+from app.core.config import settings
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.processing.raster.models import RasterAsset
+from app.processing.raster.vrt import build_vrt
 
 
 # ---------------------------------------------------------------------------

@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock
 
 from httpx import AsyncClient
 
-from app.auth.router import REGISTRATION_ENABLED
-from app.config import settings
+from app.modules.auth.router import REGISTRATION_ENABLED
+from app.core.config import settings
 from tests.conftest import get_auth_header
 
 # Admin credentials from settings (geolens_admin_username/password)
@@ -409,7 +409,7 @@ class TestAdminUserManagement:
 class TestAdminApproveReject:
     async def test_admin_approve_pending_user(self, client: AsyncClient, monkeypatch):
         """Admin can approve a pending user via POST /admin/users/{id}/approve/."""
-        from app.auth.router import REGISTRATION_ENABLED
+        from app.modules.auth.router import REGISTRATION_ENABLED
         from unittest.mock import AsyncMock
 
         monkeypatch.setattr(
@@ -453,7 +453,7 @@ class TestAdminApproveReject:
 
     async def test_admin_reject_pending_user(self, client: AsyncClient, monkeypatch):
         """Admin can reject a pending user via POST /admin/users/{id}/reject/."""
-        from app.auth.router import REGISTRATION_ENABLED
+        from app.modules.auth.router import REGISTRATION_ENABLED
         from unittest.mock import AsyncMock
 
         monkeypatch.setattr(

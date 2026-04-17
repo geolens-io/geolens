@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.ingest.validation import (
+from app.processing.ingest.validation import (
     validate_file_content,
     validate_file_size,
     validate_zip_safety,
@@ -142,7 +142,7 @@ class TestValidateZipSafety:
         raw = buf.getvalue()
         # Instead, let's test this via monkeypatch on zipfile
         # Actually, let's use a simpler approach: monkeypatch the constant
-        import app.ingest.validation as val_mod
+        import app.processing.ingest.validation as val_mod
 
         original = val_mod.MAX_DECOMPRESSED_BYTES
         try:

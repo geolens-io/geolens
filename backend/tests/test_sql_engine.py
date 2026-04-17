@@ -3,16 +3,16 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.ai.chat_service import (
+from app.processing.ai.chat_service import (
     _handle_query_data,
     _execute_chat_tool,
     build_chat_system_prompt,
 )
-from app.ai.constants import tool_label
-from app.ai.schemas import ChatMapLayer
-from app.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
-from app.ai.sql_generator import build_sql_schema_context, build_sql_generation_prompt
-from app.sandbox.schemas import SandboxError, SandboxResult
+from app.processing.ai.constants import tool_label
+from app.processing.ai.schemas import ChatMapLayer
+from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
+from app.processing.ai.sql_generator import build_sql_schema_context, build_sql_generation_prompt
+from app.platform.sandbox.schemas import SandboxError, SandboxResult
 
 
 def _make_layer(
@@ -186,8 +186,8 @@ class TestQueryDataTool:
     """Tests for _handle_query_data and its integration in _execute_chat_tool."""
 
     @pytest.mark.asyncio
-    @patch("app.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
-    @patch("app.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_handle_returns_structured_result(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT count(*) FROM data.cities"
         mock_exec.return_value = SandboxResult(
@@ -203,8 +203,8 @@ class TestQueryDataTool:
         assert result["truncated"] is False
 
     @pytest.mark.asyncio
-    @patch("app.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
-    @patch("app.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_rows_truncated_to_50(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT * FROM data.cities"
         mock_exec.return_value = SandboxResult(
@@ -221,8 +221,8 @@ class TestQueryDataTool:
         assert result["row_count"] == 100
 
     @pytest.mark.asyncio
-    @patch("app.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
-    @patch("app.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_sandbox_error_returns_error_dict(self, mock_gen, mock_exec):
         mock_gen.return_value = "DROP TABLE cities"
         mock_exec.side_effect = SandboxError("invalid_query", "Only SELECT allowed")
@@ -241,7 +241,7 @@ class TestQueryDataTool:
         assert result["category"] == "invalid_query"
 
     @pytest.mark.asyncio
-    @patch("app.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_llm_failure_returns_generic_error(self, mock_gen):
         mock_gen.side_effect = RuntimeError("LLM unreachable")
         result = await _execute_chat_tool(
@@ -255,8 +255,8 @@ class TestQueryDataTool:
         assert result["error"] == "Could not generate or execute query"
 
     @pytest.mark.asyncio
-    @patch("app.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
-    @patch("app.ai.chat_service.generate_sql", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_execute_chat_tool_dispatches_query_data(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT 1"
         mock_exec.return_value = SandboxResult(
