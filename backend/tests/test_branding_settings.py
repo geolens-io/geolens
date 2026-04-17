@@ -46,7 +46,7 @@ async def test_put_branding_invalid_body(client: AsyncClient, admin_auth_header:
 async def test_get_branding_after_config_override(client: AsyncClient):
     """GET /api/settings/branding/ returns correct value after PersistentConfig.set()."""
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.core.persistent_config import BRANDING_SHOW_BADGE
 
     # Override via PersistentConfig directly (bypasses enterprise gate)

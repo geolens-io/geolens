@@ -162,7 +162,7 @@ async def _seed_dataset(
     async def seed_one(z: int, x: int, y: int) -> None:
         async with sem:
             try:
-                from app.tiles.service import get_tile
+                from app.processing.tiles.service import get_tile
 
                 tile_data = await get_tile(pool, table_name, z, x, y, columns)
                 if tile_data is None:
@@ -249,9 +249,9 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    from app.config import settings
-    from app.tiles.pool import close_tile_pool, init_tile_pool
-    from app.cache.tile_cache import TileCacheProvider
+    from app.core.config import settings
+    from app.processing.tiles.pool import close_tile_pool, init_tile_pool
+    from app.platform.cache.tile_cache import TileCacheProvider
 
     if not settings.redis_url:
         print(

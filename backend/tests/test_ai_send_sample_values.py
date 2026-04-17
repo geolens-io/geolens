@@ -18,7 +18,7 @@ async def _clean_settings(client: AsyncClient):
     """Clean up any DB settings overrides after each test."""
     yield
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
     from app.modules.settings.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
@@ -66,7 +66,7 @@ async def test_should_send_sample_values_default_true(client: AsyncClient):
     """Default value for ai_send_sample_values is True."""
     from app.processing.ai.service import _should_send_sample_values
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         result = await _should_send_sample_values(db)
@@ -79,7 +79,7 @@ async def test_should_send_sample_values_respects_toggle(client: AsyncClient):
     from app.processing.ai.service import _should_send_sample_values
     from app.core.persistent_config import AI_SEND_SAMPLE_VALUES
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
         await AI_SEND_SAMPLE_VALUES.set(db, False)
@@ -97,7 +97,7 @@ async def test_search_tool_includes_samples_when_enabled(client: AsyncClient):
     """_execute_search_tool includes sample_values when send_sample_values=True."""
     from app.processing.ai.service import _execute_search_tool
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     fake_ds = _make_fake_dataset(with_samples=True)
 
@@ -124,7 +124,7 @@ async def test_search_tool_omits_samples_when_disabled(client: AsyncClient):
     """_execute_search_tool omits sample_values when send_sample_values=False."""
     from app.processing.ai.service import _execute_search_tool
     from app.core.dependencies import get_db
-    from app.main import app
+    from app.api.main import app
 
     fake_ds = _make_fake_dataset(with_samples=True)
 

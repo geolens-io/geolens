@@ -18,9 +18,9 @@ from sqlalchemy.orm import sessionmaker
 
 
 async def main() -> None:
-    from app.config import settings
-    from app.storage import get_storage, init_storage
-    from app.vector.quicklook import generate_vector_quicklook_with_timeout
+    from app.core.config import settings
+    from app.platform.storage import get_storage, init_storage
+    from app.processing.vector.quicklook import generate_vector_quicklook_with_timeout
 
     force = "--force" in sys.argv
     init_storage()

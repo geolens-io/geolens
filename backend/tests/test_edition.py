@@ -127,7 +127,7 @@ class TestEditionEndpoint:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
-        from app.main import app
+        from app.api.main import app
 
         return TestClient(app)
 
