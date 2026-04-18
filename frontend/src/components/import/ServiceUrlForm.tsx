@@ -282,11 +282,9 @@ export function ServiceUrlForm() {
           </div>
           <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span>
-              {t('serviceUrl.tries', { defaultValue: 'Tries:' })} <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WMS</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WMTS</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">OGC API</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">STAC</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">ArcGIS</code>
+              {t('serviceUrl.supported', { defaultValue: 'Supported:' })}{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WFS</code>{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">ArcGIS FeatureServer</code>
             </span>
           </div>
         </div>
