@@ -1020,6 +1020,41 @@ def _infer_domain_type(data_type: str) -> str:
     return _PG_TYPE_TO_DOMAIN.get(data_type, "text")
 
 
+def _build_attribute_metadata(
+    dataset_id: uuid.UUID,
+    col_name: str,
+    col_type: str,
+    *,
+    sample_values: dict | None = None,
+    ordinal_position: int | None = None,
+    is_nullable: bool | None = None,
+) -> "AttributeMetadata":
+    """Factory for creating a new AttributeMetadata row with inferred fields.
+
+    Shared by generate_attribute_metadata (initial ingest) and
+    refresh_attribute_metadata (re-upload new columns).
+    """
+    from app.modules.catalog.datasets.domain.models import AttributeMetadata
+
+    example_vals = None
+    if sample_values and col_name in sample_values:
+        example_vals = sample_values[col_name]
+
+    return AttributeMetadata(
+        dataset_id=dataset_id,
+        field_name=col_name,
+        title=_humanize_column_name(col_name),
+        data_type=col_type,
+        units=_infer_units(col_name),
+        semantic_role=_infer_semantic_role(col_name, col_type),
+        domain_type=_infer_domain_type(col_type),
+        example_values=example_vals,
+        ordinal_position=ordinal_position,
+        is_nullable=is_nullable,
+        is_current=True,
+    )
+
+
 async def generate_attribute_metadata(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -1051,23 +1086,13 @@ async def generate_attribute_metadata(
         if field_name in existing_fields:
             continue
 
-        data_type = col.get("type", "")
-        example_vals = None
-        if sample_values and field_name in sample_values:
-            example_vals = sample_values[field_name]
-
-        am = AttributeMetadata(
-            dataset_id=dataset_id,
-            field_name=field_name,
-            title=_humanize_column_name(field_name),
-            data_type=data_type,
-            units=_infer_units(field_name),
-            semantic_role=_infer_semantic_role(field_name, data_type),
-            domain_type=_infer_domain_type(data_type),
-            example_values=example_vals,
+        am = _build_attribute_metadata(
+            dataset_id,
+            field_name,
+            col.get("type", ""),
+            sample_values=sample_values,
             ordinal_position=col.get("ordinal_position"),
             is_nullable=col.get("is_nullable"),
-            is_current=True,
         )
         session.add(am)
         created.append(am)
@@ -1153,19 +1178,14 @@ async def refresh_attribute_metadata(
             if "description" not in modified:
                 am.description = None  # No auto-inferred description
         else:
-            # New column -- create fresh row
-            am = AttributeMetadata(
-                dataset_id=dataset_id,
-                field_name=field_name,
-                title=_humanize_column_name(field_name),
-                data_type=data_type,
-                units=_infer_units(field_name),
-                semantic_role=_infer_semantic_role(field_name, data_type),
-                domain_type=_infer_domain_type(data_type),
-                example_values=example_vals,
+            # New column -- create fresh row via shared factory
+            am = _build_attribute_metadata(
+                dataset_id,
+                field_name,
+                data_type,
+                sample_values=sample_values,
                 ordinal_position=col.get("ordinal_position"),
                 is_nullable=col.get("is_nullable"),
-                is_current=True,
             )
             session.add(am)
 
