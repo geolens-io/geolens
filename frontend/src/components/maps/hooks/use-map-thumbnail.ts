@@ -9,7 +9,7 @@ export function useMapThumbnail(thumbnailUrl: string | null | undefined): string
       return URL.createObjectURL(blob);
     },
     enabled: !!thumbnailUrl,
-    staleTime: Infinity,
+    staleTime: 60 * 1000, // 1 minute: thumbnails regenerate on re-capture
     gcTime: 10 * 60_000,
   });
 
