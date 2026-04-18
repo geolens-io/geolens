@@ -10,6 +10,7 @@ from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
 from app.modules.auth.visibility import get_user_roles
 from app.core.dependencies import get_db
+from app.modules.catalog.datasets.domain.models import Record
 from app.modules.catalog.records.schemas import (
     ContactCreate,
     ContactListResponse,
@@ -43,18 +44,21 @@ router = APIRouter(prefix="/records", tags=["Records"])
 
 async def _check_record_ownership(
     db: AsyncSession, record_id: uuid.UUID, user: User
-) -> None:
-    """Verify the user owns the record or is an admin. Raises 404/403."""
+) -> Record:
+    """Verify the user owns the record or is an admin. Raises 404/403.
+
+    Returns the fetched Record so callers can reuse it without a second query.
+    """
     record = await get_record(db, record_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
     if record.created_by == user.id:
-        return
+        return record
     user_roles = await get_user_roles(db, user)
     if "admin" in user_roles:
-        return
+        return record
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Not authorized to modify this record",
@@ -103,7 +107,7 @@ async def create_contact_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> ContactResponse:
     """Create a new contact for a record."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
         contact = await create_contact(
             db,
@@ -115,6 +119,7 @@ async def create_contact_endpoint(
             phone=body.phone,
             extra_json=body.extra_json,
             sort_order=body.sort_order,
+            record=record,
         )
         await db.commit()
         await db.refresh(contact)
@@ -223,7 +228,7 @@ async def create_keyword_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> KeywordResponse:
     """Create a new keyword for a record."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
         kw = await create_keyword(
             db,
@@ -231,6 +236,7 @@ async def create_keyword_endpoint(
             keyword=body.keyword,
             vocabulary_uri=body.vocabulary_uri,
             keyword_type=body.keyword_type,
+            record=record,
         )
         await db.commit()
         await db.refresh(kw)
@@ -310,7 +316,7 @@ async def create_distribution_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> DistributionResponse:
     """Create a manual distribution for a record."""
-    await _check_record_ownership(db, record_id, user)
+    record = await _check_record_ownership(db, record_id, user)
     try:
         dist = await create_distribution(
             db,
@@ -323,6 +329,7 @@ async def create_distribution_endpoint(
             protocol=body.protocol,
             media_type=body.media_type,
             is_primary=body.is_primary,
+            record=record,
         )
         await db.commit()
         await db.refresh(dist)

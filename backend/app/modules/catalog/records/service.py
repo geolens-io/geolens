@@ -56,9 +56,11 @@ async def create_contact(
     phone: str | None = None,
     extra_json: dict | None = None,
     sort_order: int = 0,
+    record: Record | None = None,
 ) -> RecordContact:
     """Create a new contact for a record."""
-    record = await get_record(session, record_id)
+    if record is None:
+        record = await get_record(session, record_id)
     if record is None:
         raise ValueError(f"Record {record_id} not found")
 
@@ -133,13 +135,15 @@ async def create_keyword(
     keyword: str,
     vocabulary_uri: str | None = None,
     keyword_type: str = "theme",
+    record: Record | None = None,
 ) -> RecordKeyword:
     """Create a new keyword for a record.
 
     Normalizes before insert: keyword text stripped and lowercased,
     vocabulary_uri stripped and trailing slashes removed.
     """
-    record = await get_record(session, record_id)
+    if record is None:
+        record = await get_record(session, record_id)
     if record is None:
         raise ValueError(f"Record {record_id} not found")
 
@@ -199,9 +203,11 @@ async def create_distribution(
     protocol: str | None = None,
     media_type: str | None = None,
     is_primary: bool = False,
+    record: Record | None = None,
 ) -> RecordDistribution:
     """Create a manual distribution for a record."""
-    record = await get_record(session, record_id)
+    if record is None:
+        record = await get_record(session, record_id)
     if record is None:
         raise ValueError(f"Record {record_id} not found")
 
