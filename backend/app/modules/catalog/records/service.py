@@ -34,13 +34,19 @@ async def get_record(session: AsyncSession, record_id: uuid.UUID) -> Record | No
 
 
 async def list_contacts(
-    session: AsyncSession, record_id: uuid.UUID
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    skip: int = 0,
+    limit: int = 100,
 ) -> list[RecordContact]:
-    """List all contacts for a record, ordered by sort_order."""
+    """List contacts for a record, ordered by sort_order, with pagination."""
     result = await session.execute(
         select(RecordContact)
         .where(RecordContact.record_id == record_id)
         .order_by(RecordContact.sort_order)
+        .offset(skip)
+        .limit(limit)
     )
     return list(result.scalars().all())
 
@@ -119,11 +125,18 @@ async def delete_contact(session: AsyncSession, contact_id: uuid.UUID) -> None:
 
 
 async def list_keywords(
-    session: AsyncSession, record_id: uuid.UUID
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    skip: int = 0,
+    limit: int = 100,
 ) -> list[RecordKeyword]:
-    """List all keywords for a record."""
+    """List keywords for a record, with pagination."""
     result = await session.execute(
-        select(RecordKeyword).where(RecordKeyword.record_id == record_id)
+        select(RecordKeyword)
+        .where(RecordKeyword.record_id == record_id)
+        .offset(skip)
+        .limit(limit)
     )
     return list(result.scalars().all())
 
@@ -182,11 +195,18 @@ async def delete_keyword(session: AsyncSession, keyword_id: uuid.UUID) -> None:
 
 
 async def list_distributions(
-    session: AsyncSession, record_id: uuid.UUID
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    *,
+    skip: int = 0,
+    limit: int = 100,
 ) -> list[RecordDistribution]:
-    """List all distributions for a record."""
+    """List distributions for a record, with pagination."""
     result = await session.execute(
-        select(RecordDistribution).where(RecordDistribution.record_id == record_id)
+        select(RecordDistribution)
+        .where(RecordDistribution.record_id == record_id)
+        .offset(skip)
+        .limit(limit)
     )
     return list(result.scalars().all())
 
