@@ -4,6 +4,7 @@ import io
 import uuid
 
 import jwt
+import structlog
 from fastapi import (
     APIRouter,
     Depends,
@@ -39,6 +40,8 @@ from app.core.dependencies import get_db
 from app.processing.export.service import safe_content_disposition
 from app.core.public_urls import get_public_api_url
 from app.platform.storage import get_storage
+
+logger = structlog.get_logger()
 
 router = APIRouter(prefix="/datasets", tags=["Datasets - Export"])
 
@@ -241,7 +244,18 @@ async def download_cog(
         return RedirectResponse(url=url, status_code=302)
 
     # Local storage: stream bytes
-    data = await storage.get(raster_asset.asset_uri)
+    try:
+        data = await storage.get(raster_asset.asset_uri)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="COG file not found"
+        )
+    except Exception:
+        logger.exception("cog_storage_error", dataset_id=str(dataset_id))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="COG download temporarily unavailable",
+        )
     return StreamingResponse(
         io.BytesIO(data),
         media_type="image/tiff",
