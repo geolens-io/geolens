@@ -811,12 +811,18 @@ async def search_datasets(
 
         stmt = apply_cql2_filter(stmt, filters.cql2_filter, filters.cql2_filter_lang)
 
-    # 5. Count total matches (FTS count; vector doesn't expand count)
-    # TODO(perf): count via subquery re-evaluates the full predicate stack.
-    # Consider a window function (COUNT(*) OVER()) to piggyback on the main
-    # query, but that changes result shape -- measure before changing.
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = (await session.execute(count_stmt)).scalar_one()
+    # 5. Count total matches — lightweight query without eager loads or ORDER BY.
+    # Build a stripped-down count statement that reuses the same WHERE filters
+    # but avoids the overhead of selectinload and rank expressions.
+    count_base = (
+        select(func.count())
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id)
+    )
+    # Re-apply the same WHERE clauses from stmt (stored on the compiled whereclause)
+    if stmt.whereclause is not None:
+        count_base = count_base.where(stmt.whereclause)
+    total = (await session.execute(count_base)).scalar_one()
 
     # -- Hybrid semantic search with RRF --
     semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(session)
