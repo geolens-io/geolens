@@ -543,6 +543,50 @@ async def _ingest_vector_into_staging(
     return result
 
 
+async def _generate_quicklook(session, dataset, table_name: str, geometry_type: str) -> None:
+    """Generate and upload a vector quicklook thumbnail (non-fatal).
+
+    Runs after commit so a connection-killing query (OOM, timeout on
+    complex geometry) cannot roll back the dataset. The inner try/except
+    splits "generation/upload failed" from "commit failed" so operators
+    can tell which phase died when reading logs.
+    """
+    import io as _io
+
+    _ql_log = structlog.get_logger()
+    try:
+        from app.processing.vector.quicklook import (
+            generate_vector_quicklook_with_timeout as generate_vector_quicklook,
+        )
+
+        ql_bytes = await generate_vector_quicklook(
+            session, table_name, geometry_type, 256
+        )
+        ql_storage = get_storage()
+        ql_key = f"vectors/{dataset.id}/quicklook_256.png"
+        await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
+        dataset.quicklook_256_uri = ql_key
+    except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
+        _ql_log.warning(
+            "quicklook_failed",
+            phase="generate",
+            table=table_name,
+            error=str(_ql_exc),
+        )
+        return
+
+    try:
+        await session.commit()
+    except Exception as _ql_commit_exc:  # broad: transient commit failure after successful generation
+        await session.rollback()
+        _ql_log.warning(
+            "quicklook_failed",
+            phase="commit",
+            table=table_name,
+            error=str(_ql_commit_exc),
+        )
+
+
 async def _finalize_ingest(ctx: IngestContext):
     """Shared post-ogr2ogr pipeline for both file and service ingestion.
 
@@ -682,46 +726,10 @@ async def _finalize_ingest(ctx: IngestContext):
     await session.commit()
 
     # Generate vector quicklook thumbnail (non-fatal, after commit).
-    # Runs after commit so a connection-killing query (OOM, timeout on
-    # complex geometry) cannot roll back the dataset. N3: the inner
-    # try/except splits "generation/upload failed" from "commit failed" so
-    # operators can tell which phase died when reading logs.
     if has_geometry:
-        import structlog as _sl
-
-        _ql_log = _sl.get_logger()
-        try:
-            import io as _io
-
-            from app.processing.vector.quicklook import (
-                generate_vector_quicklook_with_timeout as generate_vector_quicklook,
-            )
-
-            ql_bytes = await generate_vector_quicklook(
-                session, table_name, metadata.get("geometry_type", ""), 256
-            )
-            ql_storage = get_storage()
-            ql_key = f"vectors/{dataset.id}/quicklook_256.png"
-            await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
-            dataset.quicklook_256_uri = ql_key
-        except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
-            _ql_log.warning(
-                "quicklook_failed",
-                phase="generate",
-                table=table_name,
-                error=str(_ql_exc),
-            )
-        else:
-            try:
-                await session.commit()
-            except Exception as _ql_commit_exc:  # broad: transient commit failure after successful generation
-                await session.rollback()
-                _ql_log.warning(
-                    "quicklook_failed",
-                    phase="commit",
-                    table=table_name,
-                    error=str(_ql_commit_exc),
-                )
+        await _generate_quicklook(
+            session, dataset, table_name, metadata.get("geometry_type", "")
+        )
 
     # Invalidate caches after successful ingest
     await invalidate_catalog_cache()
