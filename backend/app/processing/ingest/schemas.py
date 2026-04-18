@@ -1,7 +1,7 @@
 """Pydantic request/response models for ingestion endpoints."""
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,17 @@ class UploadResponse(BaseModel):
     )
 
 
+class ColumnPreview(BaseModel):
+    name: str
+    type: str
+
+
+class LayerPreview(BaseModel):
+    name: str
+    feature_count: int | None = None
+    field_count: int | None = None
+
+
 class PreviewResponse(BaseModel):
     job_id: uuid.UUID = Field(
         description="Identifier of the ingestion job being previewed."
@@ -28,7 +39,7 @@ class PreviewResponse(BaseModel):
     source_filename: str | None = Field(
         description="Original filename of the uploaded file, if known."
     )
-    columns: list[dict] = Field(
+    columns: list[ColumnPreview] = Field(
         description="Detected attribute columns. Each entry includes name, type, and nullability."
     )
     crs: int | None = Field(
@@ -40,17 +51,17 @@ class PreviewResponse(BaseModel):
     feature_count: int | None = Field(
         description="Total number of features in the source file, if known."
     )
-    sample_rows: list[dict] = Field(
+    sample_rows: list[dict[str, Any]] = Field(
         description="Up to 5 sample rows from the source file for preview purposes."
     )
     layer_name: str = Field(
         description="Name of the layer being previewed. Defaults to the source filename for single-layer files."
     )
-    layers: list[dict] | None = Field(
+    layers: list[LayerPreview] | None = Field(
         default=None,
         description="List of all layers in multi-layer sources (e.g. GeoPackage). Null for single-layer files.",
     )
-    detected_geometry_columns: dict | None = Field(
+    detected_geometry_columns: dict[str, Any] | None = Field(
         default=None,
         description="Auto-detected lat/lon or geometry columns for CSV/Excel sources. Null for native geospatial formats.",
     )

@@ -180,7 +180,7 @@ async def get_single_dataset(
     return result
 
 
-@router.get("/{dataset_id}/quicklook")
+@router.get("/{dataset_id}/quicklook", response_class=Response)
 async def get_quicklook(
     dataset_id: uuid.UUID,
     size: int = Query(256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"),
@@ -232,7 +232,19 @@ async def get_quicklook(
         )
 
     storage = get_storage()
-    data = await storage.get(uri)
+    try:
+        data = await storage.get(uri)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Quicklook not found",
+        )
+    except Exception:
+        logger.exception("quicklook_storage_error", dataset_id=str(dataset_id))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Quicklook temporarily unavailable",
+        )
     return Response(
         content=data,
         media_type="image/png",

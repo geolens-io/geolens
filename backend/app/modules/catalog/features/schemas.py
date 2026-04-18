@@ -1,6 +1,6 @@
 """GeoJSON response models following OGC API Features conventions."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -9,7 +9,7 @@ class GeoJSONGeometry(BaseModel):
     """A GeoJSON geometry object (RFC 7946)."""
 
     type: str  # "Point", "MultiPoint", "LineString", "Polygon", etc.
-    coordinates: list
+    coordinates: list[Any]
 
 
 class GeoJSONFeature(BaseModel):
@@ -21,6 +21,12 @@ class GeoJSONFeature(BaseModel):
     properties: dict
 
 
+class Link(BaseModel):
+    rel: str
+    href: str
+    type: str
+
+
 class GeoJSONFeatureCollection(BaseModel):
     """A GeoJSON FeatureCollection with OGC API Features pagination fields."""
 
@@ -28,7 +34,7 @@ class GeoJSONFeatureCollection(BaseModel):
     numberMatched: int
     numberReturned: int
     features: list[GeoJSONFeature]
-    links: list[dict]
+    links: list[Link]
 
 
 # ---------------------------------------------------------------------------
