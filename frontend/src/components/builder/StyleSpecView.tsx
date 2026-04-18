@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,9 @@ interface StyleSpecViewProps {
 export function StyleSpecView({ layer }: StyleSpecViewProps) {
   const { t } = useTranslation('builder');
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const spec = useMemo(() => {
     const obj: Record<string, unknown> = {};
@@ -39,10 +42,12 @@ export function StyleSpecView({ layer }: StyleSpecViewProps) {
     try {
       await navigator.clipboard.writeText(spec);
       setCopyState('copied');
-      setTimeout(() => setCopyState('idle'), 2000);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopyState('idle'), 2000);
     } catch {
       setCopyState('failed');
-      setTimeout(() => setCopyState('idle'), 2000);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopyState('idle'), 2000);
     }
   };
 

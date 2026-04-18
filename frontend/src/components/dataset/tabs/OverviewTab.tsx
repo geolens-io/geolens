@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
@@ -74,6 +74,9 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
   const { t } = useTranslation('dataset');
   const [activeTab, setActiveTab] = useState<'curl' | 'python' | 'qgis'>('curl');
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const baseUrl = window.location.origin;
   const collectionId = dataset.table_name;
@@ -114,7 +117,8 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
   async function handleCopy() {
     try { await navigator.clipboard.writeText(plainText[activeTab]); } catch { /* noop */ }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
   return (
