@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +73,8 @@ async def _check_record_ownership(
 @router.get("/{record_id}/contacts/", response_model=ContactListResponse)
 async def list_contacts_endpoint(
     record_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ContactListResponse:
@@ -88,7 +90,7 @@ async def list_contacts_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    contacts = await list_contacts(db, record_id)
+    contacts = await list_contacts(db, record_id, skip=skip, limit=limit)
     return ContactListResponse(
         contacts=[ContactResponse.model_validate(c) for c in contacts],
         total=len(contacts),
@@ -194,6 +196,8 @@ async def delete_contact_endpoint(
 @router.get("/{record_id}/keywords/", response_model=KeywordListResponse)
 async def list_keywords_endpoint(
     record_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> KeywordListResponse:
@@ -209,7 +213,7 @@ async def list_keywords_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    keywords = await list_keywords(db, record_id)
+    keywords = await list_keywords(db, record_id, skip=skip, limit=limit)
     return KeywordListResponse(
         keywords=[KeywordResponse.model_validate(k) for k in keywords],
         total=len(keywords),
@@ -282,6 +286,8 @@ async def delete_keyword_endpoint(
 @router.get("/{record_id}/distributions/", response_model=DistributionListResponse)
 async def list_distributions_endpoint(
     record_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DistributionListResponse:
@@ -297,7 +303,7 @@ async def list_distributions_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    distributions = await list_distributions(db, record_id)
+    distributions = await list_distributions(db, record_id, skip=skip, limit=limit)
     return DistributionListResponse(
         distributions=[DistributionResponse.model_validate(d) for d in distributions],
         total=len(distributions),
