@@ -6,7 +6,7 @@ import re
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.processing.ingest.metadata import extract_metadata, _qtable
+from app.processing.ingest.metadata import _qtable
 
 # Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -398,19 +398,38 @@ async def delete_feature(
         raise ValueError("Feature not found")
 
 
+async def _refresh_count_and_extent(session: AsyncSession, table_name: str) -> tuple[int, str | None]:
+    """Lightweight count + extent query for feature-write metadata refresh.
+
+    Returns (feature_count, extent_wkt) in a single query instead of the
+    5 queries that extract_metadata() runs.
+    """
+    result = await session.execute(
+        text(
+            f"SELECT COUNT(*), "
+            f"CASE WHEN ST_Extent(geom_4326) IS NULL THEN NULL "
+            f"ELSE ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)) END "
+            f"FROM {_qtable(table_name)}"
+        )
+    )
+    row = result.one()
+    return int(row[0]), row[1]
+
+
 async def refresh_dataset_metadata(session: AsyncSession, dataset) -> None:
     """Refresh feature_count and extent on a Dataset after write operations.
 
-    Calls extract_metadata to get the current count and extent from PostGIS,
-    then updates the dataset record in-place and flushes.
+    Uses a single COUNT(*) + ST_Extent query instead of the full
+    extract_metadata pipeline (which runs 5 queries).
     """
-    metadata = await extract_metadata(session, dataset.table_name)
-    dataset.feature_count = metadata["feature_count"]
+    feature_count, extent_wkt = await _refresh_count_and_extent(
+        session, dataset.table_name
+    )
+    dataset.feature_count = feature_count
 
-    extent_wkt = metadata.get("extent_wkt")
     if extent_wkt and extent_wkt.startswith("POLYGON"):
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
-    elif metadata["feature_count"] == 0:
+    elif feature_count == 0:
         dataset.record.spatial_extent = None
 
     await session.flush()
