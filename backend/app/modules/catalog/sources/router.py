@@ -40,6 +40,27 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/services", tags=["Datasets"])
 
 
+async def _probe_audit_fail(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    url: str,
+    result: str,
+    status_code: int,
+    detail: str,
+    **extra,
+) -> None:
+    """Audit-log a probe failure and raise HTTPException."""
+    await log_action(
+        session=db,
+        user_id=user_id,
+        action="probe_service",
+        resource_type="service_url",
+        details={"url": url, "result": result, **extra},
+    )
+    await db.commit()
+    raise HTTPException(status_code=status_code, detail=detail)
+
+
 async def _fail_preview(db: AsyncSession, user_id: uuid.UUID, url: str, layer: str) -> NoReturn:
     """Log audit and raise 502 for a failed service preview."""
     await log_action(
@@ -72,15 +93,10 @@ async def probe_service_url(
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         logger.warning("SSRF blocked", url=request.url, reason=str(exc))
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="probe_service",
-            resource_type="service_url",
-            details={"url": request.url, "result": "ssrf_blocked", "reason": str(exc)},
+        await _probe_audit_fail(
+            db, user.id, request.url, "ssrf_blocked",
+            status.HTTP_400_BAD_REQUEST, str(exc), reason=str(exc),
         )
-        await db.commit()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     # Step 2: Probe with httpx client
     # NOTE: No default Authorization header on the client. Each probe function
@@ -98,104 +114,48 @@ async def probe_service_url(
 
     except httpx.TimeoutException:
         logger.warning("Probe timeout", url=request.url)
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="probe_service",
-            resource_type="service_url",
-            details={"url": request.url, "result": "timeout"},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=504,
-            detail="Service didn't respond in time. Check the URL and try again.",
+        await _probe_audit_fail(
+            db, user.id, request.url, "timeout",
+            504, "Service didn't respond in time. Check the URL and try again.",
         )
 
     except ArcGISTokenError as exc:
         logger.warning("ArcGIS token error", url=request.url, error=str(exc))
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="probe_service",
-            resource_type="service_url",
-            details={
-                "url": request.url,
-                "result": "auth_required",
-                "arcgis_code": exc.code,
-            },
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=403,
-            detail="This service requires authentication. Provide a valid ArcGIS token and try again.",
+        await _probe_audit_fail(
+            db, user.id, request.url, "auth_required",
+            403, "This service requires authentication. Provide a valid ArcGIS token and try again.",
+            arcgis_code=exc.code,
         )
 
     except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code
-        if status_code in (401, 403):
-            logger.warning("Probe auth required", url=request.url, status=status_code)
-            await log_action(
-                session=db,
-                user_id=user.id,
-                action="probe_service",
-                resource_type="service_url",
-                details={
-                    "url": request.url,
-                    "result": "auth_required",
-                    "status": status_code,
-                },
-            )
-            await db.commit()
-            raise HTTPException(
-                status_code=403,
-                detail="This service requires authentication. Provide an access token and try again.",
+        resp_status = exc.response.status_code
+        if resp_status in (401, 403):
+            logger.warning("Probe auth required", url=request.url, status=resp_status)
+            await _probe_audit_fail(
+                db, user.id, request.url, "auth_required",
+                403, "This service requires authentication. Provide an access token and try again.",
+                status=resp_status,
             )
         else:
-            logger.warning("Probe remote error", url=request.url, status=status_code)
-            await log_action(
-                session=db,
-                user_id=user.id,
-                action="probe_service",
-                resource_type="service_url",
-                details={
-                    "url": request.url,
-                    "result": "remote_error",
-                    "status": status_code,
-                },
-            )
-            await db.commit()
-            raise HTTPException(
-                status_code=502,
-                detail="Remote service returned an error",
+            logger.warning("Probe remote error", url=request.url, status=resp_status)
+            await _probe_audit_fail(
+                db, user.id, request.url, "remote_error",
+                502, "Remote service returned an error",
+                status=resp_status,
             )
 
     except httpx.TransportError:
         logger.warning("Probe unreachable", url=request.url)
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="probe_service",
-            resource_type="service_url",
-            details={"url": request.url, "result": "unreachable"},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=502,
-            detail="Could not reach the service. Check the URL and try again.",
+        await _probe_audit_fail(
+            db, user.id, request.url, "unreachable",
+            502, "Could not reach the service. Check the URL and try again.",
         )
 
     except ServiceNotRecognized as exc:
         logger.info("Probe unrecognized", url=request.url)
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="probe_service",
-            resource_type="service_url",
-            details={"url": request.url, "result": "unrecognized"},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        await _probe_audit_fail(
+            db, user.id, request.url, "unrecognized",
+            status.HTTP_400_BAD_REQUEST, str(exc),
         )
 
     # Step 3: Audit log on success
