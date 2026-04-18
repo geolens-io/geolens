@@ -1030,8 +1030,11 @@ export interface FileEntry {
   error: string | null;
   submittedTitle?: string | null;
   submittedVisibility?: string | null;
-  submittedKind?: 'raster' | 'vector' | 'table' | null;
+  submittedKind?: DataKind | null;
 }
+
+/** Canonical data-kind union used by TypeTag, StatusPill, and import utilities */
+export type DataKind = 'vector' | 'raster' | 'table' | 'vrt';
 
 // Table discovery types
 export interface DiscoveredTable {
