@@ -524,7 +524,7 @@ async def run_ogr2ogr_service(
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
 
     env = None
-    if token and service_type == "wfs":
+    if token and service_type in ("wfs", "ogcapi_features"):
         env = {**os.environ, "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}"}
 
     proc = await asyncio.create_subprocess_exec(

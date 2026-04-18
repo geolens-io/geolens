@@ -39,6 +39,8 @@ def build_gdal_source(
         if token:
             query_url += f"&token={token}"
         return (f"ESRIJSON:{query_url}", "")
+    elif service_type.startswith("OGC API"):
+        return (f"OAPIF:{base_url}", layer_name)
     else:
         raise ValueError(f"Unsupported service type: {service_type}")
 
@@ -91,7 +93,7 @@ async def run_service_preview(
     )
 
     env = None
-    if token and gdal_source.startswith("WFS:"):
+    if token and (gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")):
         env = {**os.environ, "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}"}
 
     proc = await asyncio.create_subprocess_exec(

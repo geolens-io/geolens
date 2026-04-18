@@ -750,9 +750,11 @@ def resolve_service_type(raw: str) -> tuple[str, str]:
         return "arcgis_featureserver", "arcgis_featureserver"
     elif raw.startswith("WFS"):
         return "wfs", "wfs"
+    elif raw.startswith("OGC API"):
+        return "ogcapi_features", "ogcapi_features"
     raise IngestionError(
         f"Unrecognized service type '{raw}'. "
-        f"Expected a type starting with 'ArcGIS' or 'WFS'."
+        f"Expected a type starting with 'ArcGIS', 'WFS', or 'OGC API'."
     )
 
 
