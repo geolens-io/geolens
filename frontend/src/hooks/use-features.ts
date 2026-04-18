@@ -20,6 +20,9 @@ export function useCreateFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
+    onError: (err) => {
+      console.error('[useCreateFeature]', err);
+    },
   });
 }
 
@@ -41,6 +44,9 @@ export function useUpdateFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
+    onError: (err) => {
+      console.error('[useUpdateFeature]', err);
+    },
   });
 }
 
@@ -57,6 +63,9 @@ export function useDeleteFeature() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
+    },
+    onError: (err) => {
+      console.error('[useDeleteFeature]', err);
     },
   });
 }
