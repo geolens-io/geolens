@@ -87,8 +87,8 @@
   },
   "serviceUrl": {
     "label": "URL de service",
-    "placeholder": "https://example.com/wfs or https://services.arcgis.com/.../FeatureServer",
-    "helpText": "Collez une URL de service WFS ou ArcGIS Feature Service",
+    "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, ou endpoint OGC API",
+    "helpText": "Collez une URL de service WFS, ArcGIS Feature Service ou OGC API Features",
     "tokenLabel": "Jeton d'accès (facultatif)",
     "tokenPlaceholder": "Jeton ArcGIS, clé API ou jeton d'accès WFS",
     "tokenHelpText": "Pour ArcGIS Online : créez une clé API sur developers.arcgis.com, ou générez un jeton temporaire sur votre-org.maps.arcgis.com/sharing/rest/generateToken. Pour WFS, utilisez le jeton d'accès de votre fournisseur. Les jetons ne sont pas conservés.",
