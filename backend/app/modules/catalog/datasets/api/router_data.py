@@ -11,6 +11,7 @@ from fastapi import (
     status,
 )
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -91,14 +92,20 @@ async def get_dataset_rows_endpoint(
             col_name = key[7:-1]
             filters[col_name] = value
 
-    rows, approx_total, columns, next_cursor = await get_dataset_rows(
-        db,
-        dataset.table_name,
-        limit=limit,
-        after_gid=after,
-        column_info=dataset.column_info,
-        filters=filters if filters else None,
-    )
+    try:
+        rows, approx_total, columns, next_cursor = await get_dataset_rows(
+            db,
+            dataset.table_name,
+            limit=limit,
+            after_gid=after,
+            column_info=dataset.column_info,
+            filters=filters if filters else None,
+        )
+    except DBAPIError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid filter parameters",
+        )
 
     return DatasetRowsResponse(
         rows=rows,
