@@ -41,26 +41,20 @@ export type TileTokenBatchResponse = {
  * Errors for individual datasets are returned as ``{ error: string }``
  * values in the ``tokens`` map; the overall call still resolves.
  */
-export function getTileTokensBatch(datasetIds: string[]): Promise<TileTokenBatchResponse> {
+export function getTileTokensBatch(datasetIds: string[], apiKey?: string): Promise<TileTokenBatchResponse> {
+  if (apiKey) {
+    return fetch(`${API_BASE}/tiles/tokens/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      body: JSON.stringify({ dataset_ids: datasetIds }),
+    }).then((res) => {
+      if (!res.ok) throw new Error(`Batch token request failed: ${res.status}`);
+      return res.json() as Promise<TileTokenBatchResponse>;
+    });
+  }
   return apiFetch<TileTokenBatchResponse>('/tiles/tokens/', {
     method: 'POST',
     body: JSON.stringify({ dataset_ids: datasetIds }),
   });
 }
 
-/**
- * Fetch a signed tile token using an API key (for ViewerMap / public embeds).
- * Uses direct fetch with X-Api-Key header instead of apiFetch JWT flow.
- */
-export async function getTileTokenWithApiKey(
-  datasetId: string,
-  apiKey: string,
-): Promise<TileToken> {
-  const res = await fetch(`${API_BASE}/tiles/token/${datasetId}/`, {
-    headers: { 'X-Api-Key': apiKey },
-  });
-  if (!res.ok) {
-    throw new Error(`Tile token request failed: ${res.status}`);
-  }
-  return res.json() as Promise<TileToken>;
-}

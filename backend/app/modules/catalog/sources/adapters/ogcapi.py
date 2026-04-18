@@ -118,9 +118,13 @@ async def probe_ogcapi(
     # Step 4: Fetch /collections
     collections_url = url.rstrip("/") + "/collections"
     try:
+        await validate_url_for_ssrf(collections_url)
         col_resp = await client.get(collections_url, headers=headers)
         col_resp.raise_for_status()
         col_data = col_resp.json()
+    except SSRFError:
+        logger.warning("OGC API probe: collections URL blocked by SSRF check", url=collections_url)
+        return None
     except Exception as exc:
         logger.debug(
             "OGC API probe: collections fetch failed",

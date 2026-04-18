@@ -5,7 +5,7 @@ milestone_name: getgeolens.com Marketing Site
 status: executing
 stopped_at: Phase 222 context gathered
 last_updated: "2026-04-13T12:00:51.330Z"
-last_activity: 2026-04-13
+last_activity: 2026-04-18
 progress:
   total_phases: 15
   completed_phases: 14
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-14 - Completed quick task 260414-cw3: Execute populating the demo data and maps with scripts/demo
+Last activity: 2026-04-18 - Completed quick task 260418-d1g: implement OGC API import support
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -108,6 +108,7 @@ None yet.
 | 260413-fvg | Extract DatasetStatsLine, DatasetHeroMap, and BuilderSidebar components | 2026-04-13 | f5b055b5 |  | [260413-fvg-extract-datasetstatsline-datasetheromap-](./quick/260413-fvg-extract-datasetstatsline-datasetheromap-/) |
 | 260413-i5h | Address all outstanding issues in post-impl-20260413-b audit | 2026-04-13 | 61b7b2ef | Verified | [260413-i5h-address-all-outstanding-issues-in-post-i](./quick/260413-i5h-address-all-outstanding-issues-in-post-i/) |
 | 260414-cw3 | Execute populating the demo data and maps with scripts/demo | 2026-04-14 | a5f29428 |  | [260414-cw3-execute-populating-the-demo-data-and-map](./quick/260414-cw3-execute-populating-the-demo-data-and-map/) |
+| 260418-d1g | implement OGC API import support | 2026-04-18 | 5361c8c5 | Verified | [260418-d1g-implement-ogc-api-import-support](./quick/260418-d1g-implement-ogc-api-import-support/) |
 
 ## Session Continuity
 

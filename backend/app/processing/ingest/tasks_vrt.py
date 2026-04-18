@@ -128,7 +128,7 @@ async def create_vrt_dataset(
     return record, dataset, raster_asset
 
 
-@task_app.task(queue="raster", retry=1, aliases=["app.ingest.tasks.ingest_vrt"])
+@task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_vrt"])
 async def ingest_vrt(
     job_id: str,
     user_id: str,
@@ -177,7 +177,10 @@ async def ingest_vrt(
         result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         try:
             # 1. Mark running
@@ -305,8 +308,6 @@ async def ingest_vrt(
             job.error_message = str(exc)
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
-            import structlog
-
             structlog.get_logger().exception(
                 "Ingest task failed",
                 extra={"job_id": str(job.id), "task": "ingest_vrt"},
@@ -317,7 +318,7 @@ async def ingest_vrt(
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-@task_app.task(queue="raster", retry=1, aliases=["app.ingest.tasks.regenerate_vrt"])
+@task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.regenerate_vrt"])
 async def regenerate_vrt(
     job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
 ) -> None:
@@ -371,7 +372,10 @@ async def regenerate_vrt(
         result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         try:
             # 1. Mark running

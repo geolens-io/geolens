@@ -1,6 +1,6 @@
 """Add ogcapi_features to catalog.datasets source_format CHECK constraint.
 
-Revision ID: d1e2f3a4b5c6
+Revision ID: g4h5i6j7k8l9
 Revises: c3d4e5f6a7b8
 Create Date: 2026-04-18 00:00:00.000000
 
@@ -9,7 +9,7 @@ Create Date: 2026-04-18 00:00:00.000000
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "d1e2f3a4b5c6"
+revision = "g4h5i6j7k8l9"
 down_revision = "c3d4e5f6a7b8"
 branch_labels = None
 depends_on = None

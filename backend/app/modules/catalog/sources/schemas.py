@@ -67,16 +67,21 @@ class ProbeError(BaseModel):
 class ServicePreviewRequest(BaseModel):
     url: str = Field(
         min_length=1,
+        max_length=2048,
         description="Normalized service URL from a previous probe response.",
     )
     service_type: str = Field(
+        min_length=1,
+        max_length=100,
         description="Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'."
     )
     layer_name: str = Field(
+        min_length=1,
+        max_length=500,
         description="Name of the specific layer to preview, from the probe layers list."
     )
     layer_title: str | None = Field(
-        default=None, description="Human-readable layer title from the probe LayerInfo."
+        default=None, max_length=500, description="Human-readable layer title from the probe LayerInfo."
     )
     layer_id: int | str | None = Field(
         default=None, description="ArcGIS layer ID, when applicable."
@@ -86,6 +91,7 @@ class ServicePreviewRequest(BaseModel):
     )
     object_id_field: str | None = Field(
         default=None,
+        max_length=200,
         description="ArcGIS OID field name used for orderByFields during preview pagination.",
     )
 
@@ -97,7 +103,7 @@ class ServicePreviewResponse(BaseModel):
     source_filename: str | None = Field(
         description="Layer name acting as a source filename for downstream ingestion logic."
     )
-    columns: list[dict] = Field(
+    columns: list[dict[str, str]] = Field(
         description="Detected attribute columns: [{'name': str, 'type': str}, ...]."
     )
     crs: int | None = Field(description="Detected EPSG code for the layer's CRS.")

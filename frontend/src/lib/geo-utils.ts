@@ -22,8 +22,14 @@ export function extractBbox(feature: OGCRecordResponse): [number, number, number
 }
 
 /**
- * Map a geometry type string to a Lucide icon component.
+ * Compute ground-sampling distance from raster pixel resolutions.
+ * Returns the minimum of the absolute x/y resolutions, or null if either is missing.
  */
+export function computeRasterGsd(resX: number | null | undefined, resY: number | null | undefined): number | null {
+  if (resX == null || resY == null) return null;
+  return Math.min(Math.abs(resX), Math.abs(resY));
+}
+
 /** Column names that indicate elevation/height data */
 const ELEVATION_COLUMN_NAMES = new Set([
   'height', 'elev', 'elevation', 'z', 'altitude', 'alt',

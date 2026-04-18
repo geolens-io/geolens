@@ -35,14 +35,15 @@ export function useWebGLRecovery(
     };
 
     const onRestored = () => {
-      setContextLost(false);
       if (import.meta.env.DEV) console.warn('[map] WebGL context restored');
       // Force a full re-render of the map style
       try {
         const style = map.getStyle();
         if (style) map.setStyle(style);
+        setContextLost(false);
       } catch (err) {
         console.error('WebGL recovery: style restoration failed', err);
+        setContextLost(true); // Keep overlay visible so user knows to reload
       }
     };
 

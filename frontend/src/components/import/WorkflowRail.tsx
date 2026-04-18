@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,7 +22,7 @@ const PHASE_TO_STEP: Record<BatchPhase, number> = {
 export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
   const { t } = useTranslation('import');
 
-  const steps = useMemo(() => [
+  const steps = [
     {
       title: t('rail.stageTitle', { defaultValue: 'Stage files' }),
       desc: t('rail.stageDesc', { defaultValue: 'Drop or pick files. No commit yet — you can remove any before detection.' }),
@@ -36,7 +35,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
       title: t('rail.importTitle', { defaultValue: 'Import & catalog' }),
       desc: t('rail.importDesc', { defaultValue: 'Tile, index, publish — datasets appear in the Catalog immediately.' }),
     },
-  ], [t]);
+  ];
 
   if (mode === 'register' || mode === 'service') {
     return <NonUploadRail mode={mode} />;

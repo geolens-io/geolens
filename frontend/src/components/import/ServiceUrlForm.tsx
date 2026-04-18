@@ -11,7 +11,6 @@ import type {
   ServicePreviewResponse,
   ServicePreviewRequest,
   CommitImportRequest,
-  FilePreviewResponse,
 } from '@/types/api';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
@@ -232,7 +231,7 @@ export function ServiceUrlForm() {
   if ((step === 'review' || step === 'committing') && previewData) {
     return (
       <div className="space-y-4">
-        <ImportPreview preview={previewData as FilePreviewResponse} />
+        <ImportPreview preview={previewData} />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <ImportMetadataForm
           defaultName={previewData.source_filename ?? previewData.layer_name}

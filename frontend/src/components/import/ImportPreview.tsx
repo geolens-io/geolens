@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { FilePreviewResponse, RasterPreviewResponse } from '@/types/api';
+import type { FilePreviewResponse, RasterPreviewResponse, ServicePreviewResponse } from '@/types/api';
 import { formatNumber } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,7 @@ import { semanticBadgeColors } from '@/lib/status-colors';
 import { isRasterPreview } from './utils';
 
 interface ImportPreviewProps {
-  preview: FilePreviewResponse | RasterPreviewResponse;
+  preview: FilePreviewResponse | RasterPreviewResponse | ServicePreviewResponse;
 }
 
 const MAX_VISIBLE_COLUMNS = 8;

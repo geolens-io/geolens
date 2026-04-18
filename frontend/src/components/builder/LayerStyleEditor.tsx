@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from './StyleColorPicker';
 import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
+import { RampStopEditor } from './RampStopEditor';
+import { getColorProperty } from '@/lib/color-ramps';
 import { getLayerType } from '@/components/builder/map-sync';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
@@ -34,6 +36,8 @@ const LINE_DASH_PRESETS = [
   { key: 'dotted', value: [1, 2] },
   { key: 'dashDot', value: [4, 2, 1, 2] },
 ] as const;
+
+const LINE_DASH_SERIALIZED = LINE_DASH_PRESETS.map((p) => JSON.stringify(p.value));
 
 // Defaults per geometry type
 const FILL_DEFAULTS = {
@@ -174,9 +178,18 @@ export function LayerStyleEditor({
             {fillEnabled && (
               <>
                 {isDataDriven ? (
-                  <div className="text-xs text-muted-foreground italic">
-                    {t('style.styledBy', { column: layer.style_config!.column })}
-                  </div>
+                  <>
+                    <div className="text-xs text-muted-foreground italic">
+                      {t('style.styledBy', { column: layer.style_config?.column })}
+                    </div>
+                    {showAdvanced && Array.isArray(paint[getColorProperty(layer.dataset_geometry_type)]) && (
+                      <RampStopEditor
+                        expression={paint[getColorProperty(layer.dataset_geometry_type)] as unknown[]}
+                        column={layer.style_config?.column ?? ''}
+                        onChange={(expr) => handlePaintProp(getColorProperty(layer.dataset_geometry_type), expr)}
+                      />
+                    )}
+                  </>
                 ) : (
                   <StyleColorPicker
                     label={t('style.color')}
@@ -267,11 +280,20 @@ export function LayerStyleEditor({
           <>
             <div className="text-xs font-medium">{t('style.line')}</div>
             {isDataDriven ? (
-              <div className="text-xs text-muted-foreground italic">
-                {layer.style_config!.target === 'width'
-                  ? t('style.widthByColumn', { column: layer.style_config!.column })
-                  : t('style.styledBy', { column: layer.style_config!.column })}
-              </div>
+              <>
+                <div className="text-xs text-muted-foreground italic">
+                  {layer.style_config?.target === 'width'
+                    ? t('style.widthByColumn', { column: layer.style_config?.column })
+                    : t('style.styledBy', { column: layer.style_config?.column })}
+                </div>
+                {showAdvanced && Array.isArray(paint['line-color']) && (
+                  <RampStopEditor
+                    expression={paint['line-color'] as unknown[]}
+                    column={layer.style_config?.column ?? ''}
+                    onChange={(expr) => handlePaintProp('line-color', expr)}
+                  />
+                )}
+              </>
             ) : (
               <StyleColorPicker
                 label={t('style.color')}
@@ -299,11 +321,10 @@ export function LayerStyleEditor({
             />
             <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
             <div className="flex gap-1">
-              {LINE_DASH_PRESETS.map((preset) => {
+              {LINE_DASH_PRESETS.map((preset, idx) => {
                 const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
-                const isActive = (LINE_DASH_PRESETS.find(
-                  (p) => JSON.stringify(p.value) === JSON.stringify(currentDashValue),
-                )?.key ?? 'solid') === preset.key;
+                const activeIdx = LINE_DASH_SERIALIZED.findIndex((s) => s === JSON.stringify(currentDashValue));
+                const isActive = (activeIdx === -1 ? 0 : activeIdx) === idx;
                 return (
                   <button
                     key={preset.key}
@@ -333,11 +354,20 @@ export function LayerStyleEditor({
           <>
             <div className="text-xs font-medium">{t('style.point')}</div>
             {isDataDriven ? (
-              <div className="text-xs text-muted-foreground italic">
-                {layer.style_config!.target === 'radius'
-                  ? t('style.radiusByColumn', { column: layer.style_config!.column })
-                  : t('style.styledBy', { column: layer.style_config!.column })}
-              </div>
+              <>
+                <div className="text-xs text-muted-foreground italic">
+                  {layer.style_config?.target === 'radius'
+                    ? t('style.radiusByColumn', { column: layer.style_config?.column })
+                    : t('style.styledBy', { column: layer.style_config?.column })}
+                </div>
+                {showAdvanced && Array.isArray(paint['circle-color']) && (
+                  <RampStopEditor
+                    expression={paint['circle-color'] as unknown[]}
+                    column={layer.style_config?.column ?? ''}
+                    onChange={(expr) => handlePaintProp('circle-color', expr)}
+                  />
+                )}
+              </>
             ) : (
               <StyleColorPicker
                 label={t('style.color')}
