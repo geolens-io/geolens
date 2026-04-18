@@ -23,7 +23,7 @@ export function WidgetToolbar() {
   const activeCount = widgets.filter((w) => activeWidgets.has(w.id)).length;
 
   return (
-    <div className="absolute top-3 right-12 z-10">
+    <div className="absolute top-12 right-3 z-10">
       <Popover>
         <PopoverTrigger asChild>
           <button

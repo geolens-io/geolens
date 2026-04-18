@@ -43,7 +43,7 @@ export function RecordTypeBadge({ recordType, className }: RecordTypeBadgeProps)
   return (
     <Badge
       variant="outline"
-      className={`text-xs ${colorClass}${className ? ` ${className}` : ''}`}
+      className={`text-xs font-mono uppercase tracking-wider ${colorClass}${className ? ` ${className}` : ''}`}
     >
       <Icon className="size-3" />
       {t(config.labelKey)}

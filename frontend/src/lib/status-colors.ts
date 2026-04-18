@@ -52,12 +52,12 @@ export const activeDotColor = {
 } as const;
 
 export const recordTypeColors: Record<string, string> = {
+  vector_dataset: 'border-type-vector/30 bg-type-vector-bg text-type-vector',
+  raster_dataset: 'border-type-raster/30 bg-type-raster-bg text-type-raster',
+  vrt_dataset: 'border-type-vrt/30 bg-type-vrt-bg text-type-vrt',
+  table: 'border-type-table/30 bg-type-table-bg text-type-table',
   collection: semanticBadgeColors.warning,
-  vector_dataset: semanticBadgeColors.info,
-  raster_dataset: semanticBadgeColors.success,
-  vrt_dataset: 'border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200',
-  table: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200',
-  unknown: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200',
+  unknown: 'border-border bg-muted text-muted-foreground',
 };
 
 export const ingestionStatusColors: Record<string, string> = {

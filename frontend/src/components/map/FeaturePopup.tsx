@@ -100,7 +100,7 @@ export function FeaturePopup({
         {/* Header: layer name + feature counter */}
         <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b">
           {layerName && (
-            <span className="font-semibold text-muted-foreground truncate">
+            <span className="font-semibold font-mono text-[10px] uppercase tracking-wider text-muted-foreground truncate">
               {layerName}
             </span>
           )}
@@ -149,7 +149,7 @@ export function FeaturePopup({
                     }}
                     title={t('featurePopup.clickToCopy')}
                   >
-                    <td className="pe-2 py-0.5 font-medium text-muted-foreground whitespace-nowrap align-top">
+                    <td className="pe-2 py-0.5 font-medium font-mono text-[10px] text-muted-foreground whitespace-nowrap align-top">
                       {humanizeKey(key)}
                     </td>
                     <td className="py-0.5 text-foreground">

@@ -107,8 +107,8 @@ export const LayerPanel = memo(function LayerPanel({
       </div>
 
       {layers.length === 0 ? (
-        <div className="px-2 space-y-2">
-          <p className="text-xs text-muted-foreground">
+        <div className="px-2 py-6 space-y-2 graticule-fine rounded">
+          <p className="text-xs text-muted-foreground text-center">
             {t('layers.emptyState')}
           </p>
           {onAddDataClick && (

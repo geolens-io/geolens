@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Save, Loader2, Download, MessageSquare, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, MoreHorizontal, GripVertical } from 'lucide-react';
+import { Save, Loader2, Download, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, MoreHorizontal, GripVertical } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { BuilderMap } from '@/components/builder/BuilderMap';
 import { LayerPanel } from '@/components/builder/LayerPanel';
-import { LayerInspector } from '@/components/builder/LayerInspector';
+
 import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
 import { ShareDialog } from '@/components/builder/SharePanel';
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
+import { MapToolbar } from '@/components/builder/MapToolbar';
+import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
 import { experimentalBadgeColor } from '@/lib/status-colors';
 import {
   Dialog,
@@ -230,7 +232,7 @@ export function MapBuilderPage() {
       const parsed = Number(stored);
       if (Number.isFinite(parsed) && parsed >= SIDEBAR_MIN && parsed <= SIDEBAR_MAX) return parsed;
     }
-    return window.innerWidth >= 1024 ? 320 : 256;
+    return 260;
   });
   const sidebarWidthRef = useRef(sidebarWidth);
   const isDraggingRef = useRef(false);
@@ -311,6 +313,17 @@ export function MapBuilderPage() {
   const { byAnchor } = usePartitionedWidgets();
   const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
 
+  const handleToggleChat = useCallback(
+    () => dialogs.setShowChat((v) => !v),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setter from useBuilderDialogs
+    [dialogs.setShowChat],
+  );
+  const handleClearFilter = useCallback(
+    (layerId: string) => layers.handleFilterChange(layerId, null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handler from useLayerMapSync
+    [layers.handleFilterChange],
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
@@ -341,11 +354,6 @@ export function MapBuilderPage() {
 
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
   const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
-
-  const useInspector = !isCompact;
-  const selectedLayer = useInspector && layers.expandedLayerId
-    ? layers.localLayers.find((l) => l.id === layers.expandedLayerId) ?? null
-    : null;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
@@ -429,137 +437,36 @@ export function MapBuilderPage() {
           markDirty={layers.markDirty}
           showDescription
         >
-          {/* Button tray */}
-          <TooltipProvider delayDuration={300}>
-            <div className="flex items-center justify-between pt-1.5">
-              <div className="flex gap-1 lg:gap-1.5">
-                {aiAvailable && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={dialogs.showChat ? 'default' : 'outline'}
-                        size="icon-xs"
-                        onClick={() => dialogs.setShowChat((v) => !v)}
-                        aria-label={t('tooltips.aiChat')}
-                      >
-                        <MessageSquare className="h-3 w-3" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">{t('tooltips.aiChat')}</TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1 lg:gap-1.5">
-                {id && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs gap-1"
-                        onClick={() => dialogs.setShowShare(true)}
-                        aria-label={t('tooltips.share')}
-                      >
-                        <Share2 className="h-3 w-3" />
-                        {t('tooltips.share')}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">{t('tooltips.share')}</TooltipContent>
-                  </Tooltip>
-                )}
-
-                <DropdownMenu>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="icon-xs"
-                          aria-label={t('tooltips.moreActions')}
-                        >
-                          <MoreHorizontal className="h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">{t('tooltips.moreActions')}</TooltipContent>
-                  </Tooltip>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => dialogs.setShowInfo(true)}>
-                      <Info className="h-3.5 w-3.5 me-2" />
-                      {t('tooltips.mapInfo')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={save.handleExportPNG}>
-                      <Download className="h-3.5 w-3.5 me-2" />
-                      {t('tooltips.downloadPng')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={save.handleFork} disabled={save.isForkPending}>
-                      <Copy className="h-3.5 w-3.5 me-2" />
-                      {t('tooltips.duplicateMap')}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={layers.hasUnsavedChanges ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-7 text-xs gap-1 relative"
-                      onClick={save.handleSave}
-                      disabled={save.isSaving}
-                      aria-label={t('tooltips.save', { shortcut: saveShortcut })}
-                    >
-                      {save.isSaving ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Save className="h-3 w-3" />
-                      )}
-                      {t('actions.save')}
-                      {layers.hasUnsavedChanges && (
-                        <>
-                          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
-                          <span className="sr-only">Unsaved changes</span>
-                        </>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {layers.hasUnsavedChanges
-                      ? t('tooltips.save', { shortcut: saveShortcut })
-                      : t('tooltips.allSaved')}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          </TooltipProvider>
+          {/* Compact action row */}
+          <div className="flex items-center justify-end pt-1.5 gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon-xs" aria-label={t('tooltips.moreActions')}>
+                  <MoreHorizontal className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => dialogs.setShowInfo(true)}>
+                  <Info className="h-3.5 w-3.5 me-2" />
+                  {t('tooltips.mapInfo')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={save.handleFork} disabled={save.isForkPending}>
+                  <Copy className="h-3.5 w-3.5 me-2" />
+                  {t('tooltips.duplicateMap')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </SidebarHeader>
 
         {/* Scrollable content */}
-        <SidebarContent layers={layers} inspectorMode={useInspector} onAddDataClick={() => dialogs.setShowAddData(true)} />
+        <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={() => dialogs.setShowAddData(true)} />
       </div>}
 
-      {/* Layer Inspector panel (wide screens only) */}
-      {selectedLayer && (
-        <div className="w-72 border-e bg-background flex flex-col shrink-0 overflow-hidden">
-          <LayerInspector
-            layer={selectedLayer}
-            activeTab={layers.activeEditorTab}
-            onTabChange={layers.handleTabChange}
-            onPaintChange={layers.handlePaintChange}
-            onOpacityChange={layers.handleOpacityChange}
-            onFilterChange={layers.handleFilterChange}
-            onLabelChange={layers.handleLabelChange}
-            onStyleConfigChange={layers.handleStyleConfigChange}
-            onLayoutChange={layers.handleLayoutChange}
-            onRenderModeChange={layers.handleRenderModeChange}
-            onClose={() => layers.handleToggleExpand('')}
-          />
-        </div>
-      )}
-
+      {/* Main content: map + chat dock */}
+      <div className="flex-1 flex flex-col min-w-0">
       {/* Map */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative min-h-0">
         {dialogs.sidebarCollapsed && (
           <button
             onClick={() => dialogs.setSidebarCollapsed(false)}
@@ -586,11 +493,99 @@ export function MapBuilderPage() {
             onDismiss={layers.handleDismissEphemeral}
           />
         )}
+        <MapToolbar
+          aiAvailable={aiAvailable}
+          showChat={dialogs.showChat}
+          onToggleChat={handleToggleChat}
+        />
+        <ActiveFilterChips
+          layers={layers.localLayers}
+          onClearFilter={handleClearFilter}
+        />
         <WidgetToolbar />
         <WidgetHost byAnchor={byAnchor} ctx={widgetCtx} />
+
+        {/* Floating action buttons (Composed: top-right of map) */}
+        <TooltipProvider delayDuration={300}>
+          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
+                  onClick={save.handleExportPNG}
+                  aria-label={t('tooltips.downloadPng')}
+                >
+                  <Download className="h-3 w-3" />
+                  {t('actions.export', { defaultValue: 'Export' })}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('tooltips.downloadPng')}</TooltipContent>
+            </Tooltip>
+            {id && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
+                    onClick={() => dialogs.setShowShare(true)}
+                    aria-label={t('tooltips.share')}
+                  >
+                    <Share2 className="h-3 w-3" />
+                    {t('tooltips.share')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('tooltips.share')}</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={layers.hasUnsavedChanges ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "h-7 text-xs gap-1 shadow-sm relative",
+                    !layers.hasUnsavedChanges && "bg-background/95 backdrop-blur-sm",
+                  )}
+                  onClick={save.handleSave}
+                  disabled={save.isSaving}
+                  aria-label={t('tooltips.save', { shortcut: saveShortcut })}
+                >
+                  {save.isSaving ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save className="h-3 w-3" />
+                  )}
+                  {t('actions.save')}
+                  {layers.hasUnsavedChanges && (
+                    <>
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
+                      <span className="sr-only">Unsaved changes</span>
+                    </>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {layers.hasUnsavedChanges
+                  ? t('tooltips.save', { shortcut: saveShortcut })
+                  : t('tooltips.allSaved')}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
 
-      {/* Chat panel - compact: Sheet overlay, wide: inline rail */}
+      {/* Chat dock (desktop — bottom of map column) */}
+      {!isCompact && dialogs.showChat && id && (
+        <div className="border-t bg-background shrink-0 flex flex-col overflow-hidden" style={{ height: 220 }}>
+          <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
+        </div>
+      )}
+      </div>
+
+      {/* Chat sheet (mobile/compact — overlay) */}
       {isCompact && dialogs.showChat && id && (
         <Sheet open={dialogs.showChat} onOpenChange={dialogs.setShowChat}>
           <SheetContent side="right" className="w-80 p-0" showCloseButton={false}>
@@ -601,11 +596,6 @@ export function MapBuilderPage() {
             <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
           </SheetContent>
         </Sheet>
-      )}
-      {!isCompact && dialogs.showChat && id && (
-        <div className="w-80 border-s bg-background flex flex-col shrink-0 overflow-hidden">
-          <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
-        </div>
       )}
 
       {/* Add Data dialog */}

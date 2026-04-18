@@ -77,7 +77,7 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Badge variant="secondary" className="text-xs gap-1">
+            <Badge variant="secondary" className="text-xs gap-1 font-mono tracking-wide">
               <Layers className="h-3 w-3" />
               {t('maps.layerCount', { count: map.layer_count })}
             </Badge>

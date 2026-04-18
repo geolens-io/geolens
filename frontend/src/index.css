@@ -1,5 +1,7 @@
-/* Font import (must be before tailwindcss) */
-@import '@fontsource-variable/inter/wght.css';
+/* Font imports (must be before tailwindcss) */
+@import '@fontsource-variable/ibm-plex-sans/wght.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
 
 /* Framework */
 @import "tailwindcss";
@@ -35,32 +37,41 @@
   --primary-800: oklch(0.38 0.13 250);
   --primary-900: oklch(0.30 0.10 250);
 
-  /* ─ Core palette (light mode) ─ */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  /* ─ Core palette (light mode — warm atlas paper) ─ */
+  --background: oklch(0.985 0.003 85);
+  --foreground: oklch(0.145 0.005 250);
+  --card: oklch(0.99 0.002 85);
+  --card-foreground: oklch(0.145 0.005 250);
+  --popover: oklch(0.99 0.002 85);
+  --popover-foreground: oklch(0.145 0.005 250);
   --primary: oklch(0.55 0.18 250);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.45 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.97 0.003 85);
+  --secondary-foreground: oklch(0.205 0.005 250);
+  --muted: oklch(0.97 0.003 85);
+  --muted-foreground: oklch(0.45 0.005 250);
+  --accent: oklch(0.97 0.003 85);
+  --accent-foreground: oklch(0.205 0.005 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.87 0 0);
-  --input: oklch(0.87 0 0);
+  --border: oklch(0.88 0.005 85);
+  --input: oklch(0.88 0.005 85);
   --ring: oklch(0.55 0.18 250);
 
-  /* ─ Surface hierarchy (light mode) ─ */
-  --surface-0: oklch(0.985 0 0);
-  --surface-1: oklch(1 0 0);
-  --surface-2: oklch(0.98 0 0);
-  --surface-3: oklch(0.96 0 0);
+  /* ─ Surface hierarchy (light mode — warm) ─ */
+  --surface-0: oklch(0.98 0.003 85);
+  --surface-1: oklch(0.99 0.002 85);
+  --surface-2: oklch(0.97 0.004 85);
+  --surface-3: oklch(0.95 0.005 85);
+
+  /* ─ Brand accent — signature tint ─ */
+  --signature: oklch(0.48 0.14 250);
+  --signature-soft: oklch(0.93 0.03 250);
+
+  /* ─ Map-native surface tones ─ */
+  --map-paper:  oklch(0.95 0.008 85);
+  --map-street: oklch(0.82 0.004 85);
+  --map-water:  oklch(0.85 0.02 220);
 
   /* ─ Shadow tokens (light mode) ─ */
   --elevation-sm: 0 1px 2px oklch(0 0 0 / 5%);
@@ -103,13 +114,13 @@
   --chart-5: oklch(0.769 0.188 70.08);
 
   /* ─ Sidebar ─ */
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar: oklch(0.98 0.003 85);
+  --sidebar-foreground: oklch(0.145 0.005 250);
   --sidebar-primary: oklch(0.55 0.18 250);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-accent: oklch(0.97 0.003 85);
+  --sidebar-accent-foreground: oklch(0.205 0.005 250);
+  --sidebar-border: oklch(0.92 0.005 85);
   --sidebar-ring: oklch(0.55 0.18 250);
 }
 
@@ -153,6 +164,15 @@
   --surface-1: oklch(0.18 0.008 250);
   --surface-2: oklch(0.22 0.010 250);
   --surface-3: oklch(0.26 0.012 250);
+
+  /* ─ Brand accent — signature tint (dark mode) ─ */
+  --signature: oklch(0.72 0.17 250);
+  --signature-soft: oklch(0.28 0.06 250);
+
+  /* ─ Map-native surface tones (dark mode) ─ */
+  --map-paper:  oklch(0.22 0.010 250);
+  --map-street: oklch(0.32 0.010 250);
+  --map-water:  oklch(0.30 0.04 220);
 
   /* ─ Shadow tokens (dark mode, 3-5x opacity) ─ */
   --elevation-sm: 0 1px 2px oklch(0 0 0 / 20%);
@@ -207,7 +227,8 @@
 
 /* ── Theme Bridge ──────────────────────────────────── */
 @theme inline {
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Core semantic colors */
   --color-background: var(--background);
@@ -247,6 +268,15 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+
+  /* Brand accent (bg-signature, text-signature, bg-signature-soft) */
+  --color-signature: var(--signature);
+  --color-signature-soft: var(--signature-soft);
+
+  /* Map-native tones (bg-map-paper, bg-map-street, bg-map-water) */
+  --color-map-paper: var(--map-paper);
+  --color-map-street: var(--map-street);
+  --color-map-water: var(--map-water);
 
   /* Shadow tokens (shadow-sm, shadow-md, shadow-lg) */
   --shadow-sm: var(--elevation-sm);
@@ -320,6 +350,20 @@
   100% { background-position: 200% 0; }
 }
 
+/* ── Cartographic Textures ─────────────────────────── */
+.graticule {
+  background-image:
+    linear-gradient(to right, oklch(0.55 0.005 250 / 6%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.55 0.005 250 / 6%) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.graticule-fine {
+  background-image:
+    linear-gradient(to right, oklch(0.55 0.005 250 / 5%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.55 0.005 250 / 5%) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
 /* ── Base Layer ─────────────────────────────────────── */
 @layer base {
   * {
@@ -347,6 +391,27 @@
 }
 .dark .maplibregl-ctrl-attrib a {
   color: oklch(0.72 0.17 250);
+}
+
+/* ── MapLibre Attribution Control ──────────────────── */
+.maplibregl-ctrl-attrib {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* ── MapLibre Scale Control ────────────────────────── */
+.maplibregl-ctrl-scale {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--foreground);
+  background: var(--background, #fff);
+  opacity: 0.75;
+  border-color: var(--foreground);
+  border-width: 1.5px;
+  padding: 1px 6px;
+  line-height: 14px;
 }
 
 /* ── MapLibre Popup Styling ─────────────────────────── */
