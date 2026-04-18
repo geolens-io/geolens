@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n/i18n';
 import { Popup } from '@vis.gl/react-maplibre';
@@ -41,6 +41,9 @@ export function FeaturePopup({
   const { t } = useTranslation('builder');
   const [activeIndex, setActiveIndex] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const feature = features[activeIndex] ?? features[0];
   if (!feature) return null;
@@ -79,7 +82,8 @@ export function FeaturePopup({
     try {
       await navigator.clipboard.writeText(text);
       setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 1500);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopiedKey(null), 1500);
     } catch {
       toast.error(t('featurePopup.copyFailed'));
     }

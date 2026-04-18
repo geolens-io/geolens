@@ -179,7 +179,9 @@ async def ingest_vrt(
         )
         job = result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         try:
@@ -230,7 +232,7 @@ async def ingest_vrt(
             try:
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
-            except Exception:
+            except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
                 logger_vrt.warning(
                     "Quicklook generation failed for VRT %s", job_id, exc_info=True
                 )
@@ -302,7 +304,7 @@ async def ingest_vrt(
 
             await defer_embedding(dataset)
 
-        except Exception as exc:
+        except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
             await session.rollback()
             job.status = "failed"
             job.error_message = str(exc)
@@ -374,7 +376,9 @@ async def regenerate_vrt(
         )
         job = result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         try:
@@ -457,7 +461,7 @@ async def regenerate_vrt(
             try:
                 ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
                 ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
-            except Exception:
+            except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
                 logger_regen.warning(
                     "Quicklook regeneration failed for VRT %s",
                     vrt_dataset_id,
@@ -526,7 +530,7 @@ async def regenerate_vrt(
             await invalidate_catalog_cache()
             await defer_embedding(vrt_dataset)
 
-        except Exception as exc:
+        except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
             await session.rollback()
             if vrt_asset is not None:
                 vrt_asset.status = "failed"

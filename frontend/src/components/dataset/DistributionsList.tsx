@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
@@ -68,7 +68,10 @@ export function resolveDistributionUrl(url: string, publicApiUrl: string | null 
 function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string | null | undefined }) {
   const { t } = useTranslation('dataset');
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const resolvedUrl = resolveDistributionUrl(url, publicApiUrl);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   async function handleCopy() {
     try {
@@ -84,7 +87,8 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
       document.body.removeChild(textarea);
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
   return (

@@ -10,7 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.processing.embeddings.helpers import build_openai_client, resolve_embedding_base_url
+from app.processing.embeddings.helpers import (
+    build_openai_client,
+    resolve_embedding_base_url,
+)
 from app.processing.embeddings.models import RecordEmbedding
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
 
@@ -81,7 +84,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
                 timeout=130.0,
             )
             return response.data[0].embedding
-        except Exception as exc:
+        except Exception as exc:  # broad: OpenAI-compatible SDKs can raise various network/API/timeout errors
             last_exc = exc
             if attempt < max_attempts:
                 logger.debug(
@@ -137,7 +140,7 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
                 input="dimension probe",
             )
             return len(response.data[0].embedding)
-        except Exception as exc:
+        except Exception as exc:  # broad: OpenAI-compatible SDKs can raise various network/API/timeout errors
             last_exc = exc
             if attempt < max_attempts:
                 logger.debug(
@@ -157,9 +160,7 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
                     exc_info=True,
                 )
 
-    raise EmbeddingUnavailableError(
-        f"Embedding probe failed: {last_exc}"
-    ) from last_exc
+    raise EmbeddingUnavailableError(f"Embedding probe failed: {last_exc}") from last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +209,7 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
             )
         )
         await db.commit()
-    except Exception:
+    except Exception:  # broad: DDL (DROP INDEX, ALTER COLUMN) can fail for schema/lock reasons; re-raise to caller
         await db.rollback()
         logger.error("Failed to rebuild embedding column", exc_info=True)
         raise
@@ -313,7 +314,7 @@ async def generate_and_store_embedding(
             record_id=str(record_id),
         )
         return False
-    except Exception:
+    except Exception:  # broad: embedding API can throw beyond EmbeddingUnavailableError; non-fatal, log and skip
         logger.error(
             "Embedding generation failed",
             record_id=str(record_id),

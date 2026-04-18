@@ -85,21 +85,22 @@ async def construct_point_geometry(
     if not _TABLE_NAME_RE.match(x_column) or not _TABLE_NAME_RE.match(y_column):
         raise ValueError("Invalid column name")
 
+    tref = _qtable(table_name)
+    x_col = _sql_quote_ident(x_column)
+    y_col = _sql_quote_ident(y_column)
     await session.execute(
-        text(f"ALTER TABLE data.{table_name} ADD COLUMN geom geometry(Point, {srid})")
+        text(f"ALTER TABLE {tref} ADD COLUMN geom geometry(Point, {srid})")
     )
     result = await session.execute(
         text(
-            f"UPDATE data.{table_name} SET geom = ST_SetSRID("
-            f"  ST_MakePoint({x_column}::double precision, {y_column}::double precision), "
+            f"UPDATE {tref} SET geom = ST_SetSRID("
+            f"  ST_MakePoint({x_col}::double precision, {y_col}::double precision), "
             f"  {srid}) "
-            f"WHERE {x_column} IS NOT NULL AND {y_column} IS NOT NULL"
+            f"WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL"
         )
     )
     await session.execute(
-        text(
-            f"CREATE INDEX idx_{table_name}_geom ON data.{table_name} USING GIST (geom)"
-        )
+        text(f"CREATE INDEX idx_{table_name}_geom ON {tref} USING GIST (geom)")
     )
     # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
     # type stub is less specific so mypy can't narrow it here.
@@ -120,30 +121,29 @@ async def construct_wkt_geometry(
     if not _TABLE_NAME_RE.match(wkt_column):
         raise ValueError("Invalid column name")
 
+    tref = _qtable(table_name)
+    wkt_col = _sql_quote_ident(wkt_column)
+
     # Detect geometry type from sample row
     sample = await session.execute(
         text(
-            f"SELECT GeometryType(ST_GeomFromText({wkt_column}, {srid})) "
-            f"FROM data.{table_name} WHERE {wkt_column} IS NOT NULL LIMIT 1"
+            f"SELECT GeometryType(ST_GeomFromText({wkt_col}, {srid})) "
+            f"FROM {tref} WHERE {wkt_col} IS NOT NULL LIMIT 1"
         )
     )
     geom_type = sample.scalar_one_or_none() or "GEOMETRY"
 
     await session.execute(
-        text(
-            f"ALTER TABLE data.{table_name} ADD COLUMN geom geometry({geom_type}, {srid})"
-        )
+        text(f"ALTER TABLE {tref} ADD COLUMN geom geometry({geom_type}, {srid})")
     )
     result = await session.execute(
         text(
-            f"UPDATE data.{table_name} SET geom = ST_GeomFromText({wkt_column}, {srid}) "
-            f"WHERE {wkt_column} IS NOT NULL"
+            f"UPDATE {tref} SET geom = ST_GeomFromText({wkt_col}, {srid}) "
+            f"WHERE {wkt_col} IS NOT NULL"
         )
     )
     await session.execute(
-        text(
-            f"CREATE INDEX idx_{table_name}_geom ON data.{table_name} USING GIST (geom)"
-        )
+        text(f"CREATE INDEX idx_{table_name}_geom ON {tref} USING GIST (geom)")
     )
     # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
     # type stub is less specific so mypy can't narrow it here.
@@ -189,7 +189,7 @@ async def get_extent(session: AsyncSession, table_name: str) -> str | None:
             f"  WHEN ext IS NULL THEN NULL "
             f"  ELSE ST_AsText(ST_SetSRID(ext::geometry, 4326)) "
             f"END "
-            f"FROM (SELECT ST_Extent(geom_4326) AS ext FROM data.{table_name}) s"
+            f"FROM (SELECT ST_Extent(geom_4326) AS ext FROM {_qtable(table_name)}) s"
         )
     )
     return result.scalar_one_or_none()
@@ -226,7 +226,9 @@ async def detect_3d_metadata(session: AsyncSession, table_name: str) -> dict:
                 f"WHERE geom IS NOT NULL"
             )
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: ST_NDims/ST_3DExtent may not exist in older PostGIS; degrade gracefully
         logger.warning(
             "3d_metadata_detection_failed",
             table=table_name,
@@ -308,7 +310,7 @@ async def promote_z_to_elev(
                     f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
                 )
             )
-    except Exception:
+    except Exception:  # broad: ST_Z/ST_NDims/ST_GeometryN may not be available in older PostGIS; degrade gracefully
         logger.warning(
             "promote_z_to_elev_failed",
             table=table_name,
@@ -502,13 +504,13 @@ async def compute_quality_score(
                 result = await session.execute(
                     text(
                         f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
-                        f"FROM (SELECT geom FROM data.{table_name} LIMIT :max_rows) sub"
+                        f"FROM (SELECT geom FROM {_qtable(table_name)} LIMIT :max_rows) sub"
                     ).bindparams(max_rows=max_validity_rows)
                 )
                 val = result.scalar_one_or_none()
                 if val is not None:
                     geometry_score = round(float(val), 1)
-        except Exception:
+        except Exception:  # broad: geometry validity query wrapped in SAVEPOINT; any PostGIS error degrades gracefully
             geometry_score = 100.0
 
     # 4. Attribute completeness (weight 0.25)
@@ -531,14 +533,14 @@ async def compute_quality_score(
         try:
             async with session.begin_nested():
                 result = await session.execute(
-                    text(f"SELECT {col_exprs} FROM data.{table_name}")
+                    text(f"SELECT {col_exprs} FROM {_qtable(table_name)}")
                 )
                 row = result.one_or_none()
                 if row is not None:
                     col_scores: list[float] = [float(v) for v in row if v is not None]
                     if col_scores:
                         attribute_score = round(sum(col_scores) / len(col_scores), 1)
-        except Exception:
+        except Exception:  # broad: attribute completeness query wrapped in SAVEPOINT; any failure degrades gracefully
             # On failure, leave attribute_score at its 100.0 default (same as prior behavior)
             pass
 
@@ -657,7 +659,10 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
     )
     _validate_table_name(geom_col)
     await session.execute(
-        text(f"ALTER TABLE data.{table_name} RENAME COLUMN {geom_col} TO geom")
+        text(
+            f"ALTER TABLE {_qtable(table_name)} "
+            f"RENAME COLUMN {_sql_quote_ident(geom_col)} TO geom"
+        )
     )
     await session.commit()
     return True
@@ -775,7 +780,7 @@ async def rename_reserved_columns(
                 # Update the in-memory set so subsequent iterations see the new name.
                 all_column_names.discard(col_name)
                 all_column_names.add(target)
-    except Exception as exc:
+    except Exception as exc:  # broad: ALTER TABLE can fail for schema/permission reasons; re-raise to fail the job
         # Savepoint rollback already unwound any partial renames; re-raise so
         # the caller's exception handler marks the ingest job as failed with
         # a clear error message.
@@ -833,7 +838,7 @@ async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> Non
     _validate_table_name(table_name)
     await session.execute(
         text(
-            f"UPDATE data.{table_name} "
+            f"UPDATE {_qtable(table_name)} "
             f"SET geom = ST_CollectionExtract("
             f"  ST_Intersection(geom, {_MERCATOR_SAFE_ENVELOPE}),"
             f"  ST_Dimension(geom) + 1"
