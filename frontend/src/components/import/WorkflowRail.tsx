@@ -132,7 +132,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' }) {
         <p className="mb-2.5 text-[12.5px] text-muted-foreground leading-relaxed">
           {isRegister
             ? t('rail.registerDesc', { defaultValue: 'Register existing PostGIS tables as datasets — GeoLens tiles them on the fly from your database.' })
-            : t('rail.serviceDesc', { defaultValue: 'Connect a remote WFS or ArcGIS FeatureServer. GeoLens imports the layer into the catalog for tiling and querying.' })}
+            : t('rail.serviceDesc', { defaultValue: 'Connect a remote WFS, ArcGIS FeatureServer, or OGC API Features service. GeoLens imports the layer into the catalog for tiling and querying.' })}
         </p>
         <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
           {isRegister

@@ -284,7 +284,8 @@ export function ServiceUrlForm() {
             <span>
               {t('serviceUrl.supported', { defaultValue: 'Supported:' })}{' '}
               <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WFS</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">ArcGIS FeatureServer</code>
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">ArcGIS FeatureServer</code>{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">OGC API Features</code>
             </span>
           </div>
         </div>

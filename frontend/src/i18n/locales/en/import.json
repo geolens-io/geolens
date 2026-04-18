@@ -87,8 +87,8 @@
   },
   "serviceUrl": {
     "label": "Service URL",
-    "placeholder": "https://example.com/wfs or https://services.arcgis.com/.../FeatureServer",
-    "helpText": "Paste a WFS or ArcGIS Feature Service URL",
+    "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint",
+    "helpText": "Paste a WFS, ArcGIS Feature Service, or OGC API Features URL",
     "tokenLabel": "Access Token (optional)",
     "tokenPlaceholder": "ArcGIS token, API key, or WFS access token",
     "tokenHelpText": "For ArcGIS Online: create an API key at developers.arcgis.com, or generate a short-lived token at your-org.maps.arcgis.com/sharing/rest/generateToken. For WFS, use your provider's access token. Tokens are not stored.",
