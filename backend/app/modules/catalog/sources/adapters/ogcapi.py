@@ -6,9 +6,10 @@ Implements the same adapter contract as wfs.py and arcgis.py:
 
 # Safety notes
 # ------------
-# URLs are user-supplied and fetched server-side (SSRF surface). SSRF protection
-# is enforced upstream by the probe router's url_is_safe check; this adapter
-# inherits that gate and does not add its own bypass.
+# The user-supplied base URL is SSRF-validated upstream by the probe router.
+# Secondary URLs extracted from the JSON response (e.g. /conformance href) are
+# re-validated via validate_url_for_ssrf() before fetching to prevent a
+# malicious landing page from redirecting to internal addresses.
 #
 # Bearer tokens are passed only via subprocess env (GDAL_HTTP_HEADERS), never
 # logged, matching the WFS auth pattern (T-d1g-03).
@@ -24,6 +25,8 @@ from urllib.parse import urljoin
 
 import httpx
 import structlog
+
+from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -84,10 +87,16 @@ async def probe_ogcapi(
             if conformance_href:
                 abs_href = urljoin(url, conformance_href)
                 try:
+                    await validate_url_for_ssrf(abs_href)
                     conf_resp = await client.get(abs_href, headers=headers)
                     conf_resp.raise_for_status()
                     conf_data = conf_resp.json()
                     conforms_to = conf_data.get("conformsTo", [])
+                except SSRFError:
+                    logger.warning(
+                        "OGC API probe: conformance link blocked by SSRF check",
+                        href=abs_href,
+                    )
                 except Exception as exc:
                     logger.debug(
                         "OGC API probe: conformance fetch failed",
@@ -175,9 +184,14 @@ async def enrich_ogcapi_layers(
                     stderr=asyncio.subprocess.PIPE,
                     env=env,
                 )
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=30.0
-                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=30.0
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    raise
 
                 if proc.returncode != 0:
                     logger.debug(
