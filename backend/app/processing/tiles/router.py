@@ -71,6 +71,7 @@ class _DatasetMeta(NamedTuple):
 
 
 _dataset_cache: dict[str, tuple[float, _DatasetMeta]] = {}
+# threading.Lock is safe here — dict reads/writes are synchronous, no await inside lock
 _dataset_cache_lock = threading.Lock()
 
 
