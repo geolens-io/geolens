@@ -17,6 +17,17 @@ def _validate_identifier(name: str, label: str) -> None:
         raise ValueError(f"Invalid {label}: {name!r}")
 
 
+def _qtable(table_name: str) -> str:
+    """Return quoted 'data.table_name' identifier after validation."""
+    _validate_identifier(table_name, "table name")
+    return f'"data"."{table_name}"'
+
+
+def _sql_quote_ident(name: str) -> str:
+    """Return a safely double-quoted SQL identifier."""
+    return '"' + name.replace('"', '""') + '"'
+
+
 async def get_distinct_values(
     session: AsyncSession,
     table_name: str,
@@ -68,33 +79,28 @@ async def get_column_stats(
     if allowed_tables is not None and table_name not in allowed_tables:
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
-    # Basic aggregate stats
-    agg_sql = text(
-        f"SELECT MIN({column_name}::numeric), MAX({column_name}::numeric), "
-        f"COUNT({column_name}), AVG({column_name}::numeric) "
-        f"FROM data.{table_name} "
-        f"WHERE {column_name} IS NOT NULL"
-    )
-    agg_result = await session.execute(agg_sql)
-    agg_row = agg_result.one()
-
     # Compute quantile fractions dynamically based on class_count
     fractions = [round(i / class_count, 4) for i in range(1, class_count)]
     fractions_str = ", ".join(str(f) for f in fractions)
 
-    q_sql = text(
-        f"SELECT percentile_cont(ARRAY[{fractions_str}]) "
-        f"WITHIN GROUP (ORDER BY {column_name}::numeric) "
-        f"FROM data.{table_name} "
-        f"WHERE {column_name} IS NOT NULL"
+    # Combined stats + quantiles in a single query (single table scan)
+    col_q = _sql_quote_ident(column_name)
+    tbl_q = _qtable(table_name)
+    combined_sql = text(
+        f"SELECT MIN({col_q}::numeric), MAX({col_q}::numeric), "
+        f"COUNT({col_q}), AVG({col_q}::numeric), "
+        f"percentile_cont(ARRAY[{fractions_str}]) "
+        f"WITHIN GROUP (ORDER BY {col_q}::numeric) "
+        f"FROM {tbl_q} "
+        f"WHERE {col_q} IS NOT NULL"
     )
-    q_result = await session.execute(q_sql)
-    q_row = q_result.one()
+    result = await session.execute(combined_sql)
+    row = result.one()
 
     return {
-        "min": float(agg_row[0]) if agg_row[0] is not None else None,
-        "max": float(agg_row[1]) if agg_row[1] is not None else None,
-        "count": int(agg_row[2]) if agg_row[2] is not None else 0,
-        "mean": float(agg_row[3]) if agg_row[3] is not None else None,
-        "quantiles": [float(v) for v in q_row[0]] if q_row[0] is not None else [],
+        "min": float(row[0]) if row[0] is not None else None,
+        "max": float(row[1]) if row[1] is not None else None,
+        "count": int(row[2]) if row[2] is not None else 0,
+        "mean": float(row[3]) if row[3] is not None else None,
+        "quantiles": [float(v) for v in row[4]] if row[4] is not None else [],
     }
