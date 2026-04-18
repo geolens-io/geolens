@@ -26,12 +26,9 @@ export function useWebGLRecovery(
       // production issues are detectable in browser logs / error trackers.
       // Common causes: GPU driver crash, GPU eviction under memory pressure,
       // extension blocking canvas2d interop, tab kill-switch under Chrome.
-      if (import.meta.env.DEV) {
-        console.warn('[map] WebGL context lost', {
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
-          timestamp: new Date().toISOString(),
-        });
-      }
+      console.warn('[map] WebGL context lost', {
+        timestamp: new Date().toISOString(),
+      });
     };
 
     const onRestored = () => {

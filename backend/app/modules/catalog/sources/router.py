@@ -1,6 +1,7 @@
 """Service probing and preview API endpoints."""
 
 import uuid
+from typing import NoReturn
 
 import httpx
 import structlog
@@ -39,7 +40,7 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/services", tags=["Datasets"])
 
 
-async def _fail_preview(db: AsyncSession, user_id: "uuid.UUID", url: str, layer: str) -> None:
+async def _fail_preview(db: AsyncSession, user_id: uuid.UUID, url: str, layer: str) -> NoReturn:
     """Log audit and raise 502 for a failed service preview."""
     await log_action(
         session=db,
@@ -300,8 +301,8 @@ async def preview_service_layer(
             )
     except HTTPException:
         raise
-    except Exception:
-        # If service_type is not ArcGIS/WFS, resolve_service_type raises —
+    except (ValueError, KeyError):
+        # resolve_service_type raises ValueError for unknown service types —
         # skip the duplicate check and let Step 2 handle validation.
         pass
 

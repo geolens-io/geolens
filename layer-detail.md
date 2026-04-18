@@ -1,0 +1,120 @@
+- generic [ref=e2]:
+  - generic [ref=e6]:
+    - link "Skip to main content" [ref=e7] [cursor=pointer]:
+      - /url: "#main-content"
+    - banner [ref=e8]:
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - link "GeoLens" [ref=e11] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e12]:
+              - img [ref=e13]
+              - generic [ref=e18]: GeoLens
+          - navigation "Main navigation" [ref=e19]:
+            - link "Search" [ref=e20] [cursor=pointer]:
+              - /url: /
+            - link "Collections" [ref=e21] [cursor=pointer]:
+              - /url: /collections
+            - link "Maps" [ref=e22] [cursor=pointer]:
+              - /url: /maps
+        - generic [ref=e23]:
+          - button "Create" [ref=e25]:
+            - img
+            - text: Create
+          - button "A admin User menu" [ref=e26]:
+            - generic [ref=e27]: A
+            - generic [ref=e28]: admin
+            - img
+            - generic [ref=e29]: User menu
+    - main [ref=e30]:
+      - generic [ref=e296]:
+        - generic [ref=e297]:
+          - separator "Drag to resize sidebar" [ref=e298]:
+            - generic:
+              - generic:
+                - img
+          - button "Collapse sidebar" [expanded] [ref=e299]:
+            - img [ref=e300]
+          - heading "Manhattan Skyline (3D)" [level=1] [ref=e303]
+          - generic [ref=e304]:
+            - generic [ref=e305]:
+              - textbox "Map name" [ref=e306]: Manhattan Skyline (3D)
+              - generic [ref=e307]:
+                - img
+                - text: Public
+            - textbox "Map description" [ref=e308]:
+              - /placeholder: Add a description...
+              - text: "NYC Open Data building footprints with real heights, extruded in 3D. Tilt and rotate the map to explore the skyline. Source: NYC Office of Technology and Innovation."
+            - generic [ref=e310]:
+              - button "Share" [ref=e311]:
+                - img
+                - text: Share
+              - button "More actions" [ref=e312]:
+                - img
+              - button "Save (⌘S)" [ref=e313]:
+                - img
+                - text: Save
+          - generic [ref=e314]:
+            - generic [ref=e315]:
+              - generic [ref=e316]:
+                - generic [ref=e317]:
+                  - heading "Layers" [level=2] [ref=e318]
+                  - generic [ref=e319]: "1"
+                - button "Add Data" [ref=e320]:
+                  - img
+                  - text: Add Data
+              - list "Layers" [ref=e321]:
+                - group "Buildings (3D)" [ref=e322]:
+                  - generic [ref=e323]:
+                    - button "Drag to reorder" [ref=e324]
+                    - button "Hide layer" [ref=e332]
+                    - img [ref=e335]
+                    - button "Buildings (3D) — Double-click to rename" [active] [ref=e337]
+                    - button "Expand options" [ref=e341]
+                    - button "More actions" [ref=e342]
+              - status [ref=e343]
+            - generic [ref=e344]:
+              - heading "Basemap" [level=2] [ref=e345]
+              - generic [ref=e346]:
+                - button "Basemap" [ref=e347]:
+                  - img "OpenFreeMap Dark" [ref=e348]
+                  - generic [ref=e349]: OpenFreeMap Dark
+                  - img [ref=e350]
+                - group "Basemap options" [ref=e352]:
+                  - generic [ref=e353] [cursor=pointer]:
+                    - checkbox "Show place labels" [checked] [ref=e354]
+                    - text: Show place labels
+        - generic [ref=e355]:
+          - generic [ref=e357]:
+            - region "Map" [ref=e358]
+            - generic:
+              - generic [ref=e359]:
+                - button "Zoom in" [ref=e360] [cursor=pointer]
+                - button "Zoom out" [ref=e362] [cursor=pointer]
+                - button "Drag to rotate map, click to reset north" [ref=e364]
+              - group [ref=e366]:
+                - generic "Toggle attribution" [ref=e367] [cursor=pointer]
+                - generic [ref=e368]:
+                  - link "MapLibre" [ref=e369] [cursor=pointer]:
+                    - /url: https://maplibre.org/
+                  - text: "|"
+                  - link "OpenFreeMap" [ref=e370] [cursor=pointer]:
+                    - /url: https://openfreemap.org
+                  - link "© OpenMapTiles" [ref=e371] [cursor=pointer]:
+                    - /url: https://www.openmaptiles.org/
+                  - text: Data from
+                  - link "OpenStreetMap" [ref=e372] [cursor=pointer]:
+                    - /url: https://www.openstreetmap.org/copyright
+          - button "Widgets" [ref=e375]:
+            - img [ref=e376]
+            - generic [ref=e381]: "1"
+          - generic [ref=e383]:
+            - generic [ref=e384]:
+              - img [ref=e385]
+              - generic [ref=e389]: Legend
+              - button "Close widget" [ref=e390]:
+                - img [ref=e391]
+            - generic [ref=e398]:
+              - img [ref=e400]
+              - generic [ref=e402]: Buildings (3D)
+  - region "Notifications alt+T"

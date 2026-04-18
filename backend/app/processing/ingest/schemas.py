@@ -106,7 +106,7 @@ class BaseCommitRequest(BaseModel):
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
     summary: str | None = Field(
-        default=None, description="Optional dataset description shown in the catalog."
+        default=None, max_length=5000, description="Optional dataset description shown in the catalog."
     )
     visibility: Visibility = Field(
         default="private",
@@ -125,6 +125,8 @@ class VectorCommitRequest(BaseCommitRequest):
 
     srid_override: int | None = Field(
         default=None,
+        ge=1,
+        le=998999,
         description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
     )
     layer_name: str | None = Field(
@@ -150,6 +152,8 @@ class RasterCommitRequest(BaseCommitRequest):
 
     srid_override: int | None = Field(
         default=None,
+        ge=1,
+        le=998999,
         description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
     )
     compression: str | None = Field(
@@ -198,7 +202,7 @@ class CommitRequest(BaseModel):
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
     summary: str | None = Field(
-        default=None, description="Optional dataset description shown in the catalog."
+        default=None, max_length=5000, description="Optional dataset description shown in the catalog."
     )
     visibility: Visibility = Field(
         default="private",
@@ -206,6 +210,8 @@ class CommitRequest(BaseModel):
     )
     srid_override: int | None = Field(
         default=None,
+        ge=1,
+        le=998999,
         description="EPSG code to use when source CRS is missing or incorrect. Forces reprojection during ingestion.",
     )
     token: str | None = Field(
@@ -256,6 +262,7 @@ class CommitResponse(BaseModel):
 
 class RegisterRequest(BaseModel):
     table_name: str = Field(
+        min_length=1,
         max_length=63,
         description="PostgreSQL table name in the `data` schema (max 63 chars per PostgreSQL identifier limit).",
     )

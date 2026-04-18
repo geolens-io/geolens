@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import type { CommitImportRequest, RasterPreviewResponse } from '@/types/api';
@@ -89,7 +89,7 @@ export function ImportMetadataForm({
   // Columns eligible for Lat/Lng selection: numeric types preferred,
   // but include auto-detected columns even if GDAL typed them as String
   // (common with CSV where AUTODETECT_TYPE may not be applied).
-  const numericColumns = (() => {
+  const numericColumns = useMemo(() => {
     const numeric = (previewColumns ?? []).filter((c) =>
       ['Real', 'Integer', 'Integer64'].includes(c.type),
     );
@@ -100,7 +100,7 @@ export function ImportMetadataForm({
       return previewColumns ?? [];
     }
     return numeric;
-  })();
+  }, [previewColumns, detectedGeometryColumns]);
   const stringColumns = (previewColumns ?? []).filter(
     (c) => c.type === 'String',
   );
@@ -118,8 +118,14 @@ export function ImportMetadataForm({
   const [resampling, setResampling] = useState('auto');
   const [nodataOverride, setNodataOverride] = useState('');
 
+  const submittingRef = useRef(false);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    // Reset after the commit callback completes (or fails)
+    queueMicrotask(() => { submittingRef.current = false; });
 
     const request: CommitImportRequest = {
       title: name.trim(),

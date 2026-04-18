@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useCallback, useMemo } from 'react';
+import { useDropzone, type FileRejection } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
@@ -48,6 +49,13 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
     return groupByKind(allowedExtensions);
   }, [allowedExtensions]);
 
+  const onDropRejected = useCallback((rejections: FileRejection[]) => {
+    for (const { file, errors } of rejections) {
+      const reason = errors.map((e) => e.message).join(', ');
+      toast.error(`${file.name}: ${reason}`);
+    }
+  }, []);
+
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
       accept,
@@ -58,6 +66,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
       onDrop: (accepted) => {
         if (accepted.length > 0) onFilesAccepted(accepted);
       },
+      onDropRejected,
     });
 
   return (

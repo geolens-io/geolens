@@ -4,13 +4,14 @@ Coordinates WFS and ArcGIS probing to detect what kind of service a URL
 points to and return a unified layer list.
 """
 
+from urllib.parse import urlparse
+
 import structlog
 
 import httpx
 
 from app.modules.catalog.sources.adapters.arcgis import (
     _looks_like_arcgis,
-    _looks_like_wfs,
     enrich_arcgis_feature_counts,
     normalize_arcgis_url,
     probe_arcgis_service,
@@ -23,6 +24,14 @@ from app.modules.catalog.sources.adapters.wfs import enrich_wfs_layers, probe_wf
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 
 logger = structlog.stdlib.get_logger(__name__)
+
+
+def _looks_like_wfs(url: str) -> bool:
+    """Check if a URL looks like a WFS service."""
+    parsed = urlparse(url)
+    lower_path = parsed.path.lower()
+    lower_query = parsed.query.lower()
+    return "/wfs" in lower_path or "service=wfs" in lower_query
 
 
 class ServiceNotRecognized(Exception):
@@ -106,9 +115,10 @@ async def detect_service_type(
             return _build_arcgis_response(
                 result, enriched, base_url, selected_layer_id=layer_id
             )
+        # Fast-path failed — fall through to slow path
 
     # Fast path: WFS URL pattern
-    elif _looks_like_wfs(url):
+    if not _looks_like_arcgis(url) and _looks_like_wfs(url):
         logger.info("URL pattern matches WFS", url=url)
         result = await probe_wfs(url, client, token=token)
         if result is not None:
@@ -116,36 +126,36 @@ async def detect_service_type(
                 url, result["layers"], client, token=token
             )
             return _build_probe_response(result, enriched, url)
+        # Fast-path failed — fall through to slow path
 
     # Slow path: OGC API probe first, then WFS, then ArcGIS
-    else:
-        logger.info("No URL pattern match, trying all probes", url=url)
+    logger.info("Trying all probes", url=url)
 
-        # Try OGC API Features landing page probe
-        ogcapi_result = await probe_ogcapi(url, client, token=token)
-        if ogcapi_result is not None:
-            enriched = await enrich_ogcapi_layers(
-                url, ogcapi_result["layers"], client, token=token
-            )
-            return _build_probe_response(ogcapi_result, enriched, url)
+    # Try OGC API Features landing page probe
+    ogcapi_result = await probe_ogcapi(url, client, token=token)
+    if ogcapi_result is not None:
+        enriched = await enrich_ogcapi_layers(
+            url, ogcapi_result["layers"], client, token=token
+        )
+        return _build_probe_response(ogcapi_result, enriched, url)
 
-        # Try WFS
-        wfs_result = await probe_wfs(url, client, token=token)
-        if wfs_result is not None:
-            enriched = await enrich_wfs_layers(
-                url, wfs_result["layers"], client, token=token
-            )
-            return _build_probe_response(wfs_result, enriched, url)
+    # Try WFS
+    wfs_result = await probe_wfs(url, client, token=token)
+    if wfs_result is not None:
+        enriched = await enrich_wfs_layers(
+            url, wfs_result["layers"], client, token=token
+        )
+        return _build_probe_response(wfs_result, enriched, url)
 
-        # Try ArcGIS
-        base_url, layer_id = normalize_arcgis_url(url)
-        arcgis_result = await probe_arcgis_service(base_url, client, token=token)
-        if arcgis_result is not None:
-            enriched = await enrich_arcgis_feature_counts(
-                base_url, arcgis_result["layers"], client, token=token
-            )
-            return _build_arcgis_response(
-                arcgis_result, enriched, base_url, selected_layer_id=layer_id
-            )
+    # Try ArcGIS
+    base_url, layer_id = normalize_arcgis_url(url)
+    arcgis_result = await probe_arcgis_service(base_url, client, token=token)
+    if arcgis_result is not None:
+        enriched = await enrich_arcgis_feature_counts(
+            base_url, arcgis_result["layers"], client, token=token
+        )
+        return _build_arcgis_response(
+            arcgis_result, enriched, base_url, selected_layer_id=layer_id
+        )
 
     raise ServiceNotRecognized()

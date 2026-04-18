@@ -4,8 +4,19 @@ import asyncio
 import json
 import os
 import re
+from typing import TypedDict
 
 from app.core.config import settings
+
+
+class OgrinfoResult(TypedDict, total=False):
+    srid: int | None
+    geometry_type: str | None
+    layer_name: str
+    feature_count: int | None
+    columns: list[dict[str, str]]
+    sample_rows: list[dict]
+    all_layers: list[dict] | None
 
 
 class IngestionError(Exception):
@@ -225,7 +236,7 @@ def _parse_text_ogrinfo(output: str) -> dict:
     }
 
 
-async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
+async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> OgrinfoResult:
     """Run ogrinfo to detect CRS and layer metadata.
 
     Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers.
@@ -298,7 +309,7 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
 
 async def run_ogrinfo_preview(
     file_path: str, sample_limit: int = 5, layer_name: str | None = None
-) -> dict:
+) -> OgrinfoResult:
     """Run ogrinfo to get metadata AND sample rows for preview.
 
     Uses -json -features -limit N to get structured output with sample features.

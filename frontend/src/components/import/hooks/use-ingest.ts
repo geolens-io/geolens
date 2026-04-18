@@ -15,6 +15,7 @@ export function useJobStatus(jobId: string | null) {
     queryKey: queryKeys.ingest.jobStatus(jobId),
     queryFn: () => getJobStatus(jobId!),
     enabled: !!jobId,
+    staleTime: 2000,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status === 'complete' || status === 'failed') return false;
