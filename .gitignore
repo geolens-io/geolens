@@ -53,6 +53,7 @@ prd.md
 todo.md
 smoke-check.md
 cache/
+!backend/app/platform/cache/
 
 # AI assistant working directories
 .agents/
