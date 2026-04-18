@@ -66,6 +66,64 @@ function getPaintValue<T>(paint: Record<string, unknown>, key: string, fallback:
   return val !== undefined && val !== null ? (val as T) : fallback;
 }
 
+/* ---------- Shared stroke toggle + color + width controls ---------- */
+
+interface StrokeControlsProps {
+  paint: Record<string, unknown>;
+  strokeEnabled: boolean;
+  onToggleStroke: () => void;
+  colorKey: string;
+  colorDefault: string;
+  widthKey: string;
+  widthDefault: number;
+  onPaintProp: (key: string, value: unknown) => void;
+  t: (key: string) => string;
+}
+
+function StrokeControls({
+  paint,
+  strokeEnabled,
+  onToggleStroke,
+  colorKey,
+  colorDefault,
+  widthKey,
+  widthDefault,
+  onPaintProp,
+  t,
+}: StrokeControlsProps) {
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
+        <Switch
+          checked={strokeEnabled}
+          onCheckedChange={onToggleStroke}
+          aria-label={t('style.toggleStroke')}
+          className="scale-75 mt-2"
+        />
+      </div>
+      {strokeEnabled && (
+        <>
+          <StyleColorPicker
+            label={t('style.color')}
+            color={getPaintValue(paint, colorKey, colorDefault)}
+            onChange={(hex) => onPaintProp(colorKey, hex)}
+          />
+          <SliderRow
+            label={t('style.width')}
+            value={getPaintValue(paint, widthKey, widthDefault)}
+            min={0}
+            max={10}
+            step={0.5}
+            format="px"
+            onChange={(val) => onPaintProp(widthKey, val)}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
 export function LayerStyleEditor({
   layer,
   onPaintChange,
@@ -208,33 +266,17 @@ export function LayerStyleEditor({
                 />
               </>
             )}
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
-              <Switch
-                checked={strokeEnabled}
-                onCheckedChange={handleToggleStroke}
-                aria-label={t('style.toggleStroke')}
-                className="scale-75 mt-2"
-              />
-            </div>
-            {strokeEnabled && (
-              <>
-                <StyleColorPicker
-                  label={t('style.color')}
-                  color={getPaintValue(paint, '_outline-color', FILL_DEFAULTS['_outline-color'])}
-                  onChange={(hex) => handlePaintProp('_outline-color', hex)}
-                />
-                <SliderRow
-                  label={t('style.width')}
-                  value={getPaintValue(paint, '_outline-width', FILL_DEFAULTS['_outline-width'])}
-                  min={0}
-                  max={10}
-                  step={0.5}
-                  format="px"
-                  onChange={(val) => handlePaintProp('_outline-width', val)}
-                />
-              </>
-            )}
+            <StrokeControls
+              paint={paint}
+              strokeEnabled={strokeEnabled}
+              onToggleStroke={handleToggleStroke}
+              colorKey="_outline-color"
+              colorDefault={FILL_DEFAULTS['_outline-color']}
+              widthKey="_outline-width"
+              widthDefault={FILL_DEFAULTS['_outline-width']}
+              onPaintProp={handlePaintProp}
+              t={t}
+            />
             {isPolygon && numericColumns.length > 0 && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">Height column</span>
@@ -393,33 +435,17 @@ export function LayerStyleEditor({
               format="px"
               onChange={(val) => handlePaintProp('circle-radius', val)}
             />
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium mt-2">{t('style.stroke')}</div>
-              <Switch
-                checked={strokeEnabled}
-                onCheckedChange={handleToggleStroke}
-                aria-label={t('style.toggleStroke')}
-                className="scale-75 mt-2"
-              />
-            </div>
-            {strokeEnabled && (
-              <>
-                <StyleColorPicker
-                  label={t('style.color')}
-                  color={getPaintValue(paint, 'circle-stroke-color', CIRCLE_DEFAULTS['circle-stroke-color'])}
-                  onChange={(hex) => handlePaintProp('circle-stroke-color', hex)}
-                />
-                <SliderRow
-                  label={t('style.width')}
-                  value={getPaintValue(paint, 'circle-stroke-width', CIRCLE_DEFAULTS['circle-stroke-width'])}
-                  min={0}
-                  max={10}
-                  step={0.5}
-                  format="px"
-                  onChange={(val) => handlePaintProp('circle-stroke-width', val)}
-                />
-              </>
-            )}
+            <StrokeControls
+              paint={paint}
+              strokeEnabled={strokeEnabled}
+              onToggleStroke={handleToggleStroke}
+              colorKey="circle-stroke-color"
+              colorDefault={CIRCLE_DEFAULTS['circle-stroke-color']}
+              widthKey="circle-stroke-width"
+              widthDefault={CIRCLE_DEFAULTS['circle-stroke-width']}
+              onPaintProp={handlePaintProp}
+              t={t}
+            />
           </>
         )}
 
