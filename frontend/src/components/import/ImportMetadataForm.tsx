@@ -86,9 +86,21 @@ export function ImportMetadataForm({
     detectedGeometryColumns?.wkt_column ?? '',
   );
 
-  const numericColumns = (previewColumns ?? []).filter((c) =>
-    ['Real', 'Integer', 'Integer64'].includes(c.type),
-  );
+  // Columns eligible for Lat/Lng selection: numeric types preferred,
+  // but include auto-detected columns even if GDAL typed them as String
+  // (common with CSV where AUTODETECT_TYPE may not be applied).
+  const numericColumns = (() => {
+    const numeric = (previewColumns ?? []).filter((c) =>
+      ['Real', 'Integer', 'Integer64'].includes(c.type),
+    );
+    if (numeric.length > 0) return numeric;
+    // Fallback: if no numeric columns exist but auto-detected columns were
+    // identified, show all columns so the user can select them manually.
+    if (detectedGeometryColumns?.x_column || detectedGeometryColumns?.y_column) {
+      return previewColumns ?? [];
+    }
+    return numeric;
+  })();
   const stringColumns = (previewColumns ?? []).filter(
     (c) => c.type === 'String',
   );
