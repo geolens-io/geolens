@@ -131,13 +131,13 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' }) {
         </p>
         <p className="mb-2.5 text-[12.5px] text-muted-foreground leading-relaxed">
           {isRegister
-            ? t('rail.registerDesc', { defaultValue: 'Register pointers to tables already in your Postgres — no data copied, schema stays live.' })
-            : t('rail.serviceDesc', { defaultValue: "Connect a remote OGC, STAC, XYZ, or ArcGIS service. GeoLens caches tiles but doesn't mirror the data." })}
+            ? t('rail.registerDesc', { defaultValue: 'Register existing PostGIS tables as datasets — GeoLens tiles them on the fly from your database.' })
+            : t('rail.serviceDesc', { defaultValue: 'Connect a remote WFS or ArcGIS FeatureServer. GeoLens imports the layer into the catalog for tiling and querying.' })}
         </p>
         <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
           {isRegister
-            ? t('rail.registerNote', { defaultValue: 'Read-only by default · no rows leave your DB' })
-            : t('rail.serviceNote', { defaultValue: 'Credentials stored encrypted · rotated every 90d' })}
+            ? t('rail.registerNote', { defaultValue: 'No data copied · tiles generated directly from your tables' })
+            : t('rail.serviceNote', { defaultValue: 'Service tokens are used during import only and are not persisted' })}
         </p>
       </div>
 
@@ -146,9 +146,9 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' }) {
           {t('rail.comparedToUpload', { defaultValue: 'Compared to Upload' })}
         </p>
         <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-          <span className="font-medium text-foreground">Upload</span> copies bytes and tiles them.{' '}
-          <span className="font-medium text-foreground">{isRegister ? 'Register' : 'Service URL'}</span>{' '}
-          just points — updates propagate live but query latency depends on the source.
+          {isRegister
+            ? t('rail.compareRegister', { defaultValue: 'Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.' })
+            : t('rail.compareService', { defaultValue: 'Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying.' })}
         </p>
       </div>
     </aside>
