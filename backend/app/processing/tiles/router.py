@@ -240,7 +240,7 @@ async def _resolve_raster_access(
     return row, storage_backend
 
 
-@router.get("/raster-auth-check/")
+@router.get("/raster-auth-check/", response_model=None)
 @limiter.exempt
 async def raster_auth_check(
     request: Request,
@@ -286,7 +286,7 @@ async def raster_auth_check(
     )
 
 
-@router.get("/raster-proxy/{dataset_id}/{z:int}/{x:int}/{y:int}.{fmt}")
+@router.get("/raster-proxy/{dataset_id}/{z:int}/{x:int}/{y:int}.{fmt}", response_class=Response)
 @limiter.exempt
 async def raster_tile_proxy(
     request: Request,

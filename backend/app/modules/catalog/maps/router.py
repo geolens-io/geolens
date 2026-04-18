@@ -62,6 +62,7 @@ from app.modules.catalog.maps.service import (
     update_share_token,
     validate_public_visibility,
 )
+from app.modules.catalog.maps.models import Map, MapLayer
 
 router = APIRouter(prefix="/maps", tags=["Maps"])
 
@@ -72,7 +73,7 @@ router = APIRouter(prefix="/maps", tags=["Maps"])
 
 
 def _build_layer_response(
-    layer,
+    layer: MapLayer,
     meta: DatasetMetaKwargs,
 ) -> MapLayerResponse:
     """Build a MapLayerResponse from a layer and its dataset metadata dict."""
@@ -102,7 +103,7 @@ def _build_layer_response(
     )
 
 
-def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
+def _layers_from_tuples(layer_tuples: list[tuple]) -> list[MapLayerResponse]:
     """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
     return [
         _build_layer_response(
@@ -124,7 +125,7 @@ def _layers_from_tuples(layer_tuples) -> list[MapLayerResponse]:
 
 
 async def _check_map_read_access(
-    map_obj,
+    map_obj: Map,
     user: User | None,
     db: AsyncSession,
 ) -> None:
@@ -149,7 +150,7 @@ async def _check_map_read_access(
 
 
 def _build_map_response(
-    map_obj,
+    map_obj: Map,
     layers: list[MapLayerResponse],
     forked_from_name: str | None = None,
     created_by_username: str | None = None,

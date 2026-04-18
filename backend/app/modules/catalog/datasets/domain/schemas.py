@@ -1,7 +1,7 @@
 import unicodedata
 import uuid
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -276,7 +276,7 @@ class StatusUpdateResponse(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    status: str
+    status: str = Field(max_length=20)
 
     @field_validator("status")
     @classmethod
@@ -392,14 +392,25 @@ class DatasetListResponse(BaseModel):
     total: int
 
 
+class ColumnChange(BaseModel):
+    name: str
+    type: str
+
+
+class TypeChange(BaseModel):
+    name: str
+    old_type: str
+    new_type: str
+
+
 class SchemaDiff(BaseModel):
-    columns_added: list[dict] = Field(
+    columns_added: list[ColumnChange] = Field(
         description="Columns present in new but not old schema"
     )
-    columns_removed: list[dict] = Field(
+    columns_removed: list[ColumnChange] = Field(
         description="Columns present in old but not new schema"
     )
-    type_changes: list[dict] = Field(description="Columns whose data type changed")
+    type_changes: list[TypeChange] = Field(description="Columns whose data type changed")
     row_count_old: int | None
     row_count_new: int | None
     row_count_delta: int = Field(description="row_count_new minus row_count_old")
@@ -414,11 +425,11 @@ class ReuploadResponse(BaseModel):
 class ReuploadPreviewResponse(BaseModel):
     job_id: uuid.UUID
     source_filename: str | None
-    columns: list[dict]
+    columns: list[ColumnChange]
     crs: int | None
     geometry_type: str | None
     feature_count: int | None
-    sample_rows: list[dict]
+    sample_rows: list[dict[str, Any]]
     layer_name: str
     schema_diff: SchemaDiff
 
@@ -434,8 +445,8 @@ class ReuploadServicePreviewRequest(BaseModel):
 
 
 class ReuploadCommitRequest(BaseModel):
-    srid_override: int | None = None
-    token: str | None = None
+    srid_override: int | None = Field(default=None, ge=1, le=998999)
+    token: str | None = Field(default=None, max_length=1000)
 
 
 class ReuploadCommitResponse(BaseModel):
@@ -466,8 +477,8 @@ class DatasetVersionListResponse(BaseModel):
 
 
 class DatasetRowsResponse(BaseModel):
-    columns: list[dict]
-    rows: list[dict]
+    columns: list[ColumnChange]
+    rows: list[dict[str, Any]]
     approximate_total: int = Field(
         description="Estimated total row count (may use pg stats)"
     )
