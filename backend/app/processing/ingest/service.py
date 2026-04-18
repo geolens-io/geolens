@@ -540,31 +540,20 @@ async def queue_ingest_job(
         except OSError:
             pass  # If we can't stat, use default queue
 
-    if 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
+    use_priority = 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES
 
-        async def _defer_priority() -> None:
-            await ingest_file.configure(queue="priority").defer_async(
-                job_id=str(job.id),
-                file_path=file_path,
-                user_id=user_id,
-            )
-
-        await defer_with_orphan_guard(
-            _defer_priority,
-            rollback=make_ingest_job_failed_rollback(job),
-            db=db,
+    async def _defer_vector() -> None:
+        task = ingest_file
+        if use_priority:
+            task = task.configure(queue="priority")
+        await task.defer_async(
+            job_id=str(job.id),
+            file_path=file_path,
+            user_id=user_id,
         )
-    else:
 
-        async def _defer_default() -> None:
-            await ingest_file.defer_async(
-                job_id=str(job.id),
-                file_path=file_path,
-                user_id=user_id,
-            )
-
-        await defer_with_orphan_guard(
-            _defer_default,
-            rollback=make_ingest_job_failed_rollback(job),
-            db=db,
-        )
+    await defer_with_orphan_guard(
+        _defer_vector,
+        rollback=make_ingest_job_failed_rollback(job),
+        db=db,
+    )
