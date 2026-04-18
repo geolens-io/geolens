@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { toast } from 'sonner';
-import { Map as MapGL, NavigationControl } from '@vis.gl/react-maplibre';
+import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { findBasemapById, toMaplibreStyle } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
+import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { syncLayersToMap, toSyncInput, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -85,6 +86,12 @@ export function BuilderMap({
   );
   const tokenQueries = useTileTokens(datasetIds);
 
+  // Stable string key for token changes — avoids per-render .map().join() in dep arrays
+  const tokenSig = useMemo(
+    () => tokenQueries.map((q) => q.data ? (q.data.kind === 'vector' ? q.data.sig : q.data.tile_url) : '').join(','),
+    [tokenQueries],
+  );
+
   // Build a lookup map from dataset_id -> TileToken, memoized by sig values
   const tokenMap = useMemo(() => {
     const map = new Map<string, TileToken>();
@@ -97,7 +104,7 @@ export function BuilderMap({
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasetIds.join(','), tokenQueries.map((q) => q.data ? (q.data.kind === 'vector' ? q.data.sig : q.data.tile_url) : '').join(',')]);
+  }, [datasetIds.join(','), tokenSig]);
 
   // Keep a ref to the latest sync inputs so style.load handler can access them
   const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels });
@@ -266,11 +273,14 @@ export function BuilderMap({
     };
   }, [mapReady]);
 
+  // Stable string key for visibility changes — avoids per-render allocations
+  const visibilityKey = useMemo(() => layers.map((l) => l.visible).join(','), [layers]);
+
   // Clear popup when layer visibility changes
   useEffect(() => {
     setPopupInfo(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- derived string key intentional
-  }, [layers.map((l) => l.visible).join(',')]);
+  }, [visibilityKey]);
 
   // Sync layers to map (initial + when layers/tokens change)
   useEffect(() => {
@@ -307,7 +317,7 @@ export function BuilderMap({
   const prevLayerCountRef = useRef(layers.length);
 
   // Auto-fit to visible layers (skip on initial load if saved view exists)
-  const layerVisibilityKey = layers.map((l) => `${l.id}:${l.visible}`).join(',');
+  const layerVisibilityKey = useMemo(() => layers.map((l) => `${l.id}:${l.visible}`).join(','), [layers]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -391,7 +401,8 @@ export function BuilderMap({
         onLoad={handleLoad}
         aria-label="Map builder"
       >
-        <NavigationControl position="top-right" />
+        <NavigationControl position="bottom-right" />
+        <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         {popupInfo && (
           <FeaturePopup
             key={`${popupInfo.longitude}-${popupInfo.latitude}`}
@@ -402,6 +413,7 @@ export function BuilderMap({
           />
         )}
       </MapGL>
+      <MapCoordReadout map={mapRef.current} />
       {!mapReady && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
           <div className="text-sm text-muted-foreground animate-pulse">Loading map...</div>

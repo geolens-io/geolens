@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { getTileTokenWithApiKey, getTileTokensBatch } from '@/api/tiles';
+import { getTileTokensBatch } from '@/api/tiles';
 import type { TileToken, VectorTileToken } from '@/api/tiles';
 import type { SharedLayerResponse } from '@/types/api';
 
-/** Fetch tile tokens per-dataset using API key auth. */
+/** Fetch tile tokens in a single batch using API key auth. */
 async function fetchTokensWithApiKey(
   datasetIds: string[],
   apiKey: string,
 ): Promise<Map<string, TileToken>> {
-  const results = await Promise.all(
-    datasetIds.map((id) => getTileTokenWithApiKey(id, apiKey)),
-  );
+  const response = await getTileTokensBatch(datasetIds, apiKey);
   const map = new Map<string, TileToken>();
-  for (let i = 0; i < datasetIds.length; i++) {
-    map.set(datasetIds[i], results[i]);
+  for (const [datasetId, entry] of Object.entries(response.tokens)) {
+    if ('kind' in entry) {
+      map.set(datasetId, entry);
+    }
   }
   return map;
 }
@@ -61,6 +61,7 @@ export function useViewerTokens({
     if (embedToken || layerDatasetIds.length === 0) return;
 
     let cancelled = false;
+    let retryAttempt = 0;
 
     async function fetchTokens() {
       try {
@@ -70,6 +71,8 @@ export function useViewerTokens({
 
         if (cancelled) return;
         setTokenMap(newMap);
+        setTokenError(false);
+        retryAttempt = 0;
 
         // Refresh at 80% of the minimum vector-token TTL. Raster tokens
         // have no expires_in (the tile_url is stable), so if there are no
@@ -88,8 +91,14 @@ export function useViewerTokens({
           }, refreshMs);
         }
       } catch (err) {
-        console.error('ViewerMap: failed to fetch tile tokens', err);
+        if (import.meta.env.DEV) console.warn('ViewerMap: failed to fetch tile tokens', err);
         setTokenError(true);
+        // Exponential backoff retry: 5s, 10s, 20s, 40s, capped at 60s
+        retryAttempt++;
+        const backoffMs = Math.min(5_000 * Math.pow(2, retryAttempt - 1), 60_000);
+        refreshTimerRef.current = setTimeout(() => {
+          if (!cancelled) fetchTokens();
+        }, backoffMs);
       }
     }
 

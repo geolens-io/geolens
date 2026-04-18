@@ -74,3 +74,21 @@ export function formatRelativeDate(dateString: string | null): string {
   });
   return result.relative;
 }
+
+/** Format raster resolution: 2 decimals for values >= 0.01, otherwise 6. */
+export function formatResolution(value: number | null | undefined): string {
+  if (value == null) return '—';
+  const abs = Math.abs(value);
+  return abs >= 0.01 ? value.toFixed(2) : value.toFixed(6);
+}
+
+/** Format nodata values: truncate long floats to exponential notation. */
+export function formatNodata(value: number | string | null | undefined): string {
+  if (value == null) return 'None';
+  const str = String(value);
+  if (str.length > 12) {
+    const num = Number(value);
+    if (!isNaN(num)) return num.toExponential(4);
+  }
+  return str;
+}

@@ -17,6 +17,7 @@ import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
+import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
@@ -368,7 +369,8 @@ export function ViewerMap({
     // depend on tokenMap, so it's allowed to sync immediately.
     if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
     runSync(map);
-  }, [layers, visibleLayers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken]);
+  // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
+  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken]);
 
   // Update tile URLs in-place when vector tokens refresh (token rotation).
   // Narrow the dep to the single primitive the effect actually reads so the
@@ -503,6 +505,7 @@ export function ViewerMap({
           />
         )}
       </MapGL>
+      <MapCoordReadout map={mapRef.current} />
       {contextLost && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">

@@ -107,7 +107,7 @@ async def create_raster_dataset(
     return record, dataset, raster_asset
 
 
-@task_app.task(queue="raster", retry=2, aliases=["app.ingest.tasks.ingest_raster"])
+@task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
 async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: validate GeoTIFF, convert to COG, extract metadata, register dataset.
 
@@ -144,7 +144,10 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         local_cog_path: str | None = None
         tmp_dir: str | None = None

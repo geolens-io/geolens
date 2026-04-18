@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-
+import structlog
 from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -24,7 +24,7 @@ from app.processing.ingest.tasks_common import (
 )
 
 
-@task_app.task(queue="ingest", retry=1, aliases=["app.ingest.tasks.reupload_file"])
+@task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
 async def reupload_file(
     job_id: str, dataset_id: str, file_path: str, user_id: str, **kwargs
 ) -> None:
@@ -48,14 +48,20 @@ async def reupload_file(
         job_result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = job_result.scalar_one()
+        job = job_result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         dataset_result = await session.execute(
             select(Dataset)
             .options(joinedload(Dataset.record))
             .where(Dataset.id == uuid.UUID(dataset_id))
         )
-        dataset = dataset_result.scalar_one()
+        dataset = dataset_result.scalar_one_or_none()
+        if dataset is None:
+            structlog.get_logger().warning("Dataset not found, skipping", dataset_id=dataset_id)
+            return
 
         staging_tn = f"{dataset.table_name[:54]}_staging"
 
@@ -128,7 +134,6 @@ async def reupload_file(
 
             # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
             if file_path.lower().endswith(".zip"):
-                import structlog
                 from app.processing.ingest.metadata import detect_dbf_truncation_collisions
                 from app.processing.ingest.ogr import run_ogrinfo_preview
                 from app.processing.ingest.warnings import make_dbf_truncation_warning
@@ -228,7 +233,7 @@ async def reupload_file(
                 Path(file_path).unlink(missing_ok=True)
 
 
-@task_app.task(queue="ingest", retry=1, aliases=["app.ingest.tasks.reupload_service"])
+@task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
 async def reupload_service(
     job_id: str,
     dataset_id: str,
@@ -268,14 +273,20 @@ async def reupload_service(
         job_result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = job_result.scalar_one()
+        job = job_result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         dataset_result = await session.execute(
             select(Dataset)
             .options(joinedload(Dataset.record))
             .where(Dataset.id == uuid.UUID(dataset_id))
         )
-        dataset = dataset_result.scalar_one()
+        dataset = dataset_result.scalar_one_or_none()
+        if dataset is None:
+            structlog.get_logger().warning("Dataset not found, skipping", dataset_id=dataset_id)
+            return
 
         staging_tn = f"{dataset.table_name[:54]}_staging"
 

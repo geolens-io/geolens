@@ -35,31 +35,10 @@ class ServiceNotRecognized(Exception):
         super().__init__(message)
 
 
-def _build_ogcapi_response(
-    ogcapi_result: dict, enriched_layers: list[dict], url: str
-) -> "ProbeResponse":
-    """Build a ProbeResponse from OGC API Features detection results."""
-    layers = [
-        LayerInfo(
-            name=layer["name"],
-            title=layer.get("title"),
-            geometry_type=layer.get("geometry_type"),
-            feature_count=layer.get("feature_count"),
-            layer_id=layer["name"],
-        )
-        for layer in enriched_layers
-    ]
-    return ProbeResponse(
-        service_type=ogcapi_result["service_type"],
-        url=url,
-        layers=layers,
-    )
-
-
-def _build_wfs_response(
-    wfs_result: dict, enriched_layers: list[dict], url: str
+def _build_probe_response(
+    result: dict, enriched_layers: list[dict], url: str
 ) -> ProbeResponse:
-    """Build a ProbeResponse from WFS detection results."""
+    """Build a ProbeResponse from WFS or OGC API Features detection results."""
     layers = [
         LayerInfo(
             name=layer["name"],
@@ -71,7 +50,7 @@ def _build_wfs_response(
         for layer in enriched_layers
     ]
     return ProbeResponse(
-        service_type=wfs_result["service_type"],
+        service_type=result["service_type"],
         url=url,
         layers=layers,
     )
@@ -136,7 +115,7 @@ async def detect_service_type(
             enriched = await enrich_wfs_layers(
                 url, result["layers"], client, token=token
             )
-            return _build_wfs_response(result, enriched, url)
+            return _build_probe_response(result, enriched, url)
 
     # Slow path: OGC API probe first, then WFS, then ArcGIS
     else:
@@ -148,7 +127,7 @@ async def detect_service_type(
             enriched = await enrich_ogcapi_layers(
                 url, ogcapi_result["layers"], client, token=token
             )
-            return _build_ogcapi_response(ogcapi_result, enriched, url)
+            return _build_probe_response(ogcapi_result, enriched, url)
 
         # Try WFS
         wfs_result = await probe_wfs(url, client, token=token)
@@ -156,7 +135,7 @@ async def detect_service_type(
             enriched = await enrich_wfs_layers(
                 url, wfs_result["layers"], client, token=token
             )
-            return _build_wfs_response(wfs_result, enriched, url)
+            return _build_probe_response(wfs_result, enriched, url)
 
         # Try ArcGIS
         base_url, layer_id = normalize_arcgis_url(url)

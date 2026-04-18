@@ -44,13 +44,11 @@ export function DetailPanel(props: DetailPanelProps) {
   const recordType = dataset.record_type;
   const isTable = recordType === 'table';
   const isVrt = recordType === 'vrt_dataset';
-  const isCollection = recordType === 'collection';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
   const showData = isVector && !isTable;
   const showStructure = isVector;
   const showSources = isVrt;
-  const showMembers = isCollection;
 
   const draftValues = useMemo(() => ({
     lineage_summary: resolveDraftValue('lineage_summary'),
@@ -71,7 +69,7 @@ export function DetailPanel(props: DetailPanelProps) {
         {showData && <TabsTrigger value="data">{t('tabs.data')}</TabsTrigger>}
         {showStructure && <TabsTrigger value="structure">{t('tabs.structure')}</TabsTrigger>}
         {showSources && <TabsTrigger value="sources">{t('tabs.sources')}</TabsTrigger>}
-        {showMembers && <TabsTrigger value="members">{t('tabs.members')}</TabsTrigger>}
+        {/* Members tab hidden until collection membership is implemented */}
         <TabsTrigger value="access">{t('tabs.access')}</TabsTrigger>
       </TabsList>
 
@@ -84,7 +82,6 @@ export function DetailPanel(props: DetailPanelProps) {
           onSummaryDraftSave={(value) => stagePendingDraft('summary', value)}
           onSummaryDirtyChange={(isDirty) => handleDraftDirtyChange('summary', isDirty)}
           datasetId={dataset.id}
-          onNavigateToValidationField={onNavigateToValidationField}
         />
       </TabsContent>
 
@@ -126,14 +123,6 @@ export function DetailPanel(props: DetailPanelProps) {
       {showSources && (
         <TabsContent value="sources" className="space-y-6">
           <SourcesTab dataset={dataset} canEdit={canEdit} datasetId={dataset.id} />
-        </TabsContent>
-      )}
-
-      {showMembers && (
-        <TabsContent value="members" className="space-y-6">
-          <div className="text-sm text-muted-foreground">
-            {t('collection.membersPlaceholder')}
-          </div>
         </TabsContent>
       )}
 

@@ -23,7 +23,7 @@ from app.processing.ingest.tasks_common import (
 )
 
 
-@task_app.task(queue="ingest", retry=2, aliases=["app.ingest.tasks.ingest_file"])
+@task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
 
@@ -49,7 +49,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         try:
             # 1. Update job to running
@@ -166,7 +169,6 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
             #     the source column list from ogrinfo (stored in info["columns"]).
             if file_path.lower().endswith(".zip"):
-                import structlog
                 from app.processing.ingest.metadata import detect_dbf_truncation_collisions
                 from app.processing.ingest.ogr import run_ogrinfo_preview
                 from app.processing.ingest.warnings import make_dbf_truncation_warning
@@ -259,7 +261,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 Path(file_path).unlink(missing_ok=True)
 
 
-@task_app.task(queue="ingest", retry=2, aliases=["app.ingest.tasks.ingest_service"])
+@task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])
 async def ingest_service(
     job_id: str,
     source_url: str,
@@ -291,7 +293,10 @@ async def ingest_service(
         result = await session.execute(
             select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
         )
-        job = result.scalar_one()
+        job = result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            return
 
         try:
             # 1. Update job to running

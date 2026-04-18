@@ -22,7 +22,7 @@ from app.processing.ai.llm_loop import (
     build_history_messages,
     resolve_provider,
 )
-from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, ChatMapLayer, history_to_dicts
+from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.modules.auth.models import User
 from app.core.config import settings

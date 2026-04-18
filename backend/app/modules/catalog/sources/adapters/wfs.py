@@ -160,9 +160,14 @@ async def enrich_wfs_layers(
                     stderr=asyncio.subprocess.PIPE,
                     env=env,
                 )
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=30.0
-                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=30.0
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    raise
 
                 if proc.returncode != 0:
                     logger.debug(

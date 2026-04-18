@@ -1,5 +1,7 @@
 """Service probing and preview API endpoints."""
 
+import uuid
+
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,7 +39,7 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/services", tags=["Datasets"])
 
 
-async def _fail_preview(db: AsyncSession, user_id, url: str, layer: str) -> None:
+async def _fail_preview(db: AsyncSession, user_id: "uuid.UUID", url: str, layer: str) -> None:
     """Log audit and raise 502 for a failed service preview."""
     await log_action(
         session=db,
@@ -192,7 +194,7 @@ async def probe_service_url(
         )
         await db.commit()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         )
 
     # Step 3: Audit log on success
