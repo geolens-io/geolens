@@ -15,6 +15,10 @@ from app.modules.catalog.sources.adapters.arcgis import (
     normalize_arcgis_url,
     probe_arcgis_service,
 )
+from app.modules.catalog.sources.adapters.ogcapi import (
+    enrich_ogcapi_layers,
+    probe_ogcapi,
+)
 from app.modules.catalog.sources.adapters.wfs import enrich_wfs_layers, probe_wfs
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 
@@ -26,9 +30,30 @@ class ServiceNotRecognized(Exception):
 
     def __init__(
         self,
-        message: str = "Couldn't detect service type. Supported: WFS and ArcGIS Feature Service",
+        message: str = "Couldn't detect service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features",
     ):
         super().__init__(message)
+
+
+def _build_ogcapi_response(
+    ogcapi_result: dict, enriched_layers: list[dict], url: str
+) -> "ProbeResponse":
+    """Build a ProbeResponse from OGC API Features detection results."""
+    layers = [
+        LayerInfo(
+            name=layer["name"],
+            title=layer.get("title"),
+            geometry_type=layer.get("geometry_type"),
+            feature_count=layer.get("feature_count"),
+            layer_id=layer["name"],
+        )
+        for layer in enriched_layers
+    ]
+    return ProbeResponse(
+        service_type=ogcapi_result["service_type"],
+        url=url,
+        layers=layers,
+    )
 
 
 def _build_wfs_response(
@@ -82,13 +107,13 @@ def _build_arcgis_response(
 async def detect_service_type(
     url: str, client: httpx.AsyncClient, token: str | None = None
 ) -> ProbeResponse:
-    """Detect whether a URL is a WFS or ArcGIS service and return probe results.
+    """Detect whether a URL is a WFS, ArcGIS, or OGC API Features service.
 
     Strategy:
     1. Fast path: URL pattern matching (_looks_like_arcgis / _looks_like_wfs)
-    2. Slow path: try both (WFS first per user decision)
+    2. Slow path: OGC API probe first, then WFS, then ArcGIS
 
-    Raises ServiceNotRecognized if neither probe succeeds.
+    Raises ServiceNotRecognized if no probe succeeds.
     """
     # Fast path: ArcGIS URL pattern
     if _looks_like_arcgis(url):
@@ -113,11 +138,19 @@ async def detect_service_type(
             )
             return _build_wfs_response(result, enriched, url)
 
-    # Slow path: try both (WFS first per user decision)
+    # Slow path: OGC API probe first, then WFS, then ArcGIS
     else:
-        logger.info("No URL pattern match, trying both probes", url=url)
+        logger.info("No URL pattern match, trying all probes", url=url)
 
-        # Try WFS first
+        # Try OGC API Features landing page probe
+        ogcapi_result = await probe_ogcapi(url, client, token=token)
+        if ogcapi_result is not None:
+            enriched = await enrich_ogcapi_layers(
+                url, ogcapi_result["layers"], client, token=token
+            )
+            return _build_ogcapi_response(ogcapi_result, enriched, url)
+
+        # Try WFS
         wfs_result = await probe_wfs(url, client, token=token)
         if wfs_result is not None:
             enriched = await enrich_wfs_layers(

@@ -239,6 +239,7 @@
       "csv": "CSV",
       "wfs": "WFS",
       "arcgisFeatureServer": "ArcGIS FeatureServer",
+      "ogcapiFeatures": "OGC API Features",
       "created": "Created in GeoLens"
     }
   },
