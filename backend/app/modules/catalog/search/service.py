@@ -439,95 +439,94 @@ async def get_facet_counts(
     if coll_count > 0:
         counts["collection"] = coll_count
 
-    # Build text filter with aliased models for facet sub-queries
-    # (avoids auto-correlation when outer query also joins RecordKeyword)
-    _facet_text_filter = None
+    # Build a CTE that materializes the filtered (dataset_id, record_id) pairs
+    # once, so each facet query joins against it instead of re-evaluating the
+    # full filter stack independently.
+    filtered_base = (
+        select(Dataset.id.label("dataset_id"), Record.id.label("record_id"))
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id)
+    )
+    filtered_base = apply_visibility_filter(
+        filtered_base, user, user_roles, Record, DatasetGrant
+    )
     if q and q.strip():
-        _facet_text_filter, _parts = _build_text_filter(q, use_alias=True)
-
-    def _apply_facet_filters(fstmt):
-        """Apply shared text/spatial/facet filters to a facet sub-query."""
-        if collection_id is not None:
-            fstmt = fstmt.where(
+        _ft_clause, _ft_parts = _build_text_filter(q, use_alias=True)
+        filtered_base = filtered_base.where(_ft_clause)
+    if geometry_geojson:
+        _fg = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
+        _fsf = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+        filtered_base = filtered_base.where(_fsf(Record.spatial_extent, _fg))
+    elif bbox and len(bbox) == 4:
+        filtered_base = filtered_base.where(
+            make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate)
+        )
+    if keywords:
+        _RKC = aliased(RecordKeyword)
+        for kw in keywords:
+            filtered_base = filtered_base.where(
                 exists(
-                    select(CollectionDataset.dataset_id).where(
-                        CollectionDataset.dataset_id == Dataset.id,
-                        CollectionDataset.collection_id == collection_id,
-                    )
-                )
-            )
-        if exclude_synthetic:
-            _RKS = aliased(RecordKeyword)
-            fstmt = fstmt.where(
-                ~exists(
-                    select(_RKS.id)
+                    select(_RKC.id)
                     .where(
-                        _RKS.record_id == Record.id,
-                        func.lower(_RKS.keyword) == "synthetic",
+                        _RKC.record_id == Record.id,
+                        func.lower(_RKC.keyword) == kw.lower(),
                     )
                     .correlate(Record)
                 )
             )
-        if _facet_text_filter is not None:
-            fstmt = fstmt.where(_facet_text_filter)
-        if geometry_geojson:
-            geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
-            spatial_fn = (
-                func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
+    if geometry_type:
+        filtered_base = filtered_base.where(Dataset.geometry_type == geometry_type)
+    if srid:
+        filtered_base = filtered_base.where(Dataset.srid == srid)
+    if source_organization:
+        filtered_base = filtered_base.where(
+            Record.source_organization == source_organization
+        )
+    if datetime_param:
+        _ds, _de = parse_ogc_datetime(datetime_param)
+        if _ds is not None:
+            filtered_base = filtered_base.where(
+                or_(Record.temporal_end >= _ds, Record.temporal_end.is_(None))
             )
-            fstmt = fstmt.where(spatial_fn(Record.spatial_extent, geom))
-        elif bbox and len(bbox) == 4:
-            fstmt = fstmt.where(
-                make_bbox_filter(
-                    Record.spatial_extent, bbox, predicate=spatial_predicate
+        if _de is not None:
+            filtered_base = filtered_base.where(
+                or_(Record.temporal_start <= _de, Record.temporal_start.is_(None))
+            )
+    if collection_id is not None:
+        filtered_base = filtered_base.where(
+            exists(
+                select(CollectionDataset.dataset_id).where(
+                    CollectionDataset.dataset_id == Dataset.id,
+                    CollectionDataset.collection_id == collection_id,
                 )
             )
-        if keywords:
-            _RKF = aliased(RecordKeyword)
-            for kw in keywords:
-                fstmt = fstmt.where(
-                    exists(
-                        select(_RKF.id)
-                        .where(
-                            _RKF.record_id == Record.id,
-                            func.lower(_RKF.keyword) == kw.lower(),
-                        )
-                        .correlate(Record)
-                    )
+        )
+    if exclude_synthetic:
+        _RKS = aliased(RecordKeyword)
+        filtered_base = filtered_base.where(
+            ~exists(
+                select(_RKS.id)
+                .where(
+                    _RKS.record_id == Record.id,
+                    func.lower(_RKS.keyword) == "synthetic",
                 )
-        if geometry_type:
-            fstmt = fstmt.where(Dataset.geometry_type == geometry_type)
-        if srid:
-            fstmt = fstmt.where(Dataset.srid == srid)
-        if source_organization:
-            fstmt = fstmt.where(Record.source_organization == source_organization)
-        if datetime_param:
-            _ds, _de = parse_ogc_datetime(datetime_param)
-            if _ds is not None:
-                fstmt = fstmt.where(
-                    or_(Record.temporal_end >= _ds, Record.temporal_end.is_(None))
-                )
-            if _de is not None:
-                fstmt = fstmt.where(
-                    or_(Record.temporal_start <= _de, Record.temporal_start.is_(None))
-                )
-        return fstmt
+                .correlate(Record)
+            )
+        )
+    filtered_cte = filtered_base.cte("filtered_ids")
 
     # Facet queries are intentionally sequential — SQLAlchemy AsyncSession
     # is not safe for concurrent execute() on a shared connection.
-    # Each query is a lightweight indexed aggregation (<10ms typical).
+    # Each query joins the CTE instead of re-applying all filters.
 
     # --- Keyword facets (top 20) ---
     kw_stmt = (
         select(RecordKeyword.keyword, func.count().label("count"))
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
-        .join(RecordKeyword, RecordKeyword.record_id == Record.id)
-    )
-    kw_stmt = apply_visibility_filter(kw_stmt, user, user_roles, Record, DatasetGrant)
-    kw_stmt = _apply_facet_filters(kw_stmt)
-    kw_stmt = (
-        kw_stmt.group_by(RecordKeyword.keyword).order_by(func.count().desc()).limit(20)
+        .select_from(filtered_cte)
+        .join(RecordKeyword, RecordKeyword.record_id == filtered_cte.c.record_id)
+        .group_by(RecordKeyword.keyword)
+        .order_by(func.count().desc())
+        .limit(20)
     )
     kw_result = await session.execute(kw_stmt)
     keyword_facets = [
@@ -537,14 +536,10 @@ async def get_facet_counts(
     # --- Source organization facets ---
     org_stmt = (
         select(Record.source_organization, func.count().label("count"))
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
+        .select_from(filtered_cte)
+        .join(Record, Record.id == filtered_cte.c.record_id)
         .where(Record.source_organization.isnot(None), Record.source_organization != "")
-    )
-    org_stmt = apply_visibility_filter(org_stmt, user, user_roles, Record, DatasetGrant)
-    org_stmt = _apply_facet_filters(org_stmt)
-    org_stmt = (
-        org_stmt.group_by(Record.source_organization)
+        .group_by(Record.source_organization)
         .order_by(func.count().desc())
         .limit(50)
     )
@@ -560,15 +555,13 @@ async def get_facet_counts(
             func.cast(Dataset.srid, SAString).label("srid_str"),
             func.count().label("count"),
         )
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
+        .select_from(filtered_cte)
+        .join(Dataset, Dataset.id == filtered_cte.c.dataset_id)
         .where(Dataset.srid.isnot(None))
+        .group_by(Dataset.srid)
+        .order_by(func.count().desc())
+        .limit(50)
     )
-    srid_stmt = apply_visibility_filter(
-        srid_stmt, user, user_roles, Record, DatasetGrant
-    )
-    srid_stmt = _apply_facet_filters(srid_stmt)
-    srid_stmt = srid_stmt.group_by(Dataset.srid).order_by(func.count().desc()).limit(50)
     srid_result = await session.execute(srid_stmt)
     srid_facets = [
         {"value": row.srid_str, "count": row.count} for row in srid_result.all()
@@ -583,14 +576,9 @@ async def get_facet_counts(
         )
         .select_from(Collection)
         .join(CollectionDataset, CollectionDataset.collection_id == Collection.id)
-        .join(Dataset, CollectionDataset.dataset_id == Dataset.id)
-        .join(Record, Dataset.record_id == Record.id)
-    )
-    coll_facet_stmt = apply_visibility_filter(
-        coll_facet_stmt, user, user_roles, Record, DatasetGrant
-    )
-    coll_facet_stmt = coll_facet_stmt.group_by(Collection.id, Collection.name).order_by(
-        func.count(CollectionDataset.dataset_id).desc()
+        .join(filtered_cte, filtered_cte.c.dataset_id == CollectionDataset.dataset_id)
+        .group_by(Collection.id, Collection.name)
+        .order_by(func.count(CollectionDataset.dataset_id).desc())
     )
     coll_facet_result = await session.execute(coll_facet_stmt)
     collections_facet = [
