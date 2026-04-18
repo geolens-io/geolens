@@ -25,6 +25,7 @@ import {
   triggerBackfill,
   updateSemanticSearch,
 } from '@/api/admin';
+import { toast } from 'sonner';
 import { retryJob } from '@/api/ingest';
 
 export function useCatalogStats() {
@@ -110,6 +111,10 @@ export function useRetryAdminJob() {
     mutationFn: (jobId: string) => retryJob(jobId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allJobs });
+    },
+    onError: (err) => {
+      console.error('[useRetryAdminJob]', err);
+      toast.error('Failed to retry job');
     },
   });
 }
@@ -273,6 +278,10 @@ export function useBackfillEmbeddings() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
     },
+    onError: (err) => {
+      console.error('[useBackfillEmbeddings]', err);
+      toast.error('Embedding backfill failed');
+    },
   });
 }
 
@@ -284,6 +293,10 @@ export function useUpdateSemanticSearch() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
+    },
+    onError: (err) => {
+      console.error('[useUpdateSemanticSearch]', err);
+      toast.error('Failed to update semantic search setting');
     },
   });
 }
