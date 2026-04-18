@@ -142,7 +142,6 @@ def _parse_temporal_fields(
     """
     from datetime import date as _date
 
-
     logger = structlog.get_logger()
     parsed_start: date | None = None
     parsed_end: date | None = None
@@ -339,7 +338,7 @@ async def _archive_original_file(
         storage = get_storage()
         with open(file_path, "rb") as fobj:
             await storage.put(archive_key, fobj)
-    except Exception as archive_exc:
+    except Exception as archive_exc:  # broad: archive is best-effort; S3/local I/O can fail for any reason
         logger.warning(
             log_message,
             archive_key=archive_key,
@@ -355,7 +354,7 @@ async def _archive_original_file(
             return
         try:
             await session.commit()
-        except Exception as commit_exc:
+        except Exception as commit_exc:  # broad: transient DB errors (deadlock, pooler drop) during flag persistence
             await session.rollback()
             logger.warning(
                 "Failed to persist archive_failed flag on job",
@@ -444,11 +443,9 @@ async def _cleanup_staging_on_failure(
 
     await session.rollback()
     try:
-        await session.execute(
-            text(f"DROP TABLE IF EXISTS {_qtable(staging_table)}")
-        )
+        await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_table)}"))
         await session.commit()
-    except Exception as cleanup_exc:
+    except Exception as cleanup_exc:  # broad: cleanup is best-effort after rollback; DB may be in bad state
         structlog.get_logger().warning(
             f"Staging-table cleanup failed during {task_name} failure",
             staging_table=staging_table,
@@ -713,7 +710,7 @@ async def _finalize_ingest(ctx: IngestContext):
             ql_key = f"vectors/{dataset.id}/quicklook_256.png"
             await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
             dataset.quicklook_256_uri = ql_key
-        except Exception as _ql_exc:
+        except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
             _ql_log.warning(
                 "quicklook_failed",
                 phase="generate",
@@ -723,7 +720,7 @@ async def _finalize_ingest(ctx: IngestContext):
         else:
             try:
                 await session.commit()
-            except Exception as _ql_commit_exc:
+            except Exception as _ql_commit_exc:  # broad: transient commit failure after successful generation
                 await session.rollback()
                 _ql_log.warning(
                     "quicklook_failed",
@@ -838,7 +835,10 @@ async def _apply_reupload_swap(
     """Apply shared atomic swap + version invariants for all reupload sources."""
     from app.modules.audit.service import log_action
     from app.modules.catalog.collections.models import DatasetVersion
-    from app.processing.ingest.metadata import compute_quality_score, refresh_attribute_metadata
+    from app.processing.ingest.metadata import (
+        compute_quality_score,
+        refresh_attribute_metadata,
+    )
     from sqlalchemy import func, text
 
     actor_id = uuid.UUID(user_id)

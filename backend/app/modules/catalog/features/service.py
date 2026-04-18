@@ -6,7 +6,7 @@ import re
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.processing.ingest.metadata import extract_metadata
+from app.processing.ingest.metadata import extract_metadata, _qtable
 
 # Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -36,12 +36,6 @@ def _geometry_sql(dataset_geometry_type: str) -> str:
     if dataset_geometry_type.strip().upper() in _MULTI_TYPES:
         return f"ST_Multi({base})"
     return base
-
-
-def _validate_table_name(table_name: str) -> None:
-    """Validate table name to prevent SQL injection."""
-    if not re.match(r"^[a-z0-9_]+$", table_name):
-        raise ValueError(f"Invalid table name: {table_name}")
 
 
 def parse_bbox(bbox_str: str) -> list[float]:
@@ -77,8 +71,6 @@ async def get_features(
 
     Returns (rows, total_count) where each row has gid, geometry, and properties.
     """
-    _validate_table_name(table_name)
-
     # Build SELECT columns
     if has_geometry and include_geometry:
         select_cols = (
@@ -126,7 +118,7 @@ async def get_features(
 
     # Data query
     data_sql = (
-        f"SELECT {select_cols} FROM data.{table_name} t "
+        f"SELECT {select_cols} FROM {_qtable(table_name)} t "
         f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
     )
     bind_values["limit"] = limit
@@ -143,7 +135,7 @@ async def get_features(
         count_bind = {
             k: v for k, v in bind_values.items() if k not in ("limit", "offset")
         }
-        count_sql = f"SELECT COUNT(*) FROM data.{table_name} t {where_sql}"
+        count_sql = f"SELECT COUNT(*) FROM {_qtable(table_name)} t {where_sql}"
         count_result = await db.execute(text(count_sql).bindparams(**count_bind))
         total = count_result.scalar_one()
 
@@ -166,15 +158,13 @@ async def get_features_geojson_z(
     total_count: actual row count when not truncated, COUNT(*) when truncated.
     cached_feature_count is ignored — always uses authoritative count.
     """
-    _validate_table_name(table_name)
-
     select_cols = (
         "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
         "to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties"
     )
     # Fetch cap+1 to detect truncation without a separate COUNT query
     data_sql = (
-        f"SELECT {select_cols} FROM data.{table_name} t ORDER BY gid LIMIT :limit"
+        f"SELECT {select_cols} FROM {_qtable(table_name)} t ORDER BY gid LIMIT :limit"
     )
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]
@@ -190,7 +180,7 @@ async def get_features_geojson_z(
         # Use caller-supplied cached count to avoid extra query
         total_count = cached_feature_count
     else:
-        count_sql = f"SELECT COUNT(*) FROM data.{table_name}"
+        count_sql = f"SELECT COUNT(*) FROM {_qtable(table_name)}"
         count_result = await db.execute(text(count_sql))
         total_count = count_result.scalar_one()
 
@@ -208,8 +198,6 @@ async def get_feature_by_id(
 
     Returns a dict with gid, geometry, and properties, or None if not found.
     """
-    _validate_table_name(table_name)
-
     if has_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
@@ -218,7 +206,7 @@ async def get_feature_by_id(
     else:
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
 
-    sql = f"SELECT {select_cols} FROM data.{table_name} t WHERE gid = :gid"
+    sql = f"SELECT {select_cols} FROM {_qtable(table_name)} t WHERE gid = :gid"
     result = await db.execute(text(sql).bindparams(gid=gid))
     row = result.first()
     if row is None:
@@ -281,7 +269,6 @@ async def insert_feature(
     that exist in column_info. Returns the full inserted feature via
     get_feature_by_id.
     """
-    _validate_table_name(table_name)
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
 
     geojson_str = json.dumps(geometry)
@@ -301,7 +288,7 @@ async def insert_feature(
                 params[param_name] = value
 
     sql = (
-        f"INSERT INTO data.{table_name} ({', '.join(cols)}) "
+        f"INSERT INTO {_qtable(table_name)} ({', '.join(cols)}) "
         f"VALUES ({', '.join(vals)}) RETURNING gid"
     )
     result = await db.execute(text(sql).bindparams(**params))
@@ -324,7 +311,6 @@ async def replace_feature(
     Replaces geometry and sets ALL known attribute columns. Columns not
     present in properties are set to NULL.
     """
-    _validate_table_name(table_name)
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
 
     geojson_str = json.dumps(geometry)
@@ -343,7 +329,7 @@ async def replace_feature(
             sets.append(f'"{col_name}" = :{param}')
             params[param] = properties.get(col_name)
 
-    sql = f"UPDATE data.{table_name} SET {', '.join(sets)} WHERE gid = :gid"
+    sql = f"UPDATE {_qtable(table_name)} SET {', '.join(sets)} WHERE gid = :gid"
     result = await db.execute(text(sql).bindparams(**params))
     if result.rowcount == 0:
         raise ValueError("Feature not found")
@@ -366,8 +352,6 @@ async def update_feature(
     and geom_4326 are updated. If properties is given, only the keys present
     in the dict (and in column_info) are updated.
     """
-    _validate_table_name(table_name)
-
     sets: list[str] = []
     params: dict = {"gid": gid}
 
@@ -390,7 +374,7 @@ async def update_feature(
     if not sets:
         raise ValueError("Nothing to update")
 
-    sql = f"UPDATE data.{table_name} SET {', '.join(sets)} WHERE gid = :gid"
+    sql = f"UPDATE {_qtable(table_name)} SET {', '.join(sets)} WHERE gid = :gid"
     result = await db.execute(text(sql).bindparams(**params))
     if result.rowcount == 0:
         raise ValueError("Feature not found")
@@ -407,9 +391,8 @@ async def delete_feature(
 
     Raises ValueError if the feature does not exist.
     """
-    _validate_table_name(table_name)
     result = await db.execute(
-        text(f"DELETE FROM data.{table_name} WHERE gid = :gid").bindparams(gid=gid)
+        text(f"DELETE FROM {_qtable(table_name)} WHERE gid = :gid").bindparams(gid=gid)
     )
     if result.rowcount == 0:
         raise ValueError("Feature not found")

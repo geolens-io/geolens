@@ -205,7 +205,9 @@ async def generate_map_endpoint(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
         logger.exception("AI map generation failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -239,10 +241,14 @@ async def generate_map_stream_endpoint(
                 event="error",
             )
             return
-        except Exception:
+        except (
+            Exception
+        ):  # broad: pre-flight validation can fail unpredictably in async SSE context
             logger.exception("Map generation pre-flight error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}),
+                data=json.dumps(
+                    {"type": "error", "message": "An unexpected error occurred"}
+                ),
                 event="error",
             )
             return
@@ -254,10 +260,13 @@ async def generate_map_stream_endpoint(
                 if await request.is_disconnected():
                     break
                 yield ServerSentEvent(data=json.dumps(event), event=event["type"])
-        except Exception:
+        except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Map generation stream error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}), event="error"
+                data=json.dumps(
+                    {"type": "error", "message": "An unexpected error occurred"}
+                ),
+                event="error",
             )
 
     return EventSourceResponse(event_generator())
@@ -309,7 +318,9 @@ async def chat_endpoint(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
         logger.exception("Chat map editing failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -343,10 +354,14 @@ async def chat_stream_endpoint(
                 event="error",
             )
             return
-        except Exception:
+        except (
+            Exception
+        ):  # broad: pre-flight validation can fail unpredictably in async SSE context
             logger.exception("Chat pre-flight error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}),
+                data=json.dumps(
+                    {"type": "error", "message": "An unexpected error occurred"}
+                ),
                 event="error",
             )
             return
@@ -364,10 +379,13 @@ async def chat_stream_endpoint(
                 if await request.is_disconnected():
                     break
                 yield ServerSentEvent(data=json.dumps(event), event=event["type"])
-        except Exception:
+        except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Chat stream error")
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": "An unexpected error occurred"}), event="error"
+                data=json.dumps(
+                    {"type": "error", "message": "An unexpected error occurred"}
+                ),
+                event="error",
             )
 
     return EventSourceResponse(event_generator())
@@ -408,7 +426,9 @@ async def generate_metadata_summary(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
         logger.exception("AI metadata summary generation failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -446,7 +466,9 @@ async def generate_metadata_keywords(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
         logger.exception("AI metadata keyword generation failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -484,7 +506,9 @@ async def generate_metadata_lineage(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
         logger.exception("AI metadata lineage generation failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -524,7 +548,9 @@ async def generate_metadata_quality_statement(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
         )
-    except Exception:
+    except (
+        Exception
+    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
         logger.exception("AI metadata quality statement generation failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
