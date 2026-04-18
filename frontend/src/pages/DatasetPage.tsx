@@ -683,12 +683,7 @@ export function DatasetPage() {
 
       <PendingEditsBar
         pendingCount={metadataPendingCount}
-        onSaveAll={async () => {
-          // savePendingDrafts returns Promise<boolean> (true on success)
-          // but PendingEditsBar only needs a void/Promise<void> handler,
-          // so the boolean result is intentionally discarded here.
-          await savePendingDrafts();
-        }}
+        onSaveAll={savePendingDrafts}
         onCancelAll={discardPendingDrafts}
         isSaving={isSavingPendingEdits}
       />
