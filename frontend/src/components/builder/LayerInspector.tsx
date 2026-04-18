@@ -8,6 +8,7 @@ import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
 import { RasterLayerControls } from './RasterLayerControls';
 import { ColumnsReference } from './ColumnsReference';
+import { StyleSpecView } from './StyleSpecView';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { FilterSpecification } from 'maplibre-gl';
@@ -137,6 +138,7 @@ export function LayerInspector({
             {columns.length > 0 && (
               <ColumnsReference columns={columns} defaultOpen={advanced} />
             )}
+            {advanced && <StyleSpecView layer={layer} />}
           </>
         )}
 

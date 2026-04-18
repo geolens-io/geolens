@@ -13,7 +13,7 @@ const sizes = {
   lg: { icon: 'h-8 w-8', text: 'text-2xl', gap: 'gap-2' },
 };
 
-function GlobeIcon({ className }: { className?: string }) {
+function ReticleIcon({ className }: { className?: string }) {
   const clipId = useId();
 
   return (
@@ -25,42 +25,34 @@ function GlobeIcon({ className }: { className?: string }) {
     >
       <defs>
         <clipPath id={clipId}>
-          <circle cx="27" cy="27" r="22" />
+          <circle cx="26" cy="26" r="18" />
         </clipPath>
       </defs>
 
-      {/* Lens / globe ring */}
-      <circle
-        cx="27"
-        cy="27"
-        r="22"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-      />
+      {/* Lens ring */}
+      <circle cx="26" cy="26" r="18" fill="none" stroke="currentColor" strokeWidth="3.2" />
 
-      {/* Simplified globe detail */}
-      <g
-        clipPath={`url(#${clipId})`}
-        stroke="currentColor"
-        fill="none"
-        strokeWidth="2"
-        opacity="0.55"
-      >
-        <line x1="7" y1="27" x2="47" y2="27" />
-        <ellipse cx="27" cy="27" rx="11" ry="22" />
+      {/* Graticule detail (clipped to lens) */}
+      <g clipPath={`url(#${clipId})`} stroke="currentColor" fill="none" strokeWidth="1.6" opacity="0.5">
+        <line x1="8" y1="26" x2="44" y2="26" />
+        <line x1="26" y1="8" x2="26" y2="44" />
+        <ellipse cx="26" cy="26" rx="9" ry="18" />
+        <ellipse cx="26" cy="26" rx="18" ry="9" />
       </g>
 
-      {/* Handle */}
-      <line
-        x1="41"
-        y1="41"
-        x2="55"
-        y2="55"
-        stroke="currentColor"
-        strokeWidth="4.5"
-        strokeLinecap="round"
-      />
+      {/* Crosshair ticks */}
+      <g stroke="currentColor" strokeWidth="2.8">
+        <line x1="26" y1="3" x2="26" y2="6" />
+        <line x1="26" y1="46" x2="26" y2="49" />
+        <line x1="3" y1="26" x2="6" y2="26" />
+        <line x1="46" y1="26" x2="49" y2="26" />
+      </g>
+
+      {/* Center dot */}
+      <circle cx="26" cy="26" r="2" fill="currentColor" />
+
+      {/* Magnifier handle */}
+      <line x1="39" y1="39" x2="56" y2="56" stroke="currentColor" strokeWidth="4.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -74,10 +66,10 @@ export function GeoLensLogo({
 
   return (
     <span className={cn('inline-flex items-center', s.gap, className)}>
-      <GlobeIcon className={cn(s.icon, 'shrink-0')} />
+      <ReticleIcon className={cn(s.icon, 'shrink-0')} />
       {variant === 'full' && (
-        <span className={cn(s.text, 'font-semibold tracking-tight')}>
-          Geo<span className="font-normal">Lens</span>
+        <span className={cn(s.text, 'font-bold tracking-tight')}>
+          Geo<span className="font-light text-muted-foreground">Lens</span>
         </span>
       )}
     </span>

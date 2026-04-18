@@ -35,8 +35,6 @@ const GEOMETRY_TYPES = [
   'MULTIPOLYGON',
 ] as const;
 const SORT_OPTIONS = ['relevance', 'date_added', 'name', 'last_updated'] as const;
-const ANY_GEOMETRY_VALUE = '__all__';
-
 const LazySpatialFilterPanel = lazy(async () => {
   const module = await import('./SpatialFilterPanel');
   return { default: module.SpatialFilterPanel };
@@ -162,10 +160,8 @@ export function FilterPanel({
     geometryType !== '' || bbox !== '' || dateFrom !== '' || dateTo !== '' || recordType !== '' || collectionId !== '' || sourceOrganization !== '' || srid !== '' || datetime !== '' || selectedKeywords.length > 0;
   const hasToolbarChanges = hasActiveFilters || sortBy !== 'relevance';
   const hasSearchState = hasToolbarChanges || q !== '';
-  const activeFilterCount = [geometryType, bbox, dateFrom || dateTo, recordType, collectionId, sourceOrganization, srid, datetime, selectedKeywords.length > 0 ? 'kw' : ''].filter(Boolean).length;
   const activeGeomLabel = geometryType ? getGeometryTypeLabel(t, geometryType) : null;
   const showsTableToggle = counts.table !== undefined;
-  const showGeometryFilter = recordType !== 'raster_dataset' && recordType !== 'vrt_dataset' && recordType !== 'table';
   const showSridFilter = srids.length > 0 && recordType !== 'table';
   const showSecondaryFilterRow = Boolean(recordType) && (
     recordType === 'vector_dataset' || organizations.length > 0 || showSridFilter

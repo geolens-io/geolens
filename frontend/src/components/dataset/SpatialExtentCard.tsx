@@ -47,7 +47,7 @@ export function SpatialExtentCard({ extentBbox, srid, originalSrid }: SpatialExt
 
         <div className="space-y-1">
           <span className="text-sm font-medium text-muted-foreground">{t('metadata.crsSrid')}</span>
-          <p className="text-sm">
+          <p className="text-sm font-mono">
             {formatSrid(srid, originalSrid, t('metadata.unknown'), t)}
           </p>
         </div>

@@ -102,14 +102,12 @@ describe('recordTypeColors', () => {
     );
   });
 
-  it('uses semanticBadgeColors for standard types', () => {
+  it('uses design tokens for dataset types', () => {
+    expect(recordTypeColors.vector_dataset).toContain('type-vector');
+    expect(recordTypeColors.raster_dataset).toContain('type-raster');
+    expect(recordTypeColors.vrt_dataset).toContain('type-vrt');
+    expect(recordTypeColors.table).toContain('type-table');
     expect(recordTypeColors.collection).toBe(semanticBadgeColors.warning);
-    expect(recordTypeColors.vector_dataset).toBe(semanticBadgeColors.info);
-    expect(recordTypeColors.raster_dataset).toBe(semanticBadgeColors.success);
-  });
-
-  it('uses violet palette for vrt_dataset', () => {
-    expect(recordTypeColors.vrt_dataset).toContain('violet');
   });
 });
 

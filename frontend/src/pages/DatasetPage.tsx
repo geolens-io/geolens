@@ -33,10 +33,11 @@ import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
+import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
 import { MapErrorBoundary } from '@/components/error';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
 import { formatRelativeDate, formatNumber } from '@/lib/format';
-import { findElevationColumn } from '@/lib/geo-utils';
+import { findElevationColumn, computeRasterGsd } from '@/lib/geo-utils';
 import { getRecordStatusLabel, getGeometryTypeLabel } from '@/i18n/labels';
 import { Button } from '@/components/ui/button';
 import {
@@ -114,10 +115,7 @@ function scrollAndFocus(anchor: string): () => void {
 
 function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: typeof import('react-i18next').useTranslation extends (...a: never[]) => { t: infer T } ? T : never }) {
   const isTable = dataset.record_type === 'table';
-  const rasterGsd: number | null =
-    dataset.raster?.res_x != null && dataset.raster?.res_y != null
-      ? Math.min(Math.abs(dataset.raster.res_x), Math.abs(dataset.raster.res_y))
-      : null;
+  const rasterGsd = computeRasterGsd(dataset.raster?.res_x, dataset.raster?.res_y);
 
   return (
     <>
@@ -475,15 +473,6 @@ export function DatasetPage() {
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
 
-  // Derived ground-sampling-distance. Backend `RasterMetadata` exposes
-  // `res_x` and `res_y` but not a pre-computed `gsd`, so mirror the
-  // backend's models.py formula (min of absolute pixel resolutions)
-  // here. Returns null if either resolution is unknown.
-  const rasterGsd: number | null =
-    dataset.raster?.res_x != null && dataset.raster?.res_y != null
-      ? Math.min(Math.abs(dataset.raster.res_x), Math.abs(dataset.raster.res_y))
-      : null;
-
   const isPublished = dataset.record_status === 'published';
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
   const requireMetadata = allSettings?.tabs?.general?.find((s: { key: string }) => s.key === 'require_metadata_for_publish')?.value ?? false;
@@ -668,25 +657,9 @@ export function DatasetPage() {
         </div>
       )}
 
-      {/* Raster Quick Facts Strip */}
-      {!isDataTabExpanded && dataset.record_type === 'raster_dataset' && dataset.raster && (
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30 text-sm overflow-x-auto divide-x divide-border">
-          {dataset.raster.band_count != null && (
-            <div className="pe-3"><span className="text-muted-foreground">{t('raster.bands')}</span> <span className="font-medium">{dataset.raster.band_count}</span></div>
-          )}
-          {(dataset.raster.res_x != null || rasterGsd != null) && (
-            <div className="ps-3">
-              <span className="text-muted-foreground">{t('raster.resolution')}</span>{' '}
-              <span className="font-medium">{rasterGsd != null ? `${rasterGsd} m` : `${dataset.raster.res_x?.toFixed(6)}`}</span>
-            </div>
-          )}
-          {dataset.raster.width != null && dataset.raster.height != null && (
-            <div className="ps-3"><span className="text-muted-foreground">{t('raster.dimensions')}</span> <span className="font-medium">{dataset.raster.width} x {dataset.raster.height} px</span></div>
-          )}
-          {dataset.raster.compression && (
-            <div className="ps-3"><span className="text-muted-foreground">{t('raster.format')}</span> <span className="font-medium">{dataset.raster.compression}</span></div>
-          )}
-        </div>
+      {/* Stats instrument bar — key metrics at a glance */}
+      {!isDataTabExpanded && (
+        <DatasetStatsBar dataset={dataset} className="-mx-px" />
       )}
 
       {/* Tabbed content — tabs shown are driven by record_type */}

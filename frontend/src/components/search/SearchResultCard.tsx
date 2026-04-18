@@ -253,7 +253,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                   {cardSpecs.length > 0 && (
                     <div className="flex flex-wrap gap-x-3 gap-y-1" data-testid="dataset-card-specs">
                       {cardSpecs.map((item, index) => (
-                        <span key={item.label} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <span key={item.label} className="inline-flex items-center gap-1 text-xs font-medium font-mono tracking-wide text-muted-foreground">
                           {index > 0 && (
                             <span className="me-1 text-muted-foreground/40">&middot;</span>
                           )}
@@ -317,7 +317,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                   <div className="size-[132px] shrink-0 overflow-hidden rounded-lg border border-border/40 xl:size-[148px]">
                     {isTable ? (
                       <div
-                        className="flex size-[132px] flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-100 to-orange-200 text-orange-900 dark:from-orange-950/40 dark:to-orange-900/30 dark:text-orange-200 xl:size-[148px]"
+                        className="flex size-[132px] flex-col items-center justify-center gap-2 bg-type-table-bg text-type-table xl:size-[148px]"
                         role="img"
                         aria-label={
                           properties.column_count
@@ -330,7 +330,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           aria-hidden="true"
                           data-testid="table-thumbnail-icon"
                         />
-                        <span className="text-xs font-medium tabular-nums">
+                        <span className="text-xs font-medium font-mono tabular-nums tracking-wide">
                           {properties.feature_count ?? 0} rows
                           {properties.column_count ? ` · ${properties.column_count} cols` : ''}
                         </span>

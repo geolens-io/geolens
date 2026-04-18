@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronUp, History } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, History } from 'lucide-react';
 import type { DatasetResponse } from '@/types/api';
+import { useValidation } from '@/components/dataset/hooks/use-dataset';
+import { useAuthStore } from '@/stores/auth-store';
+import { Button } from '@/components/ui/button';
 import { ApiError } from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContactsEditor } from '@/components/dataset/ContactsEditor';
@@ -44,8 +47,61 @@ export function MetadataTab({
   const existingKeywords = useKeywords(dataset.record_id);
   const [suggestedKeywords, setSuggestedKeywords] = useState<string[] | null>(null);
 
+  // Health / QA summary
+  const token = useAuthStore((s) => s.token);
+  const { data: validationData } = useValidation(token ? dataset.id : undefined);
+  const requiredCount = validationData?.errors?.length ?? 0;
+  const recommendedCount = validationData?.warnings?.length ?? 0;
+  const totalValidatableFields = 12;
+  const passedCount = Math.max(0, totalValidatableFields - requiredCount - recommendedCount);
+  const completionPercent = totalValidatableFields > 0 ? Math.round((passedCount / totalValidatableFields) * 100) : 100;
+  const hasIssues = requiredCount > 0 || recommendedCount > 0;
+
   return (
     <>
+      {/* Compact Health / QA Block */}
+      {hasIssues ? (
+        <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm">
+          <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+          <span>
+            {requiredCount > 0 && <span className="font-medium">{t('overview.requiredCount', { count: requiredCount, defaultValue: '{{count}} required' })}</span>}
+            {requiredCount > 0 && recommendedCount > 0 && ' · '}
+            {recommendedCount > 0 && <span>{t('overview.recommendedCount', { count: recommendedCount, defaultValue: '{{count}} recommended' })}</span>}
+            {' · '}
+            <span>{t('overview.percentComplete', { percent: completionPercent, defaultValue: '{{percent}}% complete' })}</span>
+            {(() => {
+              const nextField = validationData?.errors?.[0]?.field ?? validationData?.warnings?.[0]?.field;
+              if (!nextField) return null;
+              return (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="text-primary underline underline-offset-2 hover:text-primary/80"
+                    onClick={() => onNavigateToValidationField?.(nextField)}
+                  >
+                    {t('overview.nextFillIn', { field: nextField, defaultValue: 'Next: fill in {{field}}' })}
+                  </button>
+                </>
+              );
+            })()}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => onNavigateToValidationField?.('validation')}
+          >
+            {t('overview.reviewIssues', { defaultValue: 'Review issues' })}
+          </Button>
+        </div>
+      ) : validationData ? (
+        <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30 text-sm text-success">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>{t('overview.allChecksPassed')}</span>
+        </div>
+      ) : null}
+
       <Card data-field-anchor="contacts">
         <CardHeader>
           <CardTitle className="text-base">{t('contacts.title')}</CardTitle>
