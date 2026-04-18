@@ -265,13 +265,7 @@ async def _detect_and_override_geometry(
     ``ogr_geometry_type = None if user_wants_geom else ...`` branch in
     ``ingest_file``) before invoking this helper. K1/KISS-3 extraction.
     """
-    from app.processing.ingest.metadata import _validate_table_name
-
-    # Defense-in-depth: every other SQL builder in metadata.py validates
-    # the table name before interpolating it into raw SQL; match the
-    # convention here so the helper stays safe even if a future caller
-    # passes an unsanitized name (RESILIENCE-5).
-    _validate_table_name(table_name)
+    from app.processing.ingest.metadata import _qtable
 
     x_column = (user_metadata.get("x_column") or "").lower() or None
     y_column = (user_metadata.get("y_column") or "").lower() or None
@@ -293,7 +287,7 @@ async def _detect_and_override_geometry(
         # metadata reflects what was actually built (lines/polygons/etc).
         result = await session.execute(
             _text(
-                f"SELECT GeometryType(geom) FROM data.{table_name} "
+                f"SELECT GeometryType(geom) FROM {_qtable(table_name)} "
                 f"WHERE geom IS NOT NULL LIMIT 1"
             )
         )
