@@ -21,6 +21,10 @@ import { LayerItem } from './LayerItem';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 
+// TODO: group layer callbacks (onPaintChange, onFilterChange, etc.) into a
+// LayerHandlers interface and pass as a single `layerHandlers` object prop.
+// This would reduce prop drilling through LayerPanel -> LayerItem and simplify
+// the call site in MapBuilderPage.tsx.
 interface LayerPanelProps {
   layers: MapLayerResponse[];
   expandedLayerId: string | null;
