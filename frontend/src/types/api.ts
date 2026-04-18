@@ -90,7 +90,7 @@ export interface DatasetResponse {
   geometry_type: string | null;
   feature_count: number | null;
   extent_bbox: number[] | null;
-  column_info: { name: string; type: string }[] | null;
+  column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
   license: string | null;
   source_organization: string | null;
   data_vintage_start: string | null;
@@ -841,7 +841,7 @@ export interface SharedLayerResponse {
   display_name: string | null;
   table_name: string;
   geometry_type: string | null;
-  column_info: { name: string; type: string }[] | null;
+  column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
   sort_order: number;
   visible: boolean;
   opacity: number;
@@ -924,7 +924,7 @@ export interface ChatMapLayer {
   dataset_id: string;
   dataset_table_name: string;
   geometry_type: string | null;
-  column_info: { name: string; type: string }[] | null;
+  column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
   visible: boolean;
   filter: FilterSpecification | null;
   label_config: LabelConfig | null;

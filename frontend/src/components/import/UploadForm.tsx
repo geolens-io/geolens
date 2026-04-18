@@ -72,6 +72,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   }, []);
 
   const handleFilesAccepted = async (files: File[]) => {
+    if (phase !== 'idle') return;
+
     // Duplicate detection against existing entries
     const existing = new Set(
       entries.map((e) => `${e.fileName}|${e.file?.size ?? ''}|${e.file?.lastModified ?? ''}`),

@@ -606,9 +606,7 @@ export function MapBuilderPage() {
             <DialogDescription>{t('search.dialogDescription')}</DialogDescription>
           </DialogHeader>
           <DatasetSearchPanel
-            onAddDataset={(datasetId) => {
-              layers.handleAddDataset(datasetId);
-            }}
+            onAddDataset={layers.handleAddDataset}
             existingDatasetIds={existingDatasetIds}
             isAdding={addLayer.isPending}
           />

@@ -6,6 +6,8 @@ and table registration for existing PostGIS tables.
 
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 import uuid
 from pathlib import Path
@@ -108,7 +110,10 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
     """Save an uploaded file to staging (local) or S3.
 
     In S3 mode, uploads directly to S3 and returns the S3 key string.
-    In local mode, uses chunked writes (8192 bytes) and returns a Path.
+    In local mode, reads chunks asynchronously (64 KiB) and writes via
+    ``run_in_executor`` so synchronous file I/O does not block the event
+    loop.  On write failure the partial file is removed before the
+    exception propagates.
 
     Callers MUST validate `file.filename` is non-empty before calling —
     raising on a missing filename is the route handler's responsibility so
@@ -131,9 +136,21 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
 
     safe_name = Path(file.filename).name  # strip path traversal
     dest = staging_dir / f"{job_id}_{safe_name}"
-    with open(dest, "wb") as f:
-        while chunk := await file.read(8192):
-            f.write(chunk)
+
+    loop = asyncio.get_event_loop()
+    try:
+        f = await loop.run_in_executor(None, open, dest, "wb")
+        try:
+            while chunk := await file.read(65536):
+                await loop.run_in_executor(None, f.write, chunk)
+        finally:
+            await loop.run_in_executor(None, f.close)
+    except Exception:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise
 
     return dest
 
@@ -205,20 +222,21 @@ async def generate_table_name(
         # Re-truncate if prefix pushed past 60
         slug = slug[:60]
 
-    # Check for collision against catalog
+    # Check for collision against catalog — single query instead of loop
     base_slug = slug
-    suffix = 1
     collision_warning: str | None = None
-    while True:
-        result = await session.execute(
-            select(Dataset.id).where(Dataset.table_name == slug)
+    result = await session.execute(
+        select(Dataset.table_name).where(
+            Dataset.table_name.like(f"{base_slug}%")
         )
-        if result.scalar_one_or_none() is None:
-            break
-        suffix += 1
-        slug = f"{base_slug}_{suffix}"
+    )
+    existing = {row[0] for row in result.all()}
 
-    if suffix > 1:
+    if slug in existing:
+        suffix = 2
+        while f"{base_slug}_{suffix}" in existing:
+            suffix += 1
+        slug = f"{base_slug}_{suffix}"
         collision_warning = f"Table name '{base_slug}' already exists, using '{slug}'"
 
     return slug, collision_warning
@@ -276,8 +294,6 @@ async def register_existing_table(
 
     # Check for duplicate registration
     from app.modules.catalog.datasets.domain.models import Dataset
-
-    from sqlalchemy import select
 
     existing = await session.execute(
         select(Dataset).where(Dataset.table_name == table_name)

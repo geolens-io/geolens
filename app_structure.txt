@@ -1,0 +1,575 @@
+frontend
+├── Dockerfile
+├── Dockerfile.dev
+├── README.md
+├── components.json
+├── docker-entrypoint.sh
+├── docs
+│   ├── i18n.md
+│   └── widgets.md
+├── eslint.config.js
+├── index.html
+├── nginx.conf
+├── package-lock.json
+├── package.json
+├── public
+│   ├── env-config.js
+│   ├── env-config.template.js
+│   └── favicon.svg
+├── scripts
+│   └── check-i18n-changed-namespaces.mjs
+├── src
+│   ├── @types
+│   │   └── i18next.d.ts
+│   ├── App.tsx
+│   ├── api
+│   │   ├── __tests__
+│   │   │   └── client.test.ts
+│   │   ├── admin.ts
+│   │   ├── ai-metadata.ts
+│   │   ├── auth.ts
+│   │   ├── client.ts
+│   │   ├── collections.ts
+│   │   ├── config-ops.ts
+│   │   ├── datasets.ts
+│   │   ├── edition.ts
+│   │   ├── embed-tokens.ts
+│   │   ├── features.ts
+│   │   ├── geojson-z.ts
+│   │   ├── ingest.ts
+│   │   ├── maps.ts
+│   │   ├── records.ts
+│   │   ├── saved-searches.ts
+│   │   ├── search.ts
+│   │   ├── settings.ts
+│   │   ├── tiles.ts
+│   │   └── vrt.ts
+│   ├── assets
+│   │   └── basemaps
+│   ├── components
+│   │   ├── GeoLensLogo.tsx
+│   │   ├── admin
+│   │   │   ├── AIStatusCard.tsx
+│   │   │   ├── AdminLayout.tsx
+│   │   │   ├── AdminSidebar.tsx
+│   │   │   ├── ApiKeyRevealDialog.tsx
+│   │   │   ├── ApiKeySection.tsx
+│   │   │   ├── AuditLogViewer.tsx
+│   │   │   ├── DataTablePagination.tsx
+│   │   │   ├── DataTableSearch.tsx
+│   │   │   ├── DataTableSkeleton.tsx
+│   │   │   ├── ExportSplitButton.tsx
+│   │   │   ├── FilterSelect.tsx
+│   │   │   ├── JobList.tsx
+│   │   │   ├── RoleSelect.tsx
+│   │   │   ├── StatsOverview.tsx
+│   │   │   ├── UserCreateDialog.tsx
+│   │   │   ├── UserDeleteDialog.tsx
+│   │   │   ├── UserEditDialog.tsx
+│   │   │   ├── UserList.tsx
+│   │   │   ├── __tests__
+│   │   │   │   └── AdminSidebar.test.tsx
+│   │   │   └── settings
+│   │   │       ├── EnvOnlyBanner.tsx
+│   │   │       ├── SettingSourceBadge.tsx
+│   │   │       ├── SettingsAITab.tsx
+│   │   │       ├── SettingsAppearanceTab.tsx
+│   │   │       ├── SettingsAuthTab.tsx
+│   │   │       ├── SettingsFormActions.tsx
+│   │   │       ├── SettingsGeneralTab.tsx
+│   │   │       ├── SettingsMapTab.tsx
+│   │   │       ├── SettingsNetworkTab.tsx
+│   │   │       ├── SettingsPermissionsTab.tsx
+│   │   │       ├── SettingsStorageTab.tsx
+│   │   │       ├── __tests__
+│   │   │       │   └── useSettingsForm.test.ts
+│   │   │       ├── useSettingsForm.ts
+│   │   │       └── utils.ts
+│   │   ├── auth
+│   │   │   ├── AdminRoute.tsx
+│   │   │   ├── AuthPrompt.tsx
+│   │   │   ├── EditorRoute.tsx
+│   │   │   ├── LoginForm.tsx
+│   │   │   ├── OAuthButtons.tsx
+│   │   │   ├── PendingApproval.tsx
+│   │   │   ├── ProtectedRoute.tsx
+│   │   │   ├── RegisterForm.tsx
+│   │   │   └── __tests__
+│   │   │       ├── AdminRoute.test.tsx
+│   │   │       ├── EditorRoute.test.tsx
+│   │   │       ├── LoginForm.test.tsx
+│   │   │       ├── ProtectedRoute.test.tsx
+│   │   │       └── RegisterForm.test.tsx
+│   │   ├── builder
+│   │   │   ├── BasemapPicker.tsx
+│   │   │   ├── BuilderMap.tsx
+│   │   │   ├── ChatInput.tsx
+│   │   │   ├── ChatPanel.tsx
+│   │   │   ├── ColorRampPicker.tsx
+│   │   │   ├── ColumnsReference.tsx
+│   │   │   ├── DataDrivenStyleEditor.tsx
+│   │   │   ├── DatasetSearchPanel.tsx
+│   │   │   ├── EphemeralBadge.tsx
+│   │   │   ├── HeatmapStyleControls.tsx
+│   │   │   ├── LabelEditor.tsx
+│   │   │   ├── LayerFilterEditor.tsx
+│   │   │   ├── LayerInspector.tsx
+│   │   │   ├── LayerItem.tsx
+│   │   │   ├── LayerPanel.tsx
+│   │   │   ├── LayerStyleEditor.tsx
+│   │   │   ├── MentionDropdown.tsx
+│   │   │   ├── RasterLayerControls.tsx
+│   │   │   ├── SharePanel.tsx
+│   │   │   ├── StyleColorPicker.tsx
+│   │   │   ├── __tests__
+│   │   │   │   ├── BasemapPicker.test.tsx
+│   │   │   │   ├── BuilderMap.unit.test.ts
+│   │   │   │   ├── ChatPanel.test.tsx
+│   │   │   │   ├── DataDrivenStyleEditor.test.tsx
+│   │   │   │   ├── HeatmapStyleControls.test.tsx
+│   │   │   │   ├── LayerFilterEditor.test.ts
+│   │   │   │   ├── LayerStyleEditor.test.tsx
+│   │   │   │   ├── chat-suggestions.test.ts
+│   │   │   │   ├── label-layer-utils.test.ts
+│   │   │   │   ├── layer-adapters.test.ts
+│   │   │   │   ├── map-sync.raster.test.ts
+│   │   │   │   └── reorder-data-layers.test.ts
+│   │   │   ├── chat-suggestions.ts
+│   │   │   ├── label-layer-utils.ts
+│   │   │   ├── layer-adapters
+│   │   │   │   ├── circle-adapter.ts
+│   │   │   │   ├── fill-adapter.ts
+│   │   │   │   ├── heatmap-adapter.ts
+│   │   │   │   ├── index.ts
+│   │   │   │   ├── line-adapter.ts
+│   │   │   │   ├── raster-adapter.ts
+│   │   │   │   ├── registry.ts
+│   │   │   │   ├── shared.ts
+│   │   │   │   └── types.ts
+│   │   │   └── map-sync.ts
+│   │   ├── collections
+│   │   │   ├── CollectionCard.tsx
+│   │   │   ├── CollectionCardSkeleton.tsx
+│   │   │   ├── CollectionCreateDialog.tsx
+│   │   │   ├── CollectionDatasetList.tsx
+│   │   │   ├── CollectionDeleteDialog.tsx
+│   │   │   ├── CollectionEditDialog.tsx
+│   │   │   ├── CollectionMembershipManager.tsx
+│   │   │   └── DatasetCollectionBadges.tsx
+│   │   ├── create
+│   │   │   └── CreateDatasetDialog.tsx
+│   │   ├── dataset
+│   │   │   ├── AddToMapButton.tsx
+│   │   │   ├── AiAssistButton.tsx
+│   │   │   ├── AttributeMetadataTable.tsx
+│   │   │   ├── AttributeTable.tsx
+│   │   │   ├── ChangeHistory.tsx
+│   │   │   ├── ConnectDropdown.tsx
+│   │   │   ├── ContactsEditor.tsx
+│   │   │   ├── DatasetDeleteDialog.tsx
+│   │   │   ├── DatasetDetailHeader.tsx
+│   │   │   ├── DatasetDetailSkeleton.tsx
+│   │   │   ├── DatasetMap.tsx
+│   │   │   ├── DistributionsList.tsx
+│   │   │   ├── EditableFieldShell.tsx
+│   │   │   ├── ExportButton.tsx
+│   │   │   ├── InlineEdit.tsx
+│   │   │   ├── KeywordsEditor.tsx
+│   │   │   ├── MetadataField.tsx
+│   │   │   ├── PendingEditsBar.tsx
+│   │   │   ├── QualityScoreCard.tsx
+│   │   │   ├── RelatedDatasets.tsx
+│   │   │   ├── RelatedRecordsPanel.tsx
+│   │   │   ├── ReuploadDialog.tsx
+│   │   │   ├── RoleCapabilityHint.tsx
+│   │   │   ├── SchemaDiffView.tsx
+│   │   │   ├── SchemaEditor.tsx
+│   │   │   ├── SectionCapabilityHint.tsx
+│   │   │   ├── SpatialExtentCard.tsx
+│   │   │   ├── TemporalExtentCard.tsx
+│   │   │   ├── UsedInMaps.tsx
+│   │   │   ├── ValidationStatus.tsx
+│   │   │   ├── ValidationTroubleshootPanel.tsx
+│   │   │   ├── VersionHistory.tsx
+│   │   │   ├── __tests__
+│   │   │   │   ├── AddToMapButton.test.tsx
+│   │   │   │   ├── ConnectDropdown.test.tsx
+│   │   │   │   ├── DatasetDetailHeader.test.tsx
+│   │   │   │   ├── DatasetDetailSkeleton.test.tsx
+│   │   │   │   ├── DatasetMap.test.tsx
+│   │   │   │   ├── DistributionsList.test.tsx
+│   │   │   │   ├── EditableFieldShell.test.tsx
+│   │   │   │   ├── ExportButton.test.tsx
+│   │   │   │   ├── PendingEditsBar.test.tsx
+│   │   │   │   ├── QualityScoreCard.test.tsx
+│   │   │   │   ├── RelatedRecordsPanel.test.tsx
+│   │   │   │   ├── ReuploadDialog.test.tsx
+│   │   │   │   ├── SourcesTab.test.tsx
+│   │   │   │   ├── StructureTab.test.tsx
+│   │   │   │   └── ValidationStatus.test.tsx
+│   │   │   ├── panels
+│   │   │   │   └── DetailPanel.tsx
+│   │   │   └── tabs
+│   │   │       ├── AccessTab.tsx
+│   │   │       ├── DataTab.tsx
+│   │   │       ├── MetadataTab.tsx
+│   │   │       ├── OverviewTab.tsx
+│   │   │       ├── SourceQualityTab.tsx
+│   │   │       ├── SourcesTab.tsx
+│   │   │       └── StructureTab.tsx
+│   │   ├── drawing
+│   │   │   ├── AttributeForm.tsx
+│   │   │   ├── DrawingToolbar.tsx
+│   │   │   └── __tests__
+│   │   │       └── DrawingToolbar.test.tsx
+│   │   ├── error
+│   │   │   ├── AppErrorBoundary.tsx
+│   │   │   ├── LazyLoadErrorBoundary.tsx
+│   │   │   ├── MapErrorBoundary.tsx
+│   │   │   ├── RouteErrorBoundary.tsx
+│   │   │   ├── __tests__
+│   │   │   │   └── ErrorBoundaries.test.tsx
+│   │   │   └── index.ts
+│   │   ├── icons
+│   │   │   └── GitHubIcon.tsx
+│   │   ├── import
+│   │   │   ├── BulkReviewList.tsx
+│   │   │   ├── BulkTrackingList.tsx
+│   │   │   ├── BulkUploadProgress.tsx
+│   │   │   ├── FileDropzone.tsx
+│   │   │   ├── ImportMetadataForm.tsx
+│   │   │   ├── ImportPreview.tsx
+│   │   │   ├── IngestWarningsBanner.tsx
+│   │   │   ├── JobProgress.tsx
+│   │   │   ├── LayerPicker.tsx
+│   │   │   ├── RegisterForm.tsx
+│   │   │   ├── ServiceUrlForm.tsx
+│   │   │   ├── TablePicker.tsx
+│   │   │   ├── UploadForm.tsx
+│   │   │   ├── VrtCreateDialog.tsx
+│   │   │   ├── VrtCreatorForm.tsx
+│   │   │   ├── __tests__
+│   │   │   │   ├── BulkTrackingList.test.tsx
+│   │   │   │   ├── ImportMetadataForm.test.tsx
+│   │   │   │   └── VrtCreatorForm.test.tsx
+│   │   │   └── utils.ts
+│   │   ├── layout
+│   │   │   ├── AppFooter.tsx
+│   │   │   ├── AppLayout.tsx
+│   │   │   ├── BBoxPreview.tsx
+│   │   │   ├── EmptyState.tsx
+│   │   │   ├── ErrorState.tsx
+│   │   │   ├── LoadingState.tsx
+│   │   │   ├── Navbar.tsx
+│   │   │   ├── PageHeader.tsx
+│   │   │   ├── PageShell.tsx
+│   │   │   ├── Pagination.tsx
+│   │   │   ├── SkipToContent.tsx
+│   │   │   └── __tests__
+│   │   │       ├── AppLayout.test.tsx
+│   │   │       ├── EmptyState.test.tsx
+│   │   │       ├── ErrorState.test.tsx
+│   │   │       ├── LoadingState.test.tsx
+│   │   │       ├── PageHeader.test.tsx
+│   │   │       └── PageShell.test.tsx
+│   │   ├── map
+│   │   │   ├── BasemapToggle.tsx
+│   │   │   ├── FeaturePopup.tsx
+│   │   │   ├── LegendEntries.tsx
+│   │   │   ├── MapTitlePill.tsx
+│   │   │   ├── __tests__
+│   │   │   │   └── BasemapToggle.test.tsx
+│   │   │   └── layer-icons.tsx
+│   │   ├── map-widgets
+│   │   │   ├── WidgetErrorBoundary.tsx
+│   │   │   ├── WidgetHost.tsx
+│   │   │   ├── WidgetPanel.tsx
+│   │   │   ├── WidgetToolbar.tsx
+│   │   │   ├── __tests__
+│   │   │   │   ├── WidgetHost.test.tsx
+│   │   │   │   └── registry.test.ts
+│   │   │   ├── builtin
+│   │   │   │   ├── LegendWidget.tsx
+│   │   │   │   └── MeasurementWidget.tsx
+│   │   │   ├── index.ts
+│   │   │   ├── register-widgets.ts
+│   │   │   ├── registry.ts
+│   │   │   └── types.ts
+│   │   ├── maps
+│   │   │   ├── MapCard.tsx
+│   │   │   ├── MapCardGrid.tsx
+│   │   │   ├── MapCardSkeleton.tsx
+│   │   │   ├── MapCreateDialog.tsx
+│   │   │   ├── MapDeleteDialog.tsx
+│   │   │   ├── VisibilityIcon.tsx
+│   │   │   └── __tests__
+│   │   │       └── MapCard.test.tsx
+│   │   ├── search
+│   │   │   ├── BboxMapPicker.tsx
+│   │   │   ├── DatasetCardSkeleton.tsx
+│   │   │   ├── FilterChip.tsx
+│   │   │   ├── FilterPanel.tsx
+│   │   │   ├── KeywordFacetPicker.tsx
+│   │   │   ├── QualityBadge.tsx
+│   │   │   ├── RecordTypeBadge.tsx
+│   │   │   ├── SavedSearches.tsx
+│   │   │   ├── SearchBar.tsx
+│   │   │   ├── SearchResultCard.tsx
+│   │   │   ├── SearchTypeahead.tsx
+│   │   │   ├── SpatialFilterPanel.tsx
+│   │   │   └── __tests__
+│   │   │       ├── FilterPanel.test.tsx
+│   │   │       ├── SearchBar.test.tsx
+│   │   │       └── SearchResultCard.test.tsx
+│   │   ├── settings
+│   │   │   └── MyApiKeySection.tsx
+│   │   ├── theme-provider.tsx
+│   │   ├── ui
+│   │   │   ├── __tests__
+│   │   │   │   ├── table.test.tsx
+│   │   │   │   └── tabs.test.tsx
+│   │   │   ├── alert-dialog.tsx
+│   │   │   ├── badge.tsx
+│   │   │   ├── breadcrumb.tsx
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── checkbox.tsx
+│   │   │   ├── collapsible.tsx
+│   │   │   ├── copy-button.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── dropdown-menu.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── label.tsx
+│   │   │   ├── popover.tsx
+│   │   │   ├── select.tsx
+│   │   │   ├── separator.tsx
+│   │   │   ├── sheet.tsx
+│   │   │   ├── sidebar.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   ├── slider.tsx
+│   │   │   ├── switch.tsx
+│   │   │   ├── table.tsx
+│   │   │   ├── tabs.tsx
+│   │   │   ├── toggle-group.tsx
+│   │   │   └── tooltip.tsx
+│   │   └── viewer
+│   │       ├── LayerLegend.tsx
+│   │       └── ViewerMap.tsx
+│   ├── hooks
+│   │   ├── __tests__
+│   │   │   ├── use-api-keys.test.ts
+│   │   │   ├── use-auth.test.ts
+│   │   │   ├── use-builder-dialogs.test.ts
+│   │   │   ├── use-builder-layers.test.ts
+│   │   │   ├── use-builder-save.test.ts
+│   │   │   ├── use-collections.test.ts
+│   │   │   ├── use-dataset.test.ts
+│   │   │   ├── use-debounce.test.ts
+│   │   │   ├── use-document-title.test.ts
+│   │   │   ├── use-draft-editing.test.ts
+│   │   │   ├── use-embed-tokens.test.ts
+│   │   │   ├── use-ephemeral-layers.test.ts
+│   │   │   ├── use-features.test.ts
+│   │   │   ├── use-hero-state.test.ts
+│   │   │   ├── use-ingest.test.ts
+│   │   │   ├── use-map-thumbnail.test.ts
+│   │   │   ├── use-maps.test.ts
+│   │   │   ├── use-permissions.test.ts
+│   │   │   ├── use-records.test.ts
+│   │   │   ├── use-saved-searches.test.ts
+│   │   │   ├── use-search.test.ts
+│   │   │   ├── use-settings.test.ts
+│   │   │   ├── use-terra-draw.test.ts
+│   │   │   ├── use-tile-token.test.ts
+│   │   │   ├── use-unsaved-guard.test.ts
+│   │   │   ├── use-url-search-sync.test.tsx
+│   │   │   └── use-vrt.test.ts
+│   │   ├── use-abort-signal.ts
+│   │   ├── use-admin.ts
+│   │   ├── use-ai-availability.ts
+│   │   ├── use-ai-metadata.ts
+│   │   ├── use-api-keys.ts
+│   │   ├── use-auth.ts
+│   │   ├── use-builder-dialogs.ts
+│   │   ├── use-builder-layers.ts
+│   │   ├── use-builder-layout.ts
+│   │   ├── use-builder-save.ts
+│   │   ├── use-collections.ts
+│   │   ├── use-config-ops.ts
+│   │   ├── use-dataset-edit-capabilities.ts
+│   │   ├── use-dataset.ts
+│   │   ├── use-debounce.ts
+│   │   ├── use-document-title.ts
+│   │   ├── use-draft-editing.ts
+│   │   ├── use-edition.ts
+│   │   ├── use-embed-tokens.ts
+│   │   ├── use-ephemeral-layers.ts
+│   │   ├── use-feature-editing.ts
+│   │   ├── use-features.ts
+│   │   ├── use-hero-state.ts
+│   │   ├── use-ingest.ts
+│   │   ├── use-layer-map-sync.ts
+│   │   ├── use-map-layers.ts
+│   │   ├── use-map-thumbnail.ts
+│   │   ├── use-maps.ts
+│   │   ├── use-mobile.ts
+│   │   ├── use-permissions.ts
+│   │   ├── use-records.ts
+│   │   ├── use-saved-searches.ts
+│   │   ├── use-search.ts
+│   │   ├── use-settings.ts
+│   │   ├── use-terra-draw.ts
+│   │   ├── use-tile-token.ts
+│   │   ├── use-unsaved-guard.ts
+│   │   ├── use-url-search-sync.ts
+│   │   ├── use-viewer-layers.ts
+│   │   ├── use-viewer-terrain.ts
+│   │   ├── use-viewer-tokens.ts
+│   │   ├── use-vrt.ts
+│   │   └── use-webgl-recovery.ts
+│   ├── i18n
+│   │   ├── config.ts
+│   │   ├── i18n.ts
+│   │   ├── index.ts
+│   │   ├── labels.ts
+│   │   ├── locales
+│   │   │   ├── de
+│   │   │   │   ├── admin.json
+│   │   │   │   ├── auth.json
+│   │   │   │   ├── builder.json
+│   │   │   │   ├── collections.json
+│   │   │   │   ├── common.json
+│   │   │   │   ├── dataset.json
+│   │   │   │   ├── import.json
+│   │   │   │   └── search.json
+│   │   │   ├── en
+│   │   │   │   ├── admin.json
+│   │   │   │   ├── auth.json
+│   │   │   │   ├── builder.json
+│   │   │   │   ├── collections.json
+│   │   │   │   ├── common.json
+│   │   │   │   ├── dataset.json
+│   │   │   │   ├── import.json
+│   │   │   │   └── search.json
+│   │   │   ├── es
+│   │   │   │   ├── admin.json
+│   │   │   │   ├── auth.json
+│   │   │   │   ├── builder.json
+│   │   │   │   ├── collections.json
+│   │   │   │   ├── common.json
+│   │   │   │   ├── dataset.json
+│   │   │   │   ├── import.json
+│   │   │   │   └── search.json
+│   │   │   └── fr
+│   │   │       ├── admin.json
+│   │   │       ├── auth.json
+│   │   │       ├── builder.json
+│   │   │       ├── collections.json
+│   │   │       ├── common.json
+│   │   │       ├── dataset.json
+│   │   │       ├── import.json
+│   │   │       └── search.json
+│   │   ├── options.ts
+│   │   ├── resources.test.ts
+│   │   └── resources.ts
+│   ├── index.css
+│   ├── lib
+│   │   ├── __tests__
+│   │   │   ├── basemap-utils.test.ts
+│   │   │   ├── color-ramps.test.ts
+│   │   │   ├── dataset-validation-navigation.test.ts
+│   │   │   ├── env.test.ts
+│   │   │   ├── file-utils.test.ts
+│   │   │   ├── format.test.ts
+│   │   │   ├── geo-utils.test.ts
+│   │   │   ├── layer-capabilities.test.ts
+│   │   │   ├── map-extent.test.ts
+│   │   │   ├── pagination.test.ts
+│   │   │   ├── query-keys.test.ts
+│   │   │   ├── status-colors.test.ts
+│   │   │   └── tile-utils.test.ts
+│   │   ├── basemap-utils.ts
+│   │   ├── classification.ts
+│   │   ├── color-ramps.ts
+│   │   ├── column-utils.ts
+│   │   ├── constants.ts
+│   │   ├── dataset-validation-navigation.ts
+│   │   ├── env.ts
+│   │   ├── error-map.ts
+│   │   ├── external-links.ts
+│   │   ├── file-utils.ts
+│   │   ├── format.ts
+│   │   ├── geo-utils.ts
+│   │   ├── iso-constants.ts
+│   │   ├── layer-capabilities.ts
+│   │   ├── legend-utils.ts
+│   │   ├── map-colors.ts
+│   │   ├── map-extent.ts
+│   │   ├── pagination.ts
+│   │   ├── provenance-attribution.ts
+│   │   ├── quality-freshness.ts
+│   │   ├── query-keys.ts
+│   │   ├── status-colors.ts
+│   │   ├── tile-utils.ts
+│   │   └── utils.ts
+│   ├── main.tsx
+│   ├── pages
+│   │   ├── CollectionDetailPage.tsx
+│   │   ├── CollectionsPage.tsx
+│   │   ├── DatasetPage.tsx
+│   │   ├── ImportPage.tsx
+│   │   ├── LoginPage.tsx
+│   │   ├── MapBuilderPage.tsx
+│   │   ├── MapViewerGate.tsx
+│   │   ├── MapsPage.tsx
+│   │   ├── NotFoundPage.tsx
+│   │   ├── OAuthCallbackPage.tsx
+│   │   ├── PublicMapViewerPage.tsx
+│   │   ├── PublicViewerPage.tsx
+│   │   ├── RegisterPage.tsx
+│   │   ├── SearchPage.tsx
+│   │   ├── SettingsPage.tsx
+│   │   ├── __tests__
+│   │   │   ├── CollectionDetailPage.semantics.test.tsx
+│   │   │   ├── CollectionsPage.test.tsx
+│   │   │   ├── DatasetPage.edit-affordances.test.tsx
+│   │   │   ├── DatasetPage.hero.test.tsx
+│   │   │   ├── MapBuilderPage.header-actions.test.tsx
+│   │   │   ├── NotFoundPage.test.tsx
+│   │   │   ├── PublicViewerPage.test.tsx
+│   │   │   └── SearchPage.test.tsx
+│   │   ├── admin
+│   │   │   ├── AdminAuditPage.tsx
+│   │   │   ├── AdminConfigOpsPage.tsx
+│   │   │   ├── AdminJobsPage.tsx
+│   │   │   ├── AdminOverviewPage.tsx
+│   │   │   ├── AdminSettingsPage.tsx
+│   │   │   ├── AdminSharedMapsPage.tsx
+│   │   │   ├── AdminUsersPage.tsx
+│   │   │   └── __tests__
+│   │   │       └── AdminOverviewPage.test.tsx
+│   │   └── components
+│   │       ├── BuilderSidebar.tsx
+│   │       ├── DatasetHeroMap.tsx
+│   │       └── DatasetStatsLine.tsx
+│   ├── stores
+│   │   ├── __tests__
+│   │   │   ├── auth-store.test.ts
+│   │   │   ├── drawing-store.test.ts
+│   │   │   ├── map-widget-store.test.ts
+│   │   │   └── search-store.test.ts
+│   │   ├── auth-store.ts
+│   │   ├── drawing-store.ts
+│   │   ├── map-widget-store.ts
+│   │   └── search-store.ts
+│   ├── test
+│   │   ├── setup.ts
+│   │   └── test-utils.tsx
+│   └── types
+│       └── api.ts
+├── tsconfig.app.json
+├── tsconfig.json
+├── tsconfig.node.json
+└── vite.config.ts
+
+67 directories, 506 files

@@ -44,14 +44,6 @@ def _looks_like_arcgis(url: str) -> bool:
     return "featureserver" in lower or "mapserver" in lower
 
 
-def _looks_like_wfs(url: str) -> bool:
-    """Check if a URL looks like a WFS service."""
-    parsed = urlparse(url)
-    lower_path = parsed.path.lower()
-    lower_query = parsed.query.lower()
-    return "/wfs" in lower_path or "service=wfs" in lower_query
-
-
 def normalize_arcgis_url(url: str) -> tuple[str, int | None]:
     """Normalize an ArcGIS URL to a canonical service root form.
 

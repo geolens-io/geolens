@@ -59,6 +59,8 @@ import type { DatasetResponse } from '@/types/api';
 import { downloadCog } from '@/api/datasets';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
+const PUBLISH_CHAIN = ['ready', 'internal', 'published'] as const;
+const UNPUBLISH_CHAIN = ['internal', 'ready', 'draft'] as const;
 
 const Sep = () => <span className="text-muted-foreground/50">·</span>;
 
@@ -476,9 +478,6 @@ export function DatasetPage() {
   const isPublished = dataset.record_status === 'published';
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
   const requireMetadata = allSettings?.tabs?.general?.find((s: { key: string }) => s.key === 'require_metadata_for_publish')?.value ?? false;
-
-  const PUBLISH_CHAIN = ['ready', 'internal', 'published'] as const;
-  const UNPUBLISH_CHAIN = ['internal', 'ready', 'draft'] as const;
 
   const executeStatusChain = async (
     chain: readonly string[],

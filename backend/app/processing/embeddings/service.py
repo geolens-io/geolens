@@ -71,11 +71,14 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 
     for attempt in range(1, max_attempts + 1):
         try:
-            response = await asyncio.to_thread(
-                client.embeddings.create,
-                model=model,
-                input=text,
-                dimensions=dims,
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.embeddings.create,
+                    model=model,
+                    input=text,
+                    dimensions=dims,
+                ),
+                timeout=130.0,
             )
             return response.data[0].embedding
         except Exception as exc:
