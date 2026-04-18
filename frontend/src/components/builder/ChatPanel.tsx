@@ -13,6 +13,21 @@ import { getSmartSuggestions } from './chat-suggestions';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
+/** Remove chat history entries that reference a removed layer. */
+function cleanStaleLayerRefs(mapId: string, removedLayerId: string) {
+  const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
+  if (!stored) return;
+  try {
+    const history = JSON.parse(stored);
+    const filtered = history.filter((msg: Record<string, unknown>) => {
+      const acts = msg.actions as ChatAction[] | undefined;
+      if (!acts) return true;
+      return !acts.some((a) => a.layer_id === removedLayerId);
+    });
+    sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(filtered));
+  } catch { /* ignore parse errors */ }
+}
+
 /**
  * AI chat panel for the map builder.
  *
@@ -262,19 +277,7 @@ export function ChatPanel({
               pendingActions.push(action);
               // B-023: Clean stale layer refs from session history after remove_layer
               if (action.type === 'remove_layer' && action.layer_id) {
-                const removedId = action.layer_id;
-                const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
-                if (stored) {
-                  try {
-                    const history = JSON.parse(stored);
-                    const filtered = history.filter((msg: Record<string, unknown>) => {
-                      const acts = msg.actions as ChatAction[] | undefined;
-                      if (!acts) return true;
-                      return !acts.some((a) => a.layer_id === removedId);
-                    });
-                    sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(filtered));
-                  } catch { /* ignore parse errors */ }
-                }
+                cleanStaleLayerRefs(mapId, action.layer_id);
               }
             }
             break;
@@ -352,19 +355,7 @@ export function ChatPanel({
             handleChatAction(action);
             // B-023: Clean stale layer refs after remove_layer
             if (action.type === 'remove_layer' && action.layer_id) {
-              const removedId = action.layer_id;
-              const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
-              if (stored) {
-                try {
-                  const history2 = JSON.parse(stored);
-                  const filtered = history2.filter((msg: Record<string, unknown>) => {
-                    const acts = msg.actions as ChatAction[] | undefined;
-                    if (!acts) return true;
-                    return !acts.some((a) => a.layer_id === removedId);
-                  });
-                  sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(filtered));
-                } catch { /* ignore parse errors */ }
-              }
+              cleanStaleLayerRefs(mapId, action.layer_id);
             }
           }
           setMessages((prev) => [
