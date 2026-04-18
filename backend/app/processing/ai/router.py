@@ -396,19 +396,14 @@ async def chat_stream_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/metadata/summary/", response_model=SummaryDraftResponse)
-@limiter.limit(_AI_METADATA_LIMIT)
-async def generate_metadata_summary(
-    request: Request,
-    body: MetadataAssistRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
-    db: AsyncSession = Depends(get_db),
-) -> SummaryDraftResponse:
-    """Generate an AI-drafted summary for a dataset."""
-    await _check_ai_available(db)
+async def _call_metadata_ai(coro, error_prefix: str):
+    """Shared error handler for metadata AI endpoints.
 
+    Wraps the coroutine with the standard LLM error handling: ValueError,
+    connection errors, API errors, and unexpected exceptions.
+    """
     try:
-        return await generate_summary_draft(db, body.dataset_id)
+        return await coro
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -429,11 +424,27 @@ async def generate_metadata_summary(
     except (
         Exception
     ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("AI metadata summary generation failed")
+        logger.exception(f"{error_prefix} failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="AI metadata generation failed unexpectedly",
         )
+
+
+@router.post("/metadata/summary/", response_model=SummaryDraftResponse)
+@limiter.limit(_AI_METADATA_LIMIT)
+async def generate_metadata_summary(
+    request: Request,
+    body: MetadataAssistRequest,
+    user: User = Depends(require_permission("use_ai_chat")),
+    db: AsyncSession = Depends(get_db),
+) -> SummaryDraftResponse:
+    """Generate an AI-drafted summary for a dataset."""
+    await _check_ai_available(db)
+    return await _call_metadata_ai(
+        generate_summary_draft(db, body.dataset_id),
+        "AI metadata summary generation",
+    )
 
 
 @router.post("/metadata/keywords/", response_model=KeywordSuggestionsResponse)
@@ -446,34 +457,10 @@ async def generate_metadata_keywords(
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
-
-    try:
-        return await generate_keyword_suggestions(db, body.dataset_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(e),
-        )
-    except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
-        logger.warning("AI metadata connection error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not connect to LLM provider",
-        )
-    except (anthropic.APIError, openai.APIError) as e:
-        logger.warning("AI metadata API error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM provider returned an error",
-        )
-    except (
-        Exception
-    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("AI metadata keyword generation failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI metadata generation failed unexpectedly",
-        )
+    return await _call_metadata_ai(
+        generate_keyword_suggestions(db, body.dataset_id),
+        "AI metadata keyword generation",
+    )
 
 
 @router.post("/metadata/lineage/", response_model=LineageDraftResponse)
@@ -486,34 +473,10 @@ async def generate_metadata_lineage(
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     await _check_ai_available(db)
-
-    try:
-        return await generate_lineage_draft(db, body.dataset_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(e),
-        )
-    except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
-        logger.warning("AI metadata connection error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not connect to LLM provider",
-        )
-    except (anthropic.APIError, openai.APIError) as e:
-        logger.warning("AI metadata API error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM provider returned an error",
-        )
-    except (
-        Exception
-    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("AI metadata lineage generation failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI metadata generation failed unexpectedly",
-        )
+    return await _call_metadata_ai(
+        generate_lineage_draft(db, body.dataset_id),
+        "AI metadata lineage generation",
+    )
 
 
 @router.post(
@@ -528,31 +491,7 @@ async def generate_metadata_quality_statement(
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     await _check_ai_available(db)
-
-    try:
-        return await generate_quality_statement_draft(db, body.dataset_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(e),
-        )
-    except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
-        logger.warning("AI metadata connection error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not connect to LLM provider",
-        )
-    except (anthropic.APIError, openai.APIError) as e:
-        logger.warning("AI metadata API error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM provider returned an error",
-        )
-    except (
-        Exception
-    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("AI metadata quality statement generation failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI metadata generation failed unexpectedly",
-        )
+    return await _call_metadata_ai(
+        generate_quality_statement_draft(db, body.dataset_id),
+        "AI metadata quality statement generation",
+    )
