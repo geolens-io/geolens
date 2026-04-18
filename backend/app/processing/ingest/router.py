@@ -21,7 +21,11 @@ from app.modules.auth.dependencies import get_current_active_user, require_permi
 from app.modules.auth.models import User
 from app.core.config import settings
 from app.core.dependencies import get_db
-from app.processing.ingest.ogr import IngestionError, detect_geometry_columns, run_ogrinfo_preview
+from app.processing.ingest.ogr import (
+    IngestionError,
+    detect_geometry_columns,
+    run_ogrinfo_preview,
+)
 from app.processing.ingest.schemas import (
     BaseCommitRequest,
     BulkRegisterItem,
@@ -267,7 +271,9 @@ async def _cleanup_saved_upload(
         return
     try:
         await get_storage().delete(saved_path)
-    except Exception:
+    except (
+        Exception
+    ):  # broad: S3 SDK can raise various error types; cleanup is best-effort
         logger.warning(
             "S3 cleanup failed during validation error — file may be orphaned",
             s3_key=str(saved_path),
@@ -300,7 +306,9 @@ async def _stamp_raster_metadata(
         try:
             raster_check_path = await resolve_file_path(str(saved_path), str(job.id))
             downloaded = Path(raster_check_path)
-        except Exception:
+        except (
+            Exception
+        ):  # broad: S3 download can fail for network/auth/key-not-found reasons
             raster_check_path = None
 
     if raster_check_path:
@@ -392,7 +400,7 @@ async def upload_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
-    except Exception:
+    except Exception:  # broad: upload pipeline involves file I/O, S3, DB, content validation — any can throw
         logger.exception(
             "Unexpected error during file upload",
             filename=file.filename,
@@ -445,14 +453,19 @@ async def preview_file(
     # Branch: raster vs vector preview
     um = job.user_metadata or {}
     if um.get("file_type") == "raster":
-        from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
+        from app.processing.raster.cog import (
+            check_cog_compliance,
+            extract_raster_metadata,
+        )
 
         try:
             meta, (compliant, reason) = await asyncio.gather(
                 asyncio.to_thread(extract_raster_metadata, file_path),
                 asyncio.to_thread(check_cog_compliance, file_path),
             )
-        except Exception as exc:
+        except (
+            Exception
+        ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
             logger.warning("raster_preview failed", job_id=str(job_id), error=str(exc))
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -488,7 +501,7 @@ async def preview_file(
 
     try:
         info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
-    except Exception as exc:
+    except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
         logger.warning("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -625,7 +638,7 @@ async def register_table(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception:  # broad: metadata extraction involves PostGIS queries that can fail unpredictably
         await db.rollback()
         logger.exception(
             "Unexpected error during table registration",
@@ -707,7 +720,7 @@ async def bulk_register_tables(
                     title=dataset.record.title,
                     status="success",
                 )
-            except Exception as exc:
+            except Exception as exc:  # broad: per-table registration is isolated; any failure is recorded per-item
                 await task_db.rollback()
                 return BulkRegisterResult(
                     table_name=table_req.table_name,

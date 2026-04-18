@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Copy, Check, Eye } from 'lucide-react';
@@ -18,6 +18,9 @@ interface AccessTabProps {
 function TileUrlSection({ tileUrl }: { tileUrl: string }) {
   const { t } = useTranslation('dataset');
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   async function handleCopy() {
     try {
@@ -26,7 +29,8 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
       /* fallback */
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
   return (
