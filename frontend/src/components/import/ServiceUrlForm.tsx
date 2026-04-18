@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Globe, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { ApiError } from '@/api/client';
 import { probeService, previewServiceLayer, commitImport } from '@/api/ingest';
 import type {
@@ -11,15 +13,13 @@ import type {
   CommitImportRequest,
   FilePreviewResponse,
 } from '@/types/api';
-import { LayerPicker } from './LayerPicker';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import { JobProgress } from './JobProgress';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
-import { Globe } from 'lucide-react';
+import { TypeTag } from './TypeTag';
 
 type ServiceStep =
   | 'idle'
@@ -91,11 +91,8 @@ export function ServiceUrlForm() {
       setPreviewData(result);
       setStep('review');
     } catch (err) {
-      // 409 duplicate_source has structured body — surface the existing dataset link
       if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as
-          | { code?: string; existing_dataset_id?: string; existing_title?: string }
-          | undefined;
+        const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
         if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
           const title = body.existing_title ?? 'Unknown dataset';
           const msg = `Already registered: "${title}"`;
@@ -104,15 +101,12 @@ export function ServiceUrlForm() {
           toast.error(msg, {
             action: {
               label: 'View existing',
-              onClick: () => {
-                window.location.href = `/datasets/${body.existing_dataset_id}`;
-              },
+              onClick: () => { window.location.href = `/datasets/${body.existing_dataset_id}`; },
             },
           });
           return;
         }
       }
-      // Fallback: existing behavior
       const msg = err instanceof ApiError ? err.message : t('serviceUrl.previewFailed');
       setError(msg);
       setStep('layer-select');
@@ -138,45 +132,103 @@ export function ServiceUrlForm() {
     }
   };
 
-  // Loading states
-  if (step === 'probing') {
+  // ── Loading states ──
+  if (step === 'probing' || step === 'previewing') {
+    const loadingLabel = step === 'probing' ? t('serviceUrl.connecting') : t('serviceUrl.loadingPreview');
     return (
-      <Card>
-        <CardContent className="flex items-center gap-3 py-6">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span className="text-sm text-muted-foreground">{t('serviceUrl.connecting')}</span>
-        </CardContent>
-      </Card>
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-5 py-8 justify-center">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="text-sm text-muted-foreground">{loadingLabel}</span>
+      </div>
     );
   }
 
-  if (step === 'previewing') {
-    return (
-      <Card>
-        <CardContent className="flex items-center gap-3 py-6">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span className="text-sm text-muted-foreground">{t('serviceUrl.loadingPreview')}</span>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Layer selection
+  // ── Layer selection with probe result ──
   if (step === 'layer-select' && probeResult) {
     return (
-      <LayerPicker
-        probeResult={probeResult}
-        onSelect={handleLayerSelect}
-        onBack={() => {
-          setStep('idle');
-          setError(null);
-        }}
-        error={error}
-      />
+      <div className="space-y-5">
+        {/* Probe input — detected state */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <label className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+            {t('serviceUrl.detectedLabel', { defaultValue: 'Service URL — detected' })}
+          </label>
+          <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
+            <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-success">
+              <Check className="size-3.5" />
+              {probeResult.service_type}
+            </span>
+            <input
+              type="text"
+              readOnly
+              value={probeResult.url}
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-[13.5px] text-foreground outline-none"
+            />
+            <button
+              onClick={reset}
+              className="border-l border-border bg-surface-2 px-4 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+            >
+              {t('serviceUrl.clear', { defaultValue: 'Clear' })}
+            </button>
+          </div>
+        </div>
+
+        {/* Service info + layer cards */}
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex items-center gap-3.5 border-b border-border px-5 py-3.5">
+            <span className="rounded-md bg-type-vrt-bg px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-type-vrt">
+              {probeResult.service_type}
+            </span>
+            <div className="flex-1">
+              <h3 className="text-[15px] font-medium tracking-tight">
+                {probeResult.url}
+              </h3>
+              <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+                {t('serviceUrl.layersAvailable', { count: probeResult.layers.length, defaultValue: `${probeResult.layers.length} layers available` })}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-2 p-2 sm:grid-cols-2">
+            {probeResult.layers.length === 0 && (
+              <p className="col-span-2 px-3 py-4 text-center text-sm text-muted-foreground">
+                {t('serviceUrl.noLayers', { defaultValue: 'No layers were found in this service.' })}
+              </p>
+            )}
+            {probeResult.layers.map((layer) => {
+              const isVector = layer.geometry_type && !layer.geometry_type.toLowerCase().includes('raster');
+              return (
+                <button
+                  key={layer.name}
+                  onClick={() => handleLayerSelect(layer)}
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-lg border border-border p-2.5 text-left transition-colors',
+                    'hover:bg-surface-2',
+                  )}
+                >
+                  <TypeTag kind={isVector ? 'vector' : 'raster'} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-[12.5px] font-medium tracking-tight">
+                      {layer.title || layer.name}
+                    </p>
+                    <p className="truncate font-mono text-[10.5px] text-muted-foreground tracking-wide mt-0.5">
+                      {layer.name}
+                      {layer.geometry_type && ` · ${layer.geometry_type}`}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {error && (
+            <p className="border-t border-border px-5 py-3 text-sm text-destructive">{error}</p>
+          )}
+        </div>
+      </div>
     );
   }
 
-  // Review and commit
+  // ── Review and commit ──
   if ((step === 'review' || step === 'committing') && previewData) {
     return (
       <div className="space-y-4">
@@ -195,49 +247,67 @@ export function ServiceUrlForm() {
     );
   }
 
-  // Job tracking
+  // ── Job tracking ──
   if (step === 'tracking' && jobId) {
     return <JobProgress jobId={jobId} onReset={reset} />;
   }
 
-  // Idle -- URL input form
+  // ── Idle — URL input form ──
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <form onSubmit={handleConnect} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="service-url">{t('serviceUrl.label')}</Label>
-            <Input
-              id="service-url"
+    <div className="rounded-xl border border-border bg-card p-5">
+      <form onSubmit={handleConnect} className="space-y-5">
+        <div>
+          <label className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+            {t('serviceUrl.label', { defaultValue: 'Service URL — we\'ll auto-detect the type' })}
+          </label>
+          <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">
+            <span className="flex items-center gap-1.5 border-r border-border bg-surface-2 px-3.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+              <Globe className="size-3.5" />
+              URL
+            </span>
+            <input
               type="url"
               placeholder={t('serviceUrl.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground/50"
             />
-            <p className="text-xs text-muted-foreground">
-              {t('serviceUrl.helpText')}
-            </p>
+            <button
+              type="submit"
+              disabled={!url.trim()}
+              className="bg-primary px-4 text-[13px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+            >
+              {t('serviceUrl.probe', { defaultValue: 'Probe →' })}
+            </button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="access-token">{t('serviceUrl.tokenLabel')}</Label>
-            <Input
-              id="access-token"
-              type="password"
-              placeholder={t('serviceUrl.tokenPlaceholder')}
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t('serviceUrl.tokenHelpText')}
-            </p>
+          <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
+            <span>
+              {t('serviceUrl.tries', { defaultValue: 'Tries:' })} <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WMS</code>{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WMTS</code>{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">OGC API</code>{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">STAC</code>{' '}
+              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">ArcGIS</code>
+            </span>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={!url.trim()}>
-            <Globe className="me-2 h-4 w-4" />
-            {t('serviceUrl.connect')}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="access-token" className="text-xs text-muted-foreground">
+            {t('serviceUrl.tokenLabel')}
+          </Label>
+          <Input
+            id="access-token"
+            type="password"
+            placeholder={t('serviceUrl.tokenPlaceholder')}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">{t('serviceUrl.tokenHelpText')}</p>
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </form>
+    </div>
   );
 }

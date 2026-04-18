@@ -75,6 +75,16 @@
   --info: oklch(0.55 0.15 195);
   --info-foreground: oklch(0.985 0 0);
 
+  /* ─ Record-type colors (import, catalog badges) ─ */
+  --type-vector: oklch(0.55 0.14 155);
+  --type-vector-bg: oklch(0.94 0.04 155);
+  --type-raster: oklch(0.55 0.15 55);
+  --type-raster-bg: oklch(0.94 0.05 55);
+  --type-table: oklch(0.50 0.10 200);
+  --type-table-bg: oklch(0.94 0.03 200);
+  --type-vrt: oklch(0.50 0.16 300);
+  --type-vrt-bg: oklch(0.94 0.04 300);
+
   /* ─ Data visualization categorical palette ─ */
   --viz-1: oklch(0.55 0.18 250);   /* blue */
   --viz-2: oklch(0.70 0.17 55);    /* orange */
@@ -156,6 +166,16 @@
   --warning-foreground: oklch(0.28 0.07 46);
   --info: oklch(0.72 0.14 195);
   --info-foreground: oklch(0.20 0.05 195);
+
+  /* ─ Record-type colors (dark mode) ─ */
+  --type-vector: oklch(0.72 0.14 155);
+  --type-vector-bg: oklch(0.28 0.06 155);
+  --type-raster: oklch(0.72 0.14 55);
+  --type-raster-bg: oklch(0.28 0.06 55);
+  --type-table: oklch(0.68 0.10 200);
+  --type-table-bg: oklch(0.28 0.04 200);
+  --type-vrt: oklch(0.68 0.15 300);
+  --type-vrt-bg: oklch(0.28 0.06 300);
 
   /* ─ Data visualization categorical palette (dark mode) ─ */
   --viz-1: oklch(0.72 0.17 250);   /* blue */
@@ -250,6 +270,16 @@
   --color-viz-6: var(--viz-6);
   --color-viz-7: var(--viz-7);
   --color-viz-8: var(--viz-8);
+
+  /* Record-type colors (text-type-vector, bg-type-vector-bg, etc.) */
+  --color-type-vector: var(--type-vector);
+  --color-type-vector-bg: var(--type-vector-bg);
+  --color-type-raster: var(--type-raster);
+  --color-type-raster-bg: var(--type-raster-bg);
+  --color-type-table: var(--type-table);
+  --color-type-table-bg: var(--type-table-bg);
+  --color-type-vrt: var(--type-vrt);
+  --color-type-vrt-bg: var(--type-vrt-bg);
 
   /* Chart colors (legacy) */
   --color-chart-1: var(--chart-1);

@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueries } from '@tanstack/react-query';
 import { ArrowRight, CheckCircle2, Layers } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { JobProgress } from './JobProgress';
 import { VrtCreateDialog } from './VrtCreateDialog';
+import { TypeTag } from './TypeTag';
+import { StatusPill } from './StatusPill';
 import { getJobStatus } from '@/api/ingest';
 import { queryKeys } from '@/lib/query-keys';
 import type { FileEntry } from '@/types/api';
@@ -43,23 +45,17 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     })),
   });
 
-  // Read job status for each raster entry — piggybacks on JobProgress cache updates
-  const rasterJobQueries = useQueries({
-    queries: rasterEntries.map((entry) => ({
-      queryKey: queryKeys.ingest.jobStatus(entry.jobId),
-      queryFn: () => getJobStatus(entry.jobId!),
-      enabled: !!entry.jobId,
-    })),
+  const rasterEntryIds = new Set(rasterEntries.map((e) => e.jobId));
+  const completedRasterIds = trackable.flatMap((entry, i) => {
+    if (!rasterEntryIds.has(entry.jobId)) return [];
+    const job = jobQueries[i]?.data;
+    if (job?.status !== 'complete' || !job.dataset_id) return [];
+    return [job.dataset_id];
   });
-
-  const completedRasterIds = rasterJobQueries
-    .filter((q) => q.data?.status === 'complete' && q.data?.dataset_id)
-    .map((q) => q.data!.dataset_id!);
 
   const completedEntries = trackable.flatMap((entry, index) => {
     const job = jobQueries[index]?.data;
     if (job?.status !== 'complete' || !job.dataset_id) return [];
-
     return [{
       datasetId: job.dataset_id,
       title: entry.submittedTitle ?? job.source_filename ?? entry.fileName,
@@ -78,15 +74,8 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     return status === 'pending' || status === 'running';
   }).length;
 
-  const failedCount = trackable.filter((_, index) => jobQueries[index]?.data?.status === 'failed').length;
+  const allDone = completedEntries.length === trackable.length && trackable.length > 0;
 
-  const getKindLabel = (kind: NonNullable<FileEntry['submittedKind']>) => {
-    if (kind === 'raster') return t('bulk.kindRaster', { defaultValue: 'Raster dataset' });
-    if (kind === 'vector') return t('bulk.kindVector', { defaultValue: 'Spatial dataset' });
-    return t('bulk.kindTable', { defaultValue: 'Non-spatial table' });
-  };
-
-  // Auto-open VRT dialog when triggered from review page and all raster jobs complete
   useEffect(() => {
     if (
       autoOpenVrt &&
@@ -99,160 +88,202 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     }
   }, [autoOpenVrt, completedRasterIds.length, rasterEntries.length]);
 
-  return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
-      <div className="space-y-4 min-w-0">
-        <h3 className="text-lg font-medium">{t('bulk.importProgress')}</h3>
-        {completedEntries.length > 0 && (
-          <div className="rounded-xl border border-success/30 bg-success/5 p-4 shadow-sm">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-success" />
-                  <p className="text-sm font-semibold">
-                    {t('bulk.readyTitle', {
-                      count: completedEntries.length,
-                      defaultValue: completedEntries.length === 1 ? '1 dataset ready' : `${completedEntries.length} datasets ready`,
-                    })}
-                  </p>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('bulk.readyDescription', {
-                    defaultValue: 'Open the finished datasets directly, or keep uploading while the rest of the jobs settle.',
-                  })}
-                </p>
-              </div>
-              <Button variant="outline" size="sm" onClick={onReset}>
-                {t('bulk.uploadMore')}
-              </Button>
-            </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              {completedEntries.map((entry) => (
-                <div key={entry.datasetId} className="flex items-center justify-between gap-3 rounded-lg border bg-background/80 px-3 py-3">
-                  <div className="min-w-0 space-y-1">
-                    <p className="truncate text-sm font-medium">{entry.title}</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary" className="text-[11px]">
-                        {getKindLabel(entry.kind)}
-                      </Badge>
-                      <Badge variant="outline" className="text-[11px] capitalize">
-                        {entry.visibility}
-                      </Badge>
-                    </div>
-                  </div>
-                  <Button asChild size="sm" className="shrink-0">
-                    <Link to={`/datasets/${entry.datasetId}`}>
-                      {t('bulk.openDataset', { defaultValue: 'Open dataset' })}
-                      <ArrowRight className="ms-1 size-3" />
-                    </Link>
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {activeEntries.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium text-foreground">
-                {t('bulk.activeJobs', { defaultValue: 'Active and recent jobs' })}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {t('bulk.activeJobsHint', { defaultValue: 'Keep this page open while GeoLens finishes the ingest.' })}
-              </p>
-            </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {activeEntries.map((entry) => (
-                <div key={entry.id}>
-                  <p className="mb-1 text-sm font-medium text-muted-foreground">
-                    {entry.fileName}
-                  </p>
-                  <JobProgress
-                    jobId={entry.jobId!}
-                    onReset={onReset}
-                    isRasterEntry={isRasterFile(entry.fileName)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {completedRasterIds.length >= 2 && (
-          <div className="flex items-center gap-2 rounded-md border border-dashed p-3">
-            <Layers className="size-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground flex-1">
-              {t('bulk.rasterDatasetsReady', { count: completedRasterIds.length })}
-            </span>
-            <Button variant="secondary" size="sm" onClick={() => setVrtDialogOpen(true)}>
-              {t('bulk.createVrtMosaic')}
-            </Button>
-          </div>
-        )}
-        {completedEntries.length === 0 && activeEntries.length === 0 && (
-          <Button variant="outline" onClick={onReset}>
-            {t('bulk.uploadMore')}
-          </Button>
-        )}
-      </div>
+  const progressStyle = useMemo(
+    () => ({ width: `${trackable.length > 0 ? Math.round((completedEntries.length / trackable.length) * 100) : 0}%` }),
+    [completedEntries.length, trackable.length],
+  );
 
-      <div className="space-y-4" data-testid="import-tracking-sidebar">
-        <Card className="border-border/50 bg-background/95 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {t('bulk.summaryTitle', { defaultValue: 'Ingest status' })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              {t('bulk.summaryReady', {
-                defaultValue: '{{count}} datasets are ready to open.',
+  /* ── All-done completion card ──────────────────────── */
+  if (allDone) {
+    return (
+      <div className="space-y-4">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          {/* Hero */}
+          <div className="border-b border-border bg-gradient-to-b from-success/[0.06] to-transparent px-8 py-10 text-center">
+            <div className="mx-auto mb-3.5 flex h-14 w-14 items-center justify-center rounded-full bg-success text-success-foreground shadow-[0_0_0_6px] shadow-success/12">
+              <CheckCircle2 className="size-6" />
+            </div>
+            <h2 className="mb-1.5 text-[22px] font-medium tracking-tight">
+              {t('complete.heroTitle', {
                 count: completedEntries.length,
+                defaultValue: `${completedEntries.length} ${completedEntries.length === 1 ? 'dataset' : 'datasets'} added to the catalog`,
               })}
+            </h2>
+            <p className="text-[13.5px] text-muted-foreground">
+              {t('complete.heroDesc', { defaultValue: 'All files ingested, tiled, and indexed. Ready to query, style, and map.' })}
             </p>
-            <p>
-              {t('bulk.summaryRunning', {
-                defaultValue: '{{count}} jobs are still running.',
-                count: inProgressCount,
-              })}
-            </p>
-            <p>
-              {t('bulk.summaryFailed', {
-                defaultValue: '{{count}} jobs need attention.',
-                count: failedCount,
-              })}
-            </p>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card className="border-border/50 bg-muted/10 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {t('bulk.nextStepsTitle', { defaultValue: 'Next actions' })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              {t('bulk.nextStepsPrimary', {
-                defaultValue: 'Open ready datasets from the summary cards as soon as they appear.',
-              })}
-            </p>
-            <p>
-              {t('bulk.nextStepsSecondary', {
-                defaultValue: 'You can keep uploading while the remaining jobs settle.',
-              })}
-            </p>
-            {completedRasterIds.length >= 2 ? (
-              <Button variant="secondary" size="sm" className="w-full" onClick={() => setVrtDialogOpen(true)}>
-                {t('bulk.createVrtMosaic')}
-              </Button>
-            ) : (
-              <Button variant="outline" size="sm" className="w-full" onClick={onReset}>
-                {t('bulk.uploadMore')}
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 divide-x divide-border border-b border-border sm:grid-cols-4">
+            {[
+              { label: t('complete.statDatasets', { defaultValue: 'Datasets' }), value: completedEntries.length },
+              { label: t('complete.statVector', { defaultValue: 'Vector' }), value: completedEntries.filter((e) => e.kind === 'vector').length },
+              { label: t('complete.statRaster', { defaultValue: 'Raster' }), value: completedEntries.filter((e) => e.kind === 'raster').length },
+              { label: t('complete.statTabular', { defaultValue: 'Tabular' }), value: completedEntries.filter((e) => e.kind === 'table').length },
+            ].map((stat, i) => (
+              <div key={i} className="px-5 py-4">
+                <dt className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{stat.label}</dt>
+                <dd className="text-xl font-medium tracking-tight">{stat.value}</dd>
+              </div>
+            ))}
+          </div>
+
+          {/* Completed dataset rows */}
+          <div>
+            {completedEntries.map((entry, i) => (
+              <div
+                key={entry.datasetId}
+                className={cn(
+                  'grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3',
+                  i < completedEntries.length - 1 && 'border-b border-border',
+                )}
+              >
+                <TypeTag kind={entry.kind === 'vector' ? 'vector' : entry.kind === 'raster' ? 'raster' : 'table'} />
+                <div className="min-w-0">
+                  <p className="truncate text-[13.5px] font-medium tracking-tight">{entry.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Badge variant="secondary" className="text-[10px]">{entry.kind}</Badge>
+                    <Badge variant="outline" className="text-[10px] capitalize">{entry.visibility}</Badge>
+                  </div>
+                </div>
+                <StatusPill status="complete" />
+              </div>
+            ))}
+          </div>
+
+          {/* Next actions */}
+          <div className="flex flex-wrap items-center gap-2.5 border-t border-border bg-surface-0 px-5 py-4">
+            <span className="text-[13px] font-semibold mr-1">{t('complete.next', { defaultValue: 'Next:' })}</span>
+            {completedEntries.length === 1 && completedEntries[0] && (
+              <Button asChild size="sm">
+                <Link to={`/datasets/${completedEntries[0].datasetId}`}>
+                  {t('bulk.openDataset', { defaultValue: 'Open dataset' })}
+                  <ArrowRight className="ms-1 size-3" />
+                </Link>
               </Button>
             )}
-          </CardContent>
-        </Card>
+            {completedEntries.length > 1 && (
+              <Button asChild size="sm">
+                <Link to="/">{t('complete.viewCatalog', { defaultValue: 'View in Catalog' })}</Link>
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={onReset}>
+              {t('complete.importMore', { defaultValue: 'Import more' })}
+            </Button>
+            {completedRasterIds.length >= 2 && (
+              <Button variant="secondary" size="sm" onClick={() => setVrtDialogOpen(true)}>
+                <Layers className="me-1 size-3" />
+                {t('bulk.createVrtMosaic')}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <VrtCreateDialog
+          open={vrtDialogOpen}
+          onOpenChange={setVrtDialogOpen}
+          initialSourceIds={completedRasterIds}
+        />
       </div>
+    );
+  }
+
+  /* ── In-progress state (batch banner + active jobs) ── */
+  return (
+    <div className="space-y-4">
+      {/* Batch progress banner */}
+      {inProgressCount > 0 && (
+        <div className="flex items-center gap-3.5 rounded-xl border border-primary/20 bg-primary/[0.07] px-4 py-3">
+          <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          <div className="flex-1">
+            <p className="text-[13px]">
+              <span className="font-semibold">{t('bulk.importingFiles', { count: trackable.length, defaultValue: `Importing ${trackable.length} files` })}</span>
+            </p>
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wide mt-0.5">
+              {t('bulk.progressDetail', {
+                done: completedEntries.length,
+                active: inProgressCount,
+                queued: trackable.length - completedEntries.length - inProgressCount,
+                defaultValue: `${completedEntries.length} complete · ${inProgressCount} in progress · ${trackable.length - completedEntries.length - inProgressCount} queued`,
+              })}
+            </p>
+          </div>
+          <div className="h-1 w-48 max-w-[220px] overflow-hidden rounded-full bg-surface-2">
+            <span
+              className="block h-full rounded-full bg-primary transition-[width] duration-300"
+              style={progressStyle}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Completed entries summary */}
+      {completedEntries.length > 0 && (
+        <div className="rounded-xl border border-success/30 bg-success/5 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle2 className="size-4 text-success" />
+            <p className="text-sm font-semibold">
+              {t('bulk.readyTitle', {
+                count: completedEntries.length,
+                defaultValue: `${completedEntries.length} ${completedEntries.length === 1 ? 'dataset' : 'datasets'} ready`,
+              })}
+            </p>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {completedEntries.map((entry) => (
+              <div key={entry.datasetId} className="flex items-center justify-between gap-3 rounded-lg border bg-background/80 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{entry.title}</p>
+                  <Badge variant="secondary" className="text-[10px] mt-0.5">{entry.kind}</Badge>
+                </div>
+                <Button asChild size="sm" className="shrink-0">
+                  <Link to={`/datasets/${entry.datasetId}`}>
+                    {t('bulk.openDataset', { defaultValue: 'Open dataset' })}
+                    <ArrowRight className="ms-1 size-3" />
+                  </Link>
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Active jobs */}
+      {activeEntries.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm font-medium">{t('bulk.activeJobs', { defaultValue: 'Active and recent jobs' })}</p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {activeEntries.map((entry) => (
+              <div key={entry.id}>
+                <p className="mb-1 text-sm font-medium text-muted-foreground">{entry.fileName}</p>
+                <JobProgress
+                  jobId={entry.jobId!}
+                  onReset={onReset}
+                  isRasterEntry={isRasterFile(entry.fileName)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* VRT mosaic prompt */}
+      {completedRasterIds.length >= 2 && (
+        <div className="flex items-center gap-2 rounded-md border border-dashed p-3">
+          <Layers className="size-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground flex-1">
+            {t('bulk.rasterDatasetsReady', { count: completedRasterIds.length })}
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => setVrtDialogOpen(true)}>
+            {t('bulk.createVrtMosaic')}
+          </Button>
+        </div>
+      )}
+
+      <Button variant="outline" onClick={onReset}>
+        {t('bulk.uploadMore')}
+      </Button>
 
       <VrtCreateDialog
         open={vrtDialogOpen}
