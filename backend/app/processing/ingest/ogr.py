@@ -236,6 +236,10 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> dict:
 
     # Try JSON output first (GDAL 3.7+)
     cmd = ["ogrinfo", "-so", "-json", source]
+    # CSV driver types all fields as String by default; auto-detect so
+    # numeric columns appear as Real/Integer in the preview schema.
+    if file_path.lower().endswith(".csv"):
+        cmd[3:3] = ["-oo", "AUTODETECT_TYPE=YES"]
     if layer_name:
         cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
@@ -306,6 +310,10 @@ async def run_ogrinfo_preview(
     source = _resolve_source_path(file_path)
 
     cmd = ["ogrinfo", "-json", "-features", "-limit", str(sample_limit), source]
+    # CSV driver types all fields as String by default; auto-detect so
+    # numeric columns appear as Real/Integer in the preview schema.
+    if file_path.lower().endswith(".csv"):
+        cmd[1:1] = ["-oo", "AUTODETECT_TYPE=YES"]
     if layer_name:
         cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
