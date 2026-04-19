@@ -227,6 +227,9 @@ export function OverviewTab({
             {!isVrt && dataset.source_format && (
               <SideKV label={t('metadata.sourceFormat')} value={getSourceFormatLabel(t, dataset.source_format)} />
             )}
+            {dataset.table_name && (
+              <SideKV label={t('metadata.tableName', { defaultValue: 'Table' })} value={dataset.table_name} mono />
+            )}
             <SideKV label={t('overview.maintainer', { defaultValue: 'Maintainer' })} value={createdByIdentity} />
             <SideKV label={t('overview.created', { defaultValue: 'Created' })} value={formatDate(dataset.created_at)} mono />
             {dataset.update_frequency && (
