@@ -324,7 +324,7 @@ export function MapBuilderPage() {
 
   const { byAnchor } = usePartitionedWidgets();
   const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
-  const chatLayerActions = useMemo(() => ({
+  const chatLayerActions: LayerActions = {
     onFilterChange: layers.handleFilterChange,
     onPaintChange: layers.handlePaintChange,
     onStyleConfigChange: layers.handleStyleConfigChange,
@@ -333,8 +333,7 @@ export function MapBuilderPage() {
     onAddDataset: layers.handleAddDataset,
     onRemove: layers.handleAiRemoveLayer,
     onOpacityChange: layers.handleOpacityChange,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- all handlers are stable refs from useBuilderLayers
-  }), [layers.handleFilterChange, layers.handlePaintChange, layers.handleStyleConfigChange, layers.handleLabelChange, layers.handleToggleVisibility, layers.handleAddDataset, layers.handleAiRemoveLayer, layers.handleOpacityChange]);
+  };
 
   const handleToggleChat = useCallback(
     () => dialogs.setShowChat((v) => !v),

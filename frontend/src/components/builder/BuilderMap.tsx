@@ -158,10 +158,17 @@ export function BuilderMap({
       // real error has occurred (RES-3). Previously silenced in production.
       errorHandlerRef.current = (e: { error: { message?: string; status?: number } }) => {
         const msg = e.error?.message ?? '';
-        if (msg.includes('source-') || e.error?.status === 404) {
+        const status = e.error?.status;
+        if (msg.includes('source-') || status === 404) {
           return; // Expected no-data tile, suppress
         }
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
+        if (status === 401 || status === 403) {
+          toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
+            id: 'builder-map-auth-error',
+          });
+          return;
+        }
         toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
           id: 'builder-map-error',
         });
