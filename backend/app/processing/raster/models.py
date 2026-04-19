@@ -36,7 +36,7 @@ class RasterAsset(Base):
             name="chk_raster_assets_cog_status",
         ),
         CheckConstraint(
-            "storage_backend IN ('local', 's3')",
+            "storage_backend IN ('local', 's3', 'remote')",
             name="chk_raster_assets_storage_backend",
         ),
         {"schema": "catalog"},

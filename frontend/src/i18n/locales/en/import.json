@@ -3,7 +3,8 @@
   "tabs": {
     "upload": "Upload File",
     "register": "Register Table",
-    "service": "Service URL"
+    "service": "Service URL",
+    "stac": "STAC Catalog"
   },
   "vrt": {
     "pageTitle": "Create Virtual Raster",
@@ -84,6 +85,12 @@
     "sizeLimit": "Max 500 MB per file",
     "sizeLimitDynamic": "Max {{size}} MB per file",
     "batchLimit": "Up to 10 files per batch"
+  },
+  "stac": {
+    "label": "STAC API URL — paste the catalog root endpoint",
+    "connect": "Connect",
+    "connecting": "Connecting to STAC catalog...",
+    "searching": "Searching items..."
   },
   "serviceUrl": {
     "label": "Service URL",

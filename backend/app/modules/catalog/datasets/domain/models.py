@@ -185,7 +185,7 @@ class Dataset(Base):
             "source_format IS NULL OR source_format IN ("
             "'geojson', 'shapefile', 'shp', 'gpkg', 'csv', 'kml', 'gml', "
             "'wfs', 'arcgis_featureserver', 'fgdb', 'created', 'geotiff', "
-            "'ogcapi_features')",
+            "'ogcapi_features', 'stac')",
             name="chk_datasets_source_format",
         ),
         CheckConstraint(

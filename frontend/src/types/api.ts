@@ -1252,6 +1252,89 @@ export interface VrtGenerationListResponse {
   total: number;
 }
 
+// STAC import types
+export interface StacConnectResponse {
+  url: string;
+  catalog_id: string;
+  title: string;
+  description: string;
+  stac_version: string;
+}
+
+export interface StacCollectionSummary {
+  id: string;
+  title: string;
+  description: string;
+  license: string | null;
+  keywords: string[];
+  bbox: number[] | null;
+  temporal_start: string | null;
+  temporal_end: string | null;
+  item_count: number | null;
+}
+
+export interface StacCollectionsResponse {
+  url: string;
+  collections: StacCollectionSummary[];
+}
+
+export interface StacSearchRequest {
+  url: string;
+  collections?: string[];
+  bbox?: number[];
+  datetime_range?: string;
+  limit?: number;
+}
+
+export interface StacItemSummary {
+  id: string;
+  collection: string | null;
+  title: string;
+  bbox: number[] | null;
+  datetime: string | null;
+  datetime_start: string | null;
+  datetime_end: string | null;
+  epsg: number | null;
+  gsd: number | null;
+  cloud_cover: number | null;
+  data_asset_href: string | null;
+  data_asset_type: string | null;
+  thumbnail_href: string | null;
+  asset_count: number;
+}
+
+export interface StacSearchResponse {
+  items: StacItemSummary[];
+  matched: number | null;
+  returned: number;
+}
+
+export interface StacImportItem {
+  id: string;
+  collection: string | null;
+  title: string;
+  data_asset_href: string;
+  bbox: number[] | null;
+  epsg: number | null;
+  datetime_start: string | null;
+  datetime_end: string | null;
+  keywords: string[];
+}
+
+export interface StacImportResult {
+  item_id: string;
+  dataset_id: string | null;
+  status: 'created' | 'skipped' | 'error';
+  error: string | null;
+}
+
+export interface StacImportResponse {
+  results: StacImportResult[];
+  created: number;
+  skipped: number;
+  errors: number;
+}
+
 export interface DatasetRelationship {
   id: string;
   source_dataset_id: string;
