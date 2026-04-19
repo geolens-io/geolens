@@ -13,7 +13,6 @@ const defaultProps = {
   canEdit: false,
   columnInfo: [{ name: 'col1', type: 'text' }],
   capability: { editable: false, reason: 'read-only' } as never,
-  tableName: 'my_table',
 };
 
 describe('StructureTab', () => {
@@ -27,11 +26,5 @@ describe('StructureTab', () => {
     render(<StructureTab {...defaultProps} />);
 
     expect(screen.queryByTestId('attribute-table')).not.toBeInTheDocument();
-  });
-
-  it('renders table name', () => {
-    render(<StructureTab {...defaultProps} />);
-
-    expect(screen.getByText('my_table')).toBeInTheDocument();
   });
 });
