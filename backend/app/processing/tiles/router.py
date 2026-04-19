@@ -142,7 +142,8 @@ async def _resolve_raster_access(
                 ra.storage_backend,
                 ra.band_count,
                 ra.dtype,
-                ra.is_dem
+                ra.is_dem,
+                ra.band_info
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -264,7 +265,10 @@ async def raster_auth_check(
 
     # Resolve COG open-path for Titiler
     asset_uri = row["asset_uri"]
-    if storage_backend == "s3" and settings.s3_bucket:
+    if storage_backend == "remote":
+        # STAC import: asset_uri is already a full URL to a remote COG
+        open_path = asset_uri
+    elif storage_backend == "s3" and settings.s3_bucket:
         open_path = f"/vsis3/{settings.s3_bucket}/{asset_uri}"
     else:
         open_path = f"{settings.upload_staging_dir}/{asset_uri}"
@@ -274,6 +278,18 @@ async def raster_auth_check(
         # DEM terrain: use terrainrgb algorithm with NO rescale — the algorithm
         # reads raw elevation values and encodes them into RGB channels directly.
         render_params = "algorithm=terrainrgb"
+    elif storage_backend == "remote" and row.get("band_info"):
+        # Remote STAC import with statistics — use actual data min/max
+        # for rescaling instead of fixed dtype max
+        bi = row["band_info"]
+        bc = row["band_count"] or 1
+        parts: list[str] = []
+        if bc >= 3:
+            parts.extend(["bidx=1", "bidx=2", "bidx=3"])
+        for i in range(min(bc, 3) if bc >= 3 else max(bc, 1)):
+            if i < len(bi) and bi[i].get("min") is not None:
+                parts.append(f"rescale={bi[i]['min']},{bi[i]['max']}")
+        render_params = "&".join(parts)
     else:
         render_params = _titiler_render_params(row["band_count"], row["dtype"])
 

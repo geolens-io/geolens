@@ -3,7 +3,8 @@
   "tabs": {
     "upload": "Subir archivo",
     "register": "Registrar tabla",
-    "service": "URL de servicio"
+    "service": "URL de servicio",
+    "stac": "Catálogo STAC"
   },
   "vrt": {
     "pageTitle": "Crear Ráster Virtual",

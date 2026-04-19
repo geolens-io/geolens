@@ -237,6 +237,10 @@ async def download_cog(
     # 7. Storage-backend branching
     storage = get_storage()
 
+    if raster_asset.storage_backend == "remote":
+        # STAC import: asset_uri is the original remote COG URL — redirect
+        return RedirectResponse(url=raster_asset.asset_uri, status_code=302)
+
     if raster_asset.storage_backend == "s3":
         url = storage.generate_presigned_get_url(
             raster_asset.asset_uri, expiration=3600

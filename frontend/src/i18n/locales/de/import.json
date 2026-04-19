@@ -3,7 +3,8 @@
   "tabs": {
     "upload": "Datei hochladen",
     "register": "Tabelle registrieren",
-    "service": "Service-URL"
+    "service": "Service-URL",
+    "stac": "STAC-Katalog"
   },
   "vrt": {
     "pageTitle": "Virtuellen Raster erstellen",

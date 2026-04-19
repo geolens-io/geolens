@@ -1,21 +1,23 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Upload, Database, Globe } from 'lucide-react';
+import { Upload, Database, Globe, Satellite } from 'lucide-react';
 import { PageShell } from '@/components/layout/PageShell';
 import { UploadForm } from '@/components/import/UploadForm';
 import { RegisterForm } from '@/components/import/RegisterForm';
 import { ServiceUrlForm } from '@/components/import/ServiceUrlForm';
+import { StacImportForm } from '@/components/import/StacImportForm';
 import { WorkflowRail } from '@/components/import/WorkflowRail';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { cn } from '@/lib/utils';
 import type { BatchPhase } from '@/types/api';
 
-type Tab = 'upload' | 'register' | 'service';
+type Tab = 'upload' | 'register' | 'service' | 'stac';
 
 const MODE_TABS: { value: Tab; icon: typeof Upload; labelKey: string }[] = [
   { value: 'upload', icon: Upload, labelKey: 'tabs.upload' },
   { value: 'register', icon: Database, labelKey: 'tabs.register' },
   { value: 'service', icon: Globe, labelKey: 'tabs.service' },
+  { value: 'stac', icon: Satellite, labelKey: 'tabs.stac' },
 ];
 
 export function ImportPage() {
@@ -72,6 +74,7 @@ export function ImportPage() {
           {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}
           {activeTab === 'register' && <RegisterForm />}
           {activeTab === 'service' && <ServiceUrlForm />}
+          {activeTab === 'stac' && <StacImportForm />}
         </div>
         <WorkflowRail
           mode={activeTab}

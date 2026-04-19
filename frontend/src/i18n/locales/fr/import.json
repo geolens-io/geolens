@@ -3,7 +3,8 @@
   "tabs": {
     "upload": "Télécharger un fichier",
     "register": "Enregistrer une table",
-    "service": "URL de service"
+    "service": "URL de service",
+    "stac": "Catalogue STAC"
   },
   "vrt": {
     "pageTitle": "Créer un Raster Virtuel",
