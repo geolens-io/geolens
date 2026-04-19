@@ -477,11 +477,8 @@ async def stac_import(
                 db.add(dataset)
                 await db.flush()
 
-                cog_info = cog_info_map.get(item.data_asset_href)
-
-                nodata_str = None
-                if cog_info and cog_info.get("nodata") is not None:
-                    nodata_str = str(cog_info["nodata"])
+                ci = cog_info_map.get(item.data_asset_href) or {}
+                nodata_raw = ci.get("nodata")
 
                 raster_asset = RasterAsset(
                     dataset_id=dataset.id,
@@ -489,12 +486,12 @@ async def stac_import(
                     storage_backend="remote",
                     cog_status="verified",
                     epsg=item.epsg,
-                    band_count=cog_info["band_count"] if cog_info else None,
-                    dtype=cog_info["dtype"] if cog_info else None,
-                    width=cog_info["width"] if cog_info else None,
-                    height=cog_info["height"] if cog_info else None,
-                    nodata=nodata_str,
-                    band_info=cog_info.get("band_info") if cog_info else None,
+                    band_count=ci.get("band_count"),
+                    dtype=ci.get("dtype"),
+                    width=ci.get("width"),
+                    height=ci.get("height"),
+                    nodata=str(nodata_raw) if nodata_raw is not None else None,
+                    band_info=ci.get("band_info"),
                 )
                 db.add(raster_asset)
 

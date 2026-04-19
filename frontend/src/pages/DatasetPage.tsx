@@ -115,7 +115,7 @@ function scrollAndFocus(anchor: string): () => void {
   };
 }
 
-function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: typeof import('react-i18next').useTranslation extends (...a: never[]) => { t: infer T } ? T : never }) {
+function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: ReturnType<typeof import('react-i18next').useTranslation>['t'] }) {
   const isTable = dataset.record_type === 'table';
   const rasterGsd = computeRasterGsd(dataset.raster?.res_x, dataset.raster?.res_y);
 
@@ -400,7 +400,7 @@ export function DatasetPage() {
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
     const normalizedLegacyHash = normalizeLegacyTabHash(hash);
-    if (!normalizedLegacyHash || normalizedLegacyHash === hash) return;
+    if (!normalizedLegacyHash) return;
 
     const nextUrl = `${window.location.pathname}${window.location.search}#${normalizedLegacyHash}`;
     window.history.replaceState(window.history.state, '', nextUrl);
@@ -488,7 +488,6 @@ export function DatasetPage() {
     chain: readonly string[],
     currentStatus: string,
     successMsg: string,
-    opts?: { onFinally?: () => void },
   ) => {
     if (!id) return;
     const startIdx = chain.indexOf(currentStatus);
@@ -500,8 +499,6 @@ export function DatasetPage() {
       toast.success(successMsg);
     } catch {
       toast.error(t('publish.failed'));
-    } finally {
-      opts?.onFinally?.();
     }
   };
 
@@ -519,9 +516,11 @@ export function DatasetPage() {
   };
 
   const handleUnpublish = async () => {
-    await executeStatusChain(UNPUBLISH_CHAIN, dataset.record_status, t('publish.unpublished'), {
-      onFinally: () => setActiveDialog(null),
-    });
+    try {
+      await executeStatusChain(UNPUBLISH_CHAIN, dataset.record_status, t('publish.unpublished'));
+    } finally {
+      setActiveDialog(null);
+    }
   };
 
   const statsLine = <RecordTypeStats dataset={dataset} t={t} />;
