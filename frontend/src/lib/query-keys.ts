@@ -131,6 +131,7 @@ export const queryKeys = {
     mapDefaults: ['settings', 'map-defaults'] as const,
     tileConfig: ['settings', 'tile-config'] as const,
     enabledWidgets: ['settings', 'enabled-widgets'] as const,
+    featureFlags: ['settings', 'feature-flags'] as const,
     allSettings: ['settings', 'all'] as const,
     configMode: ['settings', 'config-mode'] as const,
     apiKeyStatus: ['settings', 'api-key-status'] as const,

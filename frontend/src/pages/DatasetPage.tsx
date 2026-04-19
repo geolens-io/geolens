@@ -13,7 +13,7 @@ import { useDatasetEditCapabilities } from '@/components/dataset/hooks/use-datas
 import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
-import { useAllSettings } from '@/hooks/use-settings';
+import { useFeatureFlags } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/components/drawing/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
@@ -310,7 +310,7 @@ export function DatasetPage() {
   const updatePublicationStatus = useUpdatePublicationStatus();
   const token = useAuthStore((s) => s.token);
   const { data: validationData } = useValidation(token ? id : undefined);
-  const { data: allSettings } = useAllSettings({ enabled: !!token });
+  const { data: featureFlags } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -477,7 +477,12 @@ export function DatasetPage() {
 
   const isPublished = dataset.record_status === 'published';
   const hasValidationErrors = validationData ? validationData.errors.length > 0 : false;
-  const requireMetadata = allSettings?.tabs?.general?.find((s: { key: string }) => s.key === 'require_metadata_for_publish')?.value ?? false;
+  const requireMetadata = featureFlags?.require_metadata_for_publish ?? false;
+  const dataEditingEnabled = featureFlags?.enable_dataset_editing ?? false;
+
+  // Gate geometry drawing and attribute cell editing behind the feature flag.
+  // Metadata editing (overview/metadata tabs) and management actions remain ungated.
+  const canEditData = isEditor && dataEditingEnabled;
 
   const executeStatusChain = async (
     chain: readonly string[],
@@ -598,7 +603,7 @@ export function DatasetPage() {
           isHeroExpanded={isHeroExpanded}
           setIsHeroExpanded={setIsHeroExpanded}
           datasetId={id!}
-          isEditor={isEditor}
+          isEditor={canEditData}
           t={t}
         />
       )}
@@ -611,7 +616,7 @@ export function DatasetPage() {
           tabIndex={-1}
           className={cn(
             'rounded-lg border shadow-sm overflow-hidden relative',
-            isDrawing ? 'h-[60vh]' : 'h-64 lg:h-80'
+            isDrawing ? 'h-[60vh]' : 'h-72 lg:h-96'
           )}
         >
           {isRasterOrVrt && heroState === 'loading' && (
@@ -626,7 +631,7 @@ export function DatasetPage() {
               datasetId={id}
               columnInfo={dataset.column_info}
               containerRef={mapContainerRef}
-              canEdit={isEditor && !isRaster && !isVrt && !isTable}
+              canEdit={canEditData && !isRaster && !isVrt && !isTable}
               recordType={dataset.record_type}
               rasterTileUrl={dataset.raster?.tile_url}
               tileVersion={dataset.updated_at}
@@ -665,6 +670,7 @@ export function DatasetPage() {
       <DetailPanel
         dataset={dataset}
         canEdit={isEditor}
+        canEditData={canEditData}
         capabilities={capabilities}
         activeTab={activeTab}
         onTabChange={handleTabChange}

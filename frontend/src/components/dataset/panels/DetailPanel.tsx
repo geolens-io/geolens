@@ -14,6 +14,8 @@ import { AccessTab } from '../tabs/AccessTab';
 export interface DetailPanelProps {
   dataset: DatasetResponse;
   canEdit: boolean;
+  /** Gates geometry/attribute cell editing (feature-flagged separately from metadata editing). */
+  canEditData?: boolean;
   capabilities: DatasetEditCapabilities;
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -30,6 +32,7 @@ export function DetailPanel(props: DetailPanelProps) {
   const {
     dataset,
     canEdit,
+    canEditData = canEdit,
     capabilities,
     activeTab,
     onTabChange,
@@ -101,7 +104,7 @@ export function DetailPanel(props: DetailPanelProps) {
         <TabsContent value="data" className="space-y-6">
           <DataTab
             datasetId={dataset.id}
-            canEdit={canEdit}
+            canEdit={canEditData}
             expanded={isTableExpanded}
             onToggleExpand={onToggleTableExpand}
           />

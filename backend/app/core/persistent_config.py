@@ -346,6 +346,14 @@ REQUIRE_METADATA_FOR_PUBLISH = PersistentConfig[bool](
     label="Require Metadata for Publishing",
 )
 
+ENABLE_DATASET_EDITING = PersistentConfig[bool](
+    key="enable_dataset_editing",
+    type_=bool,
+    env_default=False,
+    tab="general",
+    label="Enable Dataset Editing",
+)
+
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",

@@ -113,7 +113,7 @@ export function DatasetDetailHeader({
 
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight break-words">
+          <h1 className="text-3xl md:text-4xl font-medium tracking-tight break-words">
             {isTitleEditable ? (
               <InlineEdit
                 value={title}

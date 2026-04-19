@@ -40,6 +40,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 
 vi.mock('@/hooks/use-settings', () => ({
   useAllSettings: () => ({ data: { tabs: { general: [] } } }),
+  useFeatureFlags: () => ({ data: { enable_dataset_editing: false, require_metadata_for_publish: false } }),
 }));
 
 vi.mock('@/hooks/use-mobile', () => ({

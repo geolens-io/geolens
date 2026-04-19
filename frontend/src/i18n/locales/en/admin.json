@@ -441,6 +441,8 @@
       "aiFeaturesDescription": "Enable AI-powered features including dataset metadata drafting (summaries, keywords, lineage, quality statements), map builder chat, and AI map generation.",
       "requireMetadata": "Require Metadata for Publishing",
       "requireMetadataDescription": "When enabled, datasets must have complete metadata (title, summary, contacts, keywords, license, spatial extent, CRS, lineage) before they can be published.",
+      "enableDatasetEditing": "Enable Dataset Editing",
+      "enableDatasetEditingDescription": "Allow geometry drawing and attribute editing on dataset detail pages. When disabled, datasets are read-only.",
       "publicAppUrl": "Public App URL",
       "publicAppUrlDescription": "The browser-facing GeoLens URL. Use the frontend origin without the /api suffix.",
       "publicApiUrl": "Public API URL",

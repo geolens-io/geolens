@@ -394,6 +394,8 @@
       "saveFailed": "Error al guardar la configuración",
       "requireMetadata": "Requerir metadatos para publicar",
       "requireMetadataDescription": "Cuando está habilitado, los conjuntos de datos deben tener metadatos completos antes de poder publicarse.",
+      "enableDatasetEditing": "Habilitar edición de conjuntos de datos",
+      "enableDatasetEditingDescription": "Permitir dibujo de geometría y edición de atributos en las páginas de detalle de conjuntos de datos. Cuando está deshabilitado, los conjuntos de datos son de solo lectura.",
       "publicAppUrl": "URL pública de la aplicación",
       "publicAppUrlDescription": "La URL de GeoLens orientada al navegador. Usa el origen del frontend sin el sufijo /api.",
       "publicApiUrl": "URL pública de la API",

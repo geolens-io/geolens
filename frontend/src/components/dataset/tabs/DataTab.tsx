@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AttributeTable } from '@/components/dataset/AttributeTable';
 import { Maximize2, Minimize2, AlignJustify, List } from 'lucide-react';
@@ -16,66 +15,41 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
   const { t } = useTranslation('dataset');
   const [compact, setCompact] = useState(false);
 
-  const densityToggle = (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 w-7 p-0"
-      onClick={() => setCompact((v) => !v)}
-      aria-label={compact ? t('data.switchComfortable') : t('data.switchCompact')}
-      title={compact ? t('data.comfortable') : t('data.compact')}
-    >
-      {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
-    </Button>
+  const toolbar = (
+    <div className="flex items-center justify-between py-1.5 shrink-0">
+      <span className="text-sm font-medium">{t('page.attributeData')}</span>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => setCompact((v) => !v)}
+          aria-label={compact ? t('data.switchComfortable') : t('data.switchCompact')}
+          title={compact ? t('data.comfortable') : t('data.compact')}
+        >
+          {compact ? <AlignJustify className="h-4 w-4" /> : <List className="h-4 w-4" />}
+        </Button>
+        {onToggleExpand && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={onToggleExpand}
+            aria-label={expanded ? t('data.collapseTable') : t('data.expandTable')}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+        )}
+      </div>
+    </div>
   );
 
-  if (expanded) {
-    return (
-      <div className="flex flex-col h-[calc(100vh-10rem)]">
-        <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30 shrink-0">
-          <span className="text-sm font-medium">{t('page.attributeData')}</span>
-          <div className="flex items-center gap-2">
-            {densityToggle}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={onToggleExpand}
-              aria-label={t('data.collapseTable')}
-            >
-              <Minimize2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto min-h-0 p-4">
-          <AttributeTable datasetId={datasetId} canEdit={canEdit} compact={compact} />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="text-base">{t('page.attributeData')}</CardTitle>
-        <div className="flex items-center gap-1">
-          {densityToggle}
-          {onToggleExpand && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={onToggleExpand}
-              aria-label={t('data.expandTable')}
-            >
-              <Maximize2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
+    <div className={expanded ? 'flex flex-col h-[calc(100vh-10rem)]' : undefined}>
+      {toolbar}
+      <div className={expanded ? 'flex-1 overflow-y-auto min-h-0' : undefined}>
         <AttributeTable datasetId={datasetId} canEdit={canEdit} compact={compact} />
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
