@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Settings } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CopyButton } from '@/components/ui/copy-button';
 import { AttributeMetadataTable } from '@/components/dataset/AttributeMetadataTable';
 import { SchemaEditor } from '@/components/dataset/SchemaEditor';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
@@ -14,24 +13,14 @@ interface StructureTabProps {
   canEdit: boolean;
   columnInfo?: { name: string; type: string }[] | null;
   capability: DatasetEditCapability;
-  tableName?: string;
 }
 
-export function StructureTab({ datasetId, canEdit, columnInfo, capability, tableName }: StructureTabProps) {
+export function StructureTab({ datasetId, canEdit, columnInfo, capability }: StructureTabProps) {
   const { t } = useTranslation('dataset');
   const [schemaOpen, setSchemaOpen] = useState(false);
 
   return (
     <>
-      {/* Table Name */}
-      {tableName && (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">{t('metadata.tableName', { defaultValue: 'Table:' })}</span>
-          <code className="font-mono text-xs bg-muted px-2 py-1 rounded">{tableName}</code>
-          <CopyButton value={tableName} />
-        </div>
-      )}
-
       {/* Attribute Metadata */}
       <Card data-field-anchor="attribute_metadata">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

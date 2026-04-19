@@ -118,7 +118,6 @@ export function DetailPanel(props: DetailPanelProps) {
             canEdit={canEditData}
             columnInfo={dataset.column_info}
             capability={capabilities.theme_category}
-            tableName={dataset.table_name}
           />
         </TabsContent>
       )}
