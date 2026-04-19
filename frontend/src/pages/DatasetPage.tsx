@@ -147,8 +147,7 @@ function TableHero({
   return (
     <div className="space-y-3">
       <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3">
             <div className="rounded-lg border bg-background p-2 shadow-sm">
               <Database className="h-5 w-5 text-foreground" />
             </div>
@@ -170,7 +169,6 @@ function TableHero({
             </div>
           </div>
         </div>
-      </div>
       <div className="rounded-lg border shadow-sm overflow-hidden">
         <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
           <span className="text-xs font-medium text-muted-foreground">
