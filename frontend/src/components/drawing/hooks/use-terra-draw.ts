@@ -16,10 +16,13 @@ import type { Feature, Geometry } from 'geojson';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 /**
- * Static Terra Draw mode instances. These never change at runtime so they are
- * created once at module level to keep the initialization effect body short.
+ * Create fresh Terra Draw mode instances. Must be called per-mount because
+ * TerraDraw internally registers modes on construction — reusing mode objects
+ * across mounts (e.g. after error boundary recovery) causes
+ * "Can not register unless mode is unregistered".
  */
-const TERRA_DRAW_MODES = [
+function createTerraDrawModes() {
+  return [
   new TerraDrawPointMode({
     styles: {
       pointColor: MAP_COLORS.default.fill,
@@ -134,7 +137,8 @@ const TERRA_DRAW_MODES = [
       midPointOutlineWidth: 1,
     },
   }),
-];
+  ];
+}
 
 /**
  * Mapping from PostGIS/dataset geometry type to compatible Terra Draw modes.
@@ -272,7 +276,7 @@ export function useTerraDraw(
 
     const td = new TerraDraw({
       adapter: new TerraDrawMapLibreGLAdapter({ map }),
-      modes: TERRA_DRAW_MODES,
+      modes: createTerraDrawModes(),
     });
 
     td.start();
