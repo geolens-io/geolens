@@ -394,6 +394,8 @@
       "saveFailed": "Einstellungen konnten nicht gespeichert werden",
       "requireMetadata": "Metadaten für Veröffentlichung erforderlich",
       "requireMetadataDescription": "Wenn aktiviert, müssen Datensätze vollständige Metadaten haben, bevor sie veröffentlicht werden können.",
+      "enableDatasetEditing": "Datensatzbearbeitung aktivieren",
+      "enableDatasetEditingDescription": "Geometrie-Zeichnung und Attributbearbeitung auf Datensatz-Detailseiten erlauben. Wenn deaktiviert, sind Datensätze schreibgeschützt.",
       "publicAppUrl": "Öffentliche App-URL",
       "publicAppUrlDescription": "Die browserseitige GeoLens-URL. Verwende die Frontend-Origin ohne das Suffix /api.",
       "publicApiUrl": "Öffentliche API-URL",

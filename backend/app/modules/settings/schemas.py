@@ -144,6 +144,13 @@ class SettingItem(BaseModel):
     label: str = Field(description="Human-readable label for display in the admin UI.")
 
 
+class FeatureFlagsResponse(BaseModel):
+    """Public feature flags readable by any authenticated user."""
+
+    enable_dataset_editing: bool = False
+    require_metadata_for_publish: bool = False
+
+
 class SettingsAllResponse(BaseModel):
     """Response for GET /settings/all/."""
 

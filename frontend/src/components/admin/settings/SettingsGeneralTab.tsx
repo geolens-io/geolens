@@ -20,6 +20,7 @@ interface TabProps {
 
 const FIELDS = [
   { key: 'require_metadata_for_publish', defaultValue: false },
+  { key: 'enable_dataset_editing', defaultValue: false },
   { key: 'public_app_url', defaultValue: '' },
   { key: 'public_api_url', defaultValue: '' },
   { key: 'log_level', defaultValue: 'INFO' },
@@ -44,6 +45,22 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSavin
           id="require-metadata-toggle"
           checked={values.require_metadata_for_publish as boolean}
           onCheckedChange={setters.require_metadata_for_publish}
+          disabled={envOnly}
+        />
+      </div>
+
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="enable-dataset-editing-toggle">{t('settings.general.enableDatasetEditing')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'enable_dataset_editing')?.source ?? 'default'} settingKey="enable_dataset_editing" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.general.enableDatasetEditingDescription')}</p>
+        </div>
+        <Switch
+          id="enable-dataset-editing-toggle"
+          checked={values.enable_dataset_editing as boolean}
+          onCheckedChange={setters.enable_dataset_editing}
           disabled={envOnly}
         />
       </div>

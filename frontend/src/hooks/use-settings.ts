@@ -7,6 +7,7 @@ import {
   getBasemaps,
   getMapDefaults,
   getTileConfig,
+  getFeatureFlags,
   getAllSettings,
   updateSettings,
   resetSettings,
@@ -49,6 +50,14 @@ export function useEnabledWidgets() {
   return useQuery({
     queryKey: queryKeys.settings.enabledWidgets,
     queryFn: getEnabledWidgets,
+    staleTime: 60_000,
+  });
+}
+
+export function useFeatureFlags() {
+  return useQuery({
+    queryKey: queryKeys.settings.featureFlags,
+    queryFn: getFeatureFlags,
     staleTime: 60_000,
   });
 }

@@ -394,6 +394,8 @@
       "saveFailed": "Échec de l'enregistrement des paramètres",
       "requireMetadata": "Exiger les métadonnées pour la publication",
       "requireMetadataDescription": "Lorsque activé, les jeux de données doivent avoir des métadonnées complètes avant de pouvoir être publiés.",
+      "enableDatasetEditing": "Activer l'édition des jeux de données",
+      "enableDatasetEditingDescription": "Autoriser le dessin de géométrie et l'édition des attributs sur les pages de détail des jeux de données. Lorsque désactivé, les jeux de données sont en lecture seule.",
       "publicAppUrl": "URL publique de l'application",
       "publicAppUrlDescription": "L'URL GeoLens destinée au navigateur. Utilisez l'origine du frontend sans le suffixe /api.",
       "publicApiUrl": "URL publique de l'API",

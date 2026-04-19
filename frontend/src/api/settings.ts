@@ -61,6 +61,15 @@ export async function getEnabledWidgets(): Promise<string[] | null> {
   return apiFetch<string[] | null>('/settings/enabled-widgets/');
 }
 
+export interface FeatureFlags {
+  enable_dataset_editing: boolean;
+  require_metadata_for_publish: boolean;
+}
+
+export async function getFeatureFlags(): Promise<FeatureFlags> {
+  return apiFetch<FeatureFlags>('/settings/feature-flags/');
+}
+
 // --- Unified admin endpoints ---
 
 export async function getAllSettings(): Promise<AllSettingsResponse> {

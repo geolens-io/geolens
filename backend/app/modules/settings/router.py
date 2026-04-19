@@ -23,8 +23,10 @@ from app.core.persistent_config import (
     BASEMAPS,
     BRANDING_SHOW_BADGE,
     EMBEDDING_DIMS,
+    ENABLE_DATASET_EDITING,
     ENABLED_WIDGETS,
     MAP_DEFAULTS,
+    REQUIRE_METADATA_FOR_PUBLISH,
     _registry,
 )
 from app.core.public_urls import _is_env_only, get_public_api_url, get_public_app_url
@@ -36,6 +38,7 @@ from app.modules.settings.schemas import (
     BrandingResponse,
     ConfigModeResponse,
     DetectEmbeddingDimsResponse,
+    FeatureFlagsResponse,
     EditionInfoResponse,
     MapDefaultsResponse,
     SettingItem,
@@ -462,6 +465,17 @@ async def edition_info() -> EditionInfoResponse:
     """Return current edition and available features. Public, no auth required."""
     info = get_edition()
     return EditionInfoResponse(edition=info.edition, features=list(info.features))
+
+
+@router.get("/feature-flags/", response_model=FeatureFlagsResponse)
+async def get_feature_flags(
+    db: AsyncSession = Depends(get_db),
+) -> FeatureFlagsResponse:
+    """Return public feature flags (no auth required)."""
+    return FeatureFlagsResponse(
+        enable_dataset_editing=await ENABLE_DATASET_EDITING.get(db),
+        require_metadata_for_publish=await REQUIRE_METADATA_FOR_PUBLISH.get(db),
+    )
 
 
 @router.get("/branding/", response_model=BrandingResponse)
