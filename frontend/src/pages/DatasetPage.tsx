@@ -60,9 +60,6 @@ const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'mem
 const PUBLISH_CHAIN = ['ready', 'internal', 'published'] as const;
 const UNPUBLISH_CHAIN = ['internal', 'ready', 'draft'] as const;
 
-const Sep = () => <span className="text-muted-foreground/50">·</span>;
-
-
 function normalizeLegacyTabHash(hash: string): string | null {
   if (hash === 'source-quality' || hash === 'coverage' || hash === 'source-coverage') {
     return 'metadata';
@@ -111,22 +108,6 @@ function scrollAndFocus(anchor: string): () => void {
   return () => {
     if (timerId) clearTimeout(timerId);
   };
-}
-
-function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: ReturnType<typeof import('react-i18next').useTranslation>['t'] }) {
-  return (
-    <>
-      <RecordTypeBadge recordType={dataset.record_type} />
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
-        <Sep />
-        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
-          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
-          {dataset.visibility}
-        </Badge>
-      </div>
-    </>
-  );
 }
 
 function TableHero({
@@ -193,9 +174,8 @@ export function DatasetPage() {
   const { t } = useTranslation('dataset');
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [pollInterval, setPollInterval] = useState<number | false>(false);
   const { data: dataset, isLoading, error } = useDataset(id ?? '', {
-    refetchInterval: pollInterval,
+    refetchInterval: (query) => query.state.data?.raster?.status === 'regenerating' ? 5_000 : false,
   });
   const [activeDialog, setActiveDialog] = useState<'delete' | 'reupload' | 'vrt' | 'unpublish' | null>(null);
   const updatePublicationStatus = useUpdatePublicationStatus();
@@ -310,11 +290,7 @@ export function DatasetPage() {
     return () => window.removeEventListener('hashchange', handler);
   }, []);
 
-  // Poll dataset when VRT is regenerating so the banner auto-clears
-  useEffect(() => {
-    const status = dataset?.raster?.status;
-    setPollInterval(status === 'regenerating' ? 5_000 : false);
-  }, [dataset?.raster?.status]);
+
 
   useEffect(() => {
     if (!pendingNavigationAnchor) return;
@@ -414,7 +390,19 @@ export function DatasetPage() {
     }
   };
 
-  const statsLine = <RecordTypeStats dataset={dataset} t={t} />;
+  const statsLine = (
+    <>
+      <RecordTypeBadge recordType={dataset.record_type} />
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
+        <span className="text-muted-foreground/50">·</span>
+        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
+          {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
+          {dataset.visibility}
+        </Badge>
+      </div>
+    </>
+  );
 
   const headerActions: DatasetDetailHeaderAction[] = [
     {

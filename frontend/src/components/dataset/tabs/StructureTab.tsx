@@ -42,8 +42,6 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability }: Str
         </CardContent>
       </Card>
 
-      {/* Data preview removed — use the Data tab instead */}
-
       {/* Schema Editor Dialog */}
       {canEdit && columnInfo && capability.editable && (
         <SchemaEditor

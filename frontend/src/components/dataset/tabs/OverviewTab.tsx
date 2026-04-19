@@ -56,7 +56,6 @@ function SideKV({ label, value, mono, title, children }: {
   );
 }
 
-
 /** Keywords/tags sidebar card */
 function KeywordsSidebarCard({ recordId }: { recordId: string }) {
   const { t } = useTranslation('dataset');
@@ -493,8 +492,6 @@ export function OverviewTab({
               </CardContent>
             </Card>
           )}
-
-
         </div>
 
         {/* ── Sidebar ── */}
