@@ -174,7 +174,7 @@ export function ChatPanel({
       if (onOpacityChange) onOpacityChange(layer.id, layer.opacity);
     }
     lastSnapshotRef.current = null;
-    toast.success(t('chat.undoApplied', { defaultValue: 'Changes undone' }));
+    toast.success(t('chat.undoApplied'));
   }, [onPaintChange, onFilterChange, onLabelChange, onToggleVisibility, onStyleConfigChange, onOpacityChange, t]);
 
   function handleChatAction(action: ChatAction) {
@@ -455,7 +455,7 @@ export function ChatPanel({
                   msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
                 )}
               >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                 {msg.actions && msg.actions.length > 0 && (
                   <div className="flex items-center gap-2 mt-1">
                     <p className="text-xs text-muted-foreground">
@@ -471,7 +471,7 @@ export function ChatPanel({
                         onClick={handleUndo}
                       >
                         <Undo2 className="h-3 w-3" />
-                        {t('chat.undo', { defaultValue: 'Undo' })}
+                        {t('chat.undo')}
                       </button>
                     )}
                   </div>

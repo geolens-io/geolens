@@ -1,6 +1,7 @@
 import { LayoutGrid } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
@@ -48,11 +49,12 @@ export function WidgetToolbar() {
                 <button
                   key={w.id}
                   onClick={() => toggle(w.id)}
-                  className={`flex items-center gap-2 w-full rounded px-2 py-1.5 text-start text-xs transition-colors ${
+                  className={cn(
+                    'flex items-center gap-2 w-full rounded px-2 py-1.5 text-start text-xs transition-colors',
                     isActive
                       ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                  }`}
+                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                  )}
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0" />
                   <span className="flex-1 truncate">{t(w.labelKey)}</span>

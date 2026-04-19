@@ -237,8 +237,23 @@
       "addLabels": "Ajouter des libellés pour « {{name}} »",
       "filterByAttribute": "Filtrer « {{name}} » à l'aide d'un champ",
       "styleAllLayers": "Appliquer un thème de couleurs à toutes les couches",
-      "addDataset": "Ajouter un autre jeu de données à cette carte"
-    }
+      "addDataset": "Ajouter un autre jeu de données à cette carte",
+      "adjustOpacity": "Adjust opacity for {{name}}",
+      "areaLabels": "Add area labels for {{name}}",
+      "heatmap": "Show {{name}} as a heatmap"
+    },
+    "commands": {
+      "add": "Add a dataset as a new layer",
+      "filter": "Filter features by attribute values",
+      "label": "Add or configure feature labels",
+      "query": "Query and analyze layer data",
+      "style": "Change layer colors, opacity, or visual style"
+    },
+    "commandsDropdown": "Commands",
+    "layersDropdown": "Layers",
+    "mentionHint": "Type @ to mention a layer, / for commands",
+    "undo": "Undo",
+    "undoApplied": "Changes undone"
   },
   "basemap": {
     "title": "Fond de carte",
@@ -271,7 +286,7 @@
   },
   "tooltips": {
     "aiChat": "Chat IA",
-    "share": "Partager",
+    "share": "Share or embed this map",
     "mapInfo": "Info carte",
     "downloadPng": "Télécharger PNG",
     "duplicateMap": "Dupliquer la carte",
@@ -281,6 +296,7 @@
     "widgets": "Widgets",
     "moreActions": "Plus d'actions",
     "allSaved": "Toutes les modifications enregistrées",
+    "toggleDock": "Toggle dock (D)",
     "closeChat": "Fermer le chat"
   },
   "toasts": {
@@ -382,6 +398,12 @@
     "deleteFeature": "Supprimer l'entité"
   },
   "actions": {
-    "save": "Enregistrer"
+    "save": "Enregistrer",
+    "export": "Export"
+  },
+  "dock": {
+    "askAi": "Ask AI",
+    "notes": "Notes",
+    "notesPlaceholder": "Add notes about this map..."
   }
 }

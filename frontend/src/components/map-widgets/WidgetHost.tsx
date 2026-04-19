@@ -6,6 +6,11 @@ import { WidgetPanel } from './WidgetPanel';
 import { WidgetErrorBoundary } from './WidgetErrorBoundary';
 import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 
+// Anchor offsets account for map overlay controls:
+// top-left: below MapToolbar (h-8 + top-3 = ~44px ≈ top-12)
+// top-right: below action buttons (h-8 + top-3) + WidgetToolbar (h-8 + gap)
+// bottom-left: above ScaleControl
+// bottom-right: above NavigationControl
 const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'top-left': 'absolute top-12 left-3 z-10 flex flex-col gap-2',
   'top-right': 'absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2',

@@ -100,7 +100,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
           className="pointer-events-auto inline-flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border rounded-full px-2.5 py-1 shadow-sm text-xs"
           title={`${chip.layerName}: ${chip.label}`}
         >
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
             {chip.layerName}
           </span>
           <span className="text-foreground">{chip.label}</span>

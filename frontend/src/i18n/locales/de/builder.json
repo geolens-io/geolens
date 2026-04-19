@@ -237,8 +237,23 @@
       "addLabels": "Beschriftungen für „{{name}}“ hinzufügen",
       "filterByAttribute": "„{{name}}“ mithilfe eines Feldes filtern",
       "styleAllLayers": "Ein Farbschema auf alle Ebenen anwenden",
-      "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen"
-    }
+      "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
+      "adjustOpacity": "Adjust opacity for {{name}}",
+      "areaLabels": "Add area labels for {{name}}",
+      "heatmap": "Show {{name}} as a heatmap"
+    },
+    "commands": {
+      "add": "Add a dataset as a new layer",
+      "filter": "Filter features by attribute values",
+      "label": "Add or configure feature labels",
+      "query": "Query and analyze layer data",
+      "style": "Change layer colors, opacity, or visual style"
+    },
+    "commandsDropdown": "Commands",
+    "layersDropdown": "Layers",
+    "mentionHint": "Type @ to mention a layer, / for commands",
+    "undo": "Undo",
+    "undoApplied": "Changes undone"
   },
   "basemap": {
     "title": "Basiskarte",
@@ -271,7 +286,7 @@
   },
   "tooltips": {
     "aiChat": "KI-Chat",
-    "share": "Teilen",
+    "share": "Share or embed this map",
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
     "duplicateMap": "Karte duplizieren",
@@ -281,6 +296,7 @@
     "widgets": "Widgets",
     "moreActions": "Weitere Aktionen",
     "allSaved": "Alle Änderungen gespeichert",
+    "toggleDock": "Toggle dock (D)",
     "closeChat": "Chat schließen"
   },
   "toasts": {
@@ -382,6 +398,12 @@
     "deleteFeature": "Feature löschen"
   },
   "actions": {
-    "save": "Speichern"
+    "save": "Speichern",
+    "export": "Export"
+  },
+  "dock": {
+    "askAi": "Ask AI",
+    "notes": "Notes",
+    "notesPlaceholder": "Add notes about this map..."
   }
 }

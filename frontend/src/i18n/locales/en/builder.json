@@ -228,16 +228,31 @@
     "errorForbidden": "You don't have permission to use AI chat.",
     "errorAiUnavailable": "AI service is temporarily unavailable.",
     "retry": "Retry",
+    "undo": "Undo",
+    "undoApplied": "Changes undone",
     "stillWorking": "Still working...",
     "takingLonger": "This is taking longer than usual...",
     "almostThere": "Almost there, hang tight...",
+    "layersDropdown": "Layers",
+    "commandsDropdown": "Commands",
+    "mentionHint": "Type @ to mention a layer, / for commands",
+    "commands": {
+      "style": "Change layer colors, opacity, or visual style",
+      "filter": "Filter features by attribute values",
+      "label": "Add or configure feature labels",
+      "query": "Query and analyze layer data",
+      "add": "Add a dataset as a new layer"
+    },
     "suggestions": {
       "searchDatasets": "Find datasets to add to this map",
       "colorByAttribute": "Color \"{{name}}\" using a field",
       "addLabels": "Add labels for \"{{name}}\"",
       "filterByAttribute": "Filter \"{{name}}\" using a field",
       "styleAllLayers": "Apply a color theme across all layers",
-      "addDataset": "Add another dataset to this map"
+      "addDataset": "Add another dataset to this map",
+      "heatmap": "Show {{name}} as a heatmap",
+      "areaLabels": "Add area labels for {{name}}",
+      "adjustOpacity": "Adjust opacity for {{name}}"
     }
   },
   "basemap": {
@@ -271,7 +286,7 @@
   },
   "tooltips": {
     "aiChat": "AI Chat",
-    "share": "Share",
+    "share": "Share or embed this map",
     "mapInfo": "Map info",
     "downloadPng": "Download PNG",
     "duplicateMap": "Duplicate map",
@@ -281,6 +296,7 @@
     "widgets": "Widgets",
     "moreActions": "More actions",
     "allSaved": "All changes saved",
+    "toggleDock": "Toggle dock (D)",
     "closeChat": "Close chat"
   },
   "toasts": {
@@ -387,9 +403,7 @@
   },
   "dock": {
     "askAi": "Ask AI",
-    "attributes": "Attributes",
     "notes": "Notes",
-    "attributesEmpty": "Select a feature on the map to view its attributes.",
     "notesPlaceholder": "Add notes about this map..."
   }
 }
