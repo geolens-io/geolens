@@ -142,7 +142,6 @@ interface OverviewTabProps {
   summaryValue: string;
   onSummaryDraftSave: (value: string) => void;
   onSummaryDirtyChange: (isDirty: boolean) => void;
-  datasetId?: string;
 }
 
 export function OverviewTab({
@@ -152,7 +151,6 @@ export function OverviewTab({
   summaryValue,
   onSummaryDraftSave,
   onSummaryDirtyChange,
-  datasetId,
 }: OverviewTabProps) {
   const { t, i18n } = useTranslation('dataset');
 
