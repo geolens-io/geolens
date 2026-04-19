@@ -4,6 +4,7 @@ Allows users to connect to external STAC APIs, browse collections,
 search items, and import selected items as raster datasets.
 """
 
+import asyncio
 import uuid
 from datetime import date, datetime
 from typing import Literal
@@ -212,15 +213,15 @@ class StacSearchResponse(BaseModel):
 
 
 class StacImportItem(BaseModel):
-    id: str = Field(description="STAC item ID.")
-    collection: str | None = Field(default=None, description="Parent collection ID.")
-    title: str = Field(description="Title to use for the GeoLens dataset.")
-    data_asset_href: str = Field(description="URL of the COG asset to reference.")
+    id: str = Field(max_length=2048, description="STAC item ID.")
+    collection: str | None = Field(default=None, max_length=255, description="Parent collection ID.")
+    title: str = Field(max_length=500, description="Title to use for the GeoLens dataset.")
+    data_asset_href: str = Field(max_length=4096, description="URL of the COG asset to reference.")
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
-    datetime_start: str | None = Field(default=None, description="Temporal start.")
-    datetime_end: str | None = Field(default=None, description="Temporal end.")
-    keywords: list[str] = Field(default=[], description="Keywords from STAC collection.")
+    datetime_start: str | None = Field(default=None, max_length=50, description="Temporal start.")
+    datetime_end: str | None = Field(default=None, max_length=50, description="Temporal end.")
+    keywords: list[str] = Field(default=[], max_length=100, description="Keywords from STAC collection.")
 
 
 class StacImportRequest(BaseModel):
@@ -405,6 +406,9 @@ async def stac_import(
         ).scalars().all()
     )
 
+    # Pre-filter importable items and SSRF-validate, then fetch COG info
+    # concurrently instead of N sequential HTTP calls.
+    importable: list[StacImportItem] = []
     for item in request.items:
         if item.data_asset_href in existing_hrefs:
             results.append(
@@ -412,8 +416,6 @@ async def stac_import(
             )
             skipped += 1
             continue
-
-        # SSRF validation on the asset URL before persisting
         try:
             await validate_url_for_ssrf(item.data_asset_href)
         except SSRFError as exc:
@@ -422,7 +424,23 @@ async def stac_import(
             )
             errors += 1
             continue
+        importable.append(item)
 
+    # Parallel COG info fetch — up to 10 concurrent Titiler requests
+    cog_info_map: dict[str, dict | None] = {}
+    if importable:
+        sem = asyncio.Semaphore(10)
+
+        async def _fetch_bounded(url: str) -> tuple[str, dict | None]:
+            async with sem:
+                return url, await _fetch_cog_info(url)
+
+        cog_results = await asyncio.gather(
+            *(_fetch_bounded(item.data_asset_href) for item in importable)
+        )
+        cog_info_map = dict(cog_results)
+
+    for item in importable:
         try:
             # Savepoint per item so a failure doesn't corrupt the session
             async with db.begin_nested():
@@ -459,8 +477,7 @@ async def stac_import(
                 db.add(dataset)
                 await db.flush()
 
-                # Fetch COG metadata from Titiler for proper tile rendering
-                cog_info = await _fetch_cog_info(item.data_asset_href)
+                cog_info = cog_info_map.get(item.data_asset_href)
 
                 nodata_str = None
                 if cog_info and cog_info.get("nodata") is not None:

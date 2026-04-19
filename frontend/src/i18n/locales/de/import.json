@@ -86,6 +86,12 @@
     "sizeLimitDynamic": "Maximal {{size}} MB pro Datei",
     "batchLimit": "Bis zu 10 Dateien pro Stapel"
   },
+  "stac": {
+    "label": "STAC-API-URL — Katalog-Stammendpunkt einfügen",
+    "connect": "Verbinden",
+    "connecting": "Verbindung zum STAC-Katalog wird hergestellt...",
+    "searching": "Elemente werden gesucht..."
+  },
   "serviceUrl": {
     "label": "Service-URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer oder OGC-API-Endpunkt",

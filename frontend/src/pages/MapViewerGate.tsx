@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
 import { LoadingState } from '@/components/layout/LoadingState';
+import { AppErrorBoundary } from '@/components/error';
 
 const MapBuilderPage = lazy(() =>
   import('./MapBuilderPage').then((m) => ({ default: m.MapBuilderPage })),
@@ -18,8 +19,10 @@ const PublicMapViewerPage = lazy(() =>
 export function MapViewerGate() {
   const isEditor = useAuthStore((s) => s.isEditor());
   return (
-    <Suspense fallback={<LoadingState />}>
-      {isEditor ? <MapBuilderPage /> : <PublicMapViewerPage />}
-    </Suspense>
+    <AppErrorBoundary>
+      <Suspense fallback={<LoadingState />}>
+        {isEditor ? <MapBuilderPage /> : <PublicMapViewerPage />}
+      </Suspense>
+    </AppErrorBoundary>
   );
 }

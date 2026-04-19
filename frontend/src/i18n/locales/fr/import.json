@@ -86,6 +86,12 @@
     "sizeLimitDynamic": "{{size}} Mo maximum par fichier",
     "batchLimit": "Jusqu'à 10 fichiers par lot"
   },
+  "stac": {
+    "label": "URL de l'API STAC — collez le point d'accès racine du catalogue",
+    "connect": "Connecter",
+    "connecting": "Connexion au catalogue STAC...",
+    "searching": "Recherche d'éléments..."
+  },
   "serviceUrl": {
     "label": "URL de service",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, ou endpoint OGC API",
