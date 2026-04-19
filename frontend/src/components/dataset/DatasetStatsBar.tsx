@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { formatNumber, formatBytes, formatRelativeDate } from '@/lib/format';
+import { formatNumber, formatRelativeDate } from '@/lib/format';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { computeRasterGsd } from '@/lib/geo-utils';
 import type { DatasetResponse } from '@/types/api';
@@ -61,13 +61,6 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
         mono: true,
       });
     }
-    if (dataset.raster?.width != null && dataset.raster?.height != null) {
-      cells.push({
-        label: t('overview.dimensions', { defaultValue: 'Dimensions' }),
-        value: `${dataset.raster.width} × ${dataset.raster.height} px`,
-        mono: true,
-      });
-    }
     if (dataset.raster?.epsg) {
       cells.push({
         label: t('overview.crs', { defaultValue: 'CRS' }),
@@ -75,23 +68,10 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
         mono: true,
       });
     }
-    if (dataset.raster?.compression) {
-      cells.push({
-        label: t('overview.compression', { defaultValue: 'Compression' }),
-        value: dataset.raster.compression,
-      });
-    }
     if (isVrt && dataset.raster?.source_count != null) {
       cells.push({
         label: t('metadata.sourceCount', { defaultValue: 'Sources' }),
         value: String(dataset.raster.source_count),
-      });
-    }
-    if (dataset.raster?.size_bytes) {
-      cells.push({
-        label: t('metadata.size', { defaultValue: 'Size' }),
-        value: formatBytes(dataset.raster.size_bytes),
-        mono: true,
       });
     }
   } else {
