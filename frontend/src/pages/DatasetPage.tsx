@@ -130,20 +130,17 @@ function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: ReturnTy
 }
 
 function TableHero({
-  dataset,
   isHeroExpanded,
   setIsHeroExpanded,
   datasetId,
   isEditor,
-  t,
 }: {
-  dataset: DatasetResponse;
   isHeroExpanded: boolean;
   setIsHeroExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   datasetId: string;
   isEditor: boolean;
-  t: typeof import('react-i18next').useTranslation extends (...a: never[]) => { t: infer T } ? T : never;
 }) {
+  const { t } = useTranslation('dataset');
   return (
     <div className="space-y-3">
       <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
@@ -492,12 +489,10 @@ export function DatasetPage() {
       {/* Hero Data Grid for table datasets (no map) */}
       {isTable && (
         <TableHero
-          dataset={dataset}
           isHeroExpanded={isHeroExpanded}
           setIsHeroExpanded={setIsHeroExpanded}
           datasetId={id!}
           isEditor={canEditData}
-          t={t}
         />
       )}
 

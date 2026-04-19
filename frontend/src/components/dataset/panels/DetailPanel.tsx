@@ -84,7 +84,6 @@ export function DetailPanel(props: DetailPanelProps) {
           summaryValue={resolveDraftValue('summary')}
           onSummaryDraftSave={(value) => stagePendingDraft('summary', value)}
           onSummaryDirtyChange={(isDirty) => handleDraftDirtyChange('summary', isDirty)}
-          datasetId={dataset.id}
         />
       </TabsContent>
 
@@ -129,7 +128,7 @@ export function DetailPanel(props: DetailPanelProps) {
       )}
 
       <TabsContent value="access" className="space-y-6">
-        <AccessTab dataset={dataset} datasetId={dataset.id} />
+        <AccessTab dataset={dataset} />
       </TabsContent>
     </Tabs>
   );

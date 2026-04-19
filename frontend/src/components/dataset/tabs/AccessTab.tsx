@@ -22,7 +22,6 @@ const SYN = {
 
 interface AccessTabProps {
   dataset: DatasetResponse;
-  datasetId: string;
 }
 
 function TileUrlSection({ tileUrl }: { tileUrl: string }) {
@@ -175,7 +174,7 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
   );
 }
 
-export function AccessTab({ dataset, datasetId }: AccessTabProps) {
+export function AccessTab({ dataset }: AccessTabProps) {
   const { t } = useTranslation('dataset');
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -218,7 +217,7 @@ export function AccessTab({ dataset, datasetId }: AccessTabProps) {
             <CardTitle className="text-base">{t('page.export')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <ExportButton datasetId={datasetId} datasetName={dataset.title} recordType={dataset.record_type} />
+            <ExportButton datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />
           </CardContent>
         </Card>
       )}
