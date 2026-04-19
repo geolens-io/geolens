@@ -115,7 +115,7 @@ export function DetailPanel(props: DetailPanelProps) {
         <TabsContent value="structure" className="space-y-6">
           <StructureTab
             datasetId={dataset.id}
-            canEdit={canEdit}
+            canEdit={canEditData}
             columnInfo={dataset.column_info}
             capability={capabilities.theme_category}
             tableName={dataset.table_name}
