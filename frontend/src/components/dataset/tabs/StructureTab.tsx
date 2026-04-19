@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { AttributeMetadataTable } from '@/components/dataset/AttributeMetadataTable';
 import { SchemaEditor } from '@/components/dataset/SchemaEditor';
-import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
 import type { DatasetEditCapability } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
@@ -49,10 +48,8 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability, table
           )}
         </CardHeader>
         <CardContent className="space-y-3">
-          <SectionCapabilityHint capability={capability} />
-          <EditableFieldShell capability={capability} testId="editable-field-shell-structure">
-            <AttributeMetadataTable datasetId={datasetId} canEdit={canEdit && capability.editable} />
-          </EditableFieldShell>
+          {canEdit && <SectionCapabilityHint capability={capability} />}
+          <AttributeMetadataTable datasetId={datasetId} canEdit={canEdit && capability.editable} />
         </CardContent>
       </Card>
 

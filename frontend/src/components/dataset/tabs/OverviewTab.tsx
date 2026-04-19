@@ -493,45 +493,6 @@ export function OverviewTab({
             </Card>
           )}
 
-          {/* Schema summary */}
-          {dataset.column_info && dataset.column_info.length > 0 && (
-            <section>
-              <div className="flex items-baseline justify-between mb-3">
-                <h2 className="text-[15px] font-semibold tracking-tight">
-                  {t('overview.schemaTitle', { defaultValue: 'Schema' })}
-                </h2>
-                <span className="font-mono text-[11px] text-muted-foreground tracking-wide">
-                  {t('overview.schemaCount', { count: dataset.column_info.length, defaultValue: '{{count}} columns' })}
-                </span>
-              </div>
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr className="bg-muted/40">
-                      <th className="text-left px-4 py-2.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-muted-foreground border-b">
-                        {t('overview.schemaColumn', { defaultValue: 'Column' })}
-                      </th>
-                      <th className="text-left px-4 py-2.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-muted-foreground border-b">
-                        {t('overview.schemaType', { defaultValue: 'Type' })}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dataset.column_info.map((col, i) => (
-                      <tr key={col.name} className={cn('hover:bg-muted/20', i < dataset.column_info!.length - 1 && 'border-b')}>
-                        <td className="px-4 py-2.5">
-                          <span className="font-mono font-medium">{col.name}</span>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <span className="font-mono text-[11.5px] text-primary tracking-wide">{col.type}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
 
         </div>
 

@@ -50,7 +50,7 @@ export function DetailPanel(props: DetailPanelProps) {
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
   const showData = isVector && !isTable;
-  const showStructure = isVector && canEditData;
+  const showStructure = isVector;
   const showSources = isVrt;
 
   const draftValues = useMemo(() => ({
