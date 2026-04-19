@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database, Mountain } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -36,9 +36,7 @@ import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
 import { MapErrorBoundary } from '@/components/error';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
-import { formatRelativeDate, formatNumber } from '@/lib/format';
-import { findElevationColumn, computeRasterGsd } from '@/lib/geo-utils';
-import { getRecordStatusLabel, getGeometryTypeLabel } from '@/i18n/labels';
+import { getRecordStatusLabel } from '@/i18n/labels';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -116,104 +114,9 @@ function scrollAndFocus(anchor: string): () => void {
 }
 
 function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: ReturnType<typeof import('react-i18next').useTranslation>['t'] }) {
-  const isTable = dataset.record_type === 'table';
-  const rasterGsd = computeRasterGsd(dataset.raster?.res_x, dataset.raster?.res_y);
-
   return (
     <>
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <RecordTypeBadge recordType={dataset.record_type} />
-        {dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type ? (
-          <>
-            {dataset.geometry_type && (
-              <>
-                <Sep />
-                <span>{getGeometryTypeLabel(t, dataset.geometry_type)}</span>
-              </>
-            )}
-            {dataset.feature_count != null && (
-              <>
-                <Sep />
-                <span>{formatNumber(dataset.feature_count)} {isTable ? (dataset.feature_count === 1 ? 'row' : 'rows') : (dataset.feature_count === 1 ? 'feature' : 'features')}</span>
-              </>
-            )}
-            {dataset.srid && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.srid}</span>
-              </>
-            )}
-            {dataset.is_3d && (
-              <>
-                <Sep />
-                <span className="font-medium">3D</span>
-                {dataset.z_min != null && dataset.z_max != null && (
-                  <span className="ml-1 text-muted-foreground">
-                    Z: {dataset.z_min.toFixed(1)} to {dataset.z_max.toFixed(1)}
-                  </span>
-                )}
-              </>
-            )}
-            {!dataset.is_3d && findElevationColumn(dataset.column_info) && (
-              <>
-                <Sep />
-                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                  <Mountain className="h-3.5 w-3.5" />
-                  {t('page.hasElevation', { defaultValue: 'Elevation' })}
-                </span>
-              </>
-            )}
-          </>
-        ) : dataset.record_type === 'raster_dataset' ? (
-          <>
-            {dataset.raster?.band_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.band_count} {dataset.raster.band_count === 1 ? t('raster.band', { defaultValue: 'band' }) : t('raster.bands').toLowerCase()}</span>
-              </>
-            )}
-            {rasterGsd != null && (
-              <>
-                <Sep />
-                <span>{rasterGsd} m</span>
-              </>
-            )}
-            {dataset.raster?.epsg && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.raster.epsg}</span>
-              </>
-            )}
-          </>
-        ) : dataset.record_type === 'vrt_dataset' ? (
-          <>
-            {dataset.raster?.vrt_type && (
-              <>
-                <Sep />
-                <span>{dataset.raster.vrt_type === 'band_stack' ? t('raster.bandStack') : t('raster.mosaic')}</span>
-              </>
-            )}
-            {dataset.raster?.source_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.source_count} {dataset.raster.source_count === 1 ? 'source' : 'sources'}</span>
-              </>
-            )}
-            {dataset.raster?.band_count != null && (
-              <>
-                <Sep />
-                <span>{dataset.raster.band_count} {dataset.raster.band_count === 1 ? 'band' : 'bands'}</span>
-              </>
-            )}
-            {dataset.raster?.epsg && (
-              <>
-                <Sep />
-                <span>EPSG:{dataset.raster.epsg}</span>
-              </>
-            )}
-          </>
-        ) : null}
-      </div>
+      <RecordTypeBadge recordType={dataset.record_type} />
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
         <Sep />
@@ -221,8 +124,6 @@ function RecordTypeStats({ dataset, t }: { dataset: DatasetResponse; t: ReturnTy
           {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
           {dataset.visibility}
         </Badge>
-        <Sep />
-        <span>Updated {formatRelativeDate(dataset.updated_at)}</span>
       </div>
     </>
   );
@@ -268,11 +169,6 @@ function TableHero({
               </p>
             </div>
           </div>
-          {dataset.feature_count != null && (
-            <Badge variant="secondary" className="self-start text-xs lg:self-center">
-              {formatNumber(dataset.feature_count)} {dataset.feature_count === 1 ? 'row' : 'rows'}
-            </Badge>
-          )}
         </div>
       </div>
       <div className="rounded-lg border shadow-sm overflow-hidden">

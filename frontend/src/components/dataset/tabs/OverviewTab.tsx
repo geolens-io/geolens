@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatDate, formatBytes, formatRelativeDate, formatResolution, formatNodata } from '@/lib/format';
+import { formatDate, formatBytes, formatResolution, formatNodata } from '@/lib/format';
 import { resolveProvenanceIdentity, formatProvenanceTime } from '@/lib/provenance-attribution';
 import {
   ChevronDown,
@@ -343,7 +343,6 @@ export function OverviewTab({
               <SideKV label={t('metadata.sourceFormat')} value={getSourceFormatLabel(t, dataset.source_format)} />
             )}
             <SideKV label={t('overview.maintainer', { defaultValue: 'Maintainer' })} value={createdByIdentity} />
-            <SideKV label={t('metadata.updated', { defaultValue: 'Updated' })} value={formatRelativeDate(dataset.updated_at)} mono />
             <SideKV label={t('overview.created', { defaultValue: 'Created' })} value={formatDate(dataset.created_at)} mono />
             {dataset.update_frequency && (
               <SideKV label={t('overview.cadence', { defaultValue: 'Cadence' })} value={dataset.update_frequency} />
@@ -354,9 +353,6 @@ export function OverviewTab({
                 value={`${bbox[0].toFixed(2)}, ${bbox[1].toFixed(2)}, ${bbox[2].toFixed(2)}, ${bbox[3].toFixed(2)}`}
                 mono
               />
-            )}
-            {dataset.srid && (
-              <SideKV label={t('overview.srid', { defaultValue: 'SRID' })} value={`${dataset.srid} (WGS 84)`} mono />
             )}
           </div>
         </CardContent>
