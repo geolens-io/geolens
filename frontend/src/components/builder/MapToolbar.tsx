@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Hand, Ruler, Sparkles } from 'lucide-react';
+import { Hand, Ruler, PanelBottomOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import {
@@ -46,11 +46,11 @@ export function MapToolbar({ aiAvailable, showChat, onToggleChat }: MapToolbarPr
     },
   ], [measureActive, toggleMeasure, t]);
 
-  // AI chat toggle — only show if AI is available AND handler is provided
-  const aiTool = aiAvailable && onToggleChat ? {
-    id: 'ai',
-    icon: Sparkles,
-    label: t('tooltips.aiChat', { defaultValue: 'Ask AI' }),
+  // Dock toggle — always available (dock has Attributes + Notes tabs even without AI)
+  const dockTool = onToggleChat ? {
+    id: 'dock',
+    icon: PanelBottomOpen,
+    label: t('tooltips.toggleDock', { defaultValue: 'Toggle dock' }),
     active: !!showChat,
     onClick: onToggleChat,
   } : null;
@@ -85,27 +85,27 @@ export function MapToolbar({ aiAvailable, showChat, onToggleChat }: MapToolbarPr
           </Tooltip>
         ))}
 
-        {aiTool && (
+        {dockTool && (
           <>
             <div className="w-px h-4 bg-border/50 mx-0.5" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={aiTool.onClick}
+                  onClick={dockTool.onClick}
                   className={cn(
                     'flex items-center justify-center h-[30px] w-[30px] transition-colors',
-                    aiTool.active
+                    dockTool.active
                       ? 'bg-signature-soft text-signature'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                   )}
-                  aria-label={aiTool.label}
-                  aria-pressed={aiTool.active}
+                  aria-label={dockTool.label}
+                  aria-pressed={dockTool.active}
                 >
-                  <aiTool.icon className="h-3.5 w-3.5" />
+                  <dockTool.icon className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
-                {aiTool.label}
+                {dockTool.label}
               </TooltipContent>
             </Tooltip>
           </>

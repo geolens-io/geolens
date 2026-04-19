@@ -89,11 +89,13 @@ async def create_map(
     name: str,
     description: str | None,
     created_by: uuid.UUID,
+    notes: str | None = None,
 ) -> Map:
     """Create a map. Does NOT commit."""
     map_obj = Map(
         name=name,
         description=description,
+        notes=notes,
         created_by=created_by,
     )
     session.add(map_obj)
@@ -514,6 +516,7 @@ async def duplicate_map(
     new_map = Map(
         name=fork_name,
         description=source.description,
+        notes=source.notes,
         center_lng=source.center_lng,
         center_lat=source.center_lat,
         zoom=source.zoom,

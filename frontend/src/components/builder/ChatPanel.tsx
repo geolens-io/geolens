@@ -65,6 +65,8 @@ interface ChatPanelProps {
   layers: MapLayerResponse[];
   layerActions: LayerActions;
   onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
+  /** Use side-by-side layout: messages left, compose right. */
+  horizontal?: boolean;
 }
 
 export function ChatPanel({
@@ -72,6 +74,7 @@ export function ChatPanel({
   layers,
   layerActions,
   onQueryResult,
+  horizontal,
 }: ChatPanelProps) {
   const {
     onFilterChange,
@@ -393,9 +396,9 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className={cn("flex h-full", horizontal ? "flex-row" : "flex-col")}>
       {/* Message list */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" role="log" aria-live="polite">
+      <div className={cn("flex-1 overflow-y-auto px-3 py-2 space-y-2", horizontal && "border-e")} role="log" aria-live="polite">
         {messages.length === 0 && (
           <div className="py-4 space-y-3">
             <p className="text-xs text-muted-foreground text-center">
@@ -509,7 +512,11 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t px-3 py-2 flex items-center gap-2">
+      <div className={cn(
+        horizontal
+          ? "w-80 border-s p-3 flex flex-col gap-2 bg-muted/20 shrink-0"
+          : "border-t px-3 py-2 flex items-center gap-2"
+      )}>
         <ChatInput
           value={input}
           onChange={setInput}
@@ -517,27 +524,47 @@ export function ChatPanel({
           layers={layers}
           disabled={isLoading}
           placeholder={t('chat.placeholder')}
+          grow={horizontal}
         />
-        {isLoading ? (
-          <Button
-            size="icon-xs"
-            variant="destructive"
-            onClick={handleCancel}
-            aria-label={t('chat.cancelTitle')}
-            title={t('chat.cancelTitle')}
-          >
-            <Square className="h-3 w-3" />
-          </Button>
+        {horizontal ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-mono text-[10px] text-muted-foreground tracking-wider">↵ {t('chat.sendTitle')}</span>
+            <div className="flex-1" />
+            {isLoading ? (
+              <Button size="sm" variant="destructive" onClick={handleCancel} className="h-7 text-xs">
+                <Square className="h-3 w-3 me-1" />
+                {t('chat.cancelTitle')}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleSend} disabled={!input.trim()} className="h-7 text-xs">
+                {t('chat.sendTitle')}
+              </Button>
+            )}
+          </div>
         ) : (
-          <Button
-            size="icon-xs"
-            onClick={handleSend}
-            disabled={!input.trim()}
-            aria-label={t('chat.sendTitle')}
-            title={t('chat.sendTitle')}
-          >
-            <SendHorizontal className="h-3 w-3" />
-          </Button>
+          <>
+            {isLoading ? (
+              <Button
+                size="icon-xs"
+                variant="destructive"
+                onClick={handleCancel}
+                aria-label={t('chat.cancelTitle')}
+                title={t('chat.cancelTitle')}
+              >
+                <Square className="h-3 w-3" />
+              </Button>
+            ) : (
+              <Button
+                size="icon-xs"
+                onClick={handleSend}
+                disabled={!input.trim()}
+                aria-label={t('chat.sendTitle')}
+                title={t('chat.sendTitle')}
+              >
+                <SendHorizontal className="h-3 w-3" />
+              </Button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -36,6 +36,7 @@ dependencies = [
     "authlib>=1.6.9",
     "sse-starlette>=3.3.2",
     "sqlglot>=29.0.0",
+    "itsdangerous>=2.2.0",
     # Security: pin transitive deps to versions without known CVEs
     # cryptography 46.0.7 patches a buffer-overflow bug affecting
     # non-contiguous buffers passed to certain APIs (Dependabot #29).

@@ -161,6 +161,7 @@ def _build_map_response(
         id=map_obj.id,
         name=map_obj.name,
         description=map_obj.description,
+        notes=map_obj.notes,
         center_lng=map_obj.center_lng,
         center_lat=map_obj.center_lat,
         zoom=map_obj.zoom,
@@ -195,7 +196,7 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
-    map_obj = await create_map(db, body.name, body.description, user.id)
+    map_obj = await create_map(db, body.name, body.description, user.id, notes=body.notes)
     await log_action(
         db,
         user_id=user.id,

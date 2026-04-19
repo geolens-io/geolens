@@ -30,6 +30,12 @@ import 'maplibre-gl/dist/maplibre-gl.css';
  * the `layer-adapters` registry and `map-sync` helpers so styling renders
  * identically in editing and viewing modes.
  */
+export interface SelectedFeature {
+  properties: Record<string, unknown>;
+  layerName: string;
+  columnInfo: { name: string; type: string }[] | null;
+}
+
 interface BuilderMapProps {
   layers: MapLayerResponse[];
   basemapStyle: string;
@@ -42,6 +48,8 @@ interface BuilderMapProps {
   };
   onMapRef?: (map: MaplibreMap | null) => void;
   showBasemapLabels?: boolean;
+  /** Called when the user clicks a map feature. `null` when clicking empty space. */
+  onFeatureSelect?: (feature: SelectedFeature | null) => void;
 }
 
 export function BuilderMap({
@@ -50,6 +58,7 @@ export function BuilderMap({
   initialViewState,
   onMapRef,
   showBasemapLabels = true,
+  onFeatureSelect,
 }: BuilderMapProps) {
   const { t } = useTranslation('builder');
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -219,21 +228,24 @@ export function BuilderMap({
 
       const hits = map.queryRenderedFeatures(e.point, { layers: queryLayers });
       if (hits.length > 0) {
+        const mappedFeatures = hits.map((feature) => {
+          const layerId = feature.layer.id.replace(/^layer-/, '');
+          const matchedLayer = layersRef.current.find((l) => l.id === layerId);
+          return {
+            properties: (feature.properties ?? {}) as Record<string, unknown>,
+            layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('common:viewer.featureFallback'),
+            columnInfo: matchedLayer?.dataset_column_info ?? null,
+          };
+        });
         setPopupInfo({
           longitude: e.lngLat.lng,
           latitude: e.lngLat.lat,
-          features: hits.map((feature) => {
-            const layerId = feature.layer.id.replace(/^layer-/, '');
-            const matchedLayer = layersRef.current.find((l) => l.id === layerId);
-            return {
-              properties: (feature.properties ?? {}) as Record<string, unknown>,
-              layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('common:viewer.featureFallback'),
-              columnInfo: matchedLayer?.dataset_column_info ?? null,
-            };
-          }),
+          features: mappedFeatures,
         });
+        onFeatureSelect?.(mappedFeatures[0]);
       } else {
         setPopupInfo(null);
+        onFeatureSelect?.(null);
       }
     };
 

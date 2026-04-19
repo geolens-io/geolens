@@ -749,6 +749,7 @@ export interface MapResponse {
   id: string;
   name: string;
   description: string | null;
+  notes: string | null;
   center_lng: number | null;
   center_lat: number | null;
   zoom: number | null;
@@ -807,6 +808,7 @@ export interface MapCreateRequest {
 export interface MapUpdateRequest {
   name?: string | null;
   description?: string | null;
+  notes?: string | null;
   center_lng?: number | null;
   center_lat?: number | null;
   zoom?: number | null;
