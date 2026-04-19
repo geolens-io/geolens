@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, Database, Globe, Satellite } from 'lucide-react';
 import { PageShell } from '@/components/layout/PageShell';
+import { AppErrorBoundary } from '@/components/error';
 import { UploadForm } from '@/components/import/UploadForm';
 import { RegisterForm } from '@/components/import/RegisterForm';
 import { ServiceUrlForm } from '@/components/import/ServiceUrlForm';
@@ -71,10 +72,12 @@ export function ImportPage() {
       {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-7 pb-12 pt-6 xl:grid-cols-[1fr_320px]">
         <div className="min-w-0">
-          {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}
-          {activeTab === 'register' && <RegisterForm />}
-          {activeTab === 'service' && <ServiceUrlForm />}
-          {activeTab === 'stac' && <StacImportForm />}
+          <AppErrorBoundary>
+            {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}
+            {activeTab === 'register' && <RegisterForm />}
+            {activeTab === 'service' && <ServiceUrlForm />}
+            {activeTab === 'stac' && <StacImportForm />}
+          </AppErrorBoundary>
         </div>
         <WorkflowRail
           mode={activeTab}

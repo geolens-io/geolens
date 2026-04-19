@@ -42,6 +42,23 @@ from app.modules.catalog.records.service import (
 router = APIRouter(prefix="/records", tags=["Records"])
 
 
+async def _check_record_read_access(
+    db: AsyncSession, record_id: uuid.UUID, user: User | None,
+) -> None:
+    """Verify the record exists and is visible to the caller. Raises 404."""
+    record = await get_record(db, record_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
+    if user is None and (
+        record.visibility != "public" or record.record_status != "published"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+        )
+
+
 async def _check_record_ownership(
     db: AsyncSession, record_id: uuid.UUID, user: User
 ) -> Record:
@@ -79,17 +96,7 @@ async def list_contacts_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> ContactListResponse:
     """List all contacts for a record."""
-    record = await get_record(db, record_id)
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
-    if user is None and (
-        record.visibility != "public" or record.record_status != "published"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
+    await _check_record_read_access(db, record_id, user)
     contacts = await list_contacts(db, record_id, skip=skip, limit=limit)
     return ContactListResponse(
         contacts=[ContactResponse.model_validate(c) for c in contacts],
@@ -202,17 +209,7 @@ async def list_keywords_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> KeywordListResponse:
     """List all keywords for a record."""
-    record = await get_record(db, record_id)
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
-    if user is None and (
-        record.visibility != "public" or record.record_status != "published"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
+    await _check_record_read_access(db, record_id, user)
     keywords = await list_keywords(db, record_id, skip=skip, limit=limit)
     return KeywordListResponse(
         keywords=[KeywordResponse.model_validate(k) for k in keywords],
@@ -292,17 +289,7 @@ async def list_distributions_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> DistributionListResponse:
     """List all distributions for a record."""
-    record = await get_record(db, record_id)
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
-    if user is None and (
-        record.visibility != "public" or record.record_status != "published"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
-        )
+    await _check_record_read_access(db, record_id, user)
     distributions = await list_distributions(db, record_id, skip=skip, limit=limit)
     return DistributionListResponse(
         distributions=[DistributionResponse.model_validate(d) for d in distributions],
