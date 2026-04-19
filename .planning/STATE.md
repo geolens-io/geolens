@@ -5,7 +5,7 @@ milestone_name: getgeolens.com Marketing Site
 status: executing
 stopped_at: Phase 222 context gathered
 last_updated: "2026-04-13T12:00:51.330Z"
-last_activity: 2026-04-18
+last_activity: 2026-04-19
 progress:
   total_phases: 15
   completed_phases: 14
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-18 - Completed quick task 260418-q6x: full post-implementation engineering audit
+Last activity: 2026-04-19 - Completed quick task 260419-pi8: clean up redundant data on dataset details page
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -110,6 +110,7 @@ None yet.
 | 260414-cw3 | Execute populating the demo data and maps with scripts/demo | 2026-04-14 | a5f29428 |  | [260414-cw3-execute-populating-the-demo-data-and-map](./quick/260414-cw3-execute-populating-the-demo-data-and-map/) |
 | 260418-d1g | implement OGC API import support | 2026-04-18 | 5361c8c5 | Verified | [260418-d1g-implement-ogc-api-import-support](./quick/260418-d1g-implement-ogc-api-import-support/) |
 | 260418-q6x | full post-implementation engineering audit | 2026-04-18 | 1033ef79 | Needs Review | [260418-q6x-full-post-implementation-engineering-aud](./quick/260418-q6x-full-post-implementation-engineering-aud/) |
+| 260419-pi8 | clean up redundant data on dataset details page | 2026-04-19 | 8e625822 | Verified | [260419-pi8-clean-up-redundant-data-on-dataset-detai](./quick/260419-pi8-clean-up-redundant-data-on-dataset-detai/) |
 
 ## Session Continuity
 
