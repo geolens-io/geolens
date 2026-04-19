@@ -53,11 +53,13 @@ class MapLayerInput(BaseModel):
 class MapCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
+    notes: str | None = None
 
 
 class MapUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
+    notes: str | None = None
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")
@@ -127,6 +129,7 @@ class MapResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
+    notes: str | None = None
     center_lng: float | None
     center_lat: float | None
     zoom: float | None

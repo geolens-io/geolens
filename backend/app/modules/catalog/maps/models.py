@@ -33,6 +33,7 @@ class Map(Base):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Viewport state
     center_lng: Mapped[float | None] = mapped_column(Float, nullable=True)

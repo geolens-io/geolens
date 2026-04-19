@@ -10,6 +10,8 @@ interface ChatInputProps {
   layers: MapLayerResponse[];
   disabled?: boolean;
   placeholder?: string;
+  /** Fill the container height instead of auto-resizing to content. */
+  grow?: boolean;
 }
 
 interface TriggerState {
@@ -58,6 +60,7 @@ export function ChatInput({
   layers,
   disabled = false,
   placeholder,
+  grow = false,
 }: ChatInputProps) {
   const { t } = useTranslation('builder');
   const [triggerState, setTriggerState] = useState<TriggerState | null>(null);
@@ -103,13 +106,14 @@ export function ChatInput({
     setSelectedIndex(0);
   }, [triggerState?.query]);
 
-  // Auto-resize textarea
+  // Auto-resize textarea (skip in grow mode — textarea fills container)
   useEffect(() => {
+    if (grow) return;
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
-  }, [value]);
+  }, [value, grow]);
 
   const updateTrigger = useCallback(() => {
     const el = textareaRef.current;
@@ -194,7 +198,7 @@ export function ChatInput({
   }
 
   return (
-    <div className="relative flex-1">
+    <div className={grow ? "relative flex-1 flex flex-col min-h-0" : "relative flex-1"}>
       {dropdownOpen && (
         <MentionDropdown
           id={listboxId}
@@ -213,15 +217,19 @@ export function ChatInput({
         onClick={handleClick}
         placeholder={placeholder ?? t('chat.mentionHint')}
         disabled={disabled}
-        rows={1}
+        rows={grow ? undefined : 1}
         role="combobox"
         aria-expanded={dropdownOpen}
         aria-controls={dropdownOpen ? listboxId : undefined}
         aria-activedescendant={activeOptionId}
         aria-autocomplete="list"
         aria-haspopup="listbox"
-        className="flex w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-        style={{ minHeight: '2rem' }}
+        className={
+          grow
+            ? "flex-1 min-h-0 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+            : "flex w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+        }
+        style={grow ? undefined : { minHeight: '2rem' }}
       />
     </div>
   );

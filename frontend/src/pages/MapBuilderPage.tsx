@@ -1,16 +1,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Save, Loader2, Download, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, MoreHorizontal, GripVertical } from 'lucide-react';
+import { Save, Loader2, Download, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, MoreHorizontal, GripVertical, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
-import { BuilderMap } from '@/components/builder/BuilderMap';
+import { BuilderMap, type SelectedFeature } from '@/components/builder/BuilderMap';
 import { LayerPanel } from '@/components/builder/LayerPanel';
 
 import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
 import { ShareDialog } from '@/components/builder/SharePanel';
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
+import type { LayerActions } from '@/components/builder/ChatPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { MapToolbar } from '@/components/builder/MapToolbar';
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
@@ -61,10 +62,12 @@ const SIDEBAR_MAX = 600;
 function ChatPanelContent({
   mapId,
   layers,
+  layerActions,
   dialogs,
 }: {
   mapId: string;
   layers: ReturnType<typeof useBuilderLayers>;
+  layerActions: LayerActions;
   dialogs: ReturnType<typeof useBuilderDialogs>;
 }) {
   const { t } = useTranslation('builder');
@@ -86,16 +89,7 @@ function ChatPanelContent({
           <ChatPanel
             mapId={mapId}
             layers={layers.localLayers}
-            layerActions={{
-              onFilterChange: layers.handleFilterChange,
-              onPaintChange: layers.handlePaintChange,
-              onStyleConfigChange: layers.handleStyleConfigChange,
-              onLabelChange: layers.handleLabelChange,
-              onToggleVisibility: layers.handleToggleVisibility,
-              onAddDataset: layers.handleAddDataset,
-              onRemove: layers.handleAiRemoveLayer,
-              onOpacityChange: layers.handleOpacityChange,
-            }}
+            layerActions={layerActions}
             onQueryResult={layers.handleQueryResult}
           />
         </Suspense>
@@ -224,6 +218,24 @@ export function MapBuilderPage() {
   // mapInstance state duplicates the ref — needed to trigger re-renders for
   // widgetCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
+  const [dockTab, setDockTab] = useState<'chat' | 'attributes' | 'notes'>('attributes');
+  const [dockNotes, setDockNotes] = useState('');
+  const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
+
+  // Initialize notes from server data, falling back to localStorage for migration
+  useEffect(() => {
+    if (!mapData) return;
+    if (mapData.notes) {
+      setDockNotes(mapData.notes);
+      try { localStorage.removeItem(`geolens-map-notes-${id}`); } catch {}
+    } else {
+      try {
+        const local = localStorage.getItem(`geolens-map-notes-${id}`);
+        if (local) setDockNotes(local);
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
+  }, [mapData?.notes, id]);
 
   // Resizable sidebar state (persisted to localStorage)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -292,6 +304,7 @@ export function MapBuilderPage() {
     showBasemapLabels: layers.showBasemapLabels,
     localName: layers.localName,
     localDescription: layers.localDescription,
+    dockNotes,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
@@ -312,6 +325,17 @@ export function MapBuilderPage() {
 
   const { byAnchor } = usePartitionedWidgets();
   const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
+  const chatLayerActions = useMemo(() => ({
+    onFilterChange: layers.handleFilterChange,
+    onPaintChange: layers.handlePaintChange,
+    onStyleConfigChange: layers.handleStyleConfigChange,
+    onLabelChange: layers.handleLabelChange,
+    onToggleVisibility: layers.handleToggleVisibility,
+    onAddDataset: layers.handleAddDataset,
+    onRemove: layers.handleAiRemoveLayer,
+    onOpacityChange: layers.handleOpacityChange,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- all handlers are stable refs from useBuilderLayers
+  }), [layers.handleFilterChange, layers.handlePaintChange, layers.handleStyleConfigChange, layers.handleLabelChange, layers.handleToggleVisibility, layers.handleAddDataset, layers.handleAiRemoveLayer, layers.handleOpacityChange]);
 
   const handleToggleChat = useCallback(
     () => dialogs.setShowChat((v) => !v),
@@ -356,7 +380,21 @@ export function MapBuilderPage() {
   const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Sub-header breadcrumb */}
+      <div className="border-b bg-accent/30 shrink-0">
+        <div className="h-10 flex items-center gap-3.5 px-5 font-mono text-[11.5px] tracking-wide text-muted-foreground uppercase">
+          <Link to="/maps" className="hover:text-foreground transition-colors">
+            {t('common:nav.maps', { defaultValue: 'Maps' })}
+          </Link>
+          <span className="opacity-40">/</span>
+          <span className="font-sans text-[13px] font-medium text-foreground normal-case tracking-normal truncate">
+            {layers.localName}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
       {/* Mobile sidebar as Sheet */}
       {isMobile && (
         <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
@@ -485,6 +523,7 @@ export function MapBuilderPage() {
             initialViewState={layers.initialViewState}
             onMapRef={handleMapRef}
             showBasemapLabels={layers.showBasemapLabels}
+            onFeatureSelect={setSelectedFeature}
           />
         </MapErrorBoundary>
         {layers.ephemeralResult && (
@@ -577,10 +616,97 @@ export function MapBuilderPage() {
         </TooltipProvider>
       </div>
 
-      {/* Chat dock (desktop — bottom of map column) */}
+      {/* Chat dock (desktop — bottom of map column, tabbed) */}
       {!isCompact && dialogs.showChat && id && (
-        <div className="border-t bg-background shrink-0 flex flex-col overflow-hidden" style={{ height: 220 }}>
-          <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
+        <div className="border-t bg-background shrink-0 flex flex-col overflow-hidden" style={{ height: 240 }}>
+          {/* Tab bar */}
+          <div className="border-b bg-accent/30 flex items-center px-3.5 shrink-0">
+            <div className="flex gap-0.5 py-1.5">
+              {(['chat', 'attributes', 'notes'] as const)
+                .filter((tab) => tab !== 'chat' || aiAvailable)
+                .map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={cn(
+                    "px-2.5 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
+                    dockTab === tab
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setDockTab(tab)}
+                >
+                  {tab === 'chat' && <Sparkles className="h-3 w-3" />}
+                  {tab === 'chat' && t('dock.askAi')}
+                  {tab === 'attributes' && t('dock.attributes')}
+                  {tab === 'notes' && t('dock.notes')}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1" />
+            {dockTab === 'chat' && (
+              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
+                {t('chat.experimental')}
+              </Badge>
+            )}
+            <Button variant="ghost" size="icon-xs" onClick={() => dialogs.setShowChat(false)} className="ms-2" aria-label={t('tooltips.closeChat')}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+
+          {/* Tab content */}
+          {dockTab === 'chat' && (
+            <div className="flex-1 overflow-hidden">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
+                <ChatPanel
+                  horizontal
+                  mapId={id}
+                  layers={layers.localLayers}
+                  layerActions={chatLayerActions}
+                  onQueryResult={layers.handleQueryResult}
+                />
+              </Suspense>
+            </div>
+          )}
+          {dockTab === 'attributes' && (
+            selectedFeature ? (
+              <div className="flex-1 overflow-auto">
+                <div className="px-3.5 py-2 border-b bg-muted/30 flex items-center gap-2">
+                  <span className="text-xs font-medium truncate">{selectedFeature.layerName}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    {Object.keys(selectedFeature.properties).length} {Object.keys(selectedFeature.properties).length === 1 ? 'field' : 'fields'}
+                  </span>
+                </div>
+                <div className="divide-y">
+                  {Object.entries(selectedFeature.properties).map(([key, value]) => (
+                    <div key={key} className="grid grid-cols-[minmax(100px,1fr)_2fr] text-xs">
+                      <span className="px-3.5 py-1.5 font-mono text-muted-foreground truncate">{key}</span>
+                      <span className="px-3.5 py-1.5 truncate border-s" title={String(value ?? '')}>
+                        {value == null ? <span className="text-muted-foreground/50 italic">null</span> : String(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                {t('dock.attributesEmpty')}
+              </div>
+            )
+          )}
+          {dockTab === 'notes' && (
+            <div className="flex-1 p-3 min-h-0">
+              <textarea
+                className="w-full h-full resize-none rounded-md border border-input bg-transparent p-3 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                placeholder={t('dock.notesPlaceholder')}
+                value={dockNotes}
+                onChange={(e) => {
+                  setDockNotes(e.target.value);
+                  layers.setHasUnsavedChanges(true);
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
       </div>
@@ -593,10 +719,12 @@ export function MapBuilderPage() {
               <SheetTitle>{t('aiChat')}</SheetTitle>
               <SheetDescription>{t('tooltips.aiChat')}</SheetDescription>
             </SheetHeader>
-            <ChatPanelContent mapId={id} layers={layers} dialogs={dialogs} />
+            <ChatPanelContent mapId={id} layers={layers} layerActions={chatLayerActions} dialogs={dialogs} />
           </SheetContent>
         </Sheet>
       )}
+
+      </div>{/* close flex flex-1 min-h-0 wrapper */}
 
       {/* Add Data dialog */}
       <Dialog open={dialogs.showAddData} onOpenChange={dialogs.setShowAddData}>

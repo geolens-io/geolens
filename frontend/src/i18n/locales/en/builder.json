@@ -382,6 +382,14 @@
     "deleteFeature": "Delete feature"
   },
   "actions": {
-    "save": "Save"
+    "save": "Save",
+    "export": "Export"
+  },
+  "dock": {
+    "askAi": "Ask AI",
+    "attributes": "Attributes",
+    "notes": "Notes",
+    "attributesEmpty": "Select a feature on the map to view its attributes.",
+    "notesPlaceholder": "Add notes about this map..."
   }
 }

@@ -23,12 +23,8 @@ export function useBuilderDialogs(aiAvailable: boolean | undefined, isMobile = f
     if (isMobile) setSidebarCollapsedRaw(true);
   }, [isMobile]);
 
-  // Close chat panel if AI becomes unavailable
-  useEffect(() => {
-    if (!aiAvailable && showChat) {
-      setShowChat(false);
-    }
-  }, [aiAvailable, showChat]);
+  // If AI becomes unavailable while the dock is open on the chat tab,
+  // the dock stays open — Attributes and Notes tabs are still useful.
 
   return {
     showChat, setShowChat,
