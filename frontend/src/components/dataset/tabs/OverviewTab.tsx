@@ -173,9 +173,9 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
 }
 
 /** Keywords/tags sidebar card */
-function KeywordsSidebarCard({ datasetId }: { datasetId: string }) {
+function KeywordsSidebarCard({ recordId }: { recordId: string }) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useKeywords(datasetId);
+  const { data, isLoading } = useKeywords(recordId);
 
   if (isLoading || !data || data.keywords.length === 0) return null;
 
@@ -419,7 +419,7 @@ export function OverviewTab({
       )}
 
       {/* Tags / Keywords */}
-      <KeywordsSidebarCard datasetId={dataset.id} />
+      <KeywordsSidebarCard recordId={dataset.record_id} />
 
       {/* Related Datasets */}
       <RelatedDatasets datasetId={dataset.id} />
