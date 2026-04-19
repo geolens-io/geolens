@@ -69,6 +69,13 @@ export function StacImportForm() {
     const trimmed = url.trim();
     if (!trimmed) return;
 
+    try {
+      new URL(trimmed);
+    } catch {
+      setError('Please enter a valid URL (e.g. https://earth-search.aws.element84.com/v1)');
+      return;
+    }
+
     setStep('connecting');
     setError(null);
 

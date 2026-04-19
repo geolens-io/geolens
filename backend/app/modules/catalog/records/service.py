@@ -6,7 +6,7 @@ the single authoritative metadata path. No dual-write to legacy JSONB/tags colum
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import (
@@ -49,6 +49,13 @@ async def list_contacts(
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+async def count_contacts(session: AsyncSession, record_id: uuid.UUID) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(RecordContact).where(RecordContact.record_id == record_id)
+    )
+    return result.scalar_one()
 
 
 async def create_contact(
@@ -141,6 +148,13 @@ async def list_keywords(
     return list(result.scalars().all())
 
 
+async def count_keywords(session: AsyncSession, record_id: uuid.UUID) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(RecordKeyword).where(RecordKeyword.record_id == record_id)
+    )
+    return result.scalar_one()
+
+
 async def create_keyword(
     session: AsyncSession,
     record_id: uuid.UUID,
@@ -209,6 +223,13 @@ async def list_distributions(
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+async def count_distributions(session: AsyncSession, record_id: uuid.UUID) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(RecordDistribution).where(RecordDistribution.record_id == record_id)
+    )
+    return result.scalar_one()
 
 
 async def create_distribution(

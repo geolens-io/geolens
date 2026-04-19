@@ -27,6 +27,9 @@ from app.modules.catalog.records.schemas import (
 from app.modules.catalog.records.service import (
     create_contact,
     create_distribution,
+    count_contacts,
+    count_distributions,
+    count_keywords,
     create_keyword,
     delete_contact,
     delete_distribution,
@@ -97,10 +100,10 @@ async def list_contacts_endpoint(
 ) -> ContactListResponse:
     """List all contacts for a record."""
     await _check_record_read_access(db, record_id, user)
-    contacts = await list_contacts(db, record_id, skip=skip, limit=limit)
+    contacts, total = await list_contacts(db, record_id, skip=skip, limit=limit), await count_contacts(db, record_id)
     return ContactListResponse(
         contacts=[ContactResponse.model_validate(c) for c in contacts],
-        total=len(contacts),
+        total=total,
     )
 
 
@@ -210,10 +213,10 @@ async def list_keywords_endpoint(
 ) -> KeywordListResponse:
     """List all keywords for a record."""
     await _check_record_read_access(db, record_id, user)
-    keywords = await list_keywords(db, record_id, skip=skip, limit=limit)
+    keywords, total = await list_keywords(db, record_id, skip=skip, limit=limit), await count_keywords(db, record_id)
     return KeywordListResponse(
         keywords=[KeywordResponse.model_validate(k) for k in keywords],
-        total=len(keywords),
+        total=total,
     )
 
 
@@ -290,10 +293,10 @@ async def list_distributions_endpoint(
 ) -> DistributionListResponse:
     """List all distributions for a record."""
     await _check_record_read_access(db, record_id, user)
-    distributions = await list_distributions(db, record_id, skip=skip, limit=limit)
+    distributions, total = await list_distributions(db, record_id, skip=skip, limit=limit), await count_distributions(db, record_id)
     return DistributionListResponse(
         distributions=[DistributionResponse.model_validate(d) for d in distributions],
-        total=len(distributions),
+        total=total,
     )
 
 
