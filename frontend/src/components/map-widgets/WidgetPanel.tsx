@@ -30,7 +30,7 @@ export function WidgetPanel({ def, children }: WidgetPanelProps) {
         <span className="text-xs font-medium flex-1">{t(def.labelKey)}</span>
         <button
           onClick={() => useWidgetStore.getState().close(def.id)}
-          className="shrink-0 rounded p-0.5 hover:bg-accent/50 text-foreground/50 hover:text-foreground transition-colors"
+          className="shrink-0 rounded p-1 hover:bg-accent/50 text-foreground/50 hover:text-foreground transition-colors min-h-6 min-w-6 flex items-center justify-center"
           aria-label={t('widgets.closeWidget')}
         >
           <X className="h-3 w-3" />

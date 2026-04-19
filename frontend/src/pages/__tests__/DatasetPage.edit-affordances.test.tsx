@@ -27,6 +27,11 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useUpdateDataset: vi.fn(),
   useUpdatePublicationStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useValidation: () => ({ data: { errors: [], warnings: [] } }),
+  useDatasetVersions: () => ({ data: { versions: [], total: 0 }, isLoading: false }),
+  useAttributes: () => ({ data: [] }),
+  useUpdateAttribute: () => ({ mutateAsync: vi.fn() }),
+  useDatasetHistory: () => ({ data: { history: [], total: 0 }, isLoading: false }),
+  useDatasetRows: () => ({ data: { rows: [], total: 0 }, isLoading: false }),
 }));
 
 vi.mock('@/hooks/use-settings', () => ({

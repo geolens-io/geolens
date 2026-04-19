@@ -95,10 +95,12 @@ describe('parseFilterExpression', () => {
   });
 
   it('preserves the exact opaque raw value without modification', () => {
+    // Use an expression with a sub-expression the parser cannot handle:
+    // ['step', ...] is not parseable because e[1] is not ['get', field]
     const complexExpr: FilterSpecification = [
       'all',
       ['has', 'name'],
-      ['match', ['get', 'type'], ['road', 'highway'], true, false],
+      ['step', ['zoom'], false, 10, true],
     ] as FilterSpecification;
     const result = parseFilterExpression(complexExpr);
     expect(result.kind).toBe('opaque');
@@ -197,7 +199,7 @@ describe('opaque roundtrip', () => {
     const originalExpr: FilterSpecification = [
       'all',
       ['has', 'name'],
-      ['match', ['get', 'type'], ['road', 'highway'], true, false],
+      ['step', ['zoom'], false, 10, true],
     ] as FilterSpecification;
 
     const parseResult = parseFilterExpression(originalExpr);

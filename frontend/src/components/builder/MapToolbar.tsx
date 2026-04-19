@@ -51,64 +51,69 @@ export function MapToolbar({ aiAvailable, showChat, onToggleChat }: MapToolbarPr
     id: 'dock',
     icon: PanelBottomOpen,
     label: t('tooltips.toggleDock', { defaultValue: 'Toggle dock' }),
+    shortcut: 'D',
     active: !!showChat,
     onClick: onToggleChat,
   } : null;
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="absolute top-3 left-3 z-10 flex items-center bg-background/95 backdrop-blur-sm border rounded-lg shadow-md overflow-hidden">
-        {tools.map((tool, i) => (
-          <Tooltip key={tool.id}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={tool.onClick}
-                className={cn(
-                  'flex items-center justify-center h-[30px] w-[30px] transition-colors',
-                  tool.active
-                    ? 'bg-signature-soft text-signature'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  i > 0 && 'border-l border-border/50',
-                )}
-                aria-label={tool.label}
-                aria-pressed={tool.active}
-              >
-                <tool.icon className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">
-              {tool.label}
-              {tool.shortcut && (
-                <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{tool.shortcut}</span>
-              )}
-            </TooltipContent>
-          </Tooltip>
-        ))}
-
-        {dockTool && (
-          <>
-            <div className="w-px h-4 bg-border/50 mx-0.5" />
-            <Tooltip>
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
+        {/* Tool mode buttons (Pan / Measure) */}
+        <div className="flex items-center bg-background/95 backdrop-blur-sm border rounded-lg shadow-md overflow-hidden">
+          {tools.map((tool, i) => (
+            <Tooltip key={tool.id}>
               <TooltipTrigger asChild>
                 <button
-                  onClick={dockTool.onClick}
+                  onClick={tool.onClick}
                   className={cn(
-                    'flex items-center justify-center h-[30px] w-[30px] transition-colors',
-                    dockTool.active
+                    'flex items-center justify-center h-8 w-8 transition-colors',
+                    tool.active
                       ? 'bg-signature-soft text-signature'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    i > 0 && 'border-l border-border/50',
                   )}
-                  aria-label={dockTool.label}
-                  aria-pressed={dockTool.active}
+                  aria-label={tool.label}
+                  aria-pressed={tool.active}
                 >
-                  <dockTool.icon className="h-3.5 w-3.5" />
+                  <tool.icon className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
-                {dockTool.label}
+                {tool.label}
+                {tool.shortcut && (
+                  <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{tool.shortcut}</span>
+                )}
               </TooltipContent>
             </Tooltip>
-          </>
+          ))}
+        </div>
+
+        {/* Dock toggle — separate from tool modes (panel visibility, not a map tool) */}
+        {dockTool && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={dockTool.onClick}
+                className={cn(
+                  'flex items-center justify-center h-8 w-8 rounded-lg bg-background/95 backdrop-blur-sm border shadow-md transition-colors',
+                  dockTool.active
+                    ? 'bg-signature-soft text-signature'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+                aria-label={dockTool.label}
+                aria-pressed={dockTool.active}
+              >
+                <dockTool.icon className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {dockTool.label}
+              {dockTool.shortcut && (
+                <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{dockTool.shortcut}</span>
+              )}
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     </TooltipProvider>

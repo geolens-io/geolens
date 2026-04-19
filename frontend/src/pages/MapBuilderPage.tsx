@@ -5,7 +5,7 @@ import { Save, Loader2, Download, X, PanelLeftClose, PanelLeftOpen, Share2, Copy
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
-import { BuilderMap, type SelectedFeature } from '@/components/builder/BuilderMap';
+import { BuilderMap } from '@/components/builder/BuilderMap';
 import { LayerPanel } from '@/components/builder/LayerPanel';
 
 import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
@@ -76,7 +76,7 @@ function ChatPanelContent({
       <div className="p-3 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-medium">{t('aiChat')}</h3>
-          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
+          <Badge variant="outline" className={`text-2xs px-1.5 py-0 ${experimentalBadgeColor}`}>
             {t('chat.experimental')}
           </Badge>
         </div>
@@ -130,7 +130,7 @@ function SidebarHeader({
           title={localName}
         />
         {visibility && (
-          <Badge variant="outline" className="flex items-center gap-1 text-[10px] px-1.5 py-0 shrink-0">
+          <Badge variant="outline" className="flex items-center gap-1 text-2xs px-1.5 py-0 shrink-0">
             <VisibilityIcon visibility={visibility} />
             {getVisibilityLabel(t, visibility)}
           </Badge>
@@ -218,9 +218,8 @@ export function MapBuilderPage() {
   // mapInstance state duplicates the ref — needed to trigger re-renders for
   // widgetCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
-  const [dockTab, setDockTab] = useState<'chat' | 'attributes' | 'notes'>('attributes');
+  const [dockTab, setDockTab] = useState<'chat' | 'notes'>('notes');
   const [dockNotes, setDockNotes] = useState('');
-  const [selectedFeature, setSelectedFeature] = useState<SelectedFeature | null>(null);
 
   // Initialize notes from server data, falling back to localStorage for migration
   useEffect(() => {
@@ -383,12 +382,12 @@ export function MapBuilderPage() {
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
       {/* Sub-header breadcrumb */}
       <div className="border-b bg-accent/30 shrink-0">
-        <div className="h-10 flex items-center gap-3.5 px-5 font-mono text-[11.5px] tracking-wide text-muted-foreground uppercase">
-          <Link to="/maps" className="hover:text-foreground transition-colors">
+        <div className="h-10 flex items-center gap-3.5 px-5 font-mono text-xs tracking-wide text-muted-foreground uppercase">
+          <Link to="/maps" className="hover:text-foreground transition-colors min-h-[44px] flex items-center">
             {t('common:nav.maps', { defaultValue: 'Maps' })}
           </Link>
           <span className="opacity-40">/</span>
-          <span className="font-sans text-[13px] font-medium text-foreground normal-case tracking-normal truncate">
+          <span className="font-sans text-sm font-medium text-foreground normal-case tracking-normal truncate">
             {layers.localName}
           </span>
         </div>
@@ -523,7 +522,6 @@ export function MapBuilderPage() {
             initialViewState={layers.initialViewState}
             onMapRef={handleMapRef}
             showBasemapLabels={layers.showBasemapLabels}
-            onFeatureSelect={setSelectedFeature}
           />
         </MapErrorBoundary>
         {layers.ephemeralResult && (
@@ -552,12 +550,12 @@ export function MapBuilderPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
+                  className="h-8 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
                   onClick={save.handleExportPNG}
                   aria-label={t('tooltips.downloadPng')}
                 >
                   <Download className="h-3 w-3" />
-                  {t('actions.export', { defaultValue: 'Export' })}
+                  <span className="hidden sm:inline">{t('tooltips.downloadPng')}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">{t('tooltips.downloadPng')}</TooltipContent>
@@ -568,12 +566,12 @@ export function MapBuilderPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
+                    className="h-8 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
                     onClick={() => dialogs.setShowShare(true)}
                     aria-label={t('tooltips.share')}
                   >
                     <Share2 className="h-3 w-3" />
-                    {t('tooltips.share')}
+                    <span className="hidden sm:inline">{t('share.title')}</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('tooltips.share')}</TooltipContent>
@@ -585,7 +583,7 @@ export function MapBuilderPage() {
                   variant={layers.hasUnsavedChanges ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "h-7 text-xs gap-1 shadow-sm relative",
+                    "h-8 text-xs gap-1 shadow-sm relative",
                     !layers.hasUnsavedChanges && "bg-background/95 backdrop-blur-sm",
                   )}
                   onClick={save.handleSave}
@@ -597,7 +595,7 @@ export function MapBuilderPage() {
                   ) : (
                     <Save className="h-3 w-3" />
                   )}
-                  {t('actions.save')}
+                  <span className="hidden sm:inline">{t('actions.save')}</span>
                   {layers.hasUnsavedChanges && (
                     <>
                       <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
@@ -618,11 +616,11 @@ export function MapBuilderPage() {
 
       {/* Chat dock (desktop — bottom of map column, tabbed) */}
       {!isCompact && dialogs.showChat && id && (
-        <div className="border-t bg-background shrink-0 flex flex-col overflow-hidden" style={{ height: 240 }}>
+        <div className="border-t bg-background shrink-0 flex flex-col overflow-hidden h-60">
           {/* Tab bar */}
           <div className="border-b bg-accent/30 flex items-center px-3.5 shrink-0">
             <div className="flex gap-0.5 py-1.5">
-              {(['chat', 'attributes', 'notes'] as const)
+              {(['chat', 'notes'] as const)
                 .filter((tab) => tab !== 'chat' || aiAvailable)
                 .map((tab) => (
                 <button
@@ -638,14 +636,13 @@ export function MapBuilderPage() {
                 >
                   {tab === 'chat' && <Sparkles className="h-3 w-3" />}
                   {tab === 'chat' && t('dock.askAi')}
-                  {tab === 'attributes' && t('dock.attributes')}
                   {tab === 'notes' && t('dock.notes')}
                 </button>
               ))}
             </div>
             <div className="flex-1" />
             {dockTab === 'chat' && (
-              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${experimentalBadgeColor}`}>
+              <Badge variant="outline" className={`text-2xs px-1.5 py-0 ${experimentalBadgeColor}`}>
                 {t('chat.experimental')}
               </Badge>
             )}
@@ -667,32 +664,6 @@ export function MapBuilderPage() {
                 />
               </Suspense>
             </div>
-          )}
-          {dockTab === 'attributes' && (
-            selectedFeature ? (
-              <div className="flex-1 overflow-auto">
-                <div className="px-3.5 py-2 border-b bg-muted/30 flex items-center gap-2">
-                  <span className="text-xs font-medium truncate">{selectedFeature.layerName}</span>
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    {Object.keys(selectedFeature.properties).length} {Object.keys(selectedFeature.properties).length === 1 ? 'field' : 'fields'}
-                  </span>
-                </div>
-                <div className="divide-y">
-                  {Object.entries(selectedFeature.properties).map(([key, value]) => (
-                    <div key={key} className="grid grid-cols-[minmax(100px,1fr)_2fr] text-xs">
-                      <span className="px-3.5 py-1.5 font-mono text-muted-foreground truncate">{key}</span>
-                      <span className="px-3.5 py-1.5 truncate border-s" title={String(value ?? '')}>
-                        {value == null ? <span className="text-muted-foreground/50 italic">null</span> : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-                {t('dock.attributesEmpty')}
-              </div>
-            )
           )}
           {dockTab === 'notes' && (
             <div className="flex-1 p-3 min-h-0">

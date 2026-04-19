@@ -318,6 +318,10 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
+  /* Typography: micro text (badges, readouts, chips) */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 0.875rem;
+
   /* Animation */
   --animate-fade-in: fade-in 200ms ease-out both;
   --animate-shimmer: shimmer 1.5s ease-in-out infinite;

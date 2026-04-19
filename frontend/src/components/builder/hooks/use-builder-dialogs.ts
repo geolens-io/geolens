@@ -18,9 +18,15 @@ export function useBuilderDialogs(aiAvailable: boolean | undefined, isMobile = f
     }
   }, [isMobile]);
 
-  // Force collapsed when switching to mobile viewport
+  // Auto-collapse on mobile, auto-expand when returning to desktop
+  // (unless user explicitly collapsed via button — tracked by localStorage)
   useEffect(() => {
-    if (isMobile) setSidebarCollapsedRaw(true);
+    if (isMobile) {
+      setSidebarCollapsedRaw(true);
+    } else {
+      const persisted = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+      if (persisted !== 'true') setSidebarCollapsedRaw(false);
+    }
   }, [isMobile]);
 
   // If AI becomes unavailable while the dock is open on the chat tab,

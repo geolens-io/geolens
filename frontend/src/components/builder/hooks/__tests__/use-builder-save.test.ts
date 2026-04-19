@@ -88,9 +88,11 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     showBasemapLabels: true,
     localName: 'Test Map',
     localDescription: 'A test',
+    dockNotes: '',
     mapInstanceRef: { current: createMockMap() } as SaveState['mapInstanceRef'],
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
+    hasThumbnail: true,
     ...overrides,
   };
 }

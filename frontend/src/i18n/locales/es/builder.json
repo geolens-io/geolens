@@ -237,8 +237,23 @@
       "addLabels": "Agregar etiquetas para \"{{name}}\"",
       "filterByAttribute": "Filtrar \"{{name}}\" usando un campo",
       "styleAllLayers": "Aplicar un tema de color a todas las capas",
-      "addDataset": "Agregar otro conjunto de datos a este mapa"
-    }
+      "addDataset": "Agregar otro conjunto de datos a este mapa",
+      "adjustOpacity": "Adjust opacity for {{name}}",
+      "areaLabels": "Add area labels for {{name}}",
+      "heatmap": "Show {{name}} as a heatmap"
+    },
+    "commands": {
+      "add": "Add a dataset as a new layer",
+      "filter": "Filter features by attribute values",
+      "label": "Add or configure feature labels",
+      "query": "Query and analyze layer data",
+      "style": "Change layer colors, opacity, or visual style"
+    },
+    "commandsDropdown": "Commands",
+    "layersDropdown": "Layers",
+    "mentionHint": "Type @ to mention a layer, / for commands",
+    "undo": "Undo",
+    "undoApplied": "Changes undone"
   },
   "basemap": {
     "title": "Mapa base",
@@ -271,7 +286,7 @@
   },
   "tooltips": {
     "aiChat": "Chat de IA",
-    "share": "Compartir",
+    "share": "Share or embed this map",
     "mapInfo": "Info del mapa",
     "downloadPng": "Descargar PNG",
     "duplicateMap": "Duplicar mapa",
@@ -281,6 +296,7 @@
     "widgets": "Widgets",
     "moreActions": "Más acciones",
     "allSaved": "Todos los cambios guardados",
+    "toggleDock": "Toggle dock (D)",
     "closeChat": "Cerrar chat"
   },
   "toasts": {
@@ -382,6 +398,12 @@
     "deleteFeature": "Eliminar entidad"
   },
   "actions": {
-    "save": "Guardar"
+    "save": "Guardar",
+    "export": "Export"
+  },
+  "dock": {
+    "askAi": "Ask AI",
+    "notes": "Notes",
+    "notesPlaceholder": "Add notes about this map..."
   }
 }

@@ -23,21 +23,21 @@ describe('useBuilderDialogs', () => {
     expect(result.current.showChat).toBe(true);
   });
 
-  it('closes chat when AI becomes unavailable', () => {
+  it('keeps dock open when AI becomes unavailable (notes tab still useful)', () => {
     let aiAvailable = true;
     const { result, rerender } = renderHook(() => useBuilderDialogs(aiAvailable));
 
-    // Open chat
+    // Open dock
     act(() => {
       result.current.setShowChat(true);
     });
     expect(result.current.showChat).toBe(true);
 
-    // AI becomes unavailable
+    // AI becomes unavailable — dock stays open (Notes tab still useful)
     aiAvailable = false;
     rerender();
 
-    expect(result.current.showChat).toBe(false);
+    expect(result.current.showChat).toBe(true);
   });
 
   it('setSidebarCollapsed toggles sidebar state', () => {
