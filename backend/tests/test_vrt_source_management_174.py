@@ -752,7 +752,8 @@ class TestRegenerateVrtTask:
                     return_value=mock_meta,
                 ),
                 patch(
-                    "app.processing.ingest.tasks_vrt.sha256_file", return_value="newhash"
+                    "app.processing.ingest.tasks_vrt.sha256_file",
+                    return_value="newhash",
                 ),
                 patch(
                     "app.processing.ingest.tasks_vrt.generate_quicklook",
@@ -899,7 +900,8 @@ class TestRegenerateVrtTask:
                     return_value=mock_meta,
                 ),
                 patch(
-                    "app.processing.ingest.tasks_vrt.sha256_file", return_value="newhash"
+                    "app.processing.ingest.tasks_vrt.sha256_file",
+                    return_value="newhash",
                 ),
                 patch(
                     "app.processing.ingest.tasks_vrt.generate_quicklook",
