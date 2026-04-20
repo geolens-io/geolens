@@ -225,9 +225,9 @@ export function StacImportForm() {
       <div className="space-y-5">
         {/* Connected state header */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <label className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          <span className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
             STAC Catalog — connected
-          </label>
+          </span>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
             <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-success">
               <Check className="size-3.5" />

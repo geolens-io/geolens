@@ -20,7 +20,7 @@ interface MapToolbarProps {
  * Floating horizontal toolbar on the map canvas.
  * Provides quick access to map interaction tools.
  */
-export function MapToolbar({ aiAvailable, showChat, onToggleChat }: MapToolbarProps) {
+export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }: MapToolbarProps) {
   const { t } = useTranslation('builder');
   const measureActive = useWidgetStore((s) => s.activeWidgets.has('measurement'));
   const toggleMeasure = useWidgetStore((s) => s.toggle);

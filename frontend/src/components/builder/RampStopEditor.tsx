@@ -105,15 +105,6 @@ export function RampStopEditor({ expression, column, onChange }: RampStopEditorP
     onChange(buildExpression(kind, next, column));
   }, [parsed, onChange, column]);
 
-  const handleValueChange = useCallback((index: number, value: number) => {
-    if (!parsed) return;
-    const { kind, stops } = parsed;
-    const next = [...stops];
-    next[index] = { ...next[index], value };
-    next.sort((a, b) => a.value - b.value);
-    onChange(buildExpression(kind, next, column));
-  }, [parsed, onChange, column]);
-
   const handleRemove = useCallback((index: number) => {
     if (!parsed || parsed.stops.length <= 2) return;
     const { kind, stops } = parsed;
