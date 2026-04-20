@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 def _reset_edition():
     """Reset edition state between tests."""
-    import app.edition as ed_mod
+    import app.core.edition as ed_mod
 
     ed_mod._info = None
 

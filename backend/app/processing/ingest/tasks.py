@@ -25,6 +25,10 @@ from app.processing.ingest.tasks_common import (  # noqa: F401
     task_app,
 )
 
+# -- Re-export infrastructure helpers used by tasks_common (for test mocking) --
+from app.platform.cache.tiles import invalidate_catalog_cache  # noqa: F401
+from app.platform.storage import get_storage  # noqa: F401
+
 # -- Vector file and service ingestion tasks --
 from app.processing.ingest.tasks_vector import (  # noqa: F401
     ingest_file,

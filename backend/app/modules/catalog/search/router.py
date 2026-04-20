@@ -230,16 +230,21 @@ class SearchQueryParams(_BaseModel):
     offset: int = Query(0, ge=0, description="Pagination offset")
     limit: int = Query(10, ge=1, le=1000, description="Page size")
     cql2_filter: str | None = Query(
-        None, alias="filter", description="CQL2 filter expression"
+        None,
+        alias="filter",
+        validation_alias="filter",
+        description="CQL2 filter expression",
     )
     cql2_filter_lang: str = Query(
         "cql2-text",
         alias="filter-lang",
+        validation_alias="filter-lang",
         description="Filter language: cql2-text or cql2-json",
     )
     datetime_param: str | None = Query(
         None,
         alias="datetime",
+        validation_alias="datetime",
         description="OGC datetime interval: instant, start/end, ../end, start/..",
     )
     exclude_synthetic: bool = Query(True, description="Exclude synthetic/test datasets")
@@ -253,7 +258,7 @@ class SearchQueryParams(_BaseModel):
         None, description="Filter by collection membership"
     )
 
-    model_config = {"extra": "ignore"}
+    model_config = {"extra": "ignore", "populate_by_name": True}
 
     def to_filters(self) -> SearchFilters:
         """Convert raw query params into a service-layer SearchFilters."""
