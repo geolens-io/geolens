@@ -303,6 +303,14 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
 )
 
 
+PUBLIC_BASE_URL = PersistentConfig[str](
+    key="public_base_url",
+    type_=str,
+    env_default_factory=lambda: settings.public_base_url or "",
+    tab="general",
+    label="Public Base URL",
+)
+
 PUBLIC_APP_URL = PersistentConfig[str](
     key="public_app_url",
     type_=str,

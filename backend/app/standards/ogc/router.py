@@ -353,6 +353,8 @@ async def get_collection_items(
         active_params["bbox"] = bbox
     if datetime_param:
         active_params["datetime"] = datetime_param
+    if property_filters:
+        active_params.update(property_filters)
 
     def _page_url(off: int) -> str:
         params = {"limit": str(limit), "offset": str(off), **active_params}
