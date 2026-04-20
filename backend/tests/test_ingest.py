@@ -958,7 +958,9 @@ async def test_archive_original_file_success_leaves_user_metadata_untouched(
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=lambda key, fobj: put_calls.append(key))
 
-    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_common.get_storage", lambda: mock_storage
+    )
 
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
@@ -998,7 +1000,9 @@ async def test_archive_original_file_failure_marks_user_metadata(tmp_path, monke
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
 
-    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_common.get_storage", lambda: mock_storage
+    )
 
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
@@ -1047,7 +1051,9 @@ async def test_archive_original_file_commit_failure_does_not_raise(
 
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=RuntimeError("S3 unreachable"))
-    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_common.get_storage", lambda: mock_storage
+    )
 
     mock_session = AsyncMock()
     # Commit fails — simulate a pooler drop or deadlock.
@@ -1091,7 +1097,9 @@ async def test_archive_original_file_failure_truncates_long_error(
     mock_storage = AsyncMock()
     mock_storage.put = AsyncMock(side_effect=RuntimeError(long_error))
 
-    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: mock_storage)
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_common.get_storage", lambda: mock_storage
+    )
 
     mock_session = AsyncMock()
     mock_session.commit = AsyncMock()
