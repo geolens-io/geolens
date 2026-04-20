@@ -23,7 +23,7 @@ export const fillAdapter: LayerAdapter = {
           };
       // Suppress native 1px fill outline when stroke is disabled
       if (strokeDisabled) {
-        effectiveFillPaint['fill-outline-color'] = 'transparent';
+        effectiveFillPaint['fill-outline-color'] = 'rgba(0,0,0,0)';
       }
       map.addLayer({
         id: layerId,
@@ -99,7 +99,7 @@ export const fillAdapter: LayerAdapter = {
       const strokeDisabled = !!rawPaint['_stroke-disabled'];
       const outlineColor = (rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
       try {
-        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'transparent' : (outlineColor ?? 'transparent'));
+        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'rgba(0,0,0,0)' : (outlineColor ?? 'rgba(0,0,0,0)'));
       } catch { /* fill-outline-color may not be supported on all styles */ }
     }
     // Sync outline companion layer

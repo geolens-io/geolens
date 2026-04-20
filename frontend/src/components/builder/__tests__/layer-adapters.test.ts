@@ -79,8 +79,8 @@ describe('getAdapter', () => {
     expect(getAdapter('raster')).toBe(rasterAdapter);
   });
 
-  it('throws for unknown type', () => {
-    expect(() => getAdapter('unknown')).toThrow('No adapter for layer type: unknown');
+  it('falls back to circleAdapter for unknown type', () => {
+    expect(getAdapter('unknown')).toBe(circleAdapter);
   });
 });
 
@@ -265,7 +265,7 @@ describe('fillAdapter', () => {
     fillAdapter.addLayers(map, input);
     const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     const fillPaint = calls[0][0].paint;
-    expect(fillPaint['fill-outline-color']).toBe('transparent');
+    expect(fillPaint['fill-outline-color']).toBe('rgba(0,0,0,0)');
   });
 
   it('getLayerIds returns [layerId, outlineId] (two layers without _height_column)', () => {

@@ -3,6 +3,7 @@
 Handles CRUD operations for maps and map layers, plus default style generation.
 """
 
+import hashlib
 import logging
 import re
 import secrets
@@ -23,7 +24,7 @@ from app.processing.raster.models import RasterAsset
 logger = logging.getLogger(__name__)
 
 
-async def check_map_ownership(map_obj, user: User, db: AsyncSession) -> None:
+async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> None:
     """Verify user owns the map or is admin. Raises 403 if neither."""
     if map_obj.created_by == user.id:
         return
@@ -449,7 +450,7 @@ async def _generate_fork_name(
         n += 1
 
 
-async def _bulk_check_dataset_access(
+async def bulk_check_dataset_access(
     session: AsyncSession,
     dataset_ids: list[uuid.UUID],
     user: User,
@@ -540,7 +541,7 @@ async def duplicate_map(
 
     # Bulk-fetch dataset visibility info to avoid N+1 queries
     layer_dataset_ids = list({layer.dataset_id for layer in layers})
-    accessible_ids = await _bulk_check_dataset_access(
+    accessible_ids = await bulk_check_dataset_access(
         session, layer_dataset_ids, user, user_roles
     )
 
@@ -707,14 +708,20 @@ async def create_share_token(
         # Re-activate if previously revoked
         if not token_obj.is_active:
             token_obj.is_active = True
+            raw_token = secrets.token_urlsafe(16)
+            token_obj.token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+            token_obj.token_hint = raw_token[:8]
+            token_obj._raw_token = raw_token  # transient, not persisted
         return token_obj
     raw_token = secrets.token_urlsafe(16)
     token_obj = MapShareToken(
         map_id=map_id,
-        token=raw_token,
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        token_hint=raw_token[:8],
         created_by=created_by,
         expires_at=expires_at,
     )
+    token_obj._raw_token = raw_token  # transient, not persisted
     session.add(token_obj)
     await session.flush()
     return token_obj
@@ -774,9 +781,10 @@ async def get_shared_map(
     if user_roles is None:
         user_roles = set()
 
-    # Look up the share token directly
+    # Look up the share token by hash
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.token == token)
+        select(MapShareToken).where(MapShareToken.token_hash == token_hash)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
@@ -961,7 +969,7 @@ async def list_share_tokens(
                 "id": token_obj.id,
                 "map_id": token_obj.map_id,
                 "map_name": map_name,
-                "token": token_obj.token,
+                "token": token_obj.token_hint,
                 "is_active": token_obj.is_active,
                 "expires_at": token_obj.expires_at,
                 "created_at": token_obj.created_at,

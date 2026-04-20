@@ -43,12 +43,34 @@ function summarizeFilter(filter: FilterSpecification): string | null {
   // "in" expression: ["in", ["get", "field"], ["literal", [...]]]
   if (op === 'in' && filter.length === 3) {
     const field = extractField(filter[1]);
+    if (field && Array.isArray(filter[2]) && filter[2][0] === 'literal') {
+      const vals = filter[2][1] as unknown[];
+      const preview = vals.slice(0, 2).map(v => String(v)).join(', ');
+      return `${field} in (${preview}${vals.length > 2 ? ', …' : ''})`;
+    }
     if (field) return `${field} in (…)`;
+    // "in" substring: ["in", value, ["get", field]]
+    if (!Array.isArray(filter[1]) && Array.isArray(filter[2]) && filter[2][0] === 'get') {
+      return `${filter[2][1]} contains "${filter[1]}"`;
+    }
   }
 
   // "has" expression: ["has", "field"]
   if (op === 'has' && typeof filter[1] === 'string') {
     return `${filter[1]} exists`;
+  }
+
+  // "!" negation: ["!", innerExpr]
+  if (op === '!' && Array.isArray(filter[1])) {
+    const inner = summarizeFilter(filter[1] as FilterSpecification);
+    if (inner) return `NOT (${inner})`;
+  }
+
+  // is_null compound: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
+  if (op === 'any' && filter.length === 3 &&
+      Array.isArray(filter[1]) && filter[1][0] === '!' &&
+      Array.isArray(filter[1][1]) && filter[1][1][0] === 'has') {
+    return `${filter[1][1][1]} is null`;
   }
 
   return null;

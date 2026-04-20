@@ -111,6 +111,19 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
           onChange={handleIntensityChange}
         />
       </div>
+
+      {/* Opacity */}
+      <div className="space-y-1">
+        <SliderRow
+          label={t('style.heatmap.opacity', { defaultValue: 'Opacity' })}
+          value={typeof paint['heatmap-opacity'] === 'number' ? (paint['heatmap-opacity'] as number) : 0.8}
+          min={0}
+          max={1}
+          step={0.05}
+          format="percent"
+          onChange={(val) => onPaintChange(layer.id, { ...paint, 'heatmap-opacity': val })}
+        />
+      </div>
     </div>
   );
 });

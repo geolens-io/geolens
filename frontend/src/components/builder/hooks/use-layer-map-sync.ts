@@ -66,9 +66,11 @@ export function useLayerMapSync(
           const mapLayerId = `layer-${layerId}`;
           const outlineId = `layer-${layerId}-outline`;
           const labelId = `layer-${layerId}-label`;
+          const extrusionId = `layer-${layerId}-extrusion`;
           if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
           if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', newVis);
           if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
+          if (map.getLayer(extrusionId)) map.setLayoutProperty(extrusionId, 'visibility', newVis);
         },
       );
     },
@@ -297,6 +299,10 @@ export function useLayerMapSync(
 
   const handleLabelChange = useCallback(
     (layerId: string, config: LabelConfig | null) => {
+      // Normalize empty column to null to prevent persisting non-functional config
+      if (config && !config.column) {
+        config = null;
+      }
       const layer = layersRef.current.find((l) => l.id === layerId);
       const geomType = layer ? getLayerType(layer.dataset_geometry_type) : 'fill';
 

@@ -392,7 +392,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
       params.set('et', embedTokenRaw);
     }
     const url = `${window.location.origin}/m/${shareToken}?${params.toString()}`;
-    return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts" style="border:none;"></iframe>`;
+    return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
   }
 
   async function handleCopyShareLink() {
@@ -458,7 +458,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
               })}
             </div>
             {!isPublic && (
-              <p className="text-xs text-muted-foreground mt-2">Make this map public to generate a share link</p>
+              <p className="text-xs text-muted-foreground mt-2">{t('share.makePublicHint', { defaultValue: 'Make this map public to generate a share link' })}</p>
             )}
           </div>
 

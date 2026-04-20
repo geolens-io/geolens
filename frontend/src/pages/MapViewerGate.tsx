@@ -12,16 +12,16 @@ const PublicMapViewerPage = lazy(() =>
 
 /**
  * Route-level gate for /maps/:id.
- * Authenticated editors see the full MapBuilderPage.
+ * Authenticated users see the full MapBuilderPage (server enforces RBAC).
  * Anonymous users see a read-only PublicMapViewerPage.
  * Each branch is lazy-loaded so anonymous users never download editor code.
  */
 export function MapViewerGate() {
-  const isEditor = useAuthStore((s) => s.isEditor());
+  const isAuthenticated = useAuthStore((s) => !!s.token);
   return (
     <AppErrorBoundary>
       <Suspense fallback={<LoadingState />}>
-        {isEditor ? <MapBuilderPage /> : <PublicMapViewerPage />}
+        {isAuthenticated ? <MapBuilderPage /> : <PublicMapViewerPage />}
       </Suspense>
     </AppErrorBoundary>
   );

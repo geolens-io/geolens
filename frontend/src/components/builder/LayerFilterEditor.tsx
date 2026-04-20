@@ -46,9 +46,9 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
     { labelKey: 'filters.operators.notEquals', value: '!=' },
     { labelKey: 'filters.operators.contains', value: 'contains' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
-    { value: 'in_list', label: 'in list' },
-    { value: 'not_in_list', label: 'not in list' },
-    { value: 'has', label: 'exists' },
+    { value: 'in_list', labelKey: 'filters.operators.inList' },
+    { value: 'not_in_list', labelKey: 'filters.operators.notInList' },
+    { value: 'has', labelKey: 'filters.operators.exists' },
   ],
   number: [
     { label: '=', value: '==' },
@@ -58,14 +58,14 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
     { label: '>=', value: '>=' },
     { label: '<=', value: '<=' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
-    { value: 'in_list', label: 'in list' },
-    { value: 'not_in_list', label: 'not in list' },
-    { value: 'has', label: 'exists' },
+    { value: 'in_list', labelKey: 'filters.operators.inList' },
+    { value: 'not_in_list', labelKey: 'filters.operators.notInList' },
+    { value: 'has', labelKey: 'filters.operators.exists' },
   ],
   boolean: [
     { labelKey: 'filters.operators.equals', value: '==' },
     { labelKey: 'filters.operators.isNull', value: 'is_null' },
-    { value: 'has', label: 'exists' },
+    { value: 'has', labelKey: 'filters.operators.exists' },
   ],
   other: [
     { labelKey: 'filters.operators.equals', value: '==' },
@@ -96,6 +96,9 @@ export function buildFilterExpression(
     if (!c.field || !c.operator) return false;
     if (c.operator === 'is_null' || c.operator === 'has') return true;
     if (c.value === '' || c.value === undefined || c.value === null) return false;
+    // Reject non-numeric values for numeric columns
+    const col = columnInfo.find((ci) => ci.name === c.field);
+    if (col && classifyColumnType(col.type) === 'number' && isNaN(Number(c.value))) return false;
     return true;
   });
   if (valid.length === 0) return null;
@@ -119,7 +122,7 @@ export function buildFilterExpression(
       const coerced = values.map(v => coerceValue(v, pgType));
       expressions.push(['!', ['in', ['get', cond.field], ['literal', coerced]]]);
     } else if (cond.operator === 'contains') {
-      expressions.push(['in', cond.value, ['get', cond.field]]);
+      expressions.push(['in', cond.value.trim(), ['get', cond.field]]);
     } else {
       const coerced = coerceValue(cond.value, pgType);
       expressions.push([cond.operator, ['get', cond.field], coerced]);
@@ -482,6 +485,7 @@ export function LayerFilterEditor({
                 <Select
                   value={cond.field}
                   onValueChange={(val) => updateCondition(cond.id, { field: val })}
+                  aria-label={t('filters.field')}
                 >
                   <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
                     <SelectValue placeholder={t('filters.field')} />
@@ -499,6 +503,7 @@ export function LayerFilterEditor({
                 <Select
                   value={cond.operator}
                   onValueChange={(val) => updateCondition(cond.id, { operator: val })}
+                  aria-label={t('filters.op')}
                 >
                   <SelectTrigger className="h-7 text-xs w-24 shrink-0">
                     <SelectValue placeholder={t('filters.op')} />
@@ -514,12 +519,28 @@ export function LayerFilterEditor({
 
                 {/* Value input (hidden for is_null and has) */}
                 {cond.operator !== 'is_null' && cond.operator !== 'has' && (
-                  <Input
-                    className="h-7 text-xs flex-1 min-w-0"
-                    placeholder={t('filters.value')}
-                    value={cond.value}
-                    onChange={(e) => updateCondition(cond.id, { value: e.target.value }, true)}
-                  />
+                  getFieldType(cond.field) === 'boolean' && cond.operator === '==' ? (
+                    <Select
+                      value={cond.value || 'true'}
+                      onValueChange={(val) => updateCondition(cond.id, { value: val })}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-24 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true" className="text-xs">true</SelectItem>
+                        <SelectItem value="false" className="text-xs">false</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      className="h-7 text-xs flex-1 min-w-0"
+                      placeholder={t('filters.value')}
+                      aria-label={t('filters.value')}
+                      value={cond.value}
+                      onChange={(e) => updateCondition(cond.id, { value: e.target.value }, true)}
+                    />
+                  )
                 )}
 
                 {/* Remove button */}
@@ -528,7 +549,7 @@ export function LayerFilterEditor({
                   size="icon"
                   className="h-6 w-6 shrink-0"
                   onClick={() => removeCondition(cond.id)}
-                  aria-label="Remove condition"
+                  aria-label={t('filters.removeCondition', { defaultValue: 'Remove condition' })}
                 >
                   <X className="h-3 w-3" />
                 </Button>

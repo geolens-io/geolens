@@ -30,11 +30,27 @@ export function simplifyPaint(paint: Record<string, unknown>): Record<string, un
     if (typeof value === 'boolean') { result[key] = value; continue; }
     if (Array.isArray(value) && value.length >= 3) {
       const op = value[0];
-      const fallback = op === 'match'
-        ? value[value.length - 1]
-        : op === 'interpolate'
-          ? value[4]  // first output stop value after [method, input, stop0, output0]
-          : value[2]; // step: first output after [input, default]
+      let fallback: unknown;
+      if (op === 'case') {
+        // case wraps step/interpolate: ["case", cond, fallbackColor, innerExpr]
+        const inner = value[value.length - 1];
+        if (Array.isArray(inner) && inner.length >= 3) {
+          const innerOp = inner[0];
+          fallback = innerOp === 'match'
+            ? inner[inner.length - 1]
+            : innerOp === 'interpolate'
+              ? inner[4]
+              : inner[2];
+        } else {
+          fallback = value[2];
+        }
+      } else {
+        fallback = op === 'match'
+          ? value[value.length - 1]
+          : op === 'interpolate'
+            ? value[4]  // first output stop value after [method, input, stop0, output0]
+            : value[2]; // step: first output after [input, default]
+      }
       result[key] = typeof fallback === 'string' || typeof fallback === 'number'
         ? fallback
         : undefined;

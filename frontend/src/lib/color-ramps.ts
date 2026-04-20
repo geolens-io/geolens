@@ -125,7 +125,8 @@ export function buildGraduatedSizeExpression(
   for (let i = 0; i < breaks.length; i++) {
     expr.push(breaks[i], sizes[i + 1]);
   }
-  return expr;
+  // Guard null values: render at 0 size (invisible) instead of minimum size
+  return ['case', ['==', ['get', column], null], 0, expr];
 }
 
 /**

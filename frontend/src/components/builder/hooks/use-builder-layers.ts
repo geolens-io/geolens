@@ -78,10 +78,10 @@ export function useBuilderLayers(
   // Sync layers from API when they change (after add/remove mutations)
   const apiLayers = mapData?.layers;
   useEffect(() => {
-    if (apiLayers && initializedRef.current) {
+    if (apiLayers && initializedRef.current && !hasUnsavedChanges) {
       setLocalLayers(apiLayers);
     }
-  }, [apiLayers]);
+  }, [apiLayers, hasUnsavedChanges]);
 
   // Handle ?add_dataset URL param: auto-add a dataset as a layer on map load
   useEffect(() => {
@@ -120,27 +120,21 @@ export function useBuilderLayers(
   // stable (KISS-2 / PERF-N2).
 
   const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
-    setLocalLayers((prev) => {
-      const idx = prev.findIndex((l) => l.id === layerId);
-      if (direction === 'up' && idx <= 0) return prev;
-      if (direction === 'down' && (idx < 0 || idx >= prev.length - 1)) return prev;
-      const next = [...prev];
-      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
+    const currentLayers = layersRef.current;
+    const idx = currentLayers.findIndex((l) => l.id === layerId);
+    if (direction === 'up' && idx <= 0) return;
+    if (direction === 'down' && (idx < 0 || idx >= currentLayers.length - 1)) return;
 
-    // Imperatively reorder MapLibre layers so the visual change is immediate
+    const next = [...currentLayers];
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    const reordered = next.map((l, i) => ({ ...l, sort_order: i }));
+
+    setLocalLayers(reordered);
+
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
-      const currentLayers = layersRef.current;
-      const idx = currentLayers.findIndex((l) => l.id === layerId);
-      if ((direction === 'up' && idx > 0) || (direction === 'down' && idx < currentLayers.length - 1)) {
-        const next = [...currentLayers];
-        const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-        [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-        reorderDataLayers(map, next);
-      }
+      reorderDataLayers(map, reordered);
     }
 
     setHasUnsavedChanges(true);
@@ -239,8 +233,21 @@ export function useBuilderLayers(
   // AI-specific remove: removes locally (persisted on Save)
   const handleAiRemoveLayer = useCallback((layerId: string) => {
     setLocalLayers((prev) => prev.filter((l) => l.id !== layerId));
+    // Clean up MapLibre layers imperatively
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      const ids = [
+        `layer-${layerId}`, `layer-${layerId}-outline`,
+        `layer-${layerId}-label`, `layer-${layerId}-extrusion`,
+      ];
+      for (const id of ids) {
+        if (map.getLayer(id)) map.removeLayer(id);
+      }
+      const sourceId = `source-${layerId}`;
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+    }
     setHasUnsavedChanges(true);
-  }, []);
+  }, [mapInstanceRef]);
 
   const handleToggleLegend = useCallback((layerId: string) => {
     setLocalLayers((prev) =>

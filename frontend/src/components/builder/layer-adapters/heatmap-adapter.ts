@@ -7,15 +7,15 @@ import { getRampColors } from '@/lib/color-ramps';
  *  The expression has transparent (rgba 0,0,0,0) at density 0 so low-density
  *  areas are fully transparent. */
 export function buildHeatmapColorExpression(rampName: string): unknown[] {
-  const colors = getRampColors(rampName, 6);
+  const colors = getRampColors(rampName, 5);
   return [
     'interpolate', ['linear'], ['heatmap-density'],
     0,   'rgba(0,0,0,0)',
-    0.2, colors[1],
-    0.4, colors[2],
-    0.6, colors[3],
-    0.8, colors[4],
-    1.0, colors[5],
+    0.2, colors[0],
+    0.4, colors[1],
+    0.6, colors[2],
+    0.8, colors[3],
+    1.0, colors[4],
   ];
 }
 

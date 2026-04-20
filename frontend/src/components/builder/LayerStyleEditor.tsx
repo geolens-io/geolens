@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, memo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code, AlertTriangle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StyleColorPicker } from './StyleColorPicker';
-import { DataDrivenStyleEditor } from './DataDrivenStyleEditor';
+const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
 import { RampStopEditor } from './RampStopEditor';
 import { getColorProperty } from '@/lib/color-ramps';
@@ -124,7 +124,7 @@ function StrokeControls({
   );
 }
 
-export function LayerStyleEditor({
+export const LayerStyleEditor = memo(function LayerStyleEditor({
   layer,
   onPaintChange,
   onOpacityChange,
@@ -150,11 +150,11 @@ export function LayerStyleEditor({
   );
   const currentHeightCol = (layer.paint?.['_height_column'] as string) ?? '';
 
-  function handlePaintProp(key: string, value: unknown) {
+  const handlePaintProp = useCallback((key: string, value: unknown) => {
     onPaintChange(layer.id, { ...paint, [key]: value });
-  }
+  }, [layer.id, paint, onPaintChange]);
 
-  function handleToggleFill() {
+  const handleToggleFill = useCallback(() => {
     const next = { ...paint };
     if (fillEnabled) {
       next['_fill-opacity-saved'] = getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity']);
@@ -167,9 +167,9 @@ export function LayerStyleEditor({
       delete next['_fill-opacity-saved'];
     }
     onPaintChange(layer.id, next);
-  }
+  }, [layer.id, paint, fillEnabled, onPaintChange]);
 
-  function handleToggleStroke() {
+  const handleToggleStroke = useCallback(() => {
     const next = { ...paint };
     const widthKey = geomType === 'circle' ? 'circle-stroke-width' : '_outline-width';
     const defaultWidth = geomType === 'circle' ? CIRCLE_DEFAULTS['circle-stroke-width'] : FILL_DEFAULTS['_outline-width'];
@@ -183,7 +183,7 @@ export function LayerStyleEditor({
       delete next['_outline-width-saved'];
     }
     onPaintChange(layer.id, next);
-  }
+  }, [layer.id, paint, geomType, strokeEnabled, onPaintChange]);
 
   return (
     <div className="space-y-3">
@@ -213,10 +213,12 @@ export function LayerStyleEditor({
 
       {/* Data-driven style editor — hidden when in heatmap mode */}
       {renderMode !== 'heatmap' && (
-        <DataDrivenStyleEditor
-          layer={layer}
-          onStyleConfigChange={onStyleConfigChange}
-        />
+        <Suspense fallback={null}>
+          <DataDrivenStyleEditor
+            layer={layer}
+            onStyleConfigChange={onStyleConfigChange}
+          />
+        </Suspense>
       )}
 
       {/* Flat color controls */}
@@ -279,7 +281,7 @@ export function LayerStyleEditor({
             />
             {isPolygon && numericColumns.length > 0 && (
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">Height column</span>
+                <span className="text-xs text-muted-foreground">{t('style.heightColumn', { defaultValue: 'Height column' })}</span>
                 <Select
                   value={currentHeightCol}
                   onValueChange={(val) => {
@@ -293,10 +295,10 @@ export function LayerStyleEditor({
                   }}
                 >
                   <SelectTrigger className="h-8 text-xs w-36">
-                    <SelectValue placeholder="None" />
+                    <SelectValue placeholder={t('style.none', { defaultValue: 'None' })} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
+                    <SelectItem value="__none__">{t('style.none', { defaultValue: 'None' })}</SelectItem>
                     {numericColumns.map((col) => (
                       <SelectItem key={col.name} value={col.name}>
                         {col.name}
@@ -355,9 +357,9 @@ export function LayerStyleEditor({
             <SliderRow
               label={t('style.width')}
               value={getPaintValue(paint, 'line-width', LINE_DEFAULTS['line-width'])}
-              min={1}
+              min={0.5}
               max={20}
-              step={0.5}
+              step={0.25}
               format="px"
               onChange={(val) => handlePaintProp('line-width', val)}
             />
@@ -495,7 +497,7 @@ export function LayerStyleEditor({
       )}
     </div>
   );
-}
+});
 
 /* ---------- Advanced JSON editor ---------- */
 

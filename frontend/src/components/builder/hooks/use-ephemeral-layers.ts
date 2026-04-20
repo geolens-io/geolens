@@ -98,6 +98,10 @@ export function useEphemeralLayers(
     } else {
       map.once('style.load', addLayers);
     }
+
+    return () => {
+      map.off('style.load', addLayers);
+    };
   }, [ephemeralResult, mapInstanceRef]);
 
   const handleQueryResult = useCallback((geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => {
