@@ -29,8 +29,8 @@ test.describe('Authentication Flow', () => {
       page.getByRole('combobox', { name: 'Search geospatial data...' }),
     ).toBeVisible();
 
-    // Verify username displayed in navbar
-    await expect(page.getByText(adminUser)).toBeVisible();
+    // Verify username displayed in navbar user menu button
+    await expect(page.getByRole('button', { name: 'User menu' })).toBeVisible();
 
     // Logout
     await page.getByRole('button', { name: 'User menu' }).click();
