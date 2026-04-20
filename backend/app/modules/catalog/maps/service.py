@@ -719,9 +719,10 @@ async def create_share_token(
     )
     session.add(token_obj)
     await session.flush()
-    # Return raw token in the object so the API response contains the usable value.
-    # The DB stores the hash; the raw token is only available at creation time.
-    token_obj.token = raw_token
+    # Stash the raw token as a non-mapped attribute so the API can return it.
+    # Do NOT set token_obj.token = raw_token — that dirties the ORM object
+    # and the next commit() auto-flush would overwrite the hash in the DB.
+    token_obj._raw_token = raw_token
     return token_obj
 
 

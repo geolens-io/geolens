@@ -864,7 +864,7 @@ class TestIngestVectorIntoStagingErrors:
                 return_value=[],
             ),
             patch(
-                "app.processing.ingest.tasks._detect_and_override_geometry",
+                "app.processing.ingest.tasks_common._detect_and_override_geometry",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("geometry override failed"),
             ),

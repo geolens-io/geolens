@@ -575,10 +575,10 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks.async_session"
+                    "app.processing.ingest.tasks_vrt.async_session"
                 ) as mock_async_session,
                 patch(
-                    "app.processing.ingest.tasks.build_vrt",
+                    "app.processing.ingest.tasks_vrt.build_vrt",
                     side_effect=RuntimeError("gdalbuildvrt failed"),
                 ),
             ):
@@ -635,10 +635,10 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks.async_session"
+                    "app.processing.ingest.tasks_vrt.async_session"
                 ) as mock_async_session,
                 patch(
-                    "app.processing.ingest.tasks.build_vrt",
+                    "app.processing.ingest.tasks_vrt.build_vrt",
                     side_effect=RuntimeError("fail"),
                 ),
             ):
@@ -737,29 +737,29 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks.async_session"
+                    "app.processing.ingest.tasks_vrt.async_session"
                 ) as mock_async_session,
                 patch(
-                    "app.processing.ingest.tasks.build_vrt",
+                    "app.processing.ingest.tasks_vrt.build_vrt",
                     return_value="/tmp/x/source.vrt",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.resolve_vrt_source_path",
+                    "app.processing.ingest.tasks_vrt.resolve_vrt_source_path",
                     return_value="/path/to/source.cog.tif",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.extract_raster_metadata",
+                    "app.processing.ingest.tasks_vrt.extract_raster_metadata",
                     return_value=mock_meta,
                 ),
                 patch(
-                    "app.processing.ingest.tasks.sha256_file", return_value="newhash"
+                    "app.processing.ingest.tasks_vrt.sha256_file", return_value="newhash"
                 ),
                 patch(
-                    "app.processing.ingest.tasks.generate_quicklook",
+                    "app.processing.ingest.tasks_vrt.generate_quicklook",
                     return_value=b"\x89PNG",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.invalidate_catalog_cache",
+                    "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
                     new_callable=AsyncMock,
                 ),
                 patch(
@@ -782,11 +782,11 @@ class TestRegenerateVrtTask:
                 mock_storage.put = AsyncMock()
                 with (
                     patch(
-                        "app.processing.ingest.tasks.get_storage",
+                        "app.processing.ingest.tasks_vrt.get_storage",
                         return_value=mock_storage,
                     ),
                     patch(
-                        "app.processing.ingest.tasks.defer_embedding",
+                        "app.processing.ingest.tasks_vrt.defer_embedding",
                         new_callable=AsyncMock,
                     ),
                 ):
@@ -884,29 +884,29 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    "app.processing.ingest.tasks.async_session"
+                    "app.processing.ingest.tasks_vrt.async_session"
                 ) as mock_async_session,
                 patch(
-                    "app.processing.ingest.tasks.build_vrt",
+                    "app.processing.ingest.tasks_vrt.build_vrt",
                     return_value="/tmp/x/source.vrt",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.resolve_vrt_source_path",
+                    "app.processing.ingest.tasks_vrt.resolve_vrt_source_path",
                     return_value="/path/to/source.cog.tif",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.extract_raster_metadata",
+                    "app.processing.ingest.tasks_vrt.extract_raster_metadata",
                     return_value=mock_meta,
                 ),
                 patch(
-                    "app.processing.ingest.tasks.sha256_file", return_value="newhash"
+                    "app.processing.ingest.tasks_vrt.sha256_file", return_value="newhash"
                 ),
                 patch(
-                    "app.processing.ingest.tasks.generate_quicklook",
+                    "app.processing.ingest.tasks_vrt.generate_quicklook",
                     return_value=b"\x89PNG",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.invalidate_catalog_cache",
+                    "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
                     new_callable=AsyncMock,
                 ),
                 patch(
@@ -929,11 +929,11 @@ class TestRegenerateVrtTask:
                 mock_storage.put = mock_put
                 with (
                     patch(
-                        "app.processing.ingest.tasks.get_storage",
+                        "app.processing.ingest.tasks_vrt.get_storage",
                         return_value=mock_storage,
                     ),
                     patch(
-                        "app.processing.ingest.tasks.defer_embedding",
+                        "app.processing.ingest.tasks_vrt.defer_embedding",
                         new_callable=AsyncMock,
                     ),
                 ):

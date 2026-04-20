@@ -18,8 +18,17 @@ import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.search.router import _COLLECTION_META_CACHE
 
 from tests.factories import get_user_id
+
+
+@pytest.fixture(autouse=True)
+def _clear_collection_cache():
+    """Clear the in-memory collection metadata cache before each test."""
+    _COLLECTION_META_CACHE.clear()
+    yield
+    _COLLECTION_META_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------
