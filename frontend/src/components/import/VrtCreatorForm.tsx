@@ -353,7 +353,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
           <Label>{t('vrt.searchLabel')}</Label>
           <div className="relative" ref={dropdownRef}>
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 ref={searchInputRef}
                 className="ps-8 pe-8"

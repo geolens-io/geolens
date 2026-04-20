@@ -89,7 +89,7 @@ export function MetadataTab({
           <Button
             variant="outline"
             size="sm"
-            className="ml-auto"
+            className="ms-auto"
             onClick={() => onNavigateToValidationField?.('validation')}
           >
             {t('overview.reviewIssues', { defaultValue: 'Review issues' })}

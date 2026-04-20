@@ -62,7 +62,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
               <dd className="font-mono text-[11.5px]">
                 {file.crs ? `EPSG:${file.crs}` : '—'}
                 {file.crs && file.crs !== 4326 && file.crs !== 3857 && (
-                  <span className="ml-1 text-muted-foreground">→ will reproject on read</span>
+                  <span className="ms-1 text-muted-foreground">→ will reproject on read</span>
                 )}
               </dd>
               <dt className="font-mono text-[11px] text-muted-foreground">layer</dt>
@@ -82,8 +82,8 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border bg-surface-0">
-                  <th className="px-2 py-1.5 text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Column</th>
-                  <th className="px-2 py-1.5 text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Type</th>
+                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Column</th>
+                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Type</th>
                 </tr>
               </thead>
               <tbody>

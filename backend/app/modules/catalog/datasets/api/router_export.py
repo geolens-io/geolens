@@ -53,6 +53,7 @@ router = APIRouter(prefix="/datasets", tags=["Datasets - Export"])
 
 @router.get("/dcat/", response_class=JSONResponse)
 async def get_dcat_catalog(
+    request: Request,
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -82,12 +83,19 @@ async def get_dcat_catalog(
     base_url = await get_public_api_url(db)
     catalog = catalog_to_dcat(datasets, base_url)
 
-    return JSONResponse(content=catalog, media_type="application/ld+json")
+    from app.standards.ogc.utils import parse_accept_language
+    lang = parse_accept_language(request)
+    return JSONResponse(
+        content=catalog,
+        media_type="application/ld+json",
+        headers={"Content-Language": lang},
+    )
 
 
 @router.get("/{dataset_id}/dcat/", response_class=JSONResponse)
 async def get_dcat_record(
     dataset_id: uuid.UUID,
+    request: Request,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -117,7 +125,13 @@ async def get_dcat_record(
     base_url = await get_public_api_url(db)
     dcat = record_to_dcat(dataset, base_url)
 
-    return JSONResponse(content=dcat, media_type="application/ld+json")
+    from app.standards.ogc.utils import parse_accept_language
+    lang = parse_accept_language(request)
+    return JSONResponse(
+        content=dcat,
+        media_type="application/ld+json",
+        headers={"Content-Language": lang},
+    )
 
 
 # ---------------------------------------------------------------------------

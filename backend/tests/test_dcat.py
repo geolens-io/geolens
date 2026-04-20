@@ -175,8 +175,8 @@ async def test_single_record_dcat_has_title_and_description(
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
     data = resp.json()
-    assert data["dcterms:title"] == "Title Desc Test"
-    assert data["dcterms:description"] == "Description for Title Desc Test"
+    assert data["dcterms:title"] == {"@value": "Title Desc Test", "@language": "en"}
+    assert data["dcterms:description"] == {"@value": "Description for Title Desc Test", "@language": "en"}
 
 
 @pytest.mark.anyio
@@ -258,7 +258,7 @@ async def test_single_record_dcat_has_provenance(
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
     data = resp.json()
-    assert data["dcterms:provenance"] == "Derived from open data sources"
+    assert data["dcterms:provenance"] == {"@value": "Derived from open data sources", "@language": "en"}
 
 
 @pytest.mark.anyio

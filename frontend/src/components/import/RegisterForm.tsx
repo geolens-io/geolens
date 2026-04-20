@@ -93,7 +93,7 @@ export function RegisterForm() {
                 {r.dataset_id && (
                   <Link
                     to={`/datasets/${r.dataset_id}`}
-                    className="text-primary underline underline-offset-4 text-xs ml-auto"
+                    className="text-primary underline underline-offset-4 text-xs ms-auto"
                   >
                     {t('register.viewDataset')}
                   </Link>
@@ -108,7 +108,7 @@ export function RegisterForm() {
               <div key={r.table_name} className="flex items-center gap-2 text-sm">
                 <XCircle className="h-4 w-4 text-destructive shrink-0" />
                 <span className="font-mono">{r.table_name}</span>
-                {r.error && <span className="text-xs text-muted-foreground ml-auto">{r.error}</span>}
+                {r.error && <span className="text-xs text-muted-foreground ms-auto">{r.error}</span>}
               </div>
             ))}
           </div>
@@ -160,12 +160,12 @@ export function RegisterForm() {
       <aside className="border-r border-border bg-surface-0 py-3">
         <div className="px-3 pb-2.5">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('register.searchPlaceholder', { defaultValue: 'Search tables…' })}
-              className="h-8 pl-8 text-[12.5px]"
+              className="h-8 ps-8 text-[12.5px]"
             />
           </div>
         </div>
@@ -181,7 +181,7 @@ export function RegisterForm() {
               key={table.table_name}
               onClick={() => handleToggle(table.table_name)}
               className={cn(
-                'grid w-full grid-cols-[14px_1fr_auto] items-center gap-2 px-3.5 py-1.5 text-left text-[12.5px] cursor-pointer',
+                'grid w-full grid-cols-[14px_1fr_auto] items-center gap-2 px-3.5 py-1.5 text-start text-[12.5px] cursor-pointer',
                 'hover:bg-surface-2',
                 selected === table.table_name && 'bg-primary/10',
               )}

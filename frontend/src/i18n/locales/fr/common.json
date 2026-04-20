@@ -118,6 +118,10 @@
     "couldNotReachService": "Impossible de joindre le service. Vérifiez l'URL et réessayez.",
     "serviceTimeout": "Le service n'a pas répondu à temps. Vérifiez l'URL et réessayez.",
     "remoteServiceError": "Le service distant a renvoyé une erreur",
+    "aiSummaryFailed": "Échec de la génération du résumé",
+    "aiKeywordsFailed": "Échec de la génération des mots-clés",
+    "aiLineageFailed": "Échec de la génération de la provenance",
+    "aiQualityFailed": "Échec de la génération de la déclaration de qualité",
     "aiDisabled": "Les fonctionnalités IA sont actuellement désactivées",
     "aiNotConfigured": "L'IA n'est pas configurée (clé API manquante)",
     "aiGenerationFailed": "La génération de carte par IA a échoué de manière inattendue",
@@ -344,6 +348,12 @@
     "adminAuditLog": "Journal d'audit admin",
     "adminConfigOps": "Configuration admin",
     "adminSettings": "Paramètres admin"
+  },
+  "sidebar": {
+    "toggle": "Basculer la barre latérale"
+  },
+  "inlineEdit": {
+    "hint": "Ctrl+Entrée pour enregistrer, Échap pour annuler"
   },
   "errorBoundary": {
     "appTitle": "Une erreur est survenue",

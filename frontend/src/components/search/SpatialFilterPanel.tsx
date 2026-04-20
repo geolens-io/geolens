@@ -425,7 +425,7 @@ export function SpatialFilterPanel({
               )}
               <Button
                 size="sm"
-                className="ml-auto"
+                className="ms-auto"
                 disabled={!pendingBbox}
                 onClick={handleApply}
               >

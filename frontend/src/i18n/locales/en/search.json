@@ -100,6 +100,13 @@
     "vrt": "Virtual Raster",
     "collection": "Collection",
     "table": "Table",
+    "tableAriaLabel": "Table with {{rows}} rows and {{cols}} columns",
+    "tableAriaLabelNoCols": "Table with {{rows}} rows",
+    "tableRows_one": "{{count}} row",
+    "tableRows_other": "{{count}} rows",
+    "tableCols_one": "{{count}} col",
+    "tableCols_other": "{{count}} cols",
+    "testData": "Test Data",
     "noUpdateMetadata": "No update metadata",
     "status": {
       "draft": "Draft",

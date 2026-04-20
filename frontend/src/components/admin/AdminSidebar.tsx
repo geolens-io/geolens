@@ -174,7 +174,7 @@ export function AdminSidebar() {
             <SidebarMenuButton asChild tooltip={t('adminNav.backToApp')}>
               {/* CLEAN-N5: search workspace is "/" after landing page removal. */}
               <Link to="/">
-                <ArrowLeft />
+                <ArrowLeft className="rtl-mirror" />
                 <span>{t('adminNav.backToApp')}</span>
               </Link>
             </SidebarMenuButton>

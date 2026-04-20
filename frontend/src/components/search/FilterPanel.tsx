@@ -809,7 +809,7 @@ export function FilterPanel({
               </Button>
             )}
 
-            <div className="ml-auto flex items-center gap-3 rounded-full border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
+            <div className="ms-auto flex items-center gap-3 rounded-full border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
               {totalResultsLabel && <span>{totalResultsLabel}</span>}
               {token && hasSearchState && <SaveSearchButton />}
             </div>

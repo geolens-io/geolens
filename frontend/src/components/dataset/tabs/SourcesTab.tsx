@@ -237,7 +237,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
         {showPicker && (
           <div className="relative max-w-md">
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 className="ps-8 pe-8"
                 placeholder={t('vrt.addSourcePlaceholder', { defaultValue: 'Search for a COG dataset...' })}

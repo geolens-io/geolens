@@ -72,7 +72,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
                 <div>
                   <h5 className="text-[13px] font-semibold leading-snug">
                     {step.title}
-                    {isDone && <span className="ml-1 text-success">&#10003;</span>}
+                    {isDone && <span className="ms-1 text-success">&#10003;</span>}
                   </h5>
                   <p className="text-xs leading-relaxed text-muted-foreground">{step.desc}</p>
                 </div>

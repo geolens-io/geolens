@@ -1,6 +1,9 @@
 {
   "title": "Constructor de mapas",
   "mapBuilder": "Constructor de mapas",
+  "map": {
+    "ariaLabel": "Constructor de mapas"
+  },
   "mapNameLabel": "Nombre del mapa",
   "descriptionLabel": "Descripción del mapa",
   "loadingMap": "Cargando mapa...",

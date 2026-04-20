@@ -82,7 +82,7 @@ export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }
               <TooltipContent side="bottom" className="text-xs">
                 {tool.label}
                 {tool.shortcut && (
-                  <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{tool.shortcut}</span>
+                  <span className="ms-1.5 font-mono text-2xs text-muted-foreground">{tool.shortcut}</span>
                 )}
               </TooltipContent>
             </Tooltip>
@@ -110,7 +110,7 @@ export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }
             <TooltipContent side="bottom" className="text-xs">
               {dockTool.label}
               {dockTool.shortcut && (
-                <span className="ml-1.5 font-mono text-2xs text-muted-foreground">{dockTool.shortcut}</span>
+                <span className="ms-1.5 font-mono text-2xs text-muted-foreground">{dockTool.shortcut}</span>
               )}
             </TooltipContent>
           </Tooltip>

@@ -1,6 +1,9 @@
 {
   "title": "Karten-Editor",
   "mapBuilder": "Karten-Editor",
+  "map": {
+    "ariaLabel": "Kartenerstellung"
+  },
   "mapNameLabel": "Kartenname",
   "descriptionLabel": "Kartenbeschreibung",
   "loadingMap": "Karte wird geladen...",

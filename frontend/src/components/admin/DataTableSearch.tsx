@@ -49,7 +49,7 @@ export function DataTableSearch({ value, onChange, placeholder, debounceMs }: Da
 
   return (
     <div className="relative">
-      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={debounceMs ? internal : value}
         onChange={(e) => handleChange(e.target.value)}
@@ -60,7 +60,7 @@ export function DataTableSearch({ value, onChange, placeholder, debounceMs }: Da
         <button
           type="button"
           onClick={handleClear}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+          className="absolute end-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>

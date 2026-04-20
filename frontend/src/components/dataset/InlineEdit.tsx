@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
 interface InlineEditProps {
@@ -25,6 +26,7 @@ export function InlineEdit({
   onDirtyChange,
   initialEditing = false,
 }: InlineEditProps) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(initialEditing);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
@@ -142,7 +144,7 @@ export function InlineEdit({
           onKeyDown={handleKeyDown}
           className={cn(inputClasses, 'resize-none min-h-[3rem]')}
           rows={3}
-          title="Ctrl+Enter to save, Escape to cancel"
+          title={t('common:inlineEdit.hint', { defaultValue: 'Ctrl+Enter to save, Escape to cancel' })}
         />
       );
     }

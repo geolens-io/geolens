@@ -53,7 +53,7 @@ export function CollectionDatasetList({ collectionId, onRemove }: CollectionData
     <div className="space-y-4">
       {/* Filter input */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+        <Search className="absolute start-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
         <Input
           placeholder={t('datasetList.filterPlaceholder')}
           value={filter}

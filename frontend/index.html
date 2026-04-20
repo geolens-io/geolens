@@ -12,6 +12,11 @@
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
           var isDark = stored === 'dark' || (stored !== 'light' && prefersDark);
           if (isDark) document.documentElement.classList.add('dark');
+          // Sync lang attribute before React hydration (must match i18n config supportedLngs)
+          var lang = localStorage.getItem('i18nextLng');
+          if (lang && /^(en|de|fr|es)$/.test(lang)) {
+            document.documentElement.lang = lang;
+          }
         } catch(e) {}
       })();
     </script>
