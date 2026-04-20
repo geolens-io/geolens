@@ -204,7 +204,6 @@ describe('useBuilderSave', () => {
 
   it('Ctrl+S keydown calls handleSave', () => {
     const state = makeSaveState();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     renderHook(() => useBuilderSave(state));
 
     act(() => {
@@ -229,7 +228,6 @@ describe('useBuilderSave', () => {
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
     const state = makeSaveState({ hasUnsavedChanges: true });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { unmount } = renderHook(() => useBuilderSave(state));
 
     expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
@@ -246,7 +244,6 @@ describe('useBuilderSave', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
 
     const state = makeSaveState({ hasUnsavedChanges: false });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     renderHook(() => useBuilderSave(state));
 
     const beforeUnloadCalls = addSpy.mock.calls.filter(
