@@ -89,6 +89,7 @@ interface LayerItemProps {
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
+  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
   inspectorMode?: boolean;
 }
 
@@ -113,6 +114,7 @@ export const LayerItem = memo(function LayerItem({
   onRemove,
   onZoomToLayer,
   onToggleLegend,
+  onRenderModeChange,
   inspectorMode,
 }: LayerItemProps) {
   const { t } = useTranslation('builder');
@@ -368,6 +370,7 @@ export const LayerItem = memo(function LayerItem({
               onOpacityChange={onOpacityChange}
               onStyleConfigChange={onStyleConfigChange}
               onLayoutChange={onLayoutChange}
+              onRenderModeChange={onRenderModeChange}
             />
           )}
           {activeTab === 'style' && columns.length > 0 && (

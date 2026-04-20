@@ -1,5 +1,6 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
+import logging
 import uuid
 from typing import Literal
 
@@ -13,7 +14,6 @@ from fastapi import (
     Response,
     status,
 )
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
@@ -24,7 +24,6 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.models import User
 from app.modules.auth.visibility import get_user_roles
-from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
 from app.modules.catalog.maps.schemas import (
@@ -51,6 +50,7 @@ from app.modules.catalog.maps.service import (
     create_share_token,
     delete_map,
     get_active_share_token,
+    get_dataset_meta,
     duplicate_map,
     get_map,
     get_map_with_layers,
@@ -63,6 +63,8 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/maps", tags=["Maps"])
 
@@ -132,6 +134,7 @@ async def _check_map_read_access(
     """Raise 404 if the user cannot read the map."""
     if user is None:
         if map_obj.visibility != "public":
+            logger.warning("map_read_denied map_id=%s user=anon", map_obj.id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Map not found",
@@ -143,6 +146,7 @@ async def _check_map_read_access(
         is_internal = map_obj.visibility == "internal"
         is_public = map_obj.visibility == "public"
         if not (is_public or is_owner or is_admin or is_internal):
+            logger.warning("map_read_denied map_id=%s user_id=%s", map_obj.id, user.id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Map not found",
@@ -361,7 +365,13 @@ async def update_map_endpoint(
     if "layers" in kwargs:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 
-    await update_map(db, map_id, **kwargs)
+    try:
+        await update_map(db, map_id, **kwargs)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
 
     await log_action(
         db,
@@ -378,6 +388,11 @@ async def update_map_endpoint(
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
         db, map_id
     )
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
     layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
@@ -657,7 +672,7 @@ async def upload_thumbnail(
     try:
         header, encoded = data_uri.split(",", 1)
         image_bytes = base64.b64decode(encoded)
-    except (ValueError, Exception):
+    except (ValueError, UnicodeDecodeError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid data URI or base64 encoding",
@@ -769,42 +784,21 @@ async def add_layer_endpoint(
     )
     await db.commit()
 
-    # Get dataset fields for the response
-    ds_result = await db.execute(
-        select(
-            Record.title,
-            Dataset.geometry_type,
-            Dataset.table_name,
-            Record.spatial_extent,
-            Dataset.column_info,
-            Dataset.feature_count,
-            Dataset.sample_values,
-            Record.record_type,
-        )
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.id == body.dataset_id)
-    )
-    ds_row = ds_result.one_or_none()
-    dataset_name = ds_row[0] if ds_row else "Unknown"
-    geometry_type = ds_row[1] if ds_row else None
-    table_name = ds_row[2] if ds_row else ""
-    extent = ds_row[3] if ds_row else None
-    col_info = ds_row[4] if ds_row else None
-    feat_count = ds_row[5] if ds_row else None
-    samples = ds_row[6] if ds_row else None
-    rec_type = ds_row[7] if ds_row else None
+    # Get dataset fields for the response (single query via service helper)
+    meta = await get_dataset_meta(db, body.dataset_id)
 
     return _build_layer_response(
         layer,
         DatasetMetaKwargs(
-            dataset_name=dataset_name,
-            geometry_type=geometry_type,
-            table_name=table_name,
-            extent=extent,
-            column_info=col_info,
-            feature_count=feat_count,
-            sample_values=samples,
-            record_type=rec_type,
+            dataset_name=meta[1] if meta else "Unknown",
+            geometry_type=meta[2] if meta else None,
+            table_name=meta[3] if meta else "",
+            extent=meta[4] if meta else None,
+            column_info=meta[5] if meta else None,
+            feature_count=meta[6] if meta else None,
+            sample_values=meta[7] if meta else None,
+            record_type=meta[0] if meta else None,
+            is_3d=meta[8] if meta else None,
         ),
     )
 

@@ -38,10 +38,6 @@ vi.mock('@/components/builder/LayerPanel', () => ({
   LayerPanel: () => <div data-testid="layer-panel" />,
 }));
 
-vi.mock('@/components/builder/LayerInspector', () => ({
-  LayerInspector: () => <div data-testid="layer-inspector" />,
-}));
-
 vi.mock('@/components/builder/DatasetSearchPanel', () => ({
   DatasetSearchPanel: () => <div data-testid="dataset-search-panel" />,
 }));

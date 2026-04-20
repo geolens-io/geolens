@@ -22,7 +22,7 @@ class Map(Base):
     __tablename__ = "maps"
     __table_args__ = (
         CheckConstraint(
-            "visibility IN ('private', 'public', 'internal', 'unlisted')",
+            "visibility IN ('private', 'public', 'internal')",
             name="chk_maps_visibility",
         ),
         {"schema": "catalog"},

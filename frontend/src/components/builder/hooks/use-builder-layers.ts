@@ -83,7 +83,8 @@ export function useBuilderLayers(
     }
   }, [apiLayers, hasUnsavedChanges]);
 
-  // Handle ?add_dataset URL param: auto-add a dataset as a layer on map load
+  // Handle ?add_dataset URL param: auto-add a dataset as a layer on map load.
+  // Depends on mapData so the effect re-evaluates once initializedRef is set.
   useEffect(() => {
     if (!initializedRef.current || addDatasetProcessedRef.current) return;
     const datasetId = searchParams.get('add_dataset');
@@ -95,7 +96,7 @@ export function useBuilderLayers(
       return prev;
     }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, mapData]);
 
   // Compute initial view state only once
   const initialViewState = useMemo(() => {

@@ -195,6 +195,8 @@ function ShareLinkSettings({
                           mapId,
                           tokenId: resolvedEmbedTokenId,
                           allowedOrigins: null,
+                        }).catch(() => {
+                          toast.error(t('toasts.domainClearFailed', { defaultValue: 'Failed to clear domain restrictions' }));
                         });
                       }
                     }
@@ -271,13 +273,13 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
   const [domainInput, setDomainInput] = useState('');
 
-  // Queries as source of truth
-  const shareTokenQuery = useMapShareToken(mapId);
+  // Queries as source of truth — only fetch when dialog is open
+  const shareTokenQuery = useMapShareToken(open ? mapId : undefined);
   const shareToken = shareTokenQuery.data?.token ?? null;
   const shareExpires = shareTokenQuery.data?.expires_at ?? null;
   const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
-  const embedTokensQuery = useMapEmbedTokens(shareToken ? mapId : undefined);
+  const embedTokensQuery = useMapEmbedTokens(open && shareToken ? mapId : undefined);
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
     t => t.is_active && new Date(t.expires_at) > new Date()
   );

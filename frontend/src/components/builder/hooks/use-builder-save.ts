@@ -264,7 +264,7 @@ export function useBuilderSave(state: SaveState) {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        handleSaveRef.current();
+        if (!updateMap.isPending) handleSaveRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);

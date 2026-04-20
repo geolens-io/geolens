@@ -33,12 +33,13 @@ export function useMaps(params: MapBrowseParams = {}) {
   });
 }
 
-export function useMap(id: string | undefined) {
+export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: boolean }) {
   return useQuery({
     queryKey: queryKeys.maps.detail(id),
     queryFn: () => getMap(id!),
     enabled: !!id,
     staleTime: 60_000,
+    refetchOnWindowFocus: opts?.refetchOnWindowFocus,
   });
 }
 

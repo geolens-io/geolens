@@ -41,7 +41,9 @@ class MapLayerInput(BaseModel):
         default=None, description="Data-driven style configuration"
     )
     layer_type: str | None = Field(
-        default=None, description="Auto-detected from record_type if omitted"
+        default=None,
+        pattern=r"^(vector_geolens|raster_geolens|geojson)$",
+        description="Auto-detected from record_type if omitted",
     )
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"
@@ -51,13 +53,13 @@ class MapLayerInput(BaseModel):
 class MapCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=50_000)
 
 
 class MapUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=50_000)
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")
