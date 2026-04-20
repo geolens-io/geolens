@@ -280,7 +280,7 @@ class TestProbeEndpoint:
         admin_auth_header: dict,
         mock_validate_ssrf,
     ):
-        """POST /services/probe/ with unrecognized service returns 422."""
+        """POST /services/probe/ with unrecognized service returns 400."""
         with patch(
             "app.modules.catalog.sources.router.detect_service_type",
             new_callable=AsyncMock,
@@ -291,7 +291,7 @@ class TestProbeEndpoint:
                 json={"url": "https://not-a-service.example.com/"},
                 headers=admin_auth_header,
             )
-            assert resp.status_code == 422
+            assert resp.status_code == 400
 
     async def test_probe_editor_allowed(
         self,
