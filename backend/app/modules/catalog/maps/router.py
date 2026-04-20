@@ -44,7 +44,7 @@ from app.modules.catalog.maps.schemas import (
     VisibilityCheckResponse,
 )
 from app.modules.catalog.maps.service import (
-    _bulk_check_dataset_access,
+    bulk_check_dataset_access,
     add_layer,
     check_map_ownership,
     create_map,
@@ -488,8 +488,8 @@ async def get_map_share_token_endpoint(
     if token_obj is None:
         return None
     return ShareTokenResponse(
-        token=token_obj.token,
-        share_url=f"/m/{token_obj.token}",
+        token=token_obj.token_hint,
+        share_url=None,
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -525,13 +525,14 @@ async def share_map_endpoint(
         action="map.share",
         resource_type="map",
         resource_id=map_id,
-        details={"token": token_obj.token},
+        details={"token_hint": token_obj.token_hint},
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
+    raw_token = getattr(token_obj, "_raw_token", token_obj.token_hint)
     return ShareTokenResponse(
-        token=token_obj.token,
-        share_url=f"/m/{token_obj.token}",
+        token=raw_token,
+        share_url=f"/m/{raw_token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -570,8 +571,8 @@ async def update_map_share_token_endpoint(
     )
     await db.commit()
     return ShareTokenResponse(
-        token=token_obj.token,
-        share_url=f"/m/{token_obj.token}",
+        token=token_obj.token_hint,
+        share_url=None,
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -701,10 +702,15 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
+    cache_control = (
+        "public, max-age=3600"
+        if map_obj.visibility == "public"
+        else "private, max-age=3600"
+    )
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache_control},
     )
 
 
@@ -731,7 +737,7 @@ async def add_layer_endpoint(
 
     # Verify the user can access the target dataset
     user_roles = await get_user_roles(db, user)
-    accessible = await _bulk_check_dataset_access(
+    accessible = await bulk_check_dataset_access(
         db, [body.dataset_id], user, user_roles
     )
     if body.dataset_id not in accessible:

@@ -15,6 +15,9 @@ const adapters: Record<string, LayerAdapter> = {
 
 export function getAdapter(type: string): LayerAdapter {
   const adapter = adapters[type];
-  if (!adapter) throw new Error(`No adapter for layer type: ${type}`);
+  if (!adapter) {
+    if (import.meta.env.DEV) console.warn(`[registry] Unknown adapter type: ${type}, falling back to circle`);
+    return circleAdapter;
+  }
   return adapter;
 }

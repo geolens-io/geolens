@@ -108,7 +108,7 @@ class MapLayer(Base):
         String(50), nullable=False, server_default="vector_geolens"
     )
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    filter: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    filter: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     label_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     style_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     show_in_legend: Mapped[bool] = mapped_column(
@@ -129,7 +129,8 @@ class MapShareToken(Base):
     map_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False
     )
-    token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    token_hint: Mapped[str] = mapped_column(Text, nullable=False, server_default="***")
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
     )

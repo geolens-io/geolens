@@ -31,8 +31,9 @@ export function buildLabelLayerSpec(opts: {
       'symbol-placement': placement,
       'text-allow-overlap': lc.allowOverlap ?? false,
       'icon-allow-overlap': lc.allowOverlap ?? false,
-      'text-font': ['Noto Sans Regular'],
+      'text-font': ['Noto Sans Regular', 'Open Sans Regular', 'Arial Unicode MS Regular'],
       'text-max-width': 10,
+      ...(geomType === 'fill' ? { 'symbol-avoid-edges': true } : {}),
       ...(visibility ? { visibility } : {}),
       ...(placement === 'point' ? {
         'text-anchor': lc.textAnchor ?? 'center',
@@ -43,7 +44,6 @@ export function buildLabelLayerSpec(opts: {
       'text-color': lc.textColor ?? MAP_COLORS.label.color,
       'text-halo-color': lc.haloColor ?? MAP_COLORS.label.halo,
       'text-halo-width': lc.haloWidth ?? 1.5,
-      'text-opacity': lc.textOpacity ?? 1,
     },
   } as AddLayerObject;
 }
@@ -63,12 +63,11 @@ export function syncLabelLayer(
   map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
   map.setLayoutProperty(labelId, 'symbol-placement', placement);
   map.setLayoutProperty(labelId, 'text-allow-overlap', lc.allowOverlap ?? false);
-  map.setLayoutProperty(labelId, 'icon-allow-overlap', lc.allowOverlap ?? false);
-  map.setLayoutProperty(labelId, 'text-font', ['Noto Sans Regular']);
+  map.setLayoutProperty(labelId, 'text-font', ['Noto Sans Regular', 'Open Sans Regular', 'Arial Unicode MS Regular']);
   map.setLayoutProperty(labelId, 'text-max-width', 10);
   if (placement === 'point') {
     map.setLayoutProperty(labelId, 'text-anchor', lc.textAnchor ?? 'center');
-    map.setLayoutProperty(labelId, 'text-offset', lc.textOffset ?? [0, 0]);
+    map.setLayoutProperty(labelId, 'text-offset', lc.textOffset ?? (geomType === 'circle' ? [0, -1.5] : [0, 0]));
   } else {
     map.setLayoutProperty(labelId, 'text-anchor', 'center');
     map.setLayoutProperty(labelId, 'text-offset', [0, 0]);

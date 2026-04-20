@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Copy, Check, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
+import { CUSTOM_PAINT_PROPS } from '@/components/builder/layer-adapters/shared';
 
 interface StyleSpecViewProps {
   layer: MapLayerResponse;
@@ -23,20 +24,21 @@ export function StyleSpecView({ layer }: StyleSpecViewProps) {
     const obj: Record<string, unknown> = {};
 
     if (layer.paint && Object.keys(layer.paint).length > 0) {
-      obj.paint = layer.paint;
+      obj.paint = Object.fromEntries(
+        Object.entries(layer.paint as Record<string, unknown>).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k))
+      );
     }
     if (layer.layout && Object.keys(layer.layout).length > 0) {
-      obj.layout = layer.layout;
+      obj.layout = Object.fromEntries(
+        Object.entries(layer.layout as Record<string, unknown>).filter(([k]) => !k.startsWith('_'))
+      );
     }
     if (layer.filter) {
       obj.filter = layer.filter;
     }
-    if (layer.opacity != null && layer.opacity !== 1) {
-      obj.opacity = layer.opacity;
-    }
 
     return JSON.stringify(obj, null, 2);
-  }, [layer.paint, layer.layout, layer.filter, layer.opacity]);
+  }, [layer.paint, layer.layout, layer.filter]);
 
   const handleCopy = async () => {
     try {

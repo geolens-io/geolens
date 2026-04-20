@@ -245,11 +245,14 @@ export function useBuilderSave(state: SaveState) {
   // Memoized to stabilize the callback ref identity in MapBuilderPage,
   // preventing transient null ref cycles during re-renders.
   const thumbCaptured = useRef(false);
+  const localLayersRef = useRef(state.localLayers);
+  localLayersRef.current = state.localLayers;
+
   const maybeAutoCaptureThumbnail = useCallback((map: MaplibreMap) => {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
     thumbCaptured.current = true;
-    captureThumbnail(map, state.mapId, queryClient, state.localLayers);
-  }, [state.hasThumbnail, state.localLayers, state.mapId, queryClient]);
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current);
+  }, [state.hasThumbnail, state.mapId, queryClient]);
 
   // Warn before tab close / refresh with unsaved changes, and block in-app navigation
   const blocker = useUnsavedGuard(state.hasUnsavedChanges);

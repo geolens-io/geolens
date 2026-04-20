@@ -15,6 +15,7 @@ interface MockMap {
   removeSource: (id: string) => void;
   isStyleLoaded: () => boolean;
   once: (event: string, cb: () => void) => void;
+  off: (event: string, cb: () => void) => void;
   fitBounds: (bounds: unknown, options: unknown) => void;
 }
 
@@ -44,6 +45,7 @@ function createMockMap(): MockMap {
     },
     isStyleLoaded: () => true,
     once: (_event, cb) => cb(),
+    off: () => {},
     fitBounds: (bounds, options) => {
       fitBoundsCalls.push({ bounds, options });
     },

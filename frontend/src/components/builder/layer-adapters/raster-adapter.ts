@@ -6,6 +6,7 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, opacity, visible } = input;
+    if (map.getSource(sourceId)) return;
     map.addSource(sourceId, {
       type: 'raster',
       tiles: [`${window.location.origin}${tileUrl}`],

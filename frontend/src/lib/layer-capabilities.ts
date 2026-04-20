@@ -35,6 +35,19 @@ export function getLayerCapabilities(
     };
   }
 
+  // Vector layer with no geometry — restrict capabilities
+  if (!layer.dataset_geometry_type) {
+    return {
+      kind: 'vector',
+      supportsStyleEditor: false,
+      supportsFilterEditor: false,
+      supportsLabelEditor: false,
+      supportsOpacity: true,
+      mapLayerType: 'fill',
+      iconVariant: 'polygon',
+    };
+  }
+
   // Vector layer — derive map layer type from geometry
   const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
   let mapLayerType: 'fill' | 'line' | 'circle';

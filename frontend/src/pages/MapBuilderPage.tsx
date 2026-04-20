@@ -324,7 +324,7 @@ export function MapBuilderPage() {
 
   const { byAnchor } = usePartitionedWidgets();
   const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
-  const chatLayerActions: LayerActions = {
+  const chatLayerActions: LayerActions = useMemo(() => ({
     onFilterChange: layers.handleFilterChange,
     onPaintChange: layers.handlePaintChange,
     onStyleConfigChange: layers.handleStyleConfigChange,
@@ -333,7 +333,12 @@ export function MapBuilderPage() {
     onAddDataset: layers.handleAddDataset,
     onRemove: layers.handleAiRemoveLayer,
     onOpacityChange: layers.handleOpacityChange,
-  };
+  }), [
+    layers.handleFilterChange, layers.handlePaintChange,
+    layers.handleStyleConfigChange, layers.handleLabelChange,
+    layers.handleToggleVisibility, layers.handleAddDataset,
+    layers.handleAiRemoveLayer, layers.handleOpacityChange,
+  ]);
 
   const handleToggleChat = useCallback(
     () => dialogs.setShowChat((v) => !v),
@@ -374,7 +379,10 @@ export function MapBuilderPage() {
     );
   }
 
-  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+  const isMac = typeof navigator !== 'undefined' && (
+    (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform === 'macOS' ||
+    /Mac/i.test(navigator.userAgent)
+  );
   const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
 
   return (
@@ -618,13 +626,17 @@ export function MapBuilderPage() {
         <div className="border-t bg-background shrink-0 flex flex-col overflow-hidden h-60">
           {/* Tab bar */}
           <div className="border-b bg-accent/30 flex items-center px-3.5 shrink-0">
-            <div className="flex gap-0.5 py-1.5">
+            <div className="flex gap-0.5 py-1.5" role="tablist">
               {(['chat', 'notes'] as const)
                 .filter((tab) => tab !== 'chat' || aiAvailable)
                 .map((tab) => (
                 <button
                   key={tab}
                   type="button"
+                  role="tab"
+                  id={`dock-tab-${tab}`}
+                  aria-selected={dockTab === tab}
+                  aria-controls={`dock-panel-${tab}`}
                   className={cn(
                     "px-2.5 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
                     dockTab === tab
@@ -652,7 +664,7 @@ export function MapBuilderPage() {
 
           {/* Tab content */}
           {dockTab === 'chat' && (
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden" role="tabpanel" id="dock-panel-chat" aria-labelledby="dock-tab-chat">
               <Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
                 <ChatPanel
                   horizontal
@@ -665,7 +677,7 @@ export function MapBuilderPage() {
             </div>
           )}
           {dockTab === 'notes' && (
-            <div className="flex-1 p-3 min-h-0">
+            <div className="flex-1 p-3 min-h-0" role="tabpanel" id="dock-panel-notes" aria-labelledby="dock-tab-notes">
               <textarea
                 className="w-full h-full resize-none rounded-md border border-input bg-transparent p-3 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 placeholder={t('dock.notesPlaceholder')}

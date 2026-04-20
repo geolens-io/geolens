@@ -103,8 +103,12 @@
       "equals": "gleich",
       "notEquals": "ungleich",
       "contains": "enthält",
-      "isNull": "ist leer"
-    }
+      "isNull": "ist leer",
+      "inList": "in Liste",
+      "notInList": "nicht in Liste",
+      "exists": "vorhanden"
+    },
+    "removeCondition": "Bedingung entfernen"
   },
   "labels": {
     "title": "Beschriftungen",
@@ -124,6 +128,10 @@
     "anchorBottom": "Unten",
     "anchorLeft": "Links",
     "anchorRight": "Rechts",
+    "anchorTopLeft": "Oben links",
+    "anchorTopRight": "Oben rechts",
+    "anchorBottomLeft": "Unten links",
+    "anchorBottomRight": "Unten rechts",
     "offsetX": "Versatz X",
     "offsetY": "Versatz Y",
     "allowOverlap": "Überlappung erlauben",

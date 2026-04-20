@@ -298,18 +298,31 @@ export function BuilderMap({
   // Clear popup when layer visibility changes
   useEffect(() => {
     setPopupInfo(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- derived string key intentional
   }, [visibilityKey]);
 
-  // Sync layers to map (initial + when layers/tokens change)
+  // Structural key: only changes when layers are added/removed/reordered/toggled —
+  // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).
+  const structuralKey = useMemo(
+    () => layers.map((l) => `${l.id}:${l.visible}:${l.dataset_id}`).join(','),
+    [layers],
+  );
+
+  // Sync layers to map — runs on structural changes (add/remove/visibility) and token refresh.
+  // Paint/filter/opacity edits are handled imperatively by use-layer-map-sync.ts.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
     syncLayersToMap(map, layers.map(toSyncInput), tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
-    reorderBasemapLabels(map, showBasemapLabels);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap]);
+  }, [structuralKey, mapReady, tileConfig?.cdn_base_url, tokenMap]);
+
+  // Reorder basemap labels — only when showBasemapLabels actually changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    reorderBasemapLabels(map, showBasemapLabels);
+  }, [showBasemapLabels, mapReady]);
 
   // Update tile URLs in-place when tokens refresh (vector only)
   useEffect(() => {
@@ -435,7 +448,7 @@ export function BuilderMap({
       <MapCoordReadout map={mapRef.current} />
       {!mapReady && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
-          <div className="text-sm text-muted-foreground animate-pulse">Loading map...</div>
+          <div className="text-sm text-muted-foreground animate-pulse">{t('builderMap.loading', { defaultValue: 'Loading map…' })}</div>
         </div>
       )}
       {contextLost && (

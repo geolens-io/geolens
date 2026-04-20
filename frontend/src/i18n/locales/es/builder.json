@@ -103,8 +103,12 @@
       "equals": "igual a",
       "notEquals": "distinto de",
       "contains": "contiene",
-      "isNull": "es nulo"
-    }
+      "isNull": "es nulo",
+      "inList": "en lista",
+      "notInList": "no en lista",
+      "exists": "existe"
+    },
+    "removeCondition": "Eliminar condición"
   },
   "labels": {
     "title": "Etiquetas",
@@ -124,6 +128,10 @@
     "anchorBottom": "Abajo",
     "anchorLeft": "Izquierda",
     "anchorRight": "Derecha",
+    "anchorTopLeft": "Arriba izquierda",
+    "anchorTopRight": "Arriba derecha",
+    "anchorBottomLeft": "Abajo izquierda",
+    "anchorBottomRight": "Abajo derecha",
     "offsetX": "Desplazar X",
     "offsetY": "Desplazar Y",
     "allowOverlap": "Permitir superposición",

@@ -103,8 +103,12 @@
       "equals": "equals",
       "notEquals": "not equals",
       "contains": "contains",
-      "isNull": "is null"
-    }
+      "isNull": "is null",
+      "inList": "in list",
+      "notInList": "not in list",
+      "exists": "exists"
+    },
+    "removeCondition": "Remove condition"
   },
   "labels": {
     "title": "Labels",
@@ -124,6 +128,10 @@
     "anchorBottom": "Bottom",
     "anchorLeft": "Left",
     "anchorRight": "Right",
+    "anchorTopLeft": "Top Left",
+    "anchorTopRight": "Top Right",
+    "anchorBottomLeft": "Bottom Left",
+    "anchorBottomRight": "Bottom Right",
     "offsetX": "Offset X",
     "offsetY": "Offset Y",
     "allowOverlap": "Allow overlap",

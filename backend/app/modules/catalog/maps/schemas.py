@@ -33,9 +33,7 @@ class MapLayerInput(BaseModel):
     display_name: str | None = Field(
         default=None, max_length=255, description="Label shown in the layer list"
     )
-    filter: list | dict | None = Field(
-        default=None, description="MapLibre filter expression"
-    )
+    filter: list | None = Field(default=None, description="MapLibre filter expression")
     label_config: dict | None = Field(
         default=None, description="Text label configuration"
     )
@@ -70,7 +68,7 @@ class MapUpdate(BaseModel):
         default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
     )
     basemap_style: str | None = Field(
-        default=None, description="Basemap style ID or URL"
+        default=None, max_length=30, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = Field(
@@ -116,7 +114,7 @@ class MapLayerResponse(BaseModel):
     layout: dict
     layer_type: str = "vector_geolens"
     dataset_record_type: str | None = None
-    filter: list | dict | None = None
+    filter: list | None = None
     label_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
@@ -193,7 +191,7 @@ class SharedLayerResponse(BaseModel):
     layout: dict
     layer_type: str = "vector_geolens"
     dataset_record_type: str | None = None
-    filter: list | dict | None = None
+    filter: list | None = None
     label_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
@@ -224,15 +222,17 @@ class ShareTokenRequest(BaseModel):
 
     @field_validator("expires_at")
     @classmethod
-    def expires_at_must_be_future(cls, v) -> datetime | None:
+    def expires_at_must_be_future(cls, v: datetime | None) -> datetime | None:
         if v is not None and v < datetime.now(timezone.utc):
             raise ValueError("expires_at must be in the future")
         return v
 
 
 class ShareTokenResponse(BaseModel):
-    token: str = Field(description="Opaque share token")
-    share_url: str = Field(description="Full shareable URL including token")
+    token: str = Field(description="Raw token on create, hint on retrieve")
+    share_url: str | None = Field(
+        default=None, description="Full shareable URL — only returned on create"
+    )
     expires_at: datetime | None = None
     is_active: bool = True
 

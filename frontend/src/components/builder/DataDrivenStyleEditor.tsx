@@ -184,7 +184,8 @@ export function DataDrivenStyleEditor({
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
-  }, [column, mode, ramp, valuesData, styleConfig, geomType, colorPaintProp, layerId, layer.paint, onStyleConfigChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
+  }, [column, mode, ramp, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
 
   // Effect 2: Graduated color styling
   useEffect(() => {
@@ -232,7 +233,8 @@ export function DataDrivenStyleEditor({
     };
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
-  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, layer.paint, onStyleConfigChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
+  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
@@ -280,7 +282,8 @@ export function DataDrivenStyleEditor({
     // Keep existing color expression + add size expression
     const paint = { ...layer.paint, [sizeProp]: sizeExpression };
     onStyleConfigChange(layerId, config, paint);
-  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, layer.paint, onStyleConfigChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed sizePaintProp covers the relevant slice
+  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange]);
 
   function handleClear() {
     setColumn('');

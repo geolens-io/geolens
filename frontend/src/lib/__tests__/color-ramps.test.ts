@@ -8,7 +8,7 @@ import {
 describe('buildGraduatedSizeExpression', () => {
   it('returns a step expression with correct shape', () => {
     const result = buildGraduatedSizeExpression('pop', [100, 500, 1000], [3, 6, 10, 16]);
-    expect(result).toEqual(['step', ['get', 'pop'], 3, 100, 6, 500, 10, 1000, 16]);
+    expect(result).toEqual(['case', ['==', ['get', 'pop'], null], 0, ['step', ['get', 'pop'], 3, 100, 6, 500, 10, 1000, 16]]);
   });
 
   it('throws if sizes.length !== breaks.length + 1', () => {
@@ -18,7 +18,7 @@ describe('buildGraduatedSizeExpression', () => {
 
   it('handles single break (2 classes)', () => {
     const result = buildGraduatedSizeExpression('x', [50], [4, 12]);
-    expect(result).toEqual(['step', ['get', 'x'], 4, 50, 12]);
+    expect(result).toEqual(['case', ['==', ['get', 'x'], null], 0, ['step', ['get', 'x'], 4, 50, 12]]);
   });
 });
 

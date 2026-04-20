@@ -13,6 +13,9 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
         "fill-color",
         "fill-opacity",
         "_outline-color",
+        "_outline-width",
+        "_fill-disabled",
+        "_stroke-disabled",
         "fill-antialias",
         "fill-translate",
         "fill-translate-anchor",
@@ -287,7 +290,7 @@ class ChatAction(BaseModel):
     label_config: dict | None = None  # for set_label
     dataset_id: str | None = None  # for add_layer
     visible: bool | None = None  # for toggle_visibility
-    opacity: float | None = None  # for set_opacity
+    opacity: float | None = Field(None, ge=0.0, le=1.0)  # for set_opacity
     geojson: GeoJSONFeatureCollection | None = None  # for show_query_result
     bbox: list[float] | None = None  # for show_query_result
 
