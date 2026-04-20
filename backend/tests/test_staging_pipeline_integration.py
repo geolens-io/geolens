@@ -82,16 +82,21 @@ def _create_test_csv(tmp_path: Path) -> Path:
 
 
 async def _make_session():
-    """Create a session directly in the caller's event loop.
+    """Create a session with a fresh engine bound to the caller's event loop.
 
-    Using ``db_module.async_session()`` inside the test body (rather than via
-    an async fixture) guarantees the underlying asyncpg connection is bound to
-    the same event loop that runs the test, avoiding the "Future attached to a
-    different loop" error seen with pytest-asyncio + asyncpg in CI.
+    These integration tests do NOT use the ``client`` fixture (which patches
+    ``db_module.async_session``), so ``db_module.async_session`` is the
+    production factory whose engine may be tied to a different loop.  We
+    create a dedicated per-call engine + session here so the asyncpg
+    connection is guaranteed to live on the running event loop.
     """
-    import app.core.db as db_module
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    return db_module.async_session()
+    from app.core.config import settings
+
+    engine = create_async_engine(settings.test_database_url, pool_size=2)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    return factory()
 
 
 async def _make_job(session, *, filename="test_points.geojson"):
