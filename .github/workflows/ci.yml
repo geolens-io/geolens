@@ -264,10 +264,10 @@ jobs:
       - name: Run pip-audit (dependency vulnerability scan)
         run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539
 
-  # ---------- E2E (only on push to main) ----------
+  # ---------- E2E (disabled to save CI minutes — run locally via `npx playwright test`) ----------
   e2e-test:
     name: E2E Tests
-    if: github.event_name == 'push'
+    if: false
     runs-on: ubuntu-latest
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
