@@ -1265,6 +1265,22 @@ async def collection_items(
         overrides["sort_by"] = parsed[0]
         overrides["sort_desc"] = parsed[1]
 
+    # Read OGC CQL2 filter params from raw query string (hyphenated
+    # "filter-lang" is not resolved by Pydantic model Depends binding).
+    raw_filter = request.query_params.get("filter")
+    raw_filter_lang = request.query_params.get("filter-lang")
+    if raw_filter and not params.cql2_filter:
+        overrides["cql2_filter"] = raw_filter
+    if raw_filter_lang:
+        if raw_filter_lang not in ("cql2-text", "cql2-json"):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": f"Unsupported filter-lang: {raw_filter_lang}. Use cql2-text or cql2-json."
+                },
+            )
+        overrides["cql2_filter_lang"] = raw_filter_lang
+
     effective_params = params.model_copy(update=overrides) if overrides else params
 
     result = await _handle_search(db, user, request, effective_params)
