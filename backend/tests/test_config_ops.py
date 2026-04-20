@@ -95,9 +95,7 @@ async def test_import_merge(
         json={"settings": config["settings"]},
         headers=admin_auth_header,
     )
-    assert import_resp.status_code == 200, (
-        f"Config import failed: {import_resp.json()}"
-    )
+    assert import_resp.status_code == 200, f"Config import failed: {import_resp.json()}"
     result = import_resp.json()
     assert result["settings_applied"] > 0
 
@@ -132,9 +130,7 @@ async def test_import_overwrite(
         json={"settings": original["settings"]},
         headers=admin_auth_header,
     )
-    assert import_resp.status_code == 200, (
-        f"Config import failed: {import_resp.json()}"
-    )
+    assert import_resp.status_code == 200, f"Config import failed: {import_resp.json()}"
     result = import_resp.json()
     assert result["settings_applied"] > 0
 
