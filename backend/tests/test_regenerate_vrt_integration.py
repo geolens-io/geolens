@@ -82,10 +82,10 @@ def local_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     provider = LocalStorageProvider(base_dir=str(storage_root))
 
-    # Patch the top-level import in app.ingest.tasks — NOT app.storage.get_storage.
-    # tasks.py:19 does `from app.platform.storage import get_storage`, rebinding the name
-    # inside the tasks module; patching the source module has no effect.
-    monkeypatch.setattr("app.processing.ingest.tasks.get_storage", lambda: provider)
+    # Patch the top-level import in tasks_vrt — NOT the re-export in tasks.py.
+    # tasks_vrt.py imports get_storage directly; patching tasks.get_storage
+    # doesn't affect the binding inside tasks_vrt.
+    monkeypatch.setattr("app.processing.ingest.tasks_vrt.get_storage", lambda: provider)
 
     # Override upload_staging_dir so resolve_vrt_source_path (vrt.py:16-26) resolves
     # source asset_uris to files under our storage root. Without this override,
@@ -108,8 +108,8 @@ def quicklook_stub(monkeypatch: pytest.MonkeyPatch):
     def _stub(vrt_path: str, size: int) -> bytes:
         return b"\x00" * 256  # fixed-size fake PNG bytes
 
-    # Patch at the ingest.tasks binding, not the source module
-    monkeypatch.setattr("app.processing.ingest.tasks.generate_quicklook", _stub)
+    # Patch at tasks_vrt where regenerate_vrt imports it directly
+    monkeypatch.setattr("app.processing.ingest.tasks_vrt.generate_quicklook", _stub)
     return _stub
 
 
@@ -136,23 +136,16 @@ async def vrt_db_state(
     parameter handling.
     """
     import app.core.db as db_module
-    import app.processing.ingest.tasks as tasks_module
+    import app.processing.ingest.tasks_vrt as tasks_vrt_module
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset
 
-    # CRITICAL: tasks.py:14 does `from app.core.db import async_session`, which
-    # binds the name at module import time. The `client` fixture patches
-    # `db_module.async_session` to the test session factory, but that does NOT
-    # update the already-bound `app.ingest.tasks.async_session`. Without this
-    # re-patch, regenerate_vrt opens its own session on the production engine
-    # (bound to a different event loop) and asyncpg raises
-    # "Future attached to a different loop".
-    #
-    # Because this fixture depends on `test_db_session` (which depends on
-    # `client`), `db_module.async_session` is already the test factory here,
-    # and we just need to mirror it into the tasks module.
-    monkeypatch.setattr(tasks_module, "async_session", db_module.async_session)
+    # CRITICAL: tasks_vrt.py imports async_session at module level. The
+    # `client` fixture patches db_module.async_session to the test factory,
+    # but that does NOT update the binding in tasks_vrt. Without this
+    # re-patch, regenerate_vrt opens a session on the production engine.
+    monkeypatch.setattr(tasks_vrt_module, "async_session", db_module.async_session)
 
     session = test_db_session
     source_uris = list(source_tifs.keys())  # ["rasters/src-1/source.cog.tif", ...]
