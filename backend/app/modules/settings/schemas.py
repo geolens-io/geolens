@@ -306,6 +306,8 @@ def _normalize_absolute_url(v: Any) -> str:
 
 
 def validate_public_app_url(v: Any) -> str:
+    if not v or (isinstance(v, str) and not v.strip()):
+        return ""
     normalized = _normalize_absolute_url(v)
     if urlsplit(normalized).path.rstrip("/").endswith("/api"):
         raise ValueError("public_app_url must point to the app, not the /api base")
@@ -313,6 +315,8 @@ def validate_public_app_url(v: Any) -> str:
 
 
 def validate_public_api_url(v: Any) -> str:
+    if not v or (isinstance(v, str) and not v.strip()):
+        return ""
     return _normalize_absolute_url(v)
 
 

@@ -77,37 +77,29 @@ def _create_test_csv(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Helpers — inline session creation
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-async def test_job(test_db_session):
-    """Create a minimal IngestJob record for testing."""
+async def _make_session():
+    """Create a session directly in the caller's event loop.
+
+    Using ``db_module.async_session()`` inside the test body (rather than via
+    an async fixture) guarantees the underlying asyncpg connection is bound to
+    the same event loop that runs the test, avoiding the "Future attached to a
+    different loop" error seen with pytest-asyncio + asyncpg in CI.
+    """
+    import app.core.db as db_module
+
+    return db_module.async_session()
+
+
+async def _make_job(session, *, filename="test_points.geojson"):
     from app.platform.jobs.models import IngestJob
 
-    job = IngestJob(
-        source_filename="test_points.geojson",
-        status="running",
-        user_metadata={},
-    )
-    test_db_session.add(job)
-    await test_db_session.flush()
-    return job
-
-
-@pytest.fixture
-async def test_job_csv(test_db_session):
-    """Create a minimal IngestJob record for CSV testing."""
-    from app.platform.jobs.models import IngestJob
-
-    job = IngestJob(
-        source_filename="test_data.csv",
-        status="running",
-        user_metadata={},
-    )
-    test_db_session.add(job)
-    await test_db_session.flush()
+    job = IngestJob(source_filename=filename, status="running", user_metadata={})
+    session.add(job)
+    await session.flush()
     return job
 
 
@@ -120,9 +112,7 @@ async def test_job_csv(test_db_session):
 class TestStagingPipelineIntegration:
     """Integration tests exercising _ingest_vector_into_staging with real ogr2ogr."""
 
-    async def test_ingest_path_spatial_geojson(
-        self, test_db_session, test_job, tmp_path
-    ):
+    async def test_ingest_path_spatial_geojson(self, tmp_path):
         """Spatial GeoJSON loads through the helper with correct metadata and geom_4326."""
         from app.processing.ingest.ogr import run_ogrinfo
         from app.processing.ingest.tasks import _ingest_vector_into_staging
@@ -132,57 +122,59 @@ class TestStagingPipelineIntegration:
 
         info = await run_ogrinfo(file_path)
 
-        try:
-            staging = await _ingest_vector_into_staging(
-                test_db_session,
-                job=test_job,
-                file_path=file_path,
-                target_table=table_name,
-                source_srid=info.get("srid") or 4326,
-                ogr_geometry_type=info.get("geometry_type"),
-                has_geometry=True,
-                effective_srid=4326,
-            )
+        async with await _make_session() as session:
+            job = await _make_job(session)
+            try:
+                staging = await _ingest_vector_into_staging(
+                    session,
+                    job=job,
+                    file_path=file_path,
+                    target_table=table_name,
+                    source_srid=info.get("srid") or 4326,
+                    ogr_geometry_type=info.get("geometry_type"),
+                    has_geometry=True,
+                    effective_srid=4326,
+                )
 
-            # --- StagingResult assertions ---
-            assert staging.has_geometry is True
-            assert staging.geometry_type is not None
-            assert staging.metadata["feature_count"] == 3
-            assert staging.metadata["geometry_type"] is not None
+                # --- StagingResult assertions ---
+                assert staging.has_geometry is True
+                assert staging.geometry_type is not None
+                assert staging.metadata["feature_count"] == 3
+                assert staging.metadata["geometry_type"] is not None
 
-            col_names = {c["name"] for c in staging.metadata["column_info"]}
-            assert "name" in col_names, f"'name' missing from column_info: {col_names}"
-            assert "height" in col_names, (
-                f"'height' missing from column_info: {col_names}"
-            )
-            assert staging.sample_values  # non-empty dict
+                col_names = {c["name"] for c in staging.metadata["column_info"]}
+                assert "name" in col_names, (
+                    f"'name' missing from column_info: {col_names}"
+                )
+                assert "height" in col_names, (
+                    f"'height' missing from column_info: {col_names}"
+                )
+                assert staging.sample_values  # non-empty dict
 
-            # --- Database assertions ---
-            row_count = await test_db_session.execute(
-                text(f'SELECT count(*) FROM data."{table_name}"')
-            )
-            assert row_count.scalar() == 3
+                # --- Database assertions ---
+                row_count = await session.execute(
+                    text(f'SELECT count(*) FROM data."{table_name}"')
+                )
+                assert row_count.scalar() == 3
 
-            geom_col = await test_db_session.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema='data' AND table_name=:t "
-                    "AND column_name='geom_4326'"
-                ).bindparams(t=table_name)
-            )
-            assert geom_col.scalar() == "geom_4326", (
-                "geom_4326 column missing — add_4326_column did not run"
-            )
+                geom_col = await session.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema='data' AND table_name=:t "
+                        "AND column_name='geom_4326'"
+                    ).bindparams(t=table_name)
+                )
+                assert geom_col.scalar() == "geom_4326", (
+                    "geom_4326 column missing — add_4326_column did not run"
+                )
 
-        finally:
-            await test_db_session.execute(
-                text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
-            )
-            await test_db_session.commit()
+            finally:
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
+                )
+                await session.commit()
 
-    async def test_reupload_path_staging_table(
-        self, test_db_session, test_job, tmp_path
-    ):
+    async def test_reupload_path_staging_table(self, tmp_path):
         """Staging table (reupload pattern) is created with correct data."""
         from app.processing.ingest.ogr import run_ogrinfo
         from app.processing.ingest.tasks import _ingest_vector_into_staging
@@ -194,54 +186,56 @@ class TestStagingPipelineIntegration:
 
         info = await run_ogrinfo(file_path)
 
-        try:
-            staging = await _ingest_vector_into_staging(
-                test_db_session,
-                job=test_job,
-                file_path=file_path,
-                target_table=table_name,
-                source_srid=info.get("srid") or 4326,
-                ogr_geometry_type=info.get("geometry_type"),
-                has_geometry=True,
-                effective_srid=4326,
-            )
+        async with await _make_session() as session:
+            job = await _make_job(session)
+            try:
+                staging = await _ingest_vector_into_staging(
+                    session,
+                    job=job,
+                    file_path=file_path,
+                    target_table=table_name,
+                    source_srid=info.get("srid") or 4326,
+                    ogr_geometry_type=info.get("geometry_type"),
+                    has_geometry=True,
+                    effective_srid=4326,
+                )
 
-            # --- StagingResult assertions ---
-            assert staging.has_geometry is True
-            assert staging.metadata["feature_count"] == 3
+                # --- StagingResult assertions ---
+                assert staging.has_geometry is True
+                assert staging.metadata["feature_count"] == 3
 
-            col_names = {c["name"] for c in staging.metadata["column_info"]}
-            assert "name" in col_names
-            assert "height" in col_names
+                col_names = {c["name"] for c in staging.metadata["column_info"]}
+                assert "name" in col_names
+                assert "height" in col_names
 
-            # --- Database assertions ---
-            row_count = await test_db_session.execute(
-                text(f'SELECT count(*) FROM data."{table_name}"')
-            )
-            assert row_count.scalar() == 3, (
-                f"Expected 3 rows in staging table {table_name!r}"
-            )
+                # --- Database assertions ---
+                row_count = await session.execute(
+                    text(f'SELECT count(*) FROM data."{table_name}"')
+                )
+                assert row_count.scalar() == 3, (
+                    f"Expected 3 rows in staging table {table_name!r}"
+                )
 
-            # Verify the staging table can be renamed (simulating _apply_reupload_swap)
-            final_name = f"{base_name}_final"
-            await test_db_session.execute(
-                text(f'ALTER TABLE data."{table_name}" RENAME TO "{final_name}"')
-            )
-            renamed_count = await test_db_session.execute(
-                text(f'SELECT count(*) FROM data."{final_name}"')
-            )
-            assert renamed_count.scalar() == 3
+                # Verify the staging table can be renamed (simulating _apply_reupload_swap)
+                final_name = f"{base_name}_final"
+                await session.execute(
+                    text(f'ALTER TABLE data."{table_name}" RENAME TO "{final_name}"')
+                )
+                renamed_count = await session.execute(
+                    text(f'SELECT count(*) FROM data."{final_name}"')
+                )
+                assert renamed_count.scalar() == 3
 
-        finally:
-            await test_db_session.execute(
-                text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
-            )
-            await test_db_session.execute(
-                text(f'DROP TABLE IF EXISTS data."{base_name}_final" CASCADE')
-            )
-            await test_db_session.commit()
+            finally:
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
+                )
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS data."{base_name}_final" CASCADE')
+                )
+                await session.commit()
 
-    async def test_nonspatial_csv_path(self, test_db_session, test_job_csv, tmp_path):
+    async def test_nonspatial_csv_path(self, tmp_path):
         """Non-spatial CSV loads without geometry columns."""
         from app.processing.ingest.ogr import run_ogrinfo
         from app.processing.ingest.tasks import _ingest_vector_into_staging
@@ -251,48 +245,52 @@ class TestStagingPipelineIntegration:
 
         _info = await run_ogrinfo(file_path)  # verify ogr2ogr can read the file
 
-        try:
-            staging = await _ingest_vector_into_staging(
-                test_db_session,
-                job=test_job_csv,
-                file_path=file_path,
-                target_table=table_name,
-                source_srid=None,
-                ogr_geometry_type=None,
-                has_geometry=False,
-                effective_srid=4326,
-            )
+        async with await _make_session() as session:
+            job = await _make_job(session, filename="test_data.csv")
+            try:
+                staging = await _ingest_vector_into_staging(
+                    session,
+                    job=job,
+                    file_path=file_path,
+                    target_table=table_name,
+                    source_srid=None,
+                    ogr_geometry_type=None,
+                    has_geometry=False,
+                    effective_srid=4326,
+                )
 
-            # --- StagingResult assertions ---
-            assert staging.has_geometry is False
-            assert staging.metadata["geometry_type"] is None
-            assert staging.metadata["feature_count"] == 3
+                # --- StagingResult assertions ---
+                assert staging.has_geometry is False
+                assert staging.metadata["geometry_type"] is None
+                assert staging.metadata["feature_count"] == 3
 
-            col_names = {c["name"] for c in staging.metadata["column_info"]}
-            assert "name" in col_names, f"'name' missing from column_info: {col_names}"
-            assert "value" in col_names, (
-                f"'value' missing from column_info: {col_names}"
-            )
+                col_names = {c["name"] for c in staging.metadata["column_info"]}
+                assert "name" in col_names, (
+                    f"'name' missing from column_info: {col_names}"
+                )
+                assert "value" in col_names, (
+                    f"'value' missing from column_info: {col_names}"
+                )
 
-            # --- Database assertions: NO geom_4326 column ---
-            row_count = await test_db_session.execute(
-                text(f'SELECT count(*) FROM data."{table_name}"')
-            )
-            assert row_count.scalar() == 3
+                # --- Database assertions: NO geom_4326 column ---
+                row_count = await session.execute(
+                    text(f'SELECT count(*) FROM data."{table_name}"')
+                )
+                assert row_count.scalar() == 3
 
-            geom_col = await test_db_session.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema='data' AND table_name=:t "
-                    "AND column_name='geom_4326'"
-                ).bindparams(t=table_name)
-            )
-            assert geom_col.scalar() is None, (
-                "geom_4326 column present for non-spatial data — unexpected"
-            )
+                geom_col = await session.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema='data' AND table_name=:t "
+                        "AND column_name='geom_4326'"
+                    ).bindparams(t=table_name)
+                )
+                assert geom_col.scalar() is None, (
+                    "geom_4326 column present for non-spatial data — unexpected"
+                )
 
-        finally:
-            await test_db_session.execute(
-                text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
-            )
-            await test_db_session.commit()
+            finally:
+                await session.execute(
+                    text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
+                )
+                await session.commit()

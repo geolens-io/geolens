@@ -323,7 +323,7 @@ async def test_attribute_completeness_uses_single_query(test_db_session):
 
     async def recording_execute(clause, *args, **kwargs):
         sql_text = str(clause) if clause is not None else ""
-        if f"data.{tmp_table}" in sql_text:
+        if f"data.{tmp_table}" in sql_text or f'"data"."{tmp_table}"' in sql_text:
             recorded.append(sql_text)
         return await original_execute(clause, *args, **kwargs)
 
