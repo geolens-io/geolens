@@ -138,11 +138,17 @@ def _build_text_filter(q: str, *, use_alias: bool = False):
     """
     query_text = q.strip()
     query_like = f"%{query_text.lower()}%"
-    ts_query = func.websearch_to_tsquery("english", query_text)
+    # Use 'simple' regconfig for non-Latin scripts that 'english' can't tokenize;
+    # combine both so accented/stemmed English still works alongside CJK/Arabic/etc.
+    ts_query_en = func.websearch_to_tsquery("english", query_text)
+    ts_query_simple = func.websearch_to_tsquery("simple", query_text)
+    ts_query = ts_query_en.bool_op("||")(ts_query_simple)
 
+    # unaccent both sides of ILIKE for accent-insensitive matching (café = cafe)
+    unaccented_like = func.concat("%", func.unaccent(query_text.lower()), "%")
     vector_match = Record.search_vector.bool_op("@@")(ts_query)
-    title_match = func.lower(Record.title).like(query_like)
-    summary_match = func.lower(func.coalesce(Record.summary, "")).like(query_like)
+    title_match = func.lower(func.unaccent(Record.title)).like(unaccented_like)
+    summary_match = func.lower(func.unaccent(func.coalesce(Record.summary, ""))).like(unaccented_like)
 
     # Choose model references for sub-selects
     RK = aliased(RecordKeyword) if use_alias else RecordKeyword

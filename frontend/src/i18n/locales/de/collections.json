@@ -15,6 +15,7 @@
     "loading": "Sammlung wird geladen...",
     "notFoundTitle": "Sammlung nicht gefunden",
     "notFoundMessage": "Die angeforderte Sammlung konnte nicht geladen werden.",
+    "metadataAriaLabel": "Sammlungsmetadaten",
     "backToCollections": "Zurück zu Sammlungen",
     "breadcrumb": "Sammlungen",
     "datasets": "Datensätze",

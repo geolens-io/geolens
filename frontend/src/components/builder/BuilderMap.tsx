@@ -425,7 +425,7 @@ export function BuilderMap({
         style={{ width: '100%', height: '100%' }}
         minZoom={1}
         onLoad={handleLoad}
-        aria-label="Map builder"
+        aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       >
         <NavigationControl position="bottom-right" />
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />

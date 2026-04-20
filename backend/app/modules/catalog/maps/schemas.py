@@ -5,6 +5,8 @@ from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.text import normalize_nfc as _nfc
+
 
 class MapVisibility(str, Enum):
     private = "private"
@@ -55,11 +57,21 @@ class MapCreate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=50_000)
 
+    @field_validator("name", "description", "notes", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
+
 
 class MapUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=50_000)
+
+    @field_validator("name", "description", "notes", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")

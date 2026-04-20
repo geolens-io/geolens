@@ -129,7 +129,7 @@ export function MapsPage() {
       {/* Browse toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-64">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t('maps.searchPlaceholder')}
             value={search}
@@ -173,7 +173,7 @@ export function MapsPage() {
           type="single"
           value={viewMode}
           onValueChange={handleViewChange}
-          className="ml-auto"
+          className="ms-auto"
         >
           <ToggleGroupItem value="list" aria-label={t('maps.listView')}>
             <LayoutList className="h-4 w-4" />

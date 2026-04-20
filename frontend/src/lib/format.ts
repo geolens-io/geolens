@@ -79,7 +79,8 @@ export function formatRelativeDate(dateString: string | null): string {
 export function formatResolution(value: number | null | undefined): string {
   if (value == null) return '—';
   const abs = Math.abs(value);
-  return abs >= 0.01 ? value.toFixed(2) : value.toFixed(6);
+  const digits = abs >= 0.01 ? 2 : 6;
+  return value.toLocaleString(i18n.language, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 /** Format nodata values: truncate long floats to exponential notation. */

@@ -110,7 +110,7 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="ml-auto h-6 w-6 p-0"
+              className="ms-auto h-6 w-6 p-0"
               onClick={() => handleDelete(contact.id)}
             >
               <X className="h-3.5 w-3.5" />

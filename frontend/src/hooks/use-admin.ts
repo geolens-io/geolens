@@ -26,6 +26,7 @@ import {
   updateSemanticSearch,
 } from '@/api/admin';
 import { toast } from 'sonner';
+import i18n from '@/i18n/i18n';
 import { retryJob } from '@/api/ingest';
 
 export function useCatalogStats() {
@@ -114,7 +115,7 @@ export function useRetryAdminJob() {
     },
     onError: (err) => {
       console.error('[useRetryAdminJob]', err);
-      toast.error('Failed to retry job');
+      toast.error(i18n.t('admin:errors.retryJobFailed'));
     },
   });
 }
@@ -280,7 +281,7 @@ export function useBackfillEmbeddings() {
     },
     onError: (err) => {
       console.error('[useBackfillEmbeddings]', err);
-      toast.error('Embedding backfill failed');
+      toast.error(i18n.t('admin:errors.backfillFailed'));
     },
   });
 }
@@ -296,7 +297,7 @@ export function useUpdateSemanticSearch() {
     },
     onError: (err) => {
       console.error('[useUpdateSemanticSearch]', err);
-      toast.error('Failed to update semantic search setting');
+      toast.error(i18n.t('admin:errors.semanticSearchFailed'));
     },
   });
 }

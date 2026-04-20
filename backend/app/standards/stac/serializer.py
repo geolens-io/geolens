@@ -103,6 +103,10 @@ def ogc_record_to_stac_item(
     if props.get("description"):
         stac_props["description"] = props["description"]
 
+    # Language (from OGC Record properties)
+    if props.get("language"):
+        stac_props["language"] = props["language"]
+
     # STAC extension properties
     for key in _STAC_EXTENSION_PROPS:
         if key in props:

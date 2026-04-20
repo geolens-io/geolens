@@ -145,6 +145,10 @@
     "couldNotReachService": "Could not reach the service. Check the URL and try again.",
     "serviceTimeout": "Service didn't respond in time. Check the URL and try again.",
     "remoteServiceError": "Remote service returned an error",
+    "aiSummaryFailed": "Failed to generate summary",
+    "aiKeywordsFailed": "Failed to generate keywords",
+    "aiLineageFailed": "Failed to generate lineage",
+    "aiQualityFailed": "Failed to generate quality statement",
     "aiDisabled": "AI features are currently disabled",
     "aiNotConfigured": "AI is not configured (missing API key)",
     "aiGenerationFailed": "AI map generation failed unexpectedly",
@@ -344,6 +348,12 @@
     "adminAuditLog": "Admin Audit Log",
     "adminConfigOps": "Admin Config Ops",
     "adminSettings": "Admin Settings"
+  },
+  "sidebar": {
+    "toggle": "Toggle Sidebar"
+  },
+  "inlineEdit": {
+    "hint": "Ctrl+Enter to save, Escape to cancel"
   },
   "errorBoundary": {
     "appTitle": "Something went wrong",

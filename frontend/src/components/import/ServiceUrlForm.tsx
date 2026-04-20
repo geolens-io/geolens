@@ -200,7 +200,7 @@ export function ServiceUrlForm() {
                   key={layer.name}
                   onClick={() => handleLayerSelect(layer)}
                   className={cn(
-                    'flex items-center gap-2.5 rounded-lg border border-border p-2.5 text-left transition-colors',
+                    'flex items-center gap-2.5 rounded-lg border border-border p-2.5 text-start transition-colors',
                     'hover:bg-surface-2',
                   )}
                 >

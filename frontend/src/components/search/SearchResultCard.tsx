@@ -28,13 +28,13 @@ const statusVariants: Record<string, 'outline' | 'secondary'> = {
   deprecated: 'outline',
 };
 
-function formatGsd(gsd: number, crs?: string | null): string {
+function formatGsd(gsd: number, crs: string | null | undefined, locale: string): string {
   // For geographic CRS (degree-based), don't show GSD — it's meaningless as a distance
   if (crs && /^EPSG:4326$/i.test(crs)) return '';
   // Sub-meter
-  if (gsd < 1) return `${(gsd * 100).toFixed(0)} cm`;
-  if (gsd < 1000) return `${Math.round(gsd)} m`;
-  return `${(gsd / 1000).toFixed(1)} km`;
+  if (gsd < 1) return `${(gsd * 100).toLocaleString(locale, { maximumFractionDigits: 0 })} cm`;
+  if (gsd < 1000) return `${Math.round(gsd).toLocaleString(locale)} m`;
+  return `${(gsd / 1000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
 }
 
 function capitalizeVrtType(vrtType: string): string {
@@ -53,6 +53,7 @@ interface CardSpec {
 function buildCardSpecs(
   properties: OGCRecordResponse['properties'],
   t: TFunction<'search'>,
+  locale: string,
 ): CardSpec[] {
   const recordType = properties.record_type ?? 'vector_dataset';
   const isRaster = recordType === 'raster_dataset';
@@ -69,7 +70,7 @@ function buildCardSpecs(
   }
 
   if (isRaster && properties.gsd != null) {
-    const label = formatGsd(properties.gsd, properties.crs);
+    const label = formatGsd(properties.gsd, properties.crs, locale);
     if (label) specs.push({ icon: Ruler, label });
   }
 
@@ -103,6 +104,7 @@ function buildCardSpecs(
 function buildAutoDescription(
   properties: OGCRecordResponse['properties'],
   t: TFunction<'search'>,
+  locale: string,
 ): string {
   if (properties.description && properties.description.trim() !== '') {
     return properties.description;
@@ -121,7 +123,7 @@ function buildAutoDescription(
     case 'raster_dataset':
       return t('card.autoDesc.raster', {
         count: properties.band_count ?? 0,
-        gsd: properties.gsd != null ? formatGsd(properties.gsd, properties.crs) : '',
+        gsd: properties.gsd != null ? formatGsd(properties.gsd, properties.crs, locale) : '',
       });
     case 'vrt_dataset':
       return t('card.autoDesc.vrt', {
@@ -177,7 +179,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
     !properties.updated_by_display;
 
   const recordStatus = properties.record_status;
-  const cardSpecs = isCollection ? [] : buildCardSpecs(properties, t);
+  const cardSpecs = isCollection ? [] : buildCardSpecs(properties, t, i18n.language);
   const sourceOrganization =
     !isCollection && typeof properties.source_organization === 'string'
       ? properties.source_organization.trim()
@@ -246,7 +248,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                     className="text-[13px] leading-5 text-muted-foreground/85 line-clamp-2"
                     data-testid="dataset-card-description"
                   >
-                    {buildAutoDescription(properties, t)}
+                    {buildAutoDescription(properties, t, i18n.language)}
                   </p>
 
                   {/* Specs row */}
@@ -321,8 +323,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                         role="img"
                         aria-label={
                           properties.column_count
-                            ? `Table with ${properties.feature_count ?? 0} rows and ${properties.column_count} columns`
-                            : `Table with ${properties.feature_count ?? 0} rows`
+                            ? t('card.tableAriaLabel', { rows: properties.feature_count ?? 0, cols: properties.column_count })
+                            : t('card.tableAriaLabelNoCols', { rows: properties.feature_count ?? 0 })
                         }
                       >
                         <Table2
@@ -331,8 +333,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           data-testid="table-thumbnail-icon"
                         />
                         <span className="text-xs font-medium font-mono tabular-nums tracking-wide">
-                          {properties.feature_count ?? 0} rows
-                          {properties.column_count ? ` · ${properties.column_count} cols` : ''}
+                          {t('card.tableRows', { count: properties.feature_count ?? 0 })}
+                          {properties.column_count ? ` · ${t('card.tableCols', { count: properties.column_count })}` : ''}
                         </span>
                       </div>
                     ) : quicklookUrl ? (

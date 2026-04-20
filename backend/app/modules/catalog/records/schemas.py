@@ -3,7 +3,9 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.core.text import normalize_nfc as _nfc
 
 
 # --- Contacts ---
@@ -16,6 +18,11 @@ class ContactCreate(BaseModel):
     name: str | None = Field(default=None, max_length=500)
     email: EmailStr | None = None
     organization: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", "organization", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
     phone: str | None = Field(default=None, max_length=50)
     extra_json: dict[str, Any] | None = Field(
         default=None, description="Arbitrary extra fields stored as JSON"
@@ -33,6 +40,11 @@ class ContactUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=50)
     extra_json: dict[str, Any] | None = None
     sort_order: int | None = Field(default=None, ge=0, le=9999)
+
+    @field_validator("name", "organization", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class ContactResponse(BaseModel):
@@ -67,6 +79,11 @@ class KeywordCreate(BaseModel):
         max_length=20,
         description="ISO MD_KeywordTypeCode, e.g. theme, place, discipline",
     )
+
+    @field_validator("keyword", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class KeywordResponse(BaseModel):
@@ -112,6 +129,11 @@ class DistributionCreate(BaseModel):
         default=False, description="Mark as the preferred distribution"
     )
 
+    @field_validator("title", "description", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
+
 
 class DistributionUpdate(BaseModel):
     distribution_type: str | None = Field(default=None, max_length=30)
@@ -122,6 +144,11 @@ class DistributionUpdate(BaseModel):
     protocol: str | None = Field(default=None, max_length=100)
     media_type: str | None = Field(default=None, max_length=100)
     is_primary: bool | None = None
+
+    @field_validator("title", "description", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class DistributionResponse(BaseModel):

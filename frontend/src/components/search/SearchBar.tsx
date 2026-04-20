@@ -55,7 +55,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
     >
       <Search
         className={cn(
-          'absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/70',
+          'absolute start-4 top-1/2 -translate-y-1/2 text-muted-foreground/70',
           isCompact ? 'size-[18px]' : 'size-5',
         )}
       />
@@ -101,7 +101,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
           }}
           aria-label={t('clearSearch', { defaultValue: 'Clear search' })}
           className={cn(
-            'absolute right-4 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground/75 transition-colors hover:text-foreground',
+            'absolute end-4 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground/75 transition-colors hover:text-foreground',
             isCompact ? 'p-1' : 'p-1 hover:bg-accent/50',
           )}
         >

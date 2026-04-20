@@ -154,12 +154,12 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
 
           {/* Next actions */}
           <div className="flex flex-wrap items-center gap-2.5 border-t border-border bg-surface-0 px-5 py-4">
-            <span className="text-[13px] font-semibold mr-1">{t('complete.next', { defaultValue: 'Next:' })}</span>
+            <span className="text-[13px] font-semibold me-1">{t('complete.next', { defaultValue: 'Next:' })}</span>
             {completedEntries.length === 1 && completedEntries[0] && (
               <Button asChild size="sm">
                 <Link to={`/datasets/${completedEntries[0].datasetId}`}>
                   {t('bulk.openDataset', { defaultValue: 'Open dataset' })}
-                  <ArrowRight className="ms-1 size-3" />
+                  <ArrowRight className="ms-1 size-3 rtl-mirror" />
                 </Link>
               </Button>
             )}
@@ -240,7 +240,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                 <Button asChild size="sm" className="shrink-0">
                   <Link to={`/datasets/${entry.datasetId}`}>
                     {t('bulk.openDataset', { defaultValue: 'Open dataset' })}
-                    <ArrowRight className="ms-1 size-3" />
+                    <ArrowRight className="ms-1 size-3 rtl-mirror" />
                   </Link>
                 </Button>
               </div>

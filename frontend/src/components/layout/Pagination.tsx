@@ -34,7 +34,7 @@ export function Pagination({ total, offset, limit, onPageChange }: PaginationPro
           onClick={() => onPageChange(Math.max(0, offset - limit))}
           className="whitespace-nowrap"
         >
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="size-4 rtl-mirror" />
           {t('pagination.previous')}
         </Button>
 
@@ -50,7 +50,7 @@ export function Pagination({ total, offset, limit, onPageChange }: PaginationPro
           className="whitespace-nowrap"
         >
           {t('pagination.next')}
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-4 rtl-mirror" />
         </Button>
       </div>
     </div>

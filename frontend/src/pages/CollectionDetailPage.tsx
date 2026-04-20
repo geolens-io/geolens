@@ -138,7 +138,7 @@ export function CollectionDetailPage() {
       {/* Metadata card */}
       <Card>
         <CardContent className="pt-6">
-          <dl aria-label="Collection metadata" className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <dl aria-label={t('detail.metadataAriaLabel', { defaultValue: 'Collection metadata' })} className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {/* Left: metadata fields */}
             <div className="space-y-4">
               <div className="space-y-2">

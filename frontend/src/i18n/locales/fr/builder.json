@@ -1,6 +1,9 @@
 {
   "title": "Constructeur de cartes",
   "mapBuilder": "Constructeur de cartes",
+  "map": {
+    "ariaLabel": "Constructeur de carte"
+  },
   "mapNameLabel": "Nom de la carte",
   "descriptionLabel": "Description de la carte",
   "loadingMap": "Chargement de la carte...",

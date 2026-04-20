@@ -15,6 +15,7 @@
     "loading": "Cargando colección...",
     "notFoundTitle": "Colección no encontrada",
     "notFoundMessage": "No se pudo cargar la colección solicitada.",
+    "metadataAriaLabel": "Metadatos de la colección",
     "backToCollections": "Volver a colecciones",
     "breadcrumb": "Colecciones",
     "datasets": "Conjuntos de datos",

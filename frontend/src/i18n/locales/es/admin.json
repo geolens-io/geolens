@@ -1,5 +1,10 @@
 {
   "title": "Administración",
+  "errors": {
+    "retryJobFailed": "Error al reintentar la tarea",
+    "backfillFailed": "Error en el relleno de embeddings",
+    "semanticSearchFailed": "Error al actualizar la configuración de búsqueda semántica"
+  },
   "roles": {
     "viewer": "Lector",
     "editor": "Editor",

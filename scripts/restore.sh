@@ -46,6 +46,8 @@ docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Schemas
 CREATE SCHEMA IF NOT EXISTS catalog;

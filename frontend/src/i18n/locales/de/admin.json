@@ -1,5 +1,10 @@
 {
   "title": "Verwaltung",
+  "errors": {
+    "retryJobFailed": "Auftrag konnte nicht wiederholt werden",
+    "backfillFailed": "Einbettungs-Backfill fehlgeschlagen",
+    "semanticSearchFailed": "Semantische Sucheinstellung konnte nicht aktualisiert werden"
+  },
   "roles": {
     "viewer": "Betrachter",
     "editor": "Bearbeiter",

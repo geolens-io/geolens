@@ -272,7 +272,7 @@ export function StacImportForm() {
               <button
                 key={col.id}
                 onClick={() => handleCollectionSelect(col)}
-                className="flex items-start gap-2.5 rounded-lg border border-border p-3 text-left transition-colors hover:bg-surface-2"
+                className="flex items-start gap-2.5 rounded-lg border border-border p-3 text-start transition-colors hover:bg-surface-2"
               >
                 <Layers className="mt-0.5 size-4 shrink-0 text-type-raster" />
                 <div className="flex-1 min-w-0">
@@ -296,7 +296,7 @@ export function StacImportForm() {
                     )}
                   </div>
                 </div>
-                <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground/40" />
+                <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground/40 rtl-mirror" />
               </button>
             ))}
           </div>
@@ -321,10 +321,10 @@ export function StacImportForm() {
             onClick={() => { setStep('collections'); setSelectedCollection(null); }}
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
           >
-            <ArrowLeft className="size-3.5" />
+            <ArrowLeft className="size-3.5 rtl-mirror" />
             Collections
           </button>
-          <ChevronRight className="size-3 text-muted-foreground/40" />
+          <ChevronRight className="size-3 text-muted-foreground/40 rtl-mirror" />
           <span className="font-medium">{selectedCollection.title}</span>
           {matchedCount != null && (
             <span className="font-mono text-[11px] text-muted-foreground">

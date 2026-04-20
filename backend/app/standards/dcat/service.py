@@ -21,17 +21,25 @@ if TYPE_CHECKING:
     )
 
 _LANG_URIS = {
-    "en": "http://publications.europa.eu/resource/authority/language/ENG",
-    "de": "http://publications.europa.eu/resource/authority/language/DEU",
-    "fr": "http://publications.europa.eu/resource/authority/language/FRA",
-    "es": "http://publications.europa.eu/resource/authority/language/SPA",
+    "en": "ENG", "de": "DEU", "fr": "FRA", "es": "SPA",
+    "it": "ITA", "pt": "POR", "nl": "NLD", "pl": "POL",
+    "sv": "SWE", "da": "DAN", "fi": "FIN", "no": "NOR",
+    "cs": "CES", "sk": "SLK", "hu": "HUN", "ro": "RON",
+    "bg": "BUL", "hr": "HRV", "sl": "SLV", "et": "EST",
+    "lv": "LAV", "lt": "LIT", "el": "ELL", "ga": "GLE",
+    "mt": "MLT", "ar": "ARA", "zh": "ZHO", "ja": "JPN",
+    "ko": "KOR", "ru": "RUS", "uk": "UKR", "tr": "TUR",
+    "he": "HEB", "hi": "HIN", "th": "THA", "vi": "VIE",
+    "id": "IND", "ms": "MSA", "sw": "SWA",
 }
+
+_LANG_URI_BASE = "http://publications.europa.eu/resource/authority/language/"
 
 
 def _lang_to_uri(code: str | None) -> dict:
     """Map an ISO 639-1 code to an EU vocabulary language URI object."""
-    uri = _LANG_URIS.get(code or "en", _LANG_URIS["en"])
-    return {"@id": uri}
+    iso3 = _LANG_URIS.get(code or "en", "ENG")
+    return {"@id": f"{_LANG_URI_BASE}{iso3}"}
 
 
 DCAT_CONTEXT = {
@@ -69,16 +77,18 @@ def record_to_dcat(
     if include_context:
         result["@context"] = DCAT_CONTEXT
 
+    lang = getattr(record, "language", None) or "en"
+
     result["@type"] = "dcat:Dataset"
     result["@id"] = f"{base_url}/datasets/{dataset.id}"
     result["dcterms:identifier"] = str(dataset.id)
-    result["dcterms:title"] = record.title
+    result["dcterms:title"] = {"@value": record.title, "@language": lang}
 
     # Per-record language
-    result["dcterms:language"] = _lang_to_uri(getattr(record, "language", None))
+    result["dcterms:language"] = _lang_to_uri(lang)
 
     if record.summary is not None:
-        result["dcterms:description"] = record.summary
+        result["dcterms:description"] = {"@value": record.summary, "@language": lang}
 
     if record.created_at is not None:
         result["dcterms:issued"] = record.created_at.isoformat()
@@ -93,7 +103,7 @@ def record_to_dcat(
         result["dcterms:license"] = record.license
 
     if record.lineage_summary is not None:
-        result["dcterms:provenance"] = record.lineage_summary
+        result["dcterms:provenance"] = {"@value": record.lineage_summary, "@language": lang}
 
     if record.update_frequency is not None:
         result["dcterms:accrualPeriodicity"] = record.update_frequency
@@ -104,7 +114,7 @@ def record_to_dcat(
     if dataset.quality_statement is not None:
         result["dqv:hasQualityAnnotation"] = {
             "@type": "dqv:QualityAnnotation",
-            "oa:bodyValue": dataset.quality_statement,
+            "oa:bodyValue": {"@value": dataset.quality_statement, "@language": lang},
         }
 
     if record.contacts:

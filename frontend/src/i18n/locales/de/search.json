@@ -100,6 +100,13 @@
     },
     "moretags": "+{{count}} weitere",
     "updatedFallback": "Aktualisiert vor {{time}}",
+    "tableAriaLabel": "Tabelle mit {{rows}} Zeilen und {{cols}} Spalten",
+    "tableAriaLabelNoCols": "Tabelle mit {{rows}} Zeilen",
+    "tableRows_one": "{{count}} Zeile",
+    "tableRows_other": "{{count}} Zeilen",
+    "tableCols_one": "{{count}} Spalte",
+    "tableCols_other": "{{count}} Spalten",
+    "testData": "Testdaten",
     "noUpdateMetadata": "Keine Aktualisierungsmetadaten",
     "status": {
       "draft": "Entwurf",

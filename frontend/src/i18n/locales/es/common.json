@@ -118,6 +118,10 @@
     "couldNotReachService": "No se pudo contactar al servicio. Verifique la URL e inténtelo de nuevo.",
     "serviceTimeout": "El servicio no respondió a tiempo. Verifique la URL e inténtelo de nuevo.",
     "remoteServiceError": "El servicio remoto devolvió un error",
+    "aiSummaryFailed": "Error al generar el resumen",
+    "aiKeywordsFailed": "Error al generar las palabras clave",
+    "aiLineageFailed": "Error al generar la procedencia",
+    "aiQualityFailed": "Error al generar la declaración de calidad",
     "aiDisabled": "Las funciones de IA están deshabilitadas actualmente",
     "aiNotConfigured": "La IA no está configurada (falta la clave API)",
     "aiGenerationFailed": "La generación de mapa con IA falló inesperadamente",
@@ -344,6 +348,12 @@
     "adminAuditLog": "Registro de auditoría admin",
     "adminConfigOps": "Configuración admin",
     "adminSettings": "Ajustes admin"
+  },
+  "sidebar": {
+    "toggle": "Alternar barra lateral"
+  },
+  "inlineEdit": {
+    "hint": "Ctrl+Enter para guardar, Escape para cancelar"
   },
   "errorBoundary": {
     "appTitle": "Algo salió mal",

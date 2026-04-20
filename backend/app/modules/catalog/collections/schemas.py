@@ -1,8 +1,9 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.text import normalize_nfc as _nfc
 from app.modules.catalog.datasets.domain.schemas import DatasetResponse
 
 
@@ -10,10 +11,20 @@ class CollectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
 
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
+
 
 class CollectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def normalize_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class CollectionSummary(BaseModel):

@@ -31,7 +31,7 @@ export function PageHeader({ title, description, backLink, breadcrumbs, actions,
           to={backLink.to}
           className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4 rtl-mirror" />
           {backLink.label}
         </Link>
       ) : breadcrumbs && breadcrumbs.length > 0 ? (

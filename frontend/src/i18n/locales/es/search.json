@@ -100,6 +100,13 @@
     },
     "moretags": "+{{count}} más",
     "updatedFallback": "Actualizado hace {{time}}",
+    "tableAriaLabel": "Tabla con {{rows}} filas y {{cols}} columnas",
+    "tableAriaLabelNoCols": "Tabla con {{rows}} filas",
+    "tableRows_one": "{{count}} fila",
+    "tableRows_other": "{{count}} filas",
+    "tableCols_one": "{{count}} col.",
+    "tableCols_other": "{{count}} col.",
+    "testData": "Datos de prueba",
     "noUpdateMetadata": "Sin metadatos de actualización",
     "status": {
       "draft": "Borrador",

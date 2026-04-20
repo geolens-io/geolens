@@ -28,13 +28,13 @@ export function ColumnsReference({ columns, defaultOpen = false }: ColumnsRefere
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         {t('layerItem.columns')}
-        <span className="text-muted-foreground/60 ml-auto">{columns.length}</span>
+        <span className="text-muted-foreground/60 ms-auto">{columns.length}</span>
       </button>
       {open && (
         <div className="mt-1">
           {showSearch && (
             <div className="relative mb-1">
-              <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Search className="absolute start-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <input
                 className="w-full text-xs bg-muted/50 border rounded ps-6 pe-2 py-1 outline-none focus:ring-1 focus:ring-ring"
                 placeholder={t('layerItem.searchColumns', { defaultValue: 'Search columns...' })}

@@ -118,6 +118,10 @@
     "couldNotReachService": "Dienst nicht erreichbar. Überprüfen Sie die URL und versuchen Sie es erneut.",
     "serviceTimeout": "Dienst hat nicht rechtzeitig geantwortet. Überprüfen Sie die URL und versuchen Sie es erneut.",
     "remoteServiceError": "Remote-Dienst hat einen Fehler zurückgegeben",
+    "aiSummaryFailed": "Zusammenfassung konnte nicht generiert werden",
+    "aiKeywordsFailed": "Schlüsselwörter konnten nicht generiert werden",
+    "aiLineageFailed": "Herkunft konnte nicht generiert werden",
+    "aiQualityFailed": "Qualitätsaussage konnte nicht generiert werden",
     "aiDisabled": "KI-Funktionen sind derzeit deaktiviert",
     "aiNotConfigured": "KI ist nicht konfiguriert (API-Schlüssel fehlt)",
     "aiGenerationFailed": "KI-Kartenerstellung unerwartet fehlgeschlagen",
@@ -344,6 +348,12 @@
     "adminAuditLog": "Admin-Audit-Protokoll",
     "adminConfigOps": "Admin-Konfiguration",
     "adminSettings": "Admin-Einstellungen"
+  },
+  "sidebar": {
+    "toggle": "Seitenleiste umschalten"
+  },
+  "inlineEdit": {
+    "hint": "Strg+Eingabe zum Speichern, Escape zum Abbrechen"
   },
   "errorBoundary": {
     "appTitle": "Etwas ist schiefgelaufen",

@@ -1,9 +1,10 @@
-import unicodedata
 import uuid
 from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.text import normalize_nfc as _nfc
 
 
 SEMANTIC_ROLES = Literal[
@@ -65,13 +66,6 @@ class CreateEmptyDatasetRequest(BaseModel):
 
 
 Visibility = Literal["private", "restricted", "internal", "public"]
-
-
-def _nfc(v: str | None) -> str | None:
-    """Normalize a string to Unicode NFC form."""
-    if v is None:
-        return v
-    return unicodedata.normalize("NFC", v)
 
 
 class DatasetCreate(BaseModel):

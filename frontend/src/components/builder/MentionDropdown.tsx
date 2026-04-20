@@ -49,7 +49,7 @@ export function MentionDropdown({ id, items, selectedIndex, onSelect, type, labe
           )}
           <span className="font-medium truncate">{item.label}</span>
           {item.description && (
-            <span className="text-xs text-muted-foreground ml-auto shrink-0">
+            <span className="text-xs text-muted-foreground ms-auto shrink-0">
               {item.description}
             </span>
           )}

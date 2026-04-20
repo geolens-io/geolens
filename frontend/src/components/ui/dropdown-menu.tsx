@@ -187,7 +187,7 @@ function DropdownMenuShortcut({
     <span
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "text-muted-foreground ml-auto text-xs tracking-widest",
+        "text-muted-foreground ms-auto text-xs tracking-widest",
         className
       )}
       {...props}
@@ -220,7 +220,7 @@ function DropdownMenuSubTrigger({
       {...props}
     >
       {children}
-      <ChevronRightIcon className="ml-auto size-4" />
+      <ChevronRightIcon className="ms-auto size-4" />
     </DropdownMenuPrimitive.SubTrigger>
   )
 }

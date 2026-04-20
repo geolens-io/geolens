@@ -115,7 +115,7 @@ export function FeaturePopup({
                 disabled={activeIndex === 0}
                 className="p-0.5 rounded hover:bg-muted disabled:opacity-30"
               >
-                <ChevronLeft className="h-3 w-3" />
+                <ChevronLeft className="h-3 w-3 rtl-mirror" />
               </button>
               <span className="text-muted-foreground tabular-nums text-[10px]">
                 {activeIndex + 1}/{features.length}
@@ -125,7 +125,7 @@ export function FeaturePopup({
                 disabled={activeIndex === features.length - 1}
                 className="p-0.5 rounded hover:bg-muted disabled:opacity-30"
               >
-                <ChevronRight className="h-3 w-3" />
+                <ChevronRight className="h-3 w-3 rtl-mirror" />
               </button>
             </div>
           )}

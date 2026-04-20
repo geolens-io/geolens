@@ -136,7 +136,7 @@ export function RampStopEditor({ expression, column, onChange }: RampStopEditorP
       </div>
       {stops.map((stop, i) => (
         <div key={i} className="flex items-center gap-2 group">
-          <span className="font-mono text-[11px] text-muted-foreground w-10 text-right tabular-nums shrink-0">
+          <span className="font-mono text-[11px] text-muted-foreground w-10 text-end tabular-nums shrink-0">
             {stop.value === -Infinity ? '< ' : ''}
             {stop.value === -Infinity
               ? (stops[1]?.value ?? 0)

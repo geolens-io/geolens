@@ -316,7 +316,7 @@ export function DatasetPage() {
               to="/"
               className="text-sm text-primary hover:underline inline-flex items-center gap-1 transition-colors duration-150"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-4 w-4 rtl-mirror" />
               {t('page.backToSearch')}
             </Link>
           }

@@ -1,6 +1,9 @@
 {
   "title": "Map Builder",
   "mapBuilder": "Map Builder",
+  "map": {
+    "ariaLabel": "Map builder"
+  },
   "mapNameLabel": "Map name",
   "descriptionLabel": "Map description",
   "loadingMap": "Loading map...",

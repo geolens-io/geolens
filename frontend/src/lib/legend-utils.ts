@@ -1,10 +1,13 @@
+import i18n from '@/i18n/i18n';
+
 /** Abbreviate large numbers for legend readability (e.g. 8918925.75 → "8.9M") */
 function formatBreakValue(v: number): string {
+  const locale = i18n.language;
   const abs = Math.abs(v);
-  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  if (Number.isInteger(v)) return v.toLocaleString();
-  return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (abs >= 1_000_000) return `${(v / 1_000_000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`;
+  if (abs >= 1_000) return `${(v / 1_000).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}K`;
+  if (Number.isInteger(v)) return v.toLocaleString(locale);
+  return v.toLocaleString(locale, { maximumFractionDigits: 2 });
 }
 
 /** Build a human-readable label for a graduated break range. */

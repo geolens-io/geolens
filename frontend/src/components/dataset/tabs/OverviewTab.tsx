@@ -89,7 +89,7 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
 
 /** Provenance timeline sidebar card */
 function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
-  const { t } = useTranslation('dataset');
+  const { t, i18n } = useTranslation('dataset');
   const { data, isLoading } = useDatasetVersions(datasetId);
 
   if (isLoading || !data || data.versions.length === 0) return null;
@@ -104,7 +104,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="relative pl-5">
+        <div className="relative ps-5">
           {/* Timeline line */}
           <div className="absolute left-[5px] top-2 bottom-2 w-px bg-border" />
           {versions.map((v, i) => (
@@ -123,7 +123,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
               </div>
               {v.feature_count != null && (
                 <div className="text-[12px] text-muted-foreground mt-0.5">
-                  {v.feature_count.toLocaleString()} {t('overview.provenanceFeatures', { defaultValue: 'features' })}
+                  {v.feature_count.toLocaleString(i18n.language)} {t('overview.provenanceFeatures', { defaultValue: 'features' })}
                 </div>
               )}
             </div>

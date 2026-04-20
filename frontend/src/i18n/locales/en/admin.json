@@ -1,5 +1,10 @@
 {
   "title": "Administration",
+  "errors": {
+    "retryJobFailed": "Failed to retry job",
+    "backfillFailed": "Embedding backfill failed",
+    "semanticSearchFailed": "Failed to update semantic search setting"
+  },
   "roles": {
     "viewer": "Viewer",
     "editor": "Editor",
