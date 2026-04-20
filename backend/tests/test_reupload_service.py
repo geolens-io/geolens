@@ -248,7 +248,7 @@ class TestServiceReuploadWorker:
                 new_callable=AsyncMock,
             ) as mock_quality_score,
             patch(
-                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                "app.processing.ingest.tasks_reupload.invalidate_catalog_cache",
                 new_callable=AsyncMock,
             ) as mock_invalidate_catalog,
         ):
