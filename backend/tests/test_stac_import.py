@@ -39,7 +39,9 @@ STAC_COLLECTIONS = {
             "keywords": ["dem", "elevation"],
             "extent": {
                 "spatial": {"bbox": [[-180, -90, 180, 90]]},
-                "temporal": {"interval": [["2021-01-01T00:00:00Z", "2021-12-31T00:00:00Z"]]},
+                "temporal": {
+                    "interval": [["2021-01-01T00:00:00Z", "2021-12-31T00:00:00Z"]]
+                },
             },
         },
         {
@@ -63,7 +65,10 @@ STAC_SEARCH_RESULTS = {
             "id": "item-001",
             "type": "Feature",
             "collection": "dem-collection",
-            "geometry": {"type": "Polygon", "coordinates": [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]]},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]],
+            },
             "bbox": [-1, -1, 1, 1],
             "properties": {
                 "datetime": "2021-06-15T00:00:00Z",
@@ -88,7 +93,10 @@ STAC_SEARCH_RESULTS = {
             "id": "item-002",
             "type": "Feature",
             "collection": "dem-collection",
-            "geometry": {"type": "Polygon", "coordinates": [[[1, -1], [3, -1], [3, 1], [1, 1], [1, -1]]]},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[1, -1], [3, -1], [3, 1], [1, 1], [1, -1]]],
+            },
             "bbox": [1, -1, 3, 1],
             "properties": {
                 "datetime": "2021-06-16T00:00:00Z",
@@ -475,11 +483,15 @@ class TestStacImport:
 
         with patch(
             "app.modules.catalog.sources.stac_router.validate_url_for_ssrf",
-            side_effect=lambda url: (_ for _ in ()).throw(
-                SSRFError("URLs targeting private/internal networks are not allowed")
-            )
-            if "internal" in url
-            else None,
+            side_effect=lambda url: (
+                (_ for _ in ()).throw(
+                    SSRFError(
+                        "URLs targeting private/internal networks are not allowed"
+                    )
+                )
+                if "internal" in url
+                else None
+            ),
         ):
             resp = await client.post(
                 "/services/stac/import",
@@ -507,7 +519,14 @@ class TestStacImport:
             "/services/stac/import",
             json={
                 "url": "https://stac.example.com/v1",
-                "items": [{"id": "x", "title": "X", "data_asset_href": "https://e.com/x.tif", "keywords": []}],
+                "items": [
+                    {
+                        "id": "x",
+                        "title": "X",
+                        "data_asset_href": "https://e.com/x.tif",
+                        "keywords": [],
+                    }
+                ],
                 "visibility": "private",
             },
         )
@@ -551,7 +570,10 @@ class TestStacAdapter:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.modules.catalog.sources.adapters.stac._make_client", return_value=mock_client):
+        with patch(
+            "app.modules.catalog.sources.adapters.stac._make_client",
+            return_value=mock_client,
+        ):
             result = await connect_stac_api("https://stac.example.com/v1")
 
         assert result is not None
@@ -571,7 +593,10 @@ class TestStacAdapter:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.modules.catalog.sources.adapters.stac._make_client", return_value=mock_client):
+        with patch(
+            "app.modules.catalog.sources.adapters.stac._make_client",
+            return_value=mock_client,
+        ):
             result = await connect_stac_api("https://not-stac.example.com")
 
         assert result is None
@@ -585,7 +610,10 @@ class TestStacAdapter:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.modules.catalog.sources.adapters.stac._make_client", return_value=mock_client):
+        with patch(
+            "app.modules.catalog.sources.adapters.stac._make_client",
+            return_value=mock_client,
+        ):
             result = await connect_stac_api("https://unreachable.example.com")
 
         assert result is None
@@ -603,7 +631,10 @@ class TestStacAdapter:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.modules.catalog.sources.adapters.stac._make_client", return_value=mock_client):
+        with patch(
+            "app.modules.catalog.sources.adapters.stac._make_client",
+            return_value=mock_client,
+        ):
             result = await list_stac_collections("https://stac.example.com/v1")
 
         assert len(result) == 2
@@ -624,7 +655,10 @@ class TestStacAdapter:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.modules.catalog.sources.adapters.stac._make_client", return_value=mock_client):
+        with patch(
+            "app.modules.catalog.sources.adapters.stac._make_client",
+            return_value=mock_client,
+        ):
             result = await search_stac_items(
                 "https://stac.example.com/v1",
                 collections=["dem-collection"],
@@ -635,5 +669,8 @@ class TestStacAdapter:
         assert result["returned"] == 2
         assert result["items"][0]["id"] == "item-001"
         assert result["items"][0]["epsg"] == 4326
-        assert result["items"][0]["data_asset_href"] == "https://example.com/data/item-001.tif"
+        assert (
+            result["items"][0]["data_asset_href"]
+            == "https://example.com/data/item-001.tif"
+        )
         assert result["items"][1]["thumbnail_href"] is None

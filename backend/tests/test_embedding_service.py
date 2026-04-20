@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.processing.embeddings.service import EmbeddingUnavailableError, generate_embedding
+from app.processing.embeddings.service import (
+    EmbeddingUnavailableError,
+    generate_embedding,
+)
 
 
 @pytest.mark.asyncio

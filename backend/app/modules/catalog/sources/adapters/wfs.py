@@ -210,5 +210,9 @@ async def enrich_wfs_layers(
         )
         return list(enriched)
     except asyncio.TimeoutError:
-        logger.warning("WFS layer enrichment timed out after 60s, returning layers without counts")
-        return [{**layer, "geometry_type": None, "feature_count": None} for layer in layers]
+        logger.warning(
+            "WFS layer enrichment timed out after 60s, returning layers without counts"
+        )
+        return [
+            {**layer, "geometry_type": None, "feature_count": None} for layer in layers
+        ]

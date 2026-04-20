@@ -213,7 +213,9 @@ class DatasetResponse(BaseModel):
     )
     current_version: int = Field(default=1, description="Monotonic version counter")
     source_url: str | None = Field(
-        default=None, max_length=2000, description="URL the data was originally fetched from"
+        default=None,
+        max_length=2000,
+        description="URL the data was originally fetched from",
     )
     quality_statement: str | None = None
     visibility: str = Field(
@@ -410,7 +412,9 @@ class SchemaDiff(BaseModel):
     columns_removed: list[ColumnChange] = Field(
         description="Columns present in old but not new schema"
     )
-    type_changes: list[TypeChange] = Field(description="Columns whose data type changed")
+    type_changes: list[TypeChange] = Field(
+        description="Columns whose data type changed"
+    )
     row_count_old: int | None
     row_count_new: int | None
     row_count_delta: int = Field(description="row_count_new minus row_count_old")

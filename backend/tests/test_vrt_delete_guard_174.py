@@ -72,7 +72,8 @@ class TestDeleteGuard:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(DependentVrtError) as exc_info:
                 await delete_dataset(mock_session, dataset_id, "My COG")
@@ -102,9 +103,12 @@ class TestDeleteGuard:
         mock_storage.list = AsyncMock(return_value=[])
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
-            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
+            with patch(
+                "app.platform.storage.provider.get_storage", return_value=mock_storage
+            ):
                 result = await delete_dataset(
                     mock_session, dataset_id, "Standalone COG"
                 )
@@ -137,7 +141,8 @@ class TestDeleteGuard:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(DependentVrtError) as exc_info:
                 await delete_dataset(mock_session, dataset_id, "Shared COG")
@@ -194,9 +199,12 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
-            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
+            with patch(
+                "app.platform.storage.provider.get_storage", return_value=mock_storage
+            ):
                 result = await delete_dataset(mock_session, dataset_id, "My VRT")
 
         assert result == "test_table"
@@ -244,9 +252,12 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
-            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
+            with patch(
+                "app.platform.storage.provider.get_storage", return_value=mock_storage
+            ):
                 await delete_dataset(mock_session, dataset_id, "My COG")
 
         list_calls = [c.args[0] for c in mock_storage.list.call_args_list]
@@ -288,9 +299,12 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
-            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
+            with patch(
+                "app.platform.storage.provider.get_storage", return_value=mock_storage
+            ):
                 await delete_dataset(mock_session, vrt_id, "My VRT")
 
         # Source COG key should never be deleted
@@ -315,9 +329,12 @@ class TestVrtDeletion:
         mock_session.delete = AsyncMock()
 
         with patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
-            with patch("app.platform.storage.provider.get_storage", return_value=mock_storage):
+            with patch(
+                "app.platform.storage.provider.get_storage", return_value=mock_storage
+            ):
                 await delete_dataset(mock_session, dataset_id, "My VRT")
 
         # Verify record deletion is invoked (CASCADE handles vrt_source_links)

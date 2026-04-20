@@ -422,7 +422,11 @@ async def test_compute_quality_score_table_record(test_db_session):
 
     from sqlalchemy import text
 
-    from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+    from app.modules.catalog.datasets.domain.models import (
+        Dataset,
+        Record,
+        RecordKeyword,
+    )
 
     table_name = f"tbl_{uuid.uuid4().hex[:12]}"
     record = Record(

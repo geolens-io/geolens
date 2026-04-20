@@ -972,8 +972,7 @@ async def _execute_search(
         async with session_factory() as s:
             cd_result = await s.execute(cd_stmt)
             return {
-                str(row.dataset_id): str(row.collection_id)
-                for row in cd_result.all()
+                str(row.dataset_id): str(row.collection_id) for row in cd_result.all()
             }
 
     asset_rows_map, raster_meta_map, collection_id_map = await asyncio.gather(

@@ -73,21 +73,25 @@ class ServicePreviewRequest(BaseModel):
     service_type: str = Field(
         min_length=1,
         max_length=100,
-        description="Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'."
+        description="Service type from the probe response, e.g. 'WFS 2.0.0' or 'ArcGIS FeatureServer'.",
     )
     layer_name: str = Field(
         min_length=1,
         max_length=500,
-        description="Name of the specific layer to preview, from the probe layers list."
+        description="Name of the specific layer to preview, from the probe layers list.",
     )
     layer_title: str | None = Field(
-        default=None, max_length=500, description="Human-readable layer title from the probe LayerInfo."
+        default=None,
+        max_length=500,
+        description="Human-readable layer title from the probe LayerInfo.",
     )
     layer_id: int | str | None = Field(
         default=None, description="ArcGIS layer ID, when applicable."
     )
     token: str | None = Field(
-        default=None, max_length=1000, description="Optional auth token for protected services."
+        default=None,
+        max_length=1000,
+        description="Optional auth token for protected services.",
     )
     object_id_field: str | None = Field(
         default=None,

@@ -187,7 +187,9 @@ class TestReuploadOrphanGuard:
 
         async def _check():
             from app.modules.catalog.datasets.api.router_reupload import reupload_commit
-            from app.modules.catalog.datasets.domain.schemas import ReuploadCommitRequest
+            from app.modules.catalog.datasets.domain.schemas import (
+                ReuploadCommitRequest,
+            )
 
             dataset_id = uuid.uuid4()
             job = _make_reupload_job(source_url="https://example.com/arcgis/0")
@@ -208,7 +210,9 @@ class TestReuploadOrphanGuard:
                     "app.modules.catalog.datasets.api.router_reupload.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
-                patch("app.modules.catalog.datasets.api.router_reupload.reupload_service") as mock_task,
+                patch(
+                    "app.modules.catalog.datasets.api.router_reupload.reupload_service"
+                ) as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -228,7 +232,9 @@ class TestReuploadOrphanGuard:
 
         async def _check():
             from app.modules.catalog.datasets.api.router_reupload import reupload_commit
-            from app.modules.catalog.datasets.domain.schemas import ReuploadCommitRequest
+            from app.modules.catalog.datasets.domain.schemas import (
+                ReuploadCommitRequest,
+            )
 
             upload_file = tmp_path / "tiny.geojson"
             upload_file.write_text('{"type":"FeatureCollection","features":[]}')
@@ -249,7 +255,9 @@ class TestReuploadOrphanGuard:
                     "app.modules.catalog.datasets.api.router_reupload.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
-                patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_task,
+                patch(
+                    "app.modules.catalog.datasets.api.router_reupload.reupload_file"
+                ) as mock_task,
             ):
                 priority_task = MagicMock()
                 priority_task.defer_async = failing_defer
@@ -271,7 +279,9 @@ class TestReuploadOrphanGuard:
 
         async def _check():
             from app.modules.catalog.datasets.api.router_reupload import reupload_commit
-            from app.modules.catalog.datasets.domain.schemas import ReuploadCommitRequest
+            from app.modules.catalog.datasets.domain.schemas import (
+                ReuploadCommitRequest,
+            )
 
             # Non-local path (S3-ish) — triggers the default-queue branch.
             dataset_id = uuid.uuid4()
@@ -290,7 +300,9 @@ class TestReuploadOrphanGuard:
                     "app.modules.catalog.datasets.api.router_reupload.get_dataset",
                     new=AsyncMock(return_value=mock_dataset),
                 ),
-                patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_task,
+                patch(
+                    "app.modules.catalog.datasets.api.router_reupload.reupload_file"
+                ) as mock_task,
             ):
                 mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
@@ -523,7 +535,9 @@ class TestDatasetsVrtOrphanGuard:
         state, mark ``VrtGeneration`` + ``IngestJob`` failed, raise 503."""
 
         async def _check():
-            from app.modules.catalog.datasets.api.router_vrt import regenerate_vrt_endpoint
+            from app.modules.catalog.datasets.api.router_vrt import (
+                regenerate_vrt_endpoint,
+            )
 
             dataset_id = uuid.uuid4()
             mock_user = MagicMock()

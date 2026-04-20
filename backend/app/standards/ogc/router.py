@@ -12,7 +12,11 @@ from app.modules.auth.visibility import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url
-from app.modules.catalog.features.service import get_feature_by_id, get_features, parse_bbox
+from app.modules.catalog.features.service import (
+    get_feature_by_id,
+    get_features,
+    parse_bbox,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.schemas import (
     ConformanceResponse,

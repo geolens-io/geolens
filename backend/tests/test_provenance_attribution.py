@@ -303,7 +303,8 @@ async def test_reupload_swap_stamps_actor_and_emits_reupload_commit_audit(
 
     with (
         patch(
-            "app.processing.ingest.metadata.refresh_attribute_metadata", new_callable=AsyncMock
+            "app.processing.ingest.metadata.refresh_attribute_metadata",
+            new_callable=AsyncMock,
         ) as mock_refresh,
         patch(
             "app.processing.ingest.metadata.compute_quality_score",

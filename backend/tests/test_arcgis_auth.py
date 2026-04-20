@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from app.modules.catalog.sources.adapters.arcgis import ArcGISTokenError, probe_arcgis_service
+from app.modules.catalog.sources.adapters.arcgis import (
+    ArcGISTokenError,
+    probe_arcgis_service,
+)
 from app.modules.catalog.sources.preview import build_gdal_source
 
 

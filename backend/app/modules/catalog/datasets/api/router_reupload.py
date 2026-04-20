@@ -459,7 +459,17 @@ async def request_presigned_reupload(
     try:
         allowed_list = await get_allowed_extensions_list(db)
     except Exception:
-        allowed_list = [".zip", ".gpkg", ".geojson", ".json", ".csv", ".tif", ".tiff", ".xlsx", ".xls"]
+        allowed_list = [
+            ".zip",
+            ".gpkg",
+            ".geojson",
+            ".json",
+            ".csv",
+            ".tif",
+            ".tiff",
+            ".xlsx",
+            ".xls",
+        ]
     validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time

@@ -13,7 +13,11 @@ from app.processing.ai.chat_service import (
     _validate_actions,
     build_chat_system_prompt,
 )
-from app.processing.ai.constants import MAX_STREAMING_WALL_CLOCK_SECONDS, MAX_TOOL_ROUNDS, tool_label
+from app.processing.ai.constants import (
+    MAX_STREAMING_WALL_CLOCK_SECONDS,
+    MAX_TOOL_ROUNDS,
+    tool_label,
+)
 from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 from app.processing.ai.llm_loop import (
     add_tool_cache_control,
@@ -114,7 +118,10 @@ async def _stream_anthropic_chat(
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
-            yield {"type": "error", "message": "Response took too long. Please try a simpler request."}
+            yield {
+                "type": "error",
+                "message": "Response took too long. Please try a simpler request.",
+            }
             break
 
         buffered_tokens: list[str] = []
@@ -223,7 +230,10 @@ async def _stream_anthropic_chat(
     if dropped:
         explanation += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
 
-    yield {"type": "actions", "actions": [a.model_dump(exclude_none=True) for a in actions]}
+    yield {
+        "type": "actions",
+        "actions": [a.model_dump(exclude_none=True) for a in actions],
+    }
     yield {"type": "done", "explanation": explanation}
 
 
@@ -251,7 +261,10 @@ async def _stream_openai_chat(
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
-            yield {"type": "error", "message": "Response took too long. Please try a simpler request."}
+            yield {
+                "type": "error",
+                "message": "Response took too long. Please try a simpler request.",
+            }
             break
 
         response_stream = await client.chat.completions.create(
@@ -429,7 +442,10 @@ async def _stream_openai_chat(
     if dropped:
         explanation_text += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
 
-    yield {"type": "actions", "actions": [a.model_dump(exclude_none=True) for a in actions]}
+    yield {
+        "type": "actions",
+        "actions": [a.model_dump(exclude_none=True) for a in actions],
+    }
     yield {"type": "done", "explanation": explanation_text}
 
 

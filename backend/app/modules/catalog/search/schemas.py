@@ -41,7 +41,9 @@ class SearchParams(BaseModel):
         description="Sort order: relevance, title, created, updated",
     )
     offset: int = Field(default=0, description="Number of results to skip (pagination)")
-    limit: int = Field(default=10, ge=1, le=1000, description="Max results to return (1-1000)")
+    limit: int = Field(
+        default=10, ge=1, le=1000, description="Max results to return (1-1000)"
+    )
     exclude_synthetic: bool = Field(
         default=True, description="Exclude VRT mosaics and derived records"
     )

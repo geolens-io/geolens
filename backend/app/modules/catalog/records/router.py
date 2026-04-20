@@ -46,7 +46,9 @@ router = APIRouter(prefix="/records", tags=["Records"])
 
 
 async def _check_record_read_access(
-    db: AsyncSession, record_id: uuid.UUID, user: User | None,
+    db: AsyncSession,
+    record_id: uuid.UUID,
+    user: User | None,
 ) -> None:
     """Verify the record exists and is visible to the caller. Raises 404."""
     record = await get_record(db, record_id)
@@ -100,7 +102,10 @@ async def list_contacts_endpoint(
 ) -> ContactListResponse:
     """List all contacts for a record."""
     await _check_record_read_access(db, record_id, user)
-    contacts, total = await list_contacts(db, record_id, skip=skip, limit=limit), await count_contacts(db, record_id)
+    contacts, total = (
+        await list_contacts(db, record_id, skip=skip, limit=limit),
+        await count_contacts(db, record_id),
+    )
     return ContactListResponse(
         contacts=[ContactResponse.model_validate(c) for c in contacts],
         total=total,
@@ -213,7 +218,10 @@ async def list_keywords_endpoint(
 ) -> KeywordListResponse:
     """List all keywords for a record."""
     await _check_record_read_access(db, record_id, user)
-    keywords, total = await list_keywords(db, record_id, skip=skip, limit=limit), await count_keywords(db, record_id)
+    keywords, total = (
+        await list_keywords(db, record_id, skip=skip, limit=limit),
+        await count_keywords(db, record_id),
+    )
     return KeywordListResponse(
         keywords=[KeywordResponse.model_validate(k) for k in keywords],
         total=total,
@@ -293,7 +301,10 @@ async def list_distributions_endpoint(
 ) -> DistributionListResponse:
     """List all distributions for a record."""
     await _check_record_read_access(db, record_id, user)
-    distributions, total = await list_distributions(db, record_id, skip=skip, limit=limit), await count_distributions(db, record_id)
+    distributions, total = (
+        await list_distributions(db, record_id, skip=skip, limit=limit),
+        await count_distributions(db, record_id),
+    )
     return DistributionListResponse(
         distributions=[DistributionResponse.model_validate(d) for d in distributions],
         total=total,

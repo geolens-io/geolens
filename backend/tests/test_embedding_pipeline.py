@@ -187,7 +187,8 @@ class TestGenerateAndStoreEmbedding:
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
             patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding",
+                new_callable=AsyncMock,
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)
@@ -230,7 +231,8 @@ class TestGenerateAndStoreEmbedding:
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
             patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding",
+                new_callable=AsyncMock,
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)
@@ -268,7 +270,8 @@ class TestGenerateAndStoreEmbedding:
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
             patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding",
+                new_callable=AsyncMock,
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)
@@ -301,7 +304,8 @@ class TestGenerateAndStoreEmbedding:
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
             patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.processing.embeddings.service.generate_embedding", new_callable=AsyncMock
+                "app.processing.embeddings.service.generate_embedding",
+                new_callable=AsyncMock,
             ) as mock_gen,
         ):
             mock_ai.get = AsyncMock(return_value=True)

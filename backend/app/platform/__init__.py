@@ -1,2 +1,1 @@
 """Platform infrastructure namespace."""
-

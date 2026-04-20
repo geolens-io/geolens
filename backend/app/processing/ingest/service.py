@@ -28,7 +28,11 @@ from app.processing.ingest.metadata import (
     get_table_srid,
     grant_reader_access,
 )
-from app.processing.ingest.schemas import DiscoveredTable, RegisterRequest, VrtCreateRequest
+from app.processing.ingest.schemas import (
+    DiscoveredTable,
+    RegisterRequest,
+    VrtCreateRequest,
+)
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
@@ -226,9 +230,7 @@ async def generate_table_name(
     base_slug = slug
     collision_warning: str | None = None
     result = await session.execute(
-        select(Dataset.table_name).where(
-            Dataset.table_name.like(f"{base_slug}%")
-        )
+        select(Dataset.table_name).where(Dataset.table_name.like(f"{base_slug}%"))
     )
     existing = {row[0] for row in result.all()}
 

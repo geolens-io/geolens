@@ -169,8 +169,13 @@ async def get_single_dataset(
 
     base_url = await get_dataset_service_url(db, request=request)
     result = await get_dataset_detail(
-        db, dataset_id, user, base_url=base_url, collections_data=collections_data,
-        dataset=dataset, user_roles=user_roles,
+        db,
+        dataset_id,
+        user,
+        base_url=base_url,
+        collections_data=collections_data,
+        dataset=dataset,
+        user_roles=user_roles,
     )
     if result is None:
         raise HTTPException(
@@ -183,7 +188,9 @@ async def get_single_dataset(
 @router.get("/{dataset_id}/quicklook", response_class=Response)
 async def get_quicklook(
     dataset_id: uuid.UUID,
-    size: int = Query(256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"),
+    size: int = Query(
+        256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:

@@ -1,2 +1,1 @@
 """Standards DCAT namespace."""
-

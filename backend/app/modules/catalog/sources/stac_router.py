@@ -69,11 +69,13 @@ async def _fetch_cog_info(url: str) -> dict | None:
                 if stats_resp.status_code == 200:
                     stats = stats_resp.json()
                     for key in sorted(k for k in stats if k.startswith("b")):
-                        band_info.append({
-                            "min": stats[key].get("min"),
-                            "max": stats[key].get("max"),
-                            "mean": stats[key].get("mean"),
-                        })
+                        band_info.append(
+                            {
+                                "min": stats[key].get("min"),
+                                "max": stats[key].get("max"),
+                                "mean": stats[key].get("mean"),
+                            }
+                        )
             except Exception:
                 pass  # stats are optional — rendering will fall back to defaults
 
@@ -88,6 +90,7 @@ async def _fetch_cog_info(url: str) -> dict | None:
     except Exception as exc:
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))
         return None
+
 
 router = APIRouter(prefix="/services/stac", tags=["STAC Import"])
 
@@ -169,13 +172,9 @@ class StacSearchRequest(BaseModel):
 
 class StacItemSummary(BaseModel):
     id: str = Field(description="Item identifier.")
-    collection: str | None = Field(
-        default=None, description="Parent collection ID."
-    )
+    collection: str | None = Field(default=None, description="Parent collection ID.")
     title: str = Field(description="Item title (falls back to ID).")
-    bbox: list[float] | None = Field(
-        default=None, description="Item bounding box."
-    )
+    bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     datetime: str | None = Field(
         default=None, description="Primary datetime (ISO 8601)."
     )
@@ -214,14 +213,26 @@ class StacSearchResponse(BaseModel):
 
 class StacImportItem(BaseModel):
     id: str = Field(max_length=2048, description="STAC item ID.")
-    collection: str | None = Field(default=None, max_length=255, description="Parent collection ID.")
-    title: str = Field(max_length=500, description="Title to use for the GeoLens dataset.")
-    data_asset_href: str = Field(max_length=4096, description="URL of the COG asset to reference.")
+    collection: str | None = Field(
+        default=None, max_length=255, description="Parent collection ID."
+    )
+    title: str = Field(
+        max_length=500, description="Title to use for the GeoLens dataset."
+    )
+    data_asset_href: str = Field(
+        max_length=4096, description="URL of the COG asset to reference."
+    )
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
-    datetime_start: str | None = Field(default=None, max_length=50, description="Temporal start.")
-    datetime_end: str | None = Field(default=None, max_length=50, description="Temporal end.")
-    keywords: list[str] = Field(default=[], max_length=100, description="Keywords from STAC collection.")
+    datetime_start: str | None = Field(
+        default=None, max_length=50, description="Temporal start."
+    )
+    datetime_end: str | None = Field(
+        default=None, max_length=50, description="Temporal end."
+    )
+    keywords: list[str] = Field(
+        default=[], max_length=100, description="Keywords from STAC collection."
+    )
 
 
 class StacImportRequest(BaseModel):
@@ -246,7 +257,9 @@ class StacImportResult(BaseModel):
     dataset_id: uuid.UUID | None = Field(
         default=None, description="Created GeoLens dataset ID."
     )
-    status: Literal["created", "skipped", "error"] = Field(description="Import result status.")
+    status: Literal["created", "skipped", "error"] = Field(
+        description="Import result status."
+    )
     error: str | None = Field(default=None, description="Error message if failed.")
 
 
@@ -294,7 +307,11 @@ async def stac_connect(
         user_id=user.id,
         action="stac_connect",
         resource_type="stac_api",
-        details={"url": request.url, "result": "success", "stac_version": result["stac_version"]},
+        details={
+            "url": request.url,
+            "result": "success",
+            "stac_version": result["stac_version"],
+        },
     )
     await db.commit()
 
@@ -403,7 +420,9 @@ async def stac_import(
                     Dataset.source_format == "stac",
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     # Pre-filter importable items and SSRF-validate, then fetch COG info
@@ -412,7 +431,9 @@ async def stac_import(
     for item in request.items:
         if item.data_asset_href in existing_hrefs:
             results.append(
-                StacImportResult(item_id=item.id, status="skipped", error="Already imported")
+                StacImportResult(
+                    item_id=item.id, status="skipped", error="Already imported"
+                )
             )
             skipped += 1
             continue
@@ -496,11 +517,13 @@ async def stac_import(
                 db.add(raster_asset)
 
                 for kw in item.keywords:
-                    db.add(RecordKeyword(
-                        record_id=record.id,
-                        keyword=kw,
-                        keyword_type="theme",
-                    ))
+                    db.add(
+                        RecordKeyword(
+                            record_id=record.id,
+                            keyword=kw,
+                            keyword_type="theme",
+                        )
+                    )
 
             results.append(
                 StacImportResult(

@@ -416,8 +416,13 @@ class TestRasterDeleteCascadeRemovesStorage:
         session.execute = mock.AsyncMock(side_effect=_track_execute)
 
         with (
-            mock.patch("app.modules.catalog.datasets.domain.service.get_dataset", return_value=mock_dataset),
-            mock.patch("app.platform.storage.provider.get_storage", return_value=storage),
+            mock.patch(
+                "app.modules.catalog.datasets.domain.service.get_dataset",
+                return_value=mock_dataset,
+            ),
+            mock.patch(
+                "app.platform.storage.provider.get_storage", return_value=storage
+            ),
         ):
             from app.modules.catalog.datasets.domain.service import delete_dataset
 
@@ -458,8 +463,13 @@ class TestRasterDeleteCascadeRemovesStorage:
         session.execute.return_value = _refs_result
 
         with (
-            mock.patch("app.modules.catalog.datasets.domain.service.get_dataset", return_value=mock_dataset),
-            mock.patch("app.platform.storage.provider.get_storage", return_value=storage),
+            mock.patch(
+                "app.modules.catalog.datasets.domain.service.get_dataset",
+                return_value=mock_dataset,
+            ),
+            mock.patch(
+                "app.platform.storage.provider.get_storage", return_value=storage
+            ),
         ):
             from app.modules.catalog.datasets.domain.service import delete_dataset
 
@@ -484,7 +494,10 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         session.execute.side_effect = _capture_execute
 
-        with mock.patch("app.modules.catalog.datasets.domain.service.get_dataset", return_value=mock_dataset):
+        with mock.patch(
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            return_value=mock_dataset,
+        ):
             from app.modules.catalog.datasets.domain.service import delete_dataset
 
             result = await delete_dataset(session, dataset_id, "My Vector")

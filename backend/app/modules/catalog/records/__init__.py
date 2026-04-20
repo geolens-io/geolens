@@ -1,2 +1,1 @@
 """Catalog records namespace."""
-

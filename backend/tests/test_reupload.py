@@ -75,7 +75,9 @@ async def _create_dataset(
 @pytest.fixture(autouse=True)
 def mock_reupload_task():
     """Prevent procrastinate task deferral in reupload tests."""
-    with patch("app.modules.catalog.datasets.api.router_reupload.reupload_file") as mock_task:
+    with patch(
+        "app.modules.catalog.datasets.api.router_reupload.reupload_file"
+    ) as mock_task:
         # Default queue path
         mock_task.defer_async = AsyncMock(return_value=None)
         # Priority queue path (reupload_file.configure(...).defer_async(...))
@@ -106,7 +108,8 @@ def mock_reupload_file_save():
         return out_path
 
     with patch(
-        "app.modules.catalog.datasets.api.router_reupload.save_upload_file", new_callable=AsyncMock
+        "app.modules.catalog.datasets.api.router_reupload.save_upload_file",
+        new_callable=AsyncMock,
     ) as mock_save:
         mock_save.side_effect = _fake_save
         yield mock_save
@@ -116,7 +119,8 @@ def mock_reupload_file_save():
 def mock_ogrinfo_preview():
     """Mock ogrinfo preview to return predictable data."""
     with patch(
-        "app.modules.catalog.datasets.api.router_reupload.run_ogrinfo_preview", new_callable=AsyncMock
+        "app.modules.catalog.datasets.api.router_reupload.run_ogrinfo_preview",
+        new_callable=AsyncMock,
     ) as mock_preview:
         mock_preview.return_value = {
             "srid": 4326,

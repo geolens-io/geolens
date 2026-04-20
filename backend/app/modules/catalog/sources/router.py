@@ -61,7 +61,9 @@ async def _probe_audit_fail(
     raise HTTPException(status_code=status_code, detail=detail)
 
 
-async def _fail_preview(db: AsyncSession, user_id: uuid.UUID, url: str, layer: str) -> NoReturn:
+async def _fail_preview(
+    db: AsyncSession, user_id: uuid.UUID, url: str, layer: str
+) -> NoReturn:
     """Log audit and raise 502 for a failed service preview."""
     await log_action(
         session=db,
@@ -94,8 +96,13 @@ async def probe_service_url(
     except SSRFError as exc:
         logger.warning("SSRF blocked", url=request.url, reason=str(exc))
         await _probe_audit_fail(
-            db, user.id, request.url, "ssrf_blocked",
-            status.HTTP_400_BAD_REQUEST, str(exc), reason=str(exc),
+            db,
+            user.id,
+            request.url,
+            "ssrf_blocked",
+            status.HTTP_400_BAD_REQUEST,
+            str(exc),
+            reason=str(exc),
         )
 
     # Step 2: Probe with httpx client
@@ -115,15 +122,23 @@ async def probe_service_url(
     except httpx.TimeoutException:
         logger.warning("Probe timeout", url=request.url)
         await _probe_audit_fail(
-            db, user.id, request.url, "timeout",
-            504, "Service didn't respond in time. Check the URL and try again.",
+            db,
+            user.id,
+            request.url,
+            "timeout",
+            504,
+            "Service didn't respond in time. Check the URL and try again.",
         )
 
     except ArcGISTokenError as exc:
         logger.warning("ArcGIS token error", url=request.url, error=str(exc))
         await _probe_audit_fail(
-            db, user.id, request.url, "auth_required",
-            403, "This service requires authentication. Provide a valid ArcGIS token and try again.",
+            db,
+            user.id,
+            request.url,
+            "auth_required",
+            403,
+            "This service requires authentication. Provide a valid ArcGIS token and try again.",
             arcgis_code=exc.code,
         )
 
@@ -132,30 +147,46 @@ async def probe_service_url(
         if resp_status in (401, 403):
             logger.warning("Probe auth required", url=request.url, status=resp_status)
             await _probe_audit_fail(
-                db, user.id, request.url, "auth_required",
-                403, "This service requires authentication. Provide an access token and try again.",
+                db,
+                user.id,
+                request.url,
+                "auth_required",
+                403,
+                "This service requires authentication. Provide an access token and try again.",
                 status=resp_status,
             )
         else:
             logger.warning("Probe remote error", url=request.url, status=resp_status)
             await _probe_audit_fail(
-                db, user.id, request.url, "remote_error",
-                502, "Remote service returned an error",
+                db,
+                user.id,
+                request.url,
+                "remote_error",
+                502,
+                "Remote service returned an error",
                 status=resp_status,
             )
 
     except httpx.TransportError:
         logger.warning("Probe unreachable", url=request.url)
         await _probe_audit_fail(
-            db, user.id, request.url, "unreachable",
-            502, "Could not reach the service. Check the URL and try again.",
+            db,
+            user.id,
+            request.url,
+            "unreachable",
+            502,
+            "Could not reach the service. Check the URL and try again.",
         )
 
     except ServiceNotRecognized as exc:
         logger.info("Probe unrecognized", url=request.url)
         await _probe_audit_fail(
-            db, user.id, request.url, "unrecognized",
-            status.HTTP_400_BAD_REQUEST, str(exc),
+            db,
+            user.id,
+            request.url,
+            "unrecognized",
+            status.HTTP_400_BAD_REQUEST,
+            str(exc),
         )
 
     # Step 3: Audit log on success

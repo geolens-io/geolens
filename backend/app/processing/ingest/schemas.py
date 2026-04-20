@@ -117,7 +117,9 @@ class BaseCommitRequest(BaseModel):
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
     summary: str | None = Field(
-        default=None, max_length=5000, description="Optional dataset description shown in the catalog."
+        default=None,
+        max_length=5000,
+        description="Optional dataset description shown in the catalog.",
     )
     visibility: Visibility = Field(
         default="private",
@@ -213,7 +215,9 @@ class CommitRequest(BaseModel):
         min_length=1, max_length=500, description="Human-readable dataset title."
     )
     summary: str | None = Field(
-        default=None, max_length=5000, description="Optional dataset description shown in the catalog."
+        default=None,
+        max_length=5000,
+        description="Optional dataset description shown in the catalog.",
     )
     visibility: Visibility = Field(
         default="private",
