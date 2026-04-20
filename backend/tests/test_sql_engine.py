@@ -11,7 +11,10 @@ from app.processing.ai.chat_service import (
 from app.processing.ai.constants import tool_label
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
-from app.processing.ai.sql_generator import build_sql_schema_context, build_sql_generation_prompt
+from app.processing.ai.sql_generator import (
+    build_sql_schema_context,
+    build_sql_generation_prompt,
+)
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 
 
@@ -186,7 +189,9 @@ class TestQueryDataTool:
     """Tests for _handle_query_data and its integration in _execute_chat_tool."""
 
     @pytest.mark.asyncio
-    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_handle_returns_structured_result(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT count(*) FROM data.cities"
@@ -203,7 +208,9 @@ class TestQueryDataTool:
         assert result["truncated"] is False
 
     @pytest.mark.asyncio
-    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_rows_truncated_to_50(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT * FROM data.cities"
@@ -221,7 +228,9 @@ class TestQueryDataTool:
         assert result["row_count"] == 100
 
     @pytest.mark.asyncio
-    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_sandbox_error_returns_error_dict(self, mock_gen, mock_exec):
         mock_gen.return_value = "DROP TABLE cities"
@@ -255,7 +264,9 @@ class TestQueryDataTool:
         assert result["error"] == "Could not generate or execute query"
 
     @pytest.mark.asyncio
-    @patch("app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock)
+    @patch(
+        "app.processing.ai.chat_service.validate_and_execute", new_callable=AsyncMock
+    )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_execute_chat_tool_dispatches_query_data(self, mock_gen, mock_exec):
         mock_gen.return_value = "SELECT 1"

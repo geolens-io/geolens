@@ -52,13 +52,17 @@ async def probe_ogcapi(
         response = await client.get(url, headers=headers)
         response.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-        logger.debug("OGC API probe: landing page request failed", url=url, error=str(exc))
+        logger.debug(
+            "OGC API probe: landing page request failed", url=url, error=str(exc)
+        )
         return None
 
     try:
         data = response.json()
     except Exception as exc:
-        logger.debug("OGC API probe: landing page JSON parse failed", url=url, error=str(exc))
+        logger.debug(
+            "OGC API probe: landing page JSON parse failed", url=url, error=str(exc)
+        )
         return None
 
     if not isinstance(data, dict):
@@ -71,8 +75,7 @@ async def probe_ogcapi(
     if not conforms_to:
         links = data.get("links", [])
         has_data_link = any(
-            isinstance(lnk, dict) and lnk.get("rel") == "data"
-            for lnk in links
+            isinstance(lnk, dict) and lnk.get("rel") == "data" for lnk in links
         )
         conformance_link = next(
             (
@@ -109,8 +112,7 @@ async def probe_ogcapi(
 
     # Step 3: Validate OGC API Features conformance
     is_ogc_features = any(
-        isinstance(uri, str) and "ogcapi-features" in uri
-        for uri in conforms_to
+        isinstance(uri, str) and "ogcapi-features" in uri for uri in conforms_to
     )
     if not is_ogc_features and not has_data_link:
         return None
@@ -123,7 +125,9 @@ async def probe_ogcapi(
         col_resp.raise_for_status()
         col_data = col_resp.json()
     except SSRFError:
-        logger.warning("OGC API probe: collections URL blocked by SSRF check", url=collections_url)
+        logger.warning(
+            "OGC API probe: collections URL blocked by SSRF check", url=collections_url
+        )
         return None
     except Exception as exc:
         logger.debug(

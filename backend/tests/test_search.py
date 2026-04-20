@@ -17,7 +17,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, update
 
-from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordContact, RecordKeyword
+from app.modules.catalog.datasets.domain.models import (
+    Dataset,
+    Record,
+    RecordContact,
+    RecordKeyword,
+)
 
 from tests.factories import get_user_id
 

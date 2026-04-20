@@ -22,7 +22,11 @@ def test_schemas_importable():
 
 def test_service_importable():
     """Config ops service functions should be importable."""
-    from app.platform.config_ops.service import export_config, import_config, dry_run_import
+    from app.platform.config_ops.service import (
+        export_config,
+        import_config,
+        dry_run_import,
+    )
 
     assert export_config is not None
     assert import_config is not None

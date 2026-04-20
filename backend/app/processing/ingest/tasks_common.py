@@ -543,7 +543,9 @@ async def _ingest_vector_into_staging(
     return result
 
 
-async def _generate_quicklook(session, dataset, table_name: str, geometry_type: str) -> None:
+async def _generate_quicklook(
+    session, dataset, table_name: str, geometry_type: str
+) -> None:
     """Generate and upload a vector quicklook thumbnail (non-fatal).
 
     Runs after commit so a connection-killing query (OOM, timeout on
@@ -577,7 +579,9 @@ async def _generate_quicklook(session, dataset, table_name: str, geometry_type: 
 
     try:
         await session.commit()
-    except Exception as _ql_commit_exc:  # broad: transient commit failure after successful generation
+    except (
+        Exception
+    ) as _ql_commit_exc:  # broad: transient commit failure after successful generation
         await session.rollback()
         _ql_log.warning(
             "quicklook_failed",

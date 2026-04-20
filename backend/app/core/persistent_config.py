@@ -22,7 +22,11 @@ from app.modules.audit.service import log_action
 from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
 from app.core.config import settings
-from app.core.public_urls import _is_env_only, resolve_public_api_url, resolve_public_app_url
+from app.core.public_urls import (
+    _is_env_only,
+    resolve_public_api_url,
+    resolve_public_app_url,
+)
 from app.modules.settings.models import AppSetting
 
 logger = structlog.stdlib.get_logger(__name__)

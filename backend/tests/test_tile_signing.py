@@ -131,7 +131,10 @@ class TestTileSigningModule:
 
     def test_verify_round_trip(self):
         """A signature generated for a scope/exp verifies correctly."""
-        from app.processing.tiles.signing import generate_tile_signature, verify_tile_signature
+        from app.processing.tiles.signing import (
+            generate_tile_signature,
+            verify_tile_signature,
+        )
 
         exp = int(time.time()) + 3600  # 1 hour in the future
         sig = generate_tile_signature("my_table", exp)
@@ -139,7 +142,10 @@ class TestTileSigningModule:
 
     def test_verify_rejects_expired(self):
         """Expired signatures are rejected even if HMAC is valid."""
-        from app.processing.tiles.signing import generate_tile_signature, verify_tile_signature
+        from app.processing.tiles.signing import (
+            generate_tile_signature,
+            verify_tile_signature,
+        )
 
         past_exp = int(time.time()) - 100
         sig = generate_tile_signature("my_table", past_exp)
@@ -154,7 +160,10 @@ class TestTileSigningModule:
 
     def test_verify_rejects_wrong_scope(self):
         """Signature for one scope does not verify for another."""
-        from app.processing.tiles.signing import generate_tile_signature, verify_tile_signature
+        from app.processing.tiles.signing import (
+            generate_tile_signature,
+            verify_tile_signature,
+        )
 
         future_exp = int(time.time()) + 3600
         sig = generate_tile_signature("my_table", future_exp)
@@ -182,7 +191,9 @@ class TestTileSigningModule:
         base_time = 1700000100  # arbitrary time
         with patch("app.processing.tiles.signing.time.time", return_value=base_time):
             exp1 = round_expiry()
-        with patch("app.processing.tiles.signing.time.time", return_value=base_time + 1):
+        with patch(
+            "app.processing.tiles.signing.time.time", return_value=base_time + 1
+        ):
             exp2 = round_expiry()
         assert exp1 == exp2
 

@@ -34,7 +34,10 @@ from app.modules.auth.models import ApiKey, User
 from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
-from app.modules.catalog.maps.schemas import AdminShareTokenListResponse, AdminShareTokenResponse
+from app.modules.catalog.maps.schemas import (
+    AdminShareTokenListResponse,
+    AdminShareTokenResponse,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 

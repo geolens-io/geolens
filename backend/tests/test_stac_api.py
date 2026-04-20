@@ -9,7 +9,12 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from app.standards.stac.schemas import StacCatalog, StacConformance, StacItemCollection, StacLink
+from app.standards.stac.schemas import (
+    StacCatalog,
+    StacConformance,
+    StacItemCollection,
+    StacLink,
+)
 from app.standards.stac.serializer import STAC_CONFORMANCE
 
 

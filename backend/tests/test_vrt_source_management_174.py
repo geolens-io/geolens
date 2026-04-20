@@ -218,7 +218,10 @@ class TestAddSource:
                 "message": "CRS mismatch",
             }
 
-            with patch("app.processing.ingest.router.validate_sources", return_value=[mock_error]):
+            with patch(
+                "app.processing.ingest.router.validate_sources",
+                return_value=[mock_error],
+            ):
                 with pytest.raises(HTTPException) as exc_info:
                     await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
 
@@ -241,8 +244,8 @@ class TestAddSource:
             dataset_id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id, mock_create_ingest_job = _build_mock_db_success_add(
-                mock_asset, dataset_id
+            mock_db, expected_job_id, mock_create_ingest_job = (
+                _build_mock_db_success_add(mock_asset, dataset_id)
             )
             monkeypatch.setattr(
                 ingest_router, "create_ingest_job", mock_create_ingest_job
@@ -381,8 +384,8 @@ class TestRemoveSource:
             mock_user.id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id, mock_create_ingest_job = _build_mock_db_success_remove(
-                mock_asset, dataset_id, source_count=3
+            mock_db, expected_job_id, mock_create_ingest_job = (
+                _build_mock_db_success_remove(mock_asset, dataset_id, source_count=3)
             )
             monkeypatch.setattr(
                 ingest_router, "create_ingest_job", mock_create_ingest_job
@@ -571,7 +574,9 @@ class TestRegenerateVrtTask:
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
             with (
-                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
+                patch(
+                    "app.processing.ingest.tasks.async_session"
+                ) as mock_async_session,
                 patch(
                     "app.processing.ingest.tasks.build_vrt",
                     side_effect=RuntimeError("gdalbuildvrt failed"),
@@ -629,8 +634,13 @@ class TestRegenerateVrtTask:
             mock_session.execute = AsyncMock(side_effect=execute_side_effect)
 
             with (
-                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
-                patch("app.processing.ingest.tasks.build_vrt", side_effect=RuntimeError("fail")),
+                patch(
+                    "app.processing.ingest.tasks.async_session"
+                ) as mock_async_session,
+                patch(
+                    "app.processing.ingest.tasks.build_vrt",
+                    side_effect=RuntimeError("fail"),
+                ),
             ):
                 mock_async_session.return_value = mock_session
                 try:
@@ -726,19 +736,31 @@ class TestRegenerateVrtTask:
             }
 
             with (
-                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
-                patch("app.processing.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
+                patch(
+                    "app.processing.ingest.tasks.async_session"
+                ) as mock_async_session,
+                patch(
+                    "app.processing.ingest.tasks.build_vrt",
+                    return_value="/tmp/x/source.vrt",
+                ),
                 patch(
                     "app.processing.ingest.tasks.resolve_vrt_source_path",
                     return_value="/path/to/source.cog.tif",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.extract_raster_metadata", return_value=mock_meta
+                    "app.processing.ingest.tasks.extract_raster_metadata",
+                    return_value=mock_meta,
                 ),
-                patch("app.processing.ingest.tasks.sha256_file", return_value="newhash"),
-                patch("app.processing.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
                 patch(
-                    "app.processing.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
+                    "app.processing.ingest.tasks.sha256_file", return_value="newhash"
+                ),
+                patch(
+                    "app.processing.ingest.tasks.generate_quicklook",
+                    return_value=b"\x89PNG",
+                ),
+                patch(
+                    "app.processing.ingest.tasks.invalidate_catalog_cache",
+                    new_callable=AsyncMock,
                 ),
                 patch(
                     "builtins.open",
@@ -759,8 +781,14 @@ class TestRegenerateVrtTask:
                 mock_storage = AsyncMock()
                 mock_storage.put = AsyncMock()
                 with (
-                    patch("app.processing.ingest.tasks.get_storage", return_value=mock_storage),
-                    patch("app.processing.ingest.tasks.defer_embedding", new_callable=AsyncMock),
+                    patch(
+                        "app.processing.ingest.tasks.get_storage",
+                        return_value=mock_storage,
+                    ),
+                    patch(
+                        "app.processing.ingest.tasks.defer_embedding",
+                        new_callable=AsyncMock,
+                    ),
                 ):
                     await regenerate_vrt.func(
                         job_id=job_id, vrt_dataset_id=vrt_dataset_id
@@ -855,19 +883,31 @@ class TestRegenerateVrtTask:
                 put_calls.append(key)
 
             with (
-                patch("app.processing.ingest.tasks.async_session") as mock_async_session,
-                patch("app.processing.ingest.tasks.build_vrt", return_value="/tmp/x/source.vrt"),
+                patch(
+                    "app.processing.ingest.tasks.async_session"
+                ) as mock_async_session,
+                patch(
+                    "app.processing.ingest.tasks.build_vrt",
+                    return_value="/tmp/x/source.vrt",
+                ),
                 patch(
                     "app.processing.ingest.tasks.resolve_vrt_source_path",
                     return_value="/path/to/source.cog.tif",
                 ),
                 patch(
-                    "app.processing.ingest.tasks.extract_raster_metadata", return_value=mock_meta
+                    "app.processing.ingest.tasks.extract_raster_metadata",
+                    return_value=mock_meta,
                 ),
-                patch("app.processing.ingest.tasks.sha256_file", return_value="newhash"),
-                patch("app.processing.ingest.tasks.generate_quicklook", return_value=b"\x89PNG"),
                 patch(
-                    "app.processing.ingest.tasks.invalidate_catalog_cache", new_callable=AsyncMock
+                    "app.processing.ingest.tasks.sha256_file", return_value="newhash"
+                ),
+                patch(
+                    "app.processing.ingest.tasks.generate_quicklook",
+                    return_value=b"\x89PNG",
+                ),
+                patch(
+                    "app.processing.ingest.tasks.invalidate_catalog_cache",
+                    new_callable=AsyncMock,
                 ),
                 patch(
                     "builtins.open",
@@ -888,8 +928,14 @@ class TestRegenerateVrtTask:
                 mock_storage = AsyncMock()
                 mock_storage.put = mock_put
                 with (
-                    patch("app.processing.ingest.tasks.get_storage", return_value=mock_storage),
-                    patch("app.processing.ingest.tasks.defer_embedding", new_callable=AsyncMock),
+                    patch(
+                        "app.processing.ingest.tasks.get_storage",
+                        return_value=mock_storage,
+                    ),
+                    patch(
+                        "app.processing.ingest.tasks.defer_embedding",
+                        new_callable=AsyncMock,
+                    ),
                 ):
                     await regenerate_vrt.func(
                         job_id=job_id, vrt_dataset_id=vrt_dataset_id

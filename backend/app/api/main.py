@@ -18,7 +18,11 @@ from app.core.logging_config import setup_logging
 from app.core.runtime.staging import ensure_staging_ready
 from app.core.edition import get_edition, init_edition
 from app.core.marketplace import register_marketplace_usage
-from app.platform.extensions import get_extension_routers, list_extensions, load_extensions
+from app.platform.extensions import (
+    get_extension_routers,
+    list_extensions,
+    load_extensions,
+)
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.modules.auth.router import limiter

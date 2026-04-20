@@ -196,7 +196,9 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
-    map_obj = await create_map(db, body.name, body.description, user.id, notes=body.notes)
+    map_obj = await create_map(
+        db, body.name, body.description, user.id, notes=body.notes
+    )
     await log_action(
         db,
         user_id=user.id,
@@ -729,7 +731,9 @@ async def add_layer_endpoint(
 
     # Verify the user can access the target dataset
     user_roles = await get_user_roles(db, user)
-    accessible = await _bulk_check_dataset_access(db, [body.dataset_id], user, user_roles)
+    accessible = await _bulk_check_dataset_access(
+        db, [body.dataset_id], user, user_roles
+    )
     if body.dataset_id not in accessible:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -34,7 +34,10 @@ from app.modules.catalog.search.saved import (
     list_saved_searches,
 )
 from app.modules.catalog.features.service import parse_bbox
-from app.standards.ogc.filtering import build_queryables_response, build_record_schema_response
+from app.standards.ogc.filtering import (
+    build_queryables_response,
+    build_record_schema_response,
+)
 from app.standards.ogc.utils import build_url
 from app.core.public_urls import get_public_api_url
 from geoalchemy2.shape import to_shape
@@ -217,9 +220,7 @@ class SearchQueryParams(_BaseModel):
     )
     date_from: date | None = Query(None, description="Filter created_at >=")
     date_to: date | None = Query(None, description="Filter created_at <=")
-    vintage_start: date | None = Query(
-        None, description="Filter data_vintage_start >="
-    )
+    vintage_start: date | None = Query(None, description="Filter data_vintage_start >=")
     vintage_end: date | None = Query(None, description="Filter data_vintage_end <=")
     sort_by: str = Query(
         "relevance",
@@ -241,9 +242,7 @@ class SearchQueryParams(_BaseModel):
         alias="datetime",
         description="OGC datetime interval: instant, start/end, ../end, start/..",
     )
-    exclude_synthetic: bool = Query(
-        True, description="Exclude synthetic/test datasets"
-    )
+    exclude_synthetic: bool = Query(True, description="Exclude synthetic/test datasets")
     spatial_predicate: Literal["intersects", "within"] = Query(
         "intersects", description="Spatial predicate: intersects or within"
     )
@@ -258,9 +257,7 @@ class SearchQueryParams(_BaseModel):
 
     def to_filters(self) -> SearchFilters:
         """Convert raw query params into a service-layer SearchFilters."""
-        geometry_geojson, bbox_parsed = _parse_spatial_params(
-            self.geometry, self.bbox
-        )
+        geometry_geojson, bbox_parsed = _parse_spatial_params(self.geometry, self.bbox)
         return SearchFilters(
             q=self.q,
             bbox=bbox_parsed,
@@ -463,9 +460,7 @@ async def _handle_search(
         and not params.record_type
         and not params.collection_id
     ):
-        coll_results = await search_collections(
-            db, params.q, user, user_roles, limit=5
-        )
+        coll_results = await search_collections(db, params.q, user, user_roles, limit=5)
         for coll in coll_results:
             features.append(
                 {
@@ -750,7 +745,7 @@ async def _distinct_aggregate(
     stmt = select(func.distinct(column))
     if from_dataset:
         stmt = stmt.select_from(Dataset).join(Record, Dataset.record_id == Record.id)
-    for target, onclause in (extra_joins or []):
+    for target, onclause in extra_joins or []:
         stmt = stmt.join(target, onclause)
     for filt in extra_filters or []:
         stmt = stmt.where(filt)
@@ -832,19 +827,31 @@ async def _build_collection_metadata(
 
     # Summaries via reusable aggregate helper
     geometry_types = await _distinct_aggregate(
-        db, Dataset.geometry_type, user, user_roles,
+        db,
+        Dataset.geometry_type,
+        user,
+        user_roles,
         extra_filters=[Dataset.geometry_type.isnot(None)],
     )
     srids = await _distinct_aggregate(
-        db, Dataset.srid, user, user_roles,
+        db,
+        Dataset.srid,
+        user,
+        user_roles,
         extra_filters=[Dataset.srid.isnot(None)],
     )
     keywords_list = await _distinct_aggregate(
-        db, RecordKeyword.keyword, user, user_roles,
+        db,
+        RecordKeyword.keyword,
+        user,
+        user_roles,
         extra_joins=[(RecordKeyword, RecordKeyword.record_id == Record.id)],
     )
     organizations = await _distinct_aggregate(
-        db, Record.source_organization, user, user_roles,
+        db,
+        Record.source_organization,
+        user,
+        user_roles,
         extra_filters=[
             Record.source_organization.isnot(None),
             Record.source_organization != "",
@@ -926,8 +933,12 @@ def _build_collection_links(public_api_url: str) -> list[dict]:
 @collections_router.get("", response_model=OGCCollectionsResponse)
 async def list_collections(
     request: Request,
-    offset: int = Query(0, ge=0, description="Pagination offset for per-dataset collections"),
-    limit: int = Query(200, ge=1, le=1000, description="Max per-dataset collections to return"),
+    offset: int = Query(
+        0, ge=0, description="Pagination offset for per-dataset collections"
+    ),
+    limit: int = Query(
+        200, ge=1, le=1000, description="Max per-dataset collections to return"
+    ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCCollectionsResponse:
@@ -1040,8 +1051,11 @@ async def list_collections(
             OGCRecordLink(
                 rel="next",
                 href=_build_pagination_url(
-                    public_api_url, base_path, {},
-                    offset=offset + limit, limit=limit,
+                    public_api_url,
+                    base_path,
+                    {},
+                    offset=offset + limit,
+                    limit=limit,
                 ),
                 type="application/json",
             )
@@ -1051,8 +1065,11 @@ async def list_collections(
             OGCRecordLink(
                 rel="prev",
                 href=_build_pagination_url(
-                    public_api_url, base_path, {},
-                    offset=max(0, offset - limit), limit=limit,
+                    public_api_url,
+                    base_path,
+                    {},
+                    offset=max(0, offset - limit),
+                    limit=limit,
                 ),
                 type="application/json",
             )

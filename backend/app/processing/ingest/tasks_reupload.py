@@ -50,7 +50,9 @@ async def reupload_file(
         )
         job = job_result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         dataset_result = await session.execute(
@@ -60,7 +62,9 @@ async def reupload_file(
         )
         dataset = dataset_result.scalar_one_or_none()
         if dataset is None:
-            structlog.get_logger().warning("Dataset not found, skipping", dataset_id=dataset_id)
+            structlog.get_logger().warning(
+                "Dataset not found, skipping", dataset_id=dataset_id
+            )
             return
 
         staging_tn = f"{dataset.table_name[:54]}_staging"
@@ -134,7 +138,9 @@ async def reupload_file(
 
             # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
             if file_path.lower().endswith(".zip"):
-                from app.processing.ingest.metadata import detect_dbf_truncation_collisions
+                from app.processing.ingest.metadata import (
+                    detect_dbf_truncation_collisions,
+                )
                 from app.processing.ingest.ogr import run_ogrinfo_preview
                 from app.processing.ingest.warnings import make_dbf_truncation_warning
 
@@ -258,7 +264,11 @@ async def reupload_service(
         get_sample_values,
         grant_reader_access,
     )
-    from app.processing.ingest.ogr import IngestionError, build_pg_conn_str, run_ogr2ogr_service
+    from app.processing.ingest.ogr import (
+        IngestionError,
+        build_pg_conn_str,
+        run_ogr2ogr_service,
+    )
     from app.platform.jobs.models import IngestJob
     from app.modules.catalog.sources.preview import build_gdal_source
     from sqlalchemy import text
@@ -275,7 +285,9 @@ async def reupload_service(
         )
         job = job_result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         dataset_result = await session.execute(
@@ -285,7 +297,9 @@ async def reupload_service(
         )
         dataset = dataset_result.scalar_one_or_none()
         if dataset is None:
-            structlog.get_logger().warning("Dataset not found, skipping", dataset_id=dataset_id)
+            structlog.get_logger().warning(
+                "Dataset not found, skipping", dataset_id=dataset_id
+            )
             return
 
         staging_tn = f"{dataset.table_name[:54]}_staging"

@@ -90,22 +90,30 @@ async def list_stac_collections(url: str) -> list[dict[str, Any]]:
         temporal = extent.get("temporal", {})
 
         bbox = spatial.get("bbox", [[]])[0] if spatial.get("bbox") else None
-        time_interval = temporal.get("interval", [[]])[0] if temporal.get("interval") else None
+        time_interval = (
+            temporal.get("interval", [[]])[0] if temporal.get("interval") else None
+        )
 
         # Some STAC APIs include item count in collection metadata
         item_count = c.get("numberMatched") or c.get("numberReturned")
 
-        result.append({
-            "id": c["id"],
-            "title": c.get("title", c["id"]),
-            "description": c.get("description", ""),
-            "license": c.get("license"),
-            "keywords": c.get("keywords", []),
-            "bbox": bbox,
-            "temporal_start": time_interval[0] if time_interval and len(time_interval) > 0 else None,
-            "temporal_end": time_interval[1] if time_interval and len(time_interval) > 1 else None,
-            "item_count": item_count,
-        })
+        result.append(
+            {
+                "id": c["id"],
+                "title": c.get("title", c["id"]),
+                "description": c.get("description", ""),
+                "license": c.get("license"),
+                "keywords": c.get("keywords", []),
+                "bbox": bbox,
+                "temporal_start": time_interval[0]
+                if time_interval and len(time_interval) > 0
+                else None,
+                "temporal_end": time_interval[1]
+                if time_interval and len(time_interval) > 1
+                else None,
+                "item_count": item_count,
+            }
+        )
 
     return result
 
@@ -173,22 +181,24 @@ async def search_stac_items(
         dt_start = props.get("start_datetime") or dt
         dt_end = props.get("end_datetime") or dt
 
-        items.append({
-            "id": f.get("id"),
-            "collection": f.get("collection"),
-            "bbox": f.get("bbox"),
-            "datetime": dt,
-            "datetime_start": dt_start,
-            "datetime_end": dt_end,
-            "title": props.get("title", f.get("id")),
-            "epsg": props.get("proj:epsg"),
-            "gsd": props.get("gsd"),
-            "cloud_cover": props.get("eo:cloud_cover"),
-            "data_asset_href": data_asset.get("href") if data_asset else None,
-            "data_asset_type": data_asset.get("type") if data_asset else None,
-            "thumbnail_href": thumbnail.get("href") if thumbnail else None,
-            "asset_count": len(assets),
-        })
+        items.append(
+            {
+                "id": f.get("id"),
+                "collection": f.get("collection"),
+                "bbox": f.get("bbox"),
+                "datetime": dt,
+                "datetime_start": dt_start,
+                "datetime_end": dt_end,
+                "title": props.get("title", f.get("id")),
+                "epsg": props.get("proj:epsg"),
+                "gsd": props.get("gsd"),
+                "cloud_cover": props.get("eo:cloud_cover"),
+                "data_asset_href": data_asset.get("href") if data_asset else None,
+                "data_asset_type": data_asset.get("type") if data_asset else None,
+                "thumbnail_href": thumbnail.get("href") if thumbnail else None,
+                "asset_count": len(assets),
+            }
+        )
 
     return {
         "items": items,

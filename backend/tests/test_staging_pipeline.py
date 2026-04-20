@@ -56,7 +56,9 @@ class TestIngestVectorIntoStaging:
                 create=True,
             ),
             patch("app.processing.ingest.ogr.build_pg_conn_str", return_value="dbconn"),
-            patch("app.processing.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock) as mock_ogr,
+            patch(
+                "app.processing.ingest.ogr.run_ogr2ogr", new_callable=AsyncMock
+            ) as mock_ogr,
             patch(
                 "app.processing.ingest.metadata.rename_reserved_columns",
                 new_callable=AsyncMock,
@@ -68,10 +70,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -137,10 +145,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -207,10 +221,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -258,17 +278,25 @@ class TestIngestVectorIntoStaging:
                 new_callable=AsyncMock,
                 return_value=[],
             ),
-            patch("app.processing.ingest.metadata.detect_dbf_truncation_collisions") as mock_dbf,
+            patch(
+                "app.processing.ingest.metadata.detect_dbf_truncation_collisions"
+            ) as mock_dbf,
             patch(
                 "app.processing.ingest.metadata.ensure_geom_column",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -321,12 +349,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ) as mock_ensure,
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ) as mock_clip,
             patch(
                 "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
             ) as mock_4326,
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -375,15 +407,20 @@ class TestIngestVectorIntoStaging:
                 return_value=[],
             ),
             patch(
-                "app.processing.ingest.metadata.ensure_geom_column", new_callable=AsyncMock
+                "app.processing.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
             ) as mock_ensure,
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ) as mock_clip,
             patch(
                 "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
             ) as mock_4326,
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -450,13 +487,26 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.extract_metadata", side_effect=_extract),
-            patch("app.processing.ingest.metadata.detect_3d_metadata", side_effect=_detect_3d),
-            patch("app.processing.ingest.metadata.get_sample_values", side_effect=_sample),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.processing.ingest.metadata.extract_metadata", side_effect=_extract
+            ),
+            patch(
+                "app.processing.ingest.metadata.detect_3d_metadata",
+                side_effect=_detect_3d,
+            ),
+            patch(
+                "app.processing.ingest.metadata.get_sample_values", side_effect=_sample
+            ),
         ):
             await _ingest_vector_into_staging(
                 session,
@@ -499,10 +549,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -550,7 +606,10 @@ class TestIngestVectorIntoStaging:
     @pytest.mark.asyncio
     async def test_returns_staging_result_with_correct_fields(self):
         """Test 9: StagingResult is returned with metadata, sample_values, three_d dicts."""
-        from app.processing.ingest.tasks import StagingResult, _ingest_vector_into_staging
+        from app.processing.ingest.tasks import (
+            StagingResult,
+            _ingest_vector_into_staging,
+        )
 
         session = AsyncMock(spec=[])
         job = _make_job()
@@ -572,10 +631,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -633,10 +698,16 @@ class TestIngestVectorIntoStaging:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,
@@ -748,10 +819,16 @@ class TestIngestVectorIntoStagingErrors:
                 return_value=True,
             ),
             patch(
-                "app.processing.ingest.metadata.clip_to_mercator_bounds", new_callable=AsyncMock
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
             ),
-            patch("app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock),
-            patch("app.processing.ingest.metadata.grant_reader_access", new_callable=AsyncMock),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column", new_callable=AsyncMock
+            ),
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
             patch(
                 "app.processing.ingest.metadata.extract_metadata",
                 new_callable=AsyncMock,

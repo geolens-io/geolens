@@ -1,2 +1,1 @@
 """Catalog source adapter namespace."""
-

@@ -53,7 +53,9 @@ async def list_contacts(
 
 async def count_contacts(session: AsyncSession, record_id: uuid.UUID) -> int:
     result = await session.execute(
-        select(func.count()).select_from(RecordContact).where(RecordContact.record_id == record_id)
+        select(func.count())
+        .select_from(RecordContact)
+        .where(RecordContact.record_id == record_id)
     )
     return result.scalar_one()
 
@@ -150,7 +152,9 @@ async def list_keywords(
 
 async def count_keywords(session: AsyncSession, record_id: uuid.UUID) -> int:
     result = await session.execute(
-        select(func.count()).select_from(RecordKeyword).where(RecordKeyword.record_id == record_id)
+        select(func.count())
+        .select_from(RecordKeyword)
+        .where(RecordKeyword.record_id == record_id)
     )
     return result.scalar_one()
 
@@ -227,7 +231,9 @@ async def list_distributions(
 
 async def count_distributions(session: AsyncSession, record_id: uuid.UUID) -> int:
     result = await session.execute(
-        select(func.count()).select_from(RecordDistribution).where(RecordDistribution.record_id == record_id)
+        select(func.count())
+        .select_from(RecordDistribution)
+        .where(RecordDistribution.record_id == record_id)
     )
     return result.scalar_one()
 

@@ -67,10 +67,12 @@ async def test_health_ready_returns_503_when_db_unreachable(health_app):
 @pytest.mark.asyncio
 async def test_metrics_endpoint_returns_prometheus_output(health_app):
     with patch(
-        "app.observability.health.worker.generate_latest", return_value=b"# HELP fake_metric\n"
+        "app.observability.health.worker.generate_latest",
+        return_value=b"# HELP fake_metric\n",
     ):
         with patch(
-            "app.observability.health.worker.CONTENT_TYPE_LATEST", "text/plain; version=0.0.4"
+            "app.observability.health.worker.CONTENT_TYPE_LATEST",
+            "text/plain; version=0.0.4",
         ):
             transport = ASGITransport(app=health_app)
             async with AsyncClient(
@@ -218,7 +220,9 @@ async def test_main_uses_shutdown_graceful_timeout():
         patch("app.platform.jobs.worker.ensure_staging_ready"),
         patch("app.platform.storage.init_storage"),
         patch("app.platform.cache.init_cache"),
-        patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
+        patch(
+            "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
+        ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
         patch.dict("os.environ", {"WORKER_SHUTDOWN_TIMEOUT": "45"}),
@@ -246,7 +250,9 @@ async def test_main_uses_default_shutdown_timeout():
         patch("app.platform.jobs.worker.ensure_staging_ready"),
         patch("app.platform.storage.init_storage"),
         patch("app.platform.cache.init_cache"),
-        patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
+        patch(
+            "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
+        ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
         patch.dict("os.environ", {}, clear=False),
@@ -278,7 +284,9 @@ async def test_main_passes_install_signal_handlers_true():
         patch("app.platform.jobs.worker.ensure_staging_ready"),
         patch("app.platform.storage.init_storage"),
         patch("app.platform.cache.init_cache"),
-        patch("app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock),
+        patch(
+            "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
+        ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
     ):

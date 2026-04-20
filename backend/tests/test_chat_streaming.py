@@ -102,7 +102,9 @@ async def test_stream_returns_sse_events(client: AsyncClient, admin_auth_header:
             new_callable=AsyncMock,
             return_value=CHAT_BODY["layers"],
         ),
-        patch("app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tokens),
+        patch(
+            "app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tokens
+        ),
     ):
         resp = await client.post(
             "/ai/chat/stream/", json=CHAT_BODY, headers=admin_auth_header
@@ -131,7 +133,9 @@ async def test_non_streaming_fallback(client: AsyncClient, admin_auth_header: di
             new_callable=AsyncMock,
             return_value=CHAT_BODY["layers"],
         ),
-        patch("app.processing.ai.router.chat_edit_map", new_callable=AsyncMock) as mock_chat,
+        patch(
+            "app.processing.ai.router.chat_edit_map", new_callable=AsyncMock
+        ) as mock_chat,
     ):
         mock_chat.return_value = mock_result
         resp = await client.post("/ai/chat/", json=CHAT_BODY, headers=admin_auth_header)
@@ -150,7 +154,9 @@ async def test_tool_progress_events(client: AsyncClient, admin_auth_header: dict
             new_callable=AsyncMock,
             return_value=CHAT_BODY["layers"],
         ),
-        patch("app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tools),
+        patch(
+            "app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tools
+        ),
     ):
         resp = await client.post(
             "/ai/chat/stream/", json=CHAT_BODY, headers=admin_auth_header
@@ -206,7 +212,10 @@ async def test_query_data_stage_events(client: AsyncClient, admin_auth_header: d
             new_callable=AsyncMock,
             return_value=body["layers"],
         ),
-        patch("app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_query_data),
+        patch(
+            "app.processing.ai.router.stream_chat_edit",
+            side_effect=_mock_stream_query_data,
+        ),
     ):
         resp = await client.post(
             "/ai/chat/stream/", json=body, headers=admin_auth_header

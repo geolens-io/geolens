@@ -51,7 +51,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         )
         job = result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         try:
@@ -169,7 +171,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
             #     the source column list from ogrinfo (stored in info["columns"]).
             if file_path.lower().endswith(".zip"):
-                from app.processing.ingest.metadata import detect_dbf_truncation_collisions
+                from app.processing.ingest.metadata import (
+                    detect_dbf_truncation_collisions,
+                )
                 from app.processing.ingest.ogr import run_ogrinfo_preview
                 from app.processing.ingest.warnings import make_dbf_truncation_warning
 
@@ -295,7 +299,9 @@ async def ingest_service(
         )
         job = result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         try:

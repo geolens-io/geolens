@@ -277,14 +277,16 @@ class TestQuicklookVrt:
         mock_user = MagicMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with patch(
                 "app.modules.catalog.datasets.api.router.check_dataset_access_or_anonymous",
                 AsyncMock(return_value=None),
             ):
                 with patch(
-                    "app.modules.catalog.datasets.api.router.get_storage", return_value=mock_storage
+                    "app.modules.catalog.datasets.api.router.get_storage",
+                    return_value=mock_storage,
                 ):
                     # Should not raise HTTPException 400 — guard passes for vrt_dataset
                     response = await get_quicklook(
@@ -310,7 +312,8 @@ class TestQuicklookVrt:
         mock_db = AsyncMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with patch(
                 "app.modules.catalog.datasets.api.router.check_dataset_access_or_anonymous",
@@ -337,7 +340,10 @@ class TestQuicklookVrt:
         mock_db = AsyncMock()
         mock_user = MagicMock()
 
-        with patch("app.modules.catalog.datasets.api.router.get_dataset", AsyncMock(return_value=None)):
+        with patch(
+            "app.modules.catalog.datasets.api.router.get_dataset",
+            AsyncMock(return_value=None),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await get_quicklook(
                     dataset_id=dataset_id,
@@ -399,7 +405,8 @@ class TestVrtSourcesEndpoint:
         mock_user = MagicMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router_vrt.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with patch(
                 "app.modules.catalog.datasets.api.router_vrt.check_dataset_access",
@@ -429,7 +436,10 @@ class TestVrtSourcesEndpoint:
         mock_db = AsyncMock()
         mock_user = MagicMock()
 
-        with patch("app.modules.catalog.datasets.api.router_vrt.get_dataset", AsyncMock(return_value=None)):
+        with patch(
+            "app.modules.catalog.datasets.api.router_vrt.get_dataset",
+            AsyncMock(return_value=None),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await list_vrt_sources(
                     dataset_id=dataset_id,
@@ -452,7 +462,8 @@ class TestVrtSourcesEndpoint:
         mock_user = MagicMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router_vrt.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await list_vrt_sources(
@@ -476,7 +487,8 @@ class TestVrtSourcesEndpoint:
         mock_user = MagicMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router_vrt.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await list_vrt_sources(
@@ -515,7 +527,8 @@ class TestVrtSourcesEndpoint:
         mock_user = MagicMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router_vrt.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with patch(
                 "app.modules.catalog.datasets.api.router_vrt.check_dataset_access",
@@ -565,7 +578,8 @@ class TestVrtSourcesEndpoint:
         mock_user = MagicMock()
 
         with patch(
-            "app.modules.catalog.datasets.api.router_vrt.get_dataset", AsyncMock(return_value=mock_dataset)
+            "app.modules.catalog.datasets.api.router_vrt.get_dataset",
+            AsyncMock(return_value=mock_dataset),
         ):
             with patch(
                 "app.modules.catalog.datasets.api.router_vrt.check_dataset_access",

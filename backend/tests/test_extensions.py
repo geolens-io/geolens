@@ -68,7 +68,9 @@ class TestLoadExtensions:
 
         good_ep.load.return_value = _loader
 
-        with patch("app.platform.extensions.entry_points", return_value=[bad_ep, good_ep]):
+        with patch(
+            "app.platform.extensions.entry_points", return_value=[bad_ep, good_ep]
+        ):
             load_extensions()
 
         # Good extension loaded despite bad one failing
@@ -95,7 +97,11 @@ class TestRegistryHelpers:
 
     def test_list_extensions(self):
         """list_extensions returns list of registered extension names."""
-        from app.platform.extensions import _extensions, list_extensions, load_extensions
+        from app.platform.extensions import (
+            _extensions,
+            list_extensions,
+            load_extensions,
+        )
 
         load_extensions()
         assert list_extensions() == []

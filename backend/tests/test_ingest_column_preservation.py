@@ -252,7 +252,10 @@ class TestReservedNameAutoRename:
         get_column_info excludes {'gid', 'geom', 'geom_4326'} — the pipeline-
         internal names. It must NOT exclude 'src_gid', 'src_geom_4326', etc.
         """
-        from app.processing.ingest.metadata import get_column_info, rename_reserved_columns
+        from app.processing.ingest.metadata import (
+            get_column_info,
+            rename_reserved_columns,
+        )
 
         table = _table_id("tst_vis")
         try:
@@ -282,7 +285,10 @@ class TestReservedNameAutoRename:
         then ensure_geom_column() renames the placeholder to `geom`. Both the
         source attribute and the pipeline geometry column coexist.
         """
-        from app.processing.ingest.metadata import ensure_geom_column, rename_reserved_columns
+        from app.processing.ingest.metadata import (
+            ensure_geom_column,
+            rename_reserved_columns,
+        )
 
         table = _table_id("tst_srcgeom")
         try:

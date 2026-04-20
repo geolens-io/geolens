@@ -69,7 +69,10 @@ class TestVrtStatusResponseSchema:
         assert data.active_generation is None
 
     def test_status_with_optional_fields(self):
-        from app.modules.catalog.datasets.domain.schemas import VrtActiveGeneration, VrtStatusResponse
+        from app.modules.catalog.datasets.domain.schemas import (
+            VrtActiveGeneration,
+            VrtStatusResponse,
+        )
 
         now = datetime.now(timezone.utc)
         active = VrtActiveGeneration(
@@ -119,7 +122,10 @@ class TestVrtGenerationListResponseSchema:
     """VrtGenerationListResponse contains generations and total."""
 
     def test_valid_list_response(self):
-        from app.modules.catalog.datasets.domain.schemas import VrtGenerationItem, VrtGenerationListResponse
+        from app.modules.catalog.datasets.domain.schemas import (
+            VrtGenerationItem,
+            VrtGenerationListResponse,
+        )
 
         items = [
             VrtGenerationItem(id=uuid.uuid4(), status="completed"),

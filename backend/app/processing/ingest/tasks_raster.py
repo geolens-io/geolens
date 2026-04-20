@@ -9,7 +9,11 @@ from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.db import async_session
-from app.processing.raster.cog import check_and_prepare_cog, extract_raster_metadata, sha256_file
+from app.processing.raster.cog import (
+    check_and_prepare_cog,
+    extract_raster_metadata,
+    sha256_file,
+)
 from app.processing.raster.quicklook import generate_quicklook
 
 from app.processing.ingest.tasks_common import (
@@ -146,7 +150,9 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         )
         job = result.scalar_one_or_none()
         if job is None:
-            structlog.get_logger().warning("Ingest job not found, skipping", job_id=job_id)
+            structlog.get_logger().warning(
+                "Ingest job not found, skipping", job_id=job_id
+            )
             return
 
         local_cog_path: str | None = None

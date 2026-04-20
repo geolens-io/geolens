@@ -40,7 +40,10 @@ from app.modules.catalog.datasets.domain.models import (
 from app.modules.catalog.datasets.domain.utils import extract_bbox
 from app.processing.embeddings.helpers import has_embeddings
 from app.processing.embeddings.models import RecordEmbedding
-from app.processing.embeddings.service import EmbeddingUnavailableError, generate_embedding
+from app.processing.embeddings.service import (
+    EmbeddingUnavailableError,
+    generate_embedding,
+)
 from app.standards.ogc.utils import build_url
 from app.core.persistent_config import EMBEDDING_MODEL, SEMANTIC_SEARCH_ENABLED
 from app.modules.catalog.sources.provenance import derive_last_edited
@@ -725,12 +728,16 @@ async def search_datasets(
     if filters.geometry_geojson:
         geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(filters.geometry_geojson), 4326)
         spatial_fn = (
-            func.ST_Within if filters.spatial_predicate == "within" else func.ST_Intersects
+            func.ST_Within
+            if filters.spatial_predicate == "within"
+            else func.ST_Intersects
         )
         stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
     elif filters.bbox and len(filters.bbox) == 4:
         stmt = stmt.where(
-            make_bbox_filter(Record.spatial_extent, filters.bbox, predicate=filters.spatial_predicate)
+            make_bbox_filter(
+                Record.spatial_extent, filters.bbox, predicate=filters.spatial_predicate
+            )
         )
 
     # 4. Faceted filters
@@ -818,7 +825,9 @@ async def search_datasets(
 
     if use_rrf:
         # Get vector similarity ranks (empty dict on any failure = FTS-only)
-        vector_ranks = await _get_vector_ranks(session, filters.q.strip(), filters.limit)
+        vector_ranks = await _get_vector_ranks(
+            session, filters.q.strip(), filters.limit
+        )
 
         if vector_ranks:
             # Get FTS-ranked record IDs (up to a reasonable cap for merging)

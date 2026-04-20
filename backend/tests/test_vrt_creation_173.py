@@ -150,14 +150,18 @@ class TestVrtBuildFunctions:
     def test_build_mosaic_vrt_raises_on_nonzero_returncode(self):
         mock_result = _make_subprocess_result(returncode=1, stderr="gdalbuildvrt error")
 
-        with patch("app.processing.raster.vrt.subprocess.run", return_value=mock_result):
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
+        ):
             with pytest.raises(RuntimeError, match="gdalbuildvrt failed"):
                 build_vrt("mosaic", ["/a.tif"], "/out.vrt", "finest")
 
     def test_build_band_stack_vrt_raises_on_nonzero_returncode(self):
         mock_result = _make_subprocess_result(returncode=1, stderr="gdalbuildvrt error")
 
-        with patch("app.processing.raster.vrt.subprocess.run", return_value=mock_result):
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
+        ):
             with pytest.raises(RuntimeError, match="gdalbuildvrt failed"):
                 build_vrt("band_stack", ["/a.tif"], "/out.vrt", "finest")
 
@@ -219,7 +223,9 @@ class TestVrtBuildFunctions:
                 dataset.write(np.ones((1, 5, 5), dtype="uint8"))
 
         output = tmp_path / "out.vrt"
-        with patch("app.processing.raster.vrt.subprocess.run", side_effect=FileNotFoundError()):
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", side_effect=FileNotFoundError()
+        ):
             result = build_vrt(
                 "mosaic",
                 [str(src_a), str(src_b)],

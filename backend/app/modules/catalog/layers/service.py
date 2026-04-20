@@ -24,7 +24,11 @@ from app.processing.ingest.metadata import (
     grant_reader_access,
 )
 from app.processing.ingest.service import generate_table_name
-from app.modules.catalog.layers.schemas import ALLOWED_COLUMN_TYPES, COLUMN_NAME_RE, RESERVED_COLUMNS
+from app.modules.catalog.layers.schemas import (
+    ALLOWED_COLUMN_TYPES,
+    COLUMN_NAME_RE,
+    RESERVED_COLUMNS,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 

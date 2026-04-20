@@ -398,7 +398,9 @@ async def delete_feature(
         raise ValueError("Feature not found")
 
 
-async def _refresh_count_and_extent(session: AsyncSession, table_name: str) -> tuple[int, str | None]:
+async def _refresh_count_and_extent(
+    session: AsyncSession, table_name: str
+) -> tuple[int, str | None]:
     """Lightweight count + extent query for feature-write metadata refresh.
 
     Returns (feature_count, extent_wkt) in a single query instead of the

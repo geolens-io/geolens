@@ -207,7 +207,9 @@ class TestTileEndpoint:
             mock_cache = AsyncMock()
             mock_cache.get.return_value = b""  # empty sentinel
 
-            with patch("app.processing.tiles.router.get_tile_cache", return_value=mock_cache):
+            with patch(
+                "app.processing.tiles.router.get_tile_cache", return_value=mock_cache
+            ):
                 resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
 
             assert resp.status_code == 204

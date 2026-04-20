@@ -161,7 +161,10 @@ class TestOAuthProviderCRUD:
 
     async def test_update_provider_re_encrypts_secret(self, client, test_db_session):
         from app.modules.auth.oauth.encryption import decrypt_secret
-        from app.modules.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
+        from app.modules.auth.oauth.schemas import (
+            OAuthProviderCreate,
+            OAuthProviderUpdate,
+        )
         from app.modules.auth.oauth.service import create_provider, update_provider
 
         data = OAuthProviderCreate(
@@ -241,7 +244,10 @@ class TestOAuthProviderCRUD:
     async def test_crud_lifecycle(self, client, test_db_session):
         """Full CRUD lifecycle: create -> read -> update -> delete."""
         from app.modules.auth.oauth.encryption import decrypt_secret
-        from app.modules.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
+        from app.modules.auth.oauth.schemas import (
+            OAuthProviderCreate,
+            OAuthProviderUpdate,
+        )
         from app.modules.auth.oauth.service import (
             create_provider,
             delete_provider,
