@@ -875,7 +875,7 @@ class TestShareToken:
         assert data["is_active"] is True
 
     async def test_share_idempotent(self, client: AsyncClient, admin_auth_header: dict):
-        """POST /maps/{id}/share twice returns the same token."""
+        """POST /maps/{id}/share twice — second call returns the token hint (hashed storage)."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -887,7 +887,12 @@ class TestShareToken:
 
         resp1 = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
         resp2 = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
-        assert resp1.json()["token"] == resp2.json()["token"]
+        # First call returns the full raw token; subsequent calls return the
+        # 8-char hint (the raw token is not persisted after hashing).
+        full_token = resp1.json()["token"]
+        hint = resp2.json()["token"]
+        assert full_token.startswith(hint)
+        assert len(hint) == 8
 
     async def test_revoke_share_token(
         self, client: AsyncClient, admin_auth_header: dict
@@ -1113,14 +1118,17 @@ class TestSharedMap:
         )
         token = share_resp.json()["token"]
 
-        # Backdate expires_at to the past via direct SQL
+        # Backdate expires_at to the past via direct SQL (token is now hashed)
+        import hashlib
+
         past = datetime.now(timezone.utc) - timedelta(hours=1)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
         await test_db_session.execute(
             text(
                 "UPDATE catalog.map_share_tokens SET expires_at = :past "
-                "WHERE token = :tok"
+                "WHERE token_hash = :tok_hash"
             ),
-            {"past": past, "tok": token},
+            {"past": past, "tok_hash": token_hash},
         )
         await test_db_session.commit()
 
@@ -1642,7 +1650,8 @@ class TestUpdateShareToken:
         assert resp.status_code == 200
         data = resp.json()
         assert "2026-06-01" in data["expires_at"]
-        assert data["token"] == original_token
+        # PATCH returns the token hint (8-char prefix), not the full raw token
+        assert original_token.startswith(data["token"])
 
     async def test_patch_share_token_remove_expiration(
         self, client: AsyncClient, admin_auth_header: dict
@@ -1666,7 +1675,8 @@ class TestUpdateShareToken:
         assert resp.status_code == 200
         data = resp.json()
         assert data["expires_at"] is None
-        assert data["token"] == original_token
+        # PATCH returns the token hint (8-char prefix), not the full raw token
+        assert original_token.startswith(data["token"])
 
     async def test_patch_share_token_add_expiration_to_never_expires(
         self, client: AsyncClient, admin_auth_header: dict
@@ -1718,7 +1728,7 @@ class TestUpdateShareToken:
     async def test_patch_share_token_preserves_token_string(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """Token string itself does not change after PATCH."""
+        """Token hint does not change after PATCH (same underlying token)."""
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
         )
@@ -1728,7 +1738,8 @@ class TestUpdateShareToken:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["token"] == original_token
+        # PATCH returns the token hint; the original full token starts with it
+        assert original_token.startswith(resp.json()["token"])
 
 
 # ---------------------------------------------------------------------------

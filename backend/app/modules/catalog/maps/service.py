@@ -40,7 +40,18 @@ async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> Non
 async def get_dataset_meta(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-) -> tuple[str | None, str | None, str | None, str | None, object, list | None, int | None, dict | None, str | None, bool | None]:
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    object,
+    list | None,
+    int | None,
+    dict | None,
+    str | None,
+    bool | None,
+]:
     """Fetch dataset metadata for building a layer response. Single query.
 
     Returns (record_type, title, geometry_type, table_name, extent, column_info,

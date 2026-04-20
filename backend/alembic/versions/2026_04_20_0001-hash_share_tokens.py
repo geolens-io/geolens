@@ -83,14 +83,8 @@ def downgrade() -> None:
         sa.Column("token", sa.Text(), nullable=True),
         schema="catalog",
     )
-    op.execute(
-        sa.text(
-            "UPDATE catalog.map_share_tokens SET token = token_hint"
-        )
-    )
-    op.alter_column(
-        "map_share_tokens", "token", nullable=False, schema="catalog"
-    )
+    op.execute(sa.text("UPDATE catalog.map_share_tokens SET token = token_hint"))
+    op.alter_column("map_share_tokens", "token", nullable=False, schema="catalog")
     op.create_unique_constraint(
         "map_share_tokens_token_key",
         "map_share_tokens",
