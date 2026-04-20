@@ -634,6 +634,10 @@ async def search_datasets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
+    # Read keywords from raw query string (list[str] may not bind via Depends).
+    raw_keywords = request.query_params.getlist("keywords")
+    if raw_keywords and not params.keywords:
+        params = params.model_copy(update={"keywords": raw_keywords})
     return await _handle_search(db, user, request, params)
 
 
@@ -1264,6 +1268,11 @@ async def collection_items(
             return parsed
         overrides["sort_by"] = parsed[0]
         overrides["sort_desc"] = parsed[1]
+
+    # Read keywords from raw query string (list[str] may not bind via Depends).
+    raw_keywords = request.query_params.getlist("keywords")
+    if raw_keywords and not params.keywords:
+        overrides["keywords"] = raw_keywords
 
     # Read OGC CQL2 filter params from raw query string (hyphenated
     # "filter-lang" is not resolved by Pydantic model Depends binding).

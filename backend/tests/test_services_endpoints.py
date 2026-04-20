@@ -585,7 +585,8 @@ class TestPreviewEndpoint:
 class TestSSRFValidation:
     """Direct tests of the SSRF validation function."""
 
-    def test_ssrf_rejects_private_ip(self):
+    @pytest.mark.asyncio
+    async def test_ssrf_rejects_private_ip(self):
         """Private IPs (10.x, 172.16.x, 192.168.x) are blocked."""
         from app.modules.catalog.sources.security import validate_url_for_ssrf
 
@@ -595,29 +596,32 @@ class TestSSRFValidation:
             "http://192.168.1.1/wfs",
         ]:
             with pytest.raises(SSRFError):
-                validate_url_for_ssrf(url)
+                await validate_url_for_ssrf(url)
 
-    def test_ssrf_rejects_localhost(self):
+    @pytest.mark.asyncio
+    async def test_ssrf_rejects_localhost(self):
         """Localhost and 127.x addresses are blocked."""
         from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         with pytest.raises(SSRFError):
-            validate_url_for_ssrf("http://127.0.0.1/wfs")
+            await validate_url_for_ssrf("http://127.0.0.1/wfs")
 
-    def test_ssrf_rejects_bad_scheme(self):
+    @pytest.mark.asyncio
+    async def test_ssrf_rejects_bad_scheme(self):
         """Non-http(s) schemes are blocked."""
         from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         for url in ["ftp://example.com/data", "file:///etc/passwd"]:
             with pytest.raises(SSRFError):
-                validate_url_for_ssrf(url)
+                await validate_url_for_ssrf(url)
 
-    def test_ssrf_rejects_no_hostname(self):
+    @pytest.mark.asyncio
+    async def test_ssrf_rejects_no_hostname(self):
         """URLs without a hostname are blocked."""
         from app.modules.catalog.sources.security import validate_url_for_ssrf
 
         with pytest.raises(SSRFError):
-            validate_url_for_ssrf("http:///path")
+            await validate_url_for_ssrf("http:///path")
 
 
 # ---------------------------------------------------------------------------

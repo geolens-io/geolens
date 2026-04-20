@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
-from app.core.db import async_session as session_factory
+import app.core.db as _db_module
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url
@@ -328,7 +328,7 @@ async def get_collections(
             .where(*_published_raster_filters())
             .group_by(CollectionDataset.collection_id)
         )
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             rows = await s.execute(extent_stmt)
             return {str(r[0]): r[1:] for r in rows.all()}
 
@@ -345,7 +345,7 @@ async def get_collections(
             .where(*_published_raster_filters())
             .group_by(CollectionDataset.collection_id)
         )
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             rows = await s.execute(kw_stmt)
             result: dict[str, list[str]] = {}
             for row in rows.all():
@@ -367,7 +367,7 @@ async def get_collections(
             .where(*_published_raster_filters(), RasterAsset.epsg.isnot(None))
             .group_by(CollectionDataset.collection_id)
         )
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             rows = await s.execute(epsg_stmt)
             result: dict[str, list[int]] = {}
             for row in rows.all():
@@ -451,7 +451,7 @@ async def get_collection(
                 *_published_raster_filters(),
             )
         )
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return (await s.execute(extent_stmt)).one_or_none()
 
     async def _fetch_kw() -> list[str] | None:
@@ -466,7 +466,7 @@ async def get_collection(
                 *_published_raster_filters(),
             )
         )
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             rows = await s.execute(kw_stmt)
             result = sorted([r[0] for r in rows.all() if r[0]])
             return result or None
@@ -483,7 +483,7 @@ async def get_collection(
                 RasterAsset.epsg.isnot(None),
             )
         )
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             rows = await s.execute(epsg_stmt)
             codes = sorted([r[0] for r in rows.all() if r[0]])
             return {"proj:epsg": codes} if codes else None
@@ -578,11 +578,11 @@ async def get_collection_items(
     ds_ids = [d.id for d in datasets]
 
     async def _assets():
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return await _fetch_dataset_asset_rows(s, ds_ids)
 
     async def _raster():
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return await _fetch_raster_meta(s, ds_ids)
 
     asset_rows_map, raster_meta_map = await asyncio.gather(_assets(), _raster())
@@ -657,11 +657,11 @@ async def _build_item_response(
     """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
 
     async def _assets():
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return await _fetch_dataset_asset_rows(s, [dataset.id])
 
     async def _raster():
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return await _fetch_raster_meta(s, [dataset.id])
 
     asset_rows, raster_meta = await asyncio.gather(_assets(), _raster())
@@ -956,11 +956,11 @@ async def _execute_search(
     ds_ids = [d.id for d in datasets]
 
     async def _assets():
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return await _fetch_dataset_asset_rows(s, ds_ids)
 
     async def _raster():
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             return await _fetch_raster_meta(s, ds_ids)
 
     async def _coll_membership() -> dict[str, str]:
@@ -969,7 +969,7 @@ async def _execute_search(
         cd_stmt = select(
             CollectionDataset.dataset_id, CollectionDataset.collection_id
         ).where(CollectionDataset.dataset_id.in_(ds_ids))
-        async with session_factory() as s:
+        async with _db_module.async_session() as s:
             cd_result = await s.execute(cd_stmt)
             return {
                 str(row.dataset_id): str(row.collection_id) for row in cd_result.all()
