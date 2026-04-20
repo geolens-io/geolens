@@ -27,6 +27,7 @@ from app.processing.ai.llm_loop import (
     resolve_provider,
 )
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
+from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.modules.auth.models import User
 from app.core.config import settings
@@ -130,7 +131,7 @@ async def _stream_anthropic_chat(
         async with client.messages.stream(
             model=model,
             max_tokens=4096,
-            temperature=0.5,
+            temperature=0.3,
             system=cached_system,
             tools=cached_tools,
             messages=messages,
@@ -220,6 +221,15 @@ async def _stream_anthropic_chat(
         total_output_tokens=total_output,
     )
 
+    await record_token_usage(
+        session,
+        user_id=user.id,
+        subsystem="chat_stream",
+        model=model,
+        input_tokens=total_input,
+        output_tokens=total_output,
+    )
+
     explanation = "".join(
         block.text for block in final_message.content if block.type == "text"
     )
@@ -270,7 +280,7 @@ async def _stream_openai_chat(
         response_stream = await client.chat.completions.create(
             model=model,
             max_tokens=4096,
-            temperature=0.5,
+            temperature=0.3,
             tools=CHAT_TOOLS_OPENAI,
             messages=messages,
             stream=True,
@@ -281,6 +291,8 @@ async def _stream_openai_chat(
         tool_calls_by_index: dict[int, dict] = {}
         finish_reason = None
         seen_tool_indices: set[int] = set()
+        has_tool_use = False
+        buffered_tokens: list[str] = []
 
         async for chunk in response_stream:
             choice = chunk.choices[0] if chunk.choices else None
@@ -290,8 +302,12 @@ async def _stream_openai_chat(
             delta = choice.delta
             if delta and delta.content:
                 content_parts.append(delta.content)
+                # Buffer tokens — emit after stream if no tool calls
+                if not has_tool_use:
+                    buffered_tokens.append(delta.content)
 
             if delta and delta.tool_calls:
+                has_tool_use = True
                 for tc in delta.tool_calls:
                     idx = tc.index
                     if idx not in tool_calls_by_index:
@@ -430,10 +446,19 @@ async def _stream_openai_chat(
             content_parts.clear()
             content_parts.append(cleaned_text)
         else:
-            # No XML tool calls — emit text as-is
-            for part in content_parts:
-                yield {"type": "token", "text": part}
+            # No XML tool calls — emit buffered tokens incrementally
+            for token in buffered_tokens:
+                yield {"type": "token", "text": token}
         break
+
+    await record_token_usage(
+        session,
+        user_id=user.id,
+        subsystem="chat_stream",
+        model=model,
+        input_tokens=0,  # OpenAI streaming doesn't report usage by default
+        output_tokens=0,
+    )
 
     # Validate actions before yielding (mirrors non-streaming path)
     actions = [ChatAction(**a) for a in collected_actions]
@@ -457,11 +482,14 @@ async def stream_chat_edit(
     layers: list,
     language: str | None = None,
     history: list[ChatHistoryMessage] | None = None,
+    basemap_style: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts."""
     try:
         provider, model, _ = await resolve_provider(db)
-        system_prompt = build_chat_system_prompt(layers, language=language)
+        system_prompt = build_chat_system_prompt(
+            layers, language=language, basemap_style=basemap_style
+        )
 
         history_dicts = history_to_dicts(history)
 

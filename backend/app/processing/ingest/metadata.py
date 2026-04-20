@@ -424,14 +424,24 @@ async def get_sample_values(
             f"WHERE {quoted} IS NOT NULL LIMIT 10) s)"
         )
     union_sql = " UNION ALL ".join(union_branches)
+    # Use TABLESAMPLE BERNOULLI for representative sampling on large tables.
+    # For small tables (<500 rows), BERNOULLI(10) may return 0 rows, so we
+    # fall back to a plain LIMIT which is fine for small datasets.
+    tbl = _qtable(table_name)
     query = (
         f"WITH sampled AS ("
-        f"  SELECT {select_cols} FROM {_qtable(table_name)} LIMIT :sample_size"
+        f"  SELECT {select_cols} FROM {tbl}"
+        f"  TABLESAMPLE BERNOULLI ("
+        f"    CASE WHEN (SELECT reltuples FROM pg_class WHERE relname = :t) > 500"
+        f"         THEN 10 ELSE 100 END"
+        f"  ) LIMIT :sample_size"
         f") "
         f"{union_sql}"
     )
 
-    rows = await session.execute(text(query).bindparams(sample_size=sample_size))
+    rows = await session.execute(
+        text(query).bindparams(sample_size=sample_size, t=table_name)
+    )
 
     result: dict[str, list[str]] = {}
     for row in rows.all():

@@ -22,7 +22,7 @@ class KeywordSuggestion(BaseModel):
 
     keyword: str = Field(..., description="Lowercase keyword")
     keyword_type: str = Field(
-        "theme",
+        ...,
         description="Classification: theme, place, or temporal",
     )
 

@@ -35,6 +35,12 @@ _BLOCKED_FUNCTIONS: set[str] = {
     "lo_export",
     "lo_create",
     "lo_unlink",
+    "lo_open",
+    "lo_read",
+    "lo_write",
+    "lo_close",
+    "lo_lseek",
+    "lo_tell",
     # External connections
     "dblink",
     "dblink_exec",

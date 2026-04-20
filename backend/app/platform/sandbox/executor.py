@@ -53,6 +53,18 @@ async def execute_safe(
         async with db_module.engine.connect() as conn:
             async with conn.begin():
                 await conn.execute(text("SET TRANSACTION READ ONLY"))
+                # Defense-in-depth: use the restricted readonly role if available.
+                # Wrapped in a savepoint so a missing role doesn't abort the txn.
+                try:
+                    await conn.execute(text("SAVEPOINT _role_check"))
+                    await conn.execute(text("SET LOCAL ROLE geolens_readonly"))
+                except Exception:
+                    await conn.execute(text("ROLLBACK TO SAVEPOINT _role_check"))
+                finally:
+                    try:
+                        await conn.execute(text("RELEASE SAVEPOINT _role_check"))
+                    except Exception:
+                        pass
                 await conn.execute(
                     text(f"SET LOCAL statement_timeout = '{timeout_ms}'")
                 )

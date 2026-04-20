@@ -93,12 +93,14 @@ async def _validate_chat_layers(
     user: User,
     map_id: str,
     layers: list[ChatMapLayer],
-) -> list[ChatMapLayer]:
+) -> tuple[list[ChatMapLayer], str | None]:
     """Validate map ownership and overwrite layer metadata with authoritative DB values.
 
     - Verifies the map exists and is owned by the current user.
     - Resolves each layer's dataset_table_name from the DB by dataset_id.
     - Rejects layers whose datasets the user cannot access.
+
+    Returns (validated_layers, basemap_style).
     """
     # Verify map ownership
     try:
@@ -118,9 +120,10 @@ async def _validate_chat_layers(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this map"
         )
+    basemap_style = getattr(map_row, "basemap_style", None)
 
     if not layers:
-        return layers
+        return layers, basemap_style
 
     # Build the user's allowed table set
     allowed_tables = await build_table_allowlist(db, user)
@@ -163,7 +166,7 @@ async def _validate_chat_layers(
             layer.geometry_type = ds.geometry_type
         validated.append(layer)
 
-    return validated
+    return validated, basemap_style
 
 
 @router.post("/generate-map/", response_model=MapGenerateResponse)
@@ -283,7 +286,9 @@ async def chat_endpoint(
     """Chat-based map editing: send a message and get back edit actions."""
     await _check_ai_available(db)
 
-    validated_layers = await _validate_chat_layers(db, user, body.map_id, body.layers)
+    validated_layers, basemap_style = await _validate_chat_layers(
+        db, user, body.map_id, body.layers
+    )
     user_roles = await get_user_roles(db, user)
 
     try:
@@ -295,6 +300,7 @@ async def chat_endpoint(
             validated_layers,
             language=body.language,
             history=body.history or None,
+            basemap_style=basemap_style,
         )
     except ValueError as e:
         raise HTTPException(
@@ -344,7 +350,7 @@ async def chat_stream_endpoint(
         # cannot decode.
         try:
             await _check_ai_available(db)
-            validated_layers = await _validate_chat_layers(
+            validated_layers, basemap_style = await _validate_chat_layers(
                 db, user, body.map_id, body.layers
             )
             user_roles = await get_user_roles(db, user)
@@ -375,6 +381,7 @@ async def chat_stream_endpoint(
                 validated_layers,
                 language=body.language,
                 history=body.history or None,
+                basemap_style=basemap_style,
             ):
                 if await request.is_disconnected():
                     break

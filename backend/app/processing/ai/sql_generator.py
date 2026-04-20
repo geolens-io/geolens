@@ -6,7 +6,9 @@ via a dedicated LLM call. The sandbox (app.sandbox) handles validation and execu
 
 from __future__ import annotations
 
+import hashlib
 import re
+import time
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +20,31 @@ from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BAS
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# Simple TTL cache for schema context (avoids rebuilding identical DDL across
+# consecutive chat turns when layers haven't changed).
 # Maximum columns to include in DDL before truncating
 _MAX_COLUMNS = 50
+
+# Simple TTL cache for schema context (avoids rebuilding identical DDL across
+# consecutive chat turns when layers haven't changed).
+_schema_cache: dict[str, tuple[float, str]] = {}
+_SCHEMA_CACHE_TTL = 60.0  # seconds
+_SCHEMA_CACHE_MAX = 50  # max entries to prevent unbounded growth
+
+
+def _schema_cache_key(layers: list["ChatMapLayer"]) -> str:
+    """Build a deterministic cache key from layer IDs and column signatures."""
+    parts = []
+    for layer in layers:
+        col_sig = ""
+        if layer.column_info:
+            col_sig = ",".join(
+                f"{c.get('name', '')}:{c.get('type', '')}"
+                for c in layer.column_info[:_MAX_COLUMNS]
+            )
+        parts.append(f"{layer.dataset_table_name}|{layer.geometry_type}|{col_sig}")
+    raw = "\n".join(sorted(parts))
+    return hashlib.md5(raw.encode()).hexdigest()
 
 
 def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
@@ -27,6 +52,8 @@ def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
 
     For each layer, generates a CREATE TABLE statement with column definitions
     and metadata comments about geometry type and the geometry column.
+    Results are cached for 60s to avoid rebuilding identical DDL across
+    consecutive chat turns.
 
     Args:
         layers: List of ChatMapLayer objects from the frontend.
@@ -34,6 +61,13 @@ def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
     Returns:
         DDL string with all table definitions separated by blank lines.
     """
+    # Check cache
+    cache_key = _schema_cache_key(layers)
+    now = time.monotonic()
+    cached = _schema_cache.get(cache_key)
+    if cached and (now - cached[0]) < _SCHEMA_CACHE_TTL:
+        return cached[1]
+
     parts: list[str] = []
 
     for layer in layers:
@@ -48,11 +82,7 @@ def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
 
         # Add geom_4326 column if the layer has geometry
         if layer.geometry_type:
-            geom_type_spec = (
-                layer.geometry_type.replace("Multi", "Multi")
-                if layer.geometry_type
-                else "Geometry"
-            )
+            geom_type_spec = layer.geometry_type
             col_defs.append(f"  geom_4326 geometry({geom_type_spec}, 4326)")
 
         table_name = layer.dataset_table_name
@@ -84,7 +114,15 @@ def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
 
         parts.append(f"{ddl}\n{comment}{sample_comments}")
 
-    return "\n\n".join(parts)
+    result = "\n\n".join(parts)
+
+    # Store in cache (evict oldest if full)
+    if len(_schema_cache) >= _SCHEMA_CACHE_MAX:
+        oldest_key = min(_schema_cache, key=lambda k: _schema_cache[k][0])
+        del _schema_cache[oldest_key]
+    _schema_cache[cache_key] = (now, result)
+
+    return result
 
 
 def build_sql_generation_prompt(
@@ -131,9 +169,16 @@ ST_Union(geomA, geomB) -> geometry        -- Merge geometries
 ST_Centroid(geom) -> geometry             -- Center point of geometry
 ST_MakePoint(lon, lat) -> geometry        -- Create a point from coordinates
 ST_SetSRID(geom, srid) -> geometry        -- Set SRID on geometry
-ST_Collect(geom) -> geometry             -- Aggregate geometries into a collection
+ST_Collect(geom) -> geometry             -- Aggregate geometries into a collection (preserves structure)
 ST_AsGeoJSON(geom) -> text               -- Convert geometry to GeoJSON string
 ST_Transform(geom, srid) -> geometry     -- Reproject geometry to target SRID
+ST_X(point) -> float                     -- X coordinate (longitude) of a point
+ST_Y(point) -> float                     -- Y coordinate (latitude) of a point
+
+## Text Search Functions (requires pg_trgm extension)
+
+similarity(text, text) -> float          -- Returns 0.0-1.0 similarity score
+word_similarity(text, text) -> float     -- Word-level similarity score
 
 ## IMPORTANT: Geography Casts for Meter-Based Results
 
@@ -157,7 +202,7 @@ Always convert to human-friendly units in the SQL. Default to acres for area and
 ## Text Search
 
 For case-insensitive matching: column ILIKE '%pattern%'
-For fuzzy matching (requires pg_trgm): similarity(column, 'text') returns 0.0-1.0
+For fuzzy matching: use the similarity() function listed above (requires pg_trgm)
 For pattern matching: column ~ 'regex_pattern' (case-sensitive), column ~* 'regex_pattern' (case-insensitive)
 
 ## NULL Handling
@@ -171,7 +216,7 @@ For pattern matching: column ~ 'regex_pattern' (case-sensitive), column ~* 'rege
 
 All non-aggregated columns MUST appear in GROUP BY.
 Common aggregates: COUNT(*), SUM(col), AVG(col), MIN(col), MAX(col), ARRAY_AGG(col)
-For spatial aggregation: ST_Collect(geom_4326) to merge geometries, ST_Union(geom_4326) to dissolve boundaries.
+For spatial aggregation: ST_Collect(geom_4326) to group geometries (preserves structure), ST_Union(geom_4326) to dissolve boundaries into one geometry.
 
 ## Date & Time Functions
 
@@ -253,7 +298,7 @@ LIMIT 20;
 - For case-insensitive text matching, use ILIKE (e.g., WHERE name ILIKE 'california').
 - Always include LIMIT 1000 unless the query is an aggregation (GROUP BY, COUNT, SUM, etc.).
 - Use ONLY the tables and columns shown in the schema above. Do not invent names.
-- Use ONLY the PostGIS functions listed above. Do not use functions not in this reference.
+- Use ONLY the functions listed in the PostGIS and Text Search sections above. Do not use functions not in this reference.
 - Queries are limited to 30 seconds. Prefer indexed operations (ST_DWithin) over unindexed scans (ST_Distance < X).
 - You may use CTEs (WITH clauses) and subqueries. All referenced tables must be from the schema above.
 - If the question cannot be answered with the available schema, respond with: -- ERROR: Cannot answer this question with the available data.
@@ -383,7 +428,7 @@ def _strip_code_fences(text: str) -> str:
 
     Handles ```sql ... ``` and ``` ... ``` patterns.
     """
-    pattern = r"^```(?:sql)?\s*\n?(.*?)\n?```$"
+    pattern = r"^```(?:sql)?\s*\n(.*?)\n?\s*```\s*$"
     match = re.match(pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
