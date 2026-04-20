@@ -12,6 +12,7 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
     "fill": {
         "fill-color",
         "fill-opacity",
+        "fill-outline-color",
         "_outline-color",
         "_outline-width",
         "_fill-disabled",
@@ -47,6 +48,24 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
         "circle-pitch-scale",
         "circle-pitch-alignment",
     },
+    "heatmap": {
+        "heatmap-radius",
+        "heatmap-weight",
+        "heatmap-intensity",
+        "heatmap-color",
+        "heatmap-opacity",
+    },
+}
+
+# Color props including heatmap-color
+_COLOR_PROPS = {
+    "fill-color",
+    "fill-outline-color",
+    "_outline-color",
+    "line-color",
+    "circle-color",
+    "circle-stroke-color",
+    "heatmap-color",
 }
 
 
@@ -75,14 +94,10 @@ _PAINT_BOUNDS: dict[str, tuple[float, float]] = {
     "circle-blur": (0.0, 50.0),
     "circle-stroke-opacity": (0.0, 1.0),
     "circle-stroke-width": (0.0, 20.0),
-}
-
-_COLOR_PROPS = {
-    "fill-color",
-    "_outline-color",
-    "line-color",
-    "circle-color",
-    "circle-stroke-color",
+    "heatmap-radius": (1.0, 200.0),
+    "heatmap-weight": (0.0, 10.0),
+    "heatmap-intensity": (0.0, 10.0),
+    "heatmap-opacity": (0.0, 1.0),
 }
 
 
@@ -96,9 +111,19 @@ def _validate_expression(expr: list) -> bool:
     if op == "match" and len(expr) >= 4:
         return True  # ["match", getter, val1, out1, ..., fallback]
     if op == "step" and len(expr) >= 4:
-        return True  # ["step", getter, default, stop1, out1, ...]
+        # Validate stop values are numeric: ["step", getter, default, stop1, out1, ...]
+        # Positions 3, 5, 7... are stop values (must be numeric)
+        for i in range(3, len(expr), 2):
+            if not isinstance(expr[i], (int, float)):
+                return False
+        return True
     if op == "interpolate" and len(expr) >= 5:
-        return True  # ["interpolate", method, getter, stop1, out1, ...]
+        # Validate stop values are numeric: ["interpolate", method, getter, stop1, out1, ...]
+        # Positions 3, 5, 7... are stop values (must be numeric)
+        for i in range(3, len(expr), 2):
+            if not isinstance(expr[i], (int, float)):
+                return False
+        return True
     if op == "case" and len(expr) >= 3:
         return True
     if op in ("literal", "to-string", "to-number", "to-boolean"):
@@ -132,54 +157,51 @@ def validate_paint_for_geometry(
     Removes properties that don't match the geometry type (e.g. fill-color on a
     point layer) and logs a warning. Returns the cleaned paint dict.
     """
+    cleaned, warnings = validate_paint_with_feedback(paint, geometry_type)
+    for msg in warnings:
+        logger.warning("paint_validation", message=msg, geometry_type=geometry_type)
+    return cleaned
+
+
+def validate_paint_with_feedback(
+    paint: dict | None, geometry_type: str | None
+) -> tuple[dict | None, list[str]]:
+    """Like validate_paint_for_geometry but also returns a list of warning strings.
+
+    Used by the chat service to feed validation feedback back to the LLM.
+    """
     if not paint or not geometry_type:
-        return paint
+        return paint, []
 
     gt = geometry_type.lower()
     if "polygon" in gt:
         layer_type = "fill"
     elif "line" in gt:
         layer_type = "line"
+    elif "heatmap" in gt:
+        layer_type = "heatmap"
     else:
         layer_type = "circle"
 
-    valid_props = _VALID_PAINT_PROPS[layer_type]
+    valid_props = _VALID_PAINT_PROPS.get(layer_type, _VALID_PAINT_PROPS["circle"])
     cleaned = {}
+    warnings: list[str] = []
     for key, value in paint.items():
         if key not in valid_props:
-            logger.warning(
-                "Removed invalid paint property for geometry type",
-                property=key,
-                geometry_type=geometry_type,
-                layer_type=layer_type,
-            )
+            warnings.append(f"Removed '{key}': not valid for {layer_type} layers")
             continue
-
-        # Validate color properties
         if key in _COLOR_PROPS and not _is_valid_color(value):
-            logger.warning(
-                "Invalid color value, removing property",
-                property=key,
-                value=str(value)[:50],
-            )
+            warnings.append(f"Removed '{key}': invalid color value")
             continue
-
-        # Clamp numeric properties to valid bounds
         if key in _PAINT_BOUNDS and isinstance(value, (int, float)):
             lo, hi = _PAINT_BOUNDS[key]
             value = max(lo, min(hi, float(value)))
-
-        # Validate expression syntax for color expressions
         if key in _COLOR_PROPS and isinstance(value, list):
             if not _validate_expression(value):
-                logger.warning(
-                    "Invalid MapLibre expression, removing property",
-                    property=key,
-                )
+                warnings.append(f"Removed '{key}': invalid MapLibre expression")
                 continue
-
         cleaned[key] = value
-    return cleaned or None
+    return cleaned or None, warnings
 
 
 class MapGenerateRequest(BaseModel):

@@ -5,6 +5,7 @@ for summaries, keywords, and lineage using LLM providers.
 """
 
 import json
+import time
 
 import structlog
 from geoalchemy2.shape import to_shape
@@ -31,6 +32,12 @@ from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BAS
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# In-memory TTL caches for metadata AI (avoids redundant DB queries when
+# a user clicks Summary, Keywords, Lineage in quick succession).
+_CACHE_TTL = 60.0  # seconds
+_dataset_context_cache: dict[str, tuple[float, str]] = {}
+_vocabulary_cache: tuple[float, list[str]] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -39,6 +46,12 @@ logger = structlog.stdlib.get_logger(__name__)
 
 async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
     """Load dataset with relationships and build a context string for prompts."""
+    # Check TTL cache
+    now = time.monotonic()
+    cached = _dataset_context_cache.get(dataset_id)
+    if cached and (now - cached[0]) < _CACHE_TTL:
+        return cached[1]
+
     stmt = (
         select(Dataset)
         .options(
@@ -108,11 +121,12 @@ async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
             col_strs.append(f"  - {col.get('name', '?')}: {col.get('type', '?')}")
         parts.append("Columns:\n" + "\n".join(col_strs))
 
-    # Sample values (truncated)
+    # Sample values (truncated at value level to avoid mid-JSON cuts)
     if dataset.sample_values:
-        sample_str = json.dumps(dataset.sample_values, default=str)
-        if len(sample_str) > 2000:
-            sample_str = sample_str[:2000] + "..."
+        truncated_samples = {}
+        for col, vals in list(dataset.sample_values.items())[:10]:
+            truncated_samples[col] = vals[:5] if isinstance(vals, list) else vals
+        sample_str = json.dumps(truncated_samples, default=str)
         parts.append(f"Sample values: {sample_str}")
 
     # Existing keywords
@@ -149,14 +163,29 @@ async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
     if hasattr(record, "record_type") and record.record_type:
         parts.append(f"Record type: {record.record_type}")
 
-    return "\n".join(parts)
+    result = "\n".join(parts)
+    # Store in cache (cap at 20 entries)
+    if len(_dataset_context_cache) >= 20:
+        oldest_key = min(
+            _dataset_context_cache, key=lambda k: _dataset_context_cache[k][0]
+        )
+        del _dataset_context_cache[oldest_key]
+    _dataset_context_cache[dataset_id] = (now, result)
+    return result
 
 
 async def _get_catalog_vocabulary(session: AsyncSession) -> list[str]:
-    """Return up to 200 distinct keywords from the catalog."""
+    """Return up to 200 distinct keywords from the catalog (cached 60s)."""
+    global _vocabulary_cache
+    now = time.monotonic()
+    if _vocabulary_cache and (now - _vocabulary_cache[0]) < _CACHE_TTL:
+        return _vocabulary_cache[1]
+
     stmt = select(RecordKeyword.keyword).distinct().limit(200)
     result = await session.execute(stmt)
-    return [row[0] for row in result.all()]
+    vocab = [row[0] for row in result.all()]
+    _vocabulary_cache = (now, vocab)
+    return vocab
 
 
 async def _get_related_keywords_from_embeddings(
@@ -298,18 +327,18 @@ async def _generate_structured(
 
 
 SUMMARY_SYSTEM = (
-    "You are a geospatial metadata specialist following FGDC CSDGM conventions. "
+    "You are a geospatial metadata specialist following ISO 19115 conventions. "
     "Generate a concise, informative abstract for this dataset. The summary should "
     "describe what the dataset contains, its geographic scope (use the bounding box "
-    "to describe the coverage area in human terms, e.g., 'continental United States'), "
+    "to describe the coverage area in human terms if you can confidently identify "
+    "the region; otherwise describe it using the coordinate values directly), "
     "temporal scope if apparent, intended audience, and potential uses. "
     "Write 2-4 sentences.\n\n"
     "Example:\n"
-    "Input: US Census Blocks, 2020 decennial census, ~8M blocks, demographic attributes.\n"
-    "Output: Tabulated demographic data for the 2020 U.S. Decennial Census at the census "
-    "block level, covering all 50 states plus territories. Contains approximately 8 million "
-    "geographic features with attributes on population, age, income, and housing. Suitable "
-    "for demographic analysis, redistricting studies, and community planning."
+    "Input: Municipal boundaries, 42,000 features, bounding box: -124.8, 24.4, -66.9, 49.4.\n"
+    "Output: Municipal boundary polygons covering the contiguous United States with "
+    "approximately 42,000 features. Contains administrative boundaries suitable for "
+    "jurisdiction-based analysis, service area delineation, and regional planning."
 )
 
 KEYWORD_SYSTEM = (
@@ -319,8 +348,9 @@ KEYWORD_SYSTEM = (
     "(time period). Prefer ISO 19115 Topic Categories for theme keywords when "
     "applicable (e.g., transportation, boundaries, elevation, environment, "
     "inlandWaters, structure, planningCadastre, society, biota, climatologyMeteorologyAtmosphere). "
-    "Also prefer keywords from the existing catalog vocabulary when appropriate. "
-    "Return lowercase keywords.\n\n"
+    "Return lowercase keywords for free-text terms. Use the exact ISO 19115 "
+    "camelCase spelling for topic categories (e.g., planningCadastre, inlandWaters, "
+    "transportation).\n\n"
     "Example:\n"
     "Input: National Parks polygons, US extent, established dates, acreage.\n"
     'Output: [{"keyword": "environment", "keyword_type": "theme"}, '
@@ -391,7 +421,10 @@ async def generate_keyword_suggestions(
 
     prompt = context
     if vocab:
-        prompt += f"\n\nExisting catalog vocabulary: {', '.join(vocab)}"
+        prompt += (
+            "\n\nExisting catalog vocabulary (prefer these when appropriate): "
+            + ", ".join(vocab)
+        )
     if related_kws:
         prompt += f"\n\nKeywords from similar datasets: {', '.join(related_kws)}"
 
@@ -423,6 +456,13 @@ async def generate_quality_statement_draft(
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id)
+    # Strip existing quality statement to force derivation from metrics, not paraphrasing
+    context_lines = [
+        line
+        for line in context.split("\n")
+        if not line.startswith("Current quality statement:")
+    ]
+    context = "\n".join(context_lines)
     system = QUALITY_STATEMENT_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."

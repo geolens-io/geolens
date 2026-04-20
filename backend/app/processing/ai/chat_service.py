@@ -19,9 +19,10 @@ from app.processing.ai.schemas import (
     ChatMapLayer,
     ChatResponse,
     history_to_dicts,
-    validate_paint_for_geometry,
+    validate_paint_with_feedback,
 )
 from app.processing.ai.sql_generator import build_sql_schema_context, generate_sql
+from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.processing.ai.service import _execute_search_tool, _should_send_sample_values
 from app.modules.auth.models import User
@@ -237,7 +238,9 @@ _MAX_SAMPLE_COLS = 3
 
 
 def build_chat_system_prompt(
-    layers: list[ChatMapLayer], language: str | None = None
+    layers: list[ChatMapLayer],
+    language: str | None = None,
+    basemap_style: str | None = None,
 ) -> str:
     """Build a system prompt that describes the user's current map state."""
     # Cap layers to prevent unbounded prompt growth
@@ -302,7 +305,7 @@ def build_chat_system_prompt(
 
     truncation_note = ""
     if truncated_count > 0:
-        truncation_note = f"\n\n(... and {truncated_count} more layers not shown)"
+        truncation_note = f"\n\n(... and {truncated_count} more layers not shown. If the user references a layer not listed above, tell them you cannot see that layer.)"
 
     return f"""\
 You are a map editing assistant. The user has a map with these layers:
@@ -313,6 +316,8 @@ You are a map editing assistant. The user has a map with these layers:
 - Modify the map based on the user's instructions using the available tools.
 - Always reference layers by their id (UUID).
 - Users may reference layers by name using @LayerName or @[Layer Name] syntax. Match the name to the layers listed above to find the correct layer id.
+  Example: If the user says "make @Parks green" and there is a layer named "Parks" with id "abc-1234", call set_style with layer_id "abc-1234".
+  If no layer matches the name, tell the user which layers are available.
 - For style changes, use the correct paint property for the geometry type:
   - fill-color for Polygon/MultiPolygon
   - line-color for LineString/MultiLineString
@@ -321,6 +326,8 @@ You are a map editing assistant. The user has a map with these layers:
 - For simple flat color changes (e.g., "make it red"), use set_style.
   Example paint: {{"fill-color": "#ef4444", "fill-opacity": 0.7, "_outline-color": "#dc2626"}}
 - For filter expressions, use MapLibre expression syntax: ["all", [">", "column", value]]
+  Example filters: ["==", ["get", "status"], "active"], ["all", [">", ["get", "population"], 50000], ["==", ["get", "state"], "CA"]]
+- For compound requests that include both a question and a map change, use both query_data and editing tools in a single response.
 - To add a new layer, first use search_datasets to find the dataset, then use add_layer with the dataset_id.
 - When the user asks a QUESTION about their data (counts, statistics, spatial
   relationships, distances, finding features), use the query_data tool.
@@ -331,8 +338,7 @@ You are a map editing assistant. The user has a map with these layers:
 - Keep your explanations concise (1-3 sentences).
 - For raster layers (marked "[raster layer]"), only use set_opacity (with layer_id and opacity 0.0-1.0) or toggle_visibility. Do not use set_style, set_filter, set_label, or set_data_driven_style on raster layers.
 - To add a raster dataset as a layer, use search_datasets then add_layer — same as vector.
-- When the user has a dark basemap, use light colors for labels (#e5e7eb) and outlines (#d1d5db).
-  When the user has a light basemap, use dark colors for labels (#333333) and outlines (#374151).
+- The current basemap is: {basemap_style or "unknown"}.{" This is a dark basemap — use light colors for labels (#e5e7eb) and outlines (#d1d5db)." if basemap_style and "dark" in basemap_style.lower() else " Use dark colors for labels (#333333) and outlines (#374151)."}
 
 ## Query Data Responses
 When reporting query results back to the user:
@@ -403,9 +409,12 @@ def _validate_actions(
     validated = []
     dropped: list[str] = []
     for action in actions:
-        # add_layer and search_datasets don't need layer_id validation
-        if action.type in ("add_layer",):
-            validated.append(action)
+        # add_layer: validate dataset_id is present (actual RBAC check happens on the frontend add)
+        if action.type == "add_layer":
+            if action.dataset_id:
+                validated.append(action)
+            else:
+                dropped.append("add_layer (missing dataset_id)")
             continue
         if action.layer_id and action.layer_id not in valid_layer_ids:
             logger.warning(
@@ -567,6 +576,11 @@ async def _handle_query_data(
         session, question, schema_context, layer_descriptions=layer_descriptions
     )
 
+    # Surface LLM error messages directly instead of letting the sandbox reject them
+    if sql.strip().startswith("-- ERROR:"):
+        error_msg = sql.strip().removeprefix("-- ERROR:").strip()
+        return {"error": error_msg, "category": "llm_cannot_answer"}
+
     if stage_callback:
         stage_callback("Running query...")
 
@@ -641,13 +655,12 @@ async def _execute_chat_tool(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
         )
         if target:
-            tool_input = {
-                **tool_input,
-                "paint": validate_paint_for_geometry(
-                    tool_input["paint"], target.geometry_type
-                )
-                or {},
-            }
+            validated_paint, warnings = validate_paint_with_feedback(
+                tool_input["paint"], target.geometry_type
+            )
+            tool_input = {**tool_input, "paint": validated_paint or {}}
+            if warnings:
+                return {"status": "ok", "warnings": warnings, **tool_input}
 
     # For all other edit tools, return tool_input as-is
     if tool_name in _EDIT_TOOLS:
@@ -888,13 +901,16 @@ async def chat_edit_map(
     layers: list[ChatMapLayer],
     language: str | None = None,
     history: list[ChatHistoryMessage] | None = None,
+    basemap_style: str | None = None,
 ) -> ChatResponse:
     """Main orchestrator: run LLM tool-calling loop for chat map editing.
 
     Provider selection: Anthropic if key is set, else OpenAI-compatible.
     Returns ChatResponse with explanation and validated actions.
     """
-    system_prompt = build_chat_system_prompt(layers, language=language)
+    system_prompt = build_chat_system_prompt(
+        layers, language=language, basemap_style=basemap_style
+    )
     provider, model, base_url = await resolve_provider(session)
 
     history_dicts = history_to_dicts(history)
@@ -916,10 +932,20 @@ async def chat_edit_map(
         action_collector=_collect_chat_action,
         history=history_dicts,
         base_url=base_url,
+        temperature=0.3,
     )
 
     logger.info(
         "Chat edit complete",
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
+
+    await record_token_usage(
+        session,
+        user_id=user.id,
+        subsystem="chat",
+        model=model,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )

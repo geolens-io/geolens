@@ -5,6 +5,7 @@ import re
 import uuid
 
 import structlog
+from geoalchemy2.shape import to_shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -31,7 +32,9 @@ from app.core.config import settings
 from app.modules.auth.visibility import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.datasets.domain.utils import extract_bbox
+from app.modules.catalog.datasets.domain.column_stats import get_column_stats
 from app.modules.catalog.maps.service import create_map, update_map
+from app.processing.ai.token_usage import record_token_usage
 from app.modules.catalog.search.service import SearchFilters, search_datasets
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -94,14 +97,13 @@ Available color ramps (use these hex values):
 - Cividis (colorblind-safe): #002051, #3b4f6b, #6d7e53, #b4a436, #fdca26
 - PuOr (colorblind-safe diverging): #e66101, #fdb863, #f7f7f7, #b2abd2, #5e3c99
 
-When to apply data-driven styling:
-- The user asks for thematic or choropleth maps (e.g., "show population density")
-- A dataset has an obvious thematic column (e.g., "land_use", "category", "status")
-- The user mentions coloring by a specific attribute
+Apply data-driven styling ONLY if:
+- The user explicitly asks for a thematic, choropleth, or "color by X" map, OR
+- The user mentions a specific attribute to color by.
 
-When NOT to apply:
-- Simple display maps where the user just wants to see features
-- The user specifically asks for a single color
+Default to flat color styling for all other requests, even if a thematic
+column is present. Do not apply data-driven styling unless the user's request
+clearly calls for it.
 
 ## Viewport
 Set center_lng, center_lat, and zoom based on dataset extents. If datasets \
@@ -124,7 +126,7 @@ After gathering datasets, output your map specification as JSON inside \
   "basemap_style": "openfreemap-positron",
   "layers": [
     {{
-      "dataset_id": "a1b2c3d4-0000-0000-0000-000000000001",
+      "dataset_id": "<id from search_datasets>",
       "sort_order": 0,
       "visible": true,
       "opacity": 1.0,
@@ -132,7 +134,7 @@ After gathering datasets, output your map specification as JSON inside \
       "layout": {{}}
     }},
     {{
-      "dataset_id": "a1b2c3d4-0000-0000-0000-000000000002",
+      "dataset_id": "<id from search_datasets>",
       "sort_order": 1,
       "visible": true,
       "opacity": 1.0,
@@ -146,9 +148,10 @@ After gathering datasets, output your map specification as JSON inside \
 
 All fields shown above are required. Use `dataset_id` values returned by search_datasets.
 
-If no matching datasets exist after trying multiple search strategies, output:
+If no matching datasets exist after trying multiple search strategies, output an error:
+
 <map_spec>
-{{"error": "No matching datasets found. The catalog does not contain datasets for: ..."}}
+{{"error": "No matching datasets found. The catalog does not contain datasets related to 'subway ridership'. Try searching for 'transit', 'public transportation', or 'ridership' instead."}}
 </map_spec>
 
 ## Important
@@ -384,7 +387,7 @@ async def _retry_parse_map_spec(
         client = get_anthropic_client()
         response = await client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=1024,
             messages=[{"role": "user", "content": extraction_prompt}],
         )
         block = response.content[0] if response.content else None
@@ -394,7 +397,7 @@ async def _retry_parse_map_spec(
         client = get_openai_client(base)
         response = await client.chat.completions.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=1024,
             messages=[{"role": "user", "content": extraction_prompt}],
         )
         retry_text = response.choices[0].message.content or ""
@@ -426,14 +429,25 @@ async def _validate_and_persist_map(
     # Validate all layer dataset IDs with RBAC visibility filter
     dataset_ids = [uuid.UUID(layer.dataset_id) for layer in spec.layers]
     stmt = (
-        select(Dataset.id, Dataset.geometry_type, Record.title)
+        select(
+            Dataset.id,
+            Dataset.geometry_type,
+            Record.title,
+            Record.spatial_extent,
+            Dataset.table_name,
+        )
         .join(Record, Dataset.record_id == Record.id)
         .where(Dataset.id.in_(dataset_ids))
     )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
     ds_result = await session.execute(stmt)
     ds_info = {
-        str(row[0]): {"geometry_type": row[1], "title": row[2]}
+        str(row[0]): {
+            "geometry_type": row[1],
+            "title": row[2],
+            "spatial_extent": row[3],
+            "table_name": row[4],
+        }
         for row in ds_result.all()
     }
 
@@ -442,6 +456,95 @@ async def _validate_and_persist_map(
     missing = [did for did in requested_ids if did not in ds_info]
     if missing:
         raise ValueError(f"Datasets not found or not accessible: {', '.join(missing)}")
+
+    # Validate viewport coords against union of dataset bboxes
+    # If the LLM-generated center is far outside the data extent, snap to centroid
+    try:
+        min_x, min_y, max_x, max_y = (
+            float("inf"),
+            float("inf"),
+            float("-inf"),
+            float("-inf"),
+        )
+        has_bbox = False
+        for info in ds_info.values():
+            ext = info.get("spatial_extent")
+            if ext is not None:
+                bounds = to_shape(ext).bounds  # (minx, miny, maxx, maxy)
+                min_x = min(min_x, bounds[0])
+                min_y = min(min_y, bounds[1])
+                max_x = max(max_x, bounds[2])
+                max_y = max(max_y, bounds[3])
+                has_bbox = True
+        if has_bbox:
+            # Add a generous margin (50% of extent in each direction)
+            dx = (max_x - min_x) * 0.5 or 1.0
+            dy = (max_y - min_y) * 0.5 or 1.0
+            if (
+                spec.center_lng < min_x - dx
+                or spec.center_lng > max_x + dx
+                or spec.center_lat < min_y - dy
+                or spec.center_lat > max_y + dy
+            ):
+                centroid_lng = (min_x + max_x) / 2
+                centroid_lat = (min_y + max_y) / 2
+                logger.warning(
+                    "LLM viewport outside dataset extent, snapping to centroid",
+                    llm_center=(spec.center_lng, spec.center_lat),
+                    snapped_center=(centroid_lng, centroid_lat),
+                )
+                spec.center_lng = centroid_lng
+                spec.center_lat = centroid_lat
+    except Exception:
+        logger.debug("Viewport validation skipped", exc_info=True)
+
+    # Replace LLM-invented choropleth breaks with DB-computed quantiles
+    # The LLM may generate step expressions with guessed break values;
+    # the chat path already uses get_column_stats() but map gen does not.
+    allowed_tables = {info["table_name"] for info in ds_info.values()}
+    for layer in spec.layers:
+        if not layer.paint:
+            continue
+        info = ds_info.get(layer.dataset_id)
+        if not info or not info.get("table_name"):
+            continue
+        for prop, value in list(layer.paint.items()):
+            if (
+                isinstance(value, list)
+                and len(value) >= 4
+                and value[0] == "step"
+                and isinstance(value[1], list)
+                and len(value[1]) == 2
+                and value[1][0] == "get"
+            ):
+                column = value[1][1]
+                # Count color stops to determine class count
+                # step format: ["step", ["get", col], default_color, break1, color1, ...]
+                n_breaks = (len(value) - 3) // 2
+                if n_breaks < 1:
+                    continue
+                try:
+                    stats = await get_column_stats(
+                        session,
+                        info["table_name"],
+                        column,
+                        class_count=n_breaks + 1,
+                        allowed_tables=allowed_tables,
+                    )
+                    quantiles = stats.get("quantiles", [])
+                    if quantiles and len(quantiles) >= n_breaks:
+                        # Replace break values in-place (positions 3, 5, 7...)
+                        for i, brk in enumerate(quantiles[:n_breaks]):
+                            layer.paint[prop][3 + i * 2] = brk
+                        logger.info(
+                            "Replaced LLM choropleth breaks with DB quantiles",
+                            column=column,
+                            breaks=quantiles[:n_breaks],
+                        )
+                except Exception:
+                    logger.warning(
+                        "Choropleth break replacement skipped", exc_info=True
+                    )
 
     # Build validated layer dicts before touching the DB
     layer_dicts = []
@@ -552,6 +655,9 @@ async def generate_map_from_prompt(
             tools_openai=OPENAI_TOOLS,
             tool_executor=tool_executor,
             base_url=base_url,
+            temperature=0.3,
+            max_tokens=1500,
+            max_rounds=8,
         )
     except ToolLoopExhaustedError:
         raise ValueError(
@@ -560,6 +666,15 @@ async def generate_map_from_prompt(
 
     logger.info(
         "Map generation complete",
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
+
+    await record_token_usage(
+        session,
+        user_id=user.id,
+        subsystem="map_generation",
+        model=model,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )
@@ -638,6 +753,9 @@ async def stream_generate_map(
             tools_openai=OPENAI_TOOLS,
             tool_executor=tracking_executor,
             base_url=base_url,
+            temperature=0.3,
+            max_tokens=1500,
+            max_rounds=8,
         )
 
         # Yield all collected tool events

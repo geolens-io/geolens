@@ -493,6 +493,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           onPaintChange={(p) => onPaintChange(layer.id, p)}
           onLayoutChange={(l) => onLayoutChange(layer.id, l)}
           defaultOpen={showAdvanced === true}
+          layerType={geomType}
         />
       )}
     </div>
@@ -507,9 +508,31 @@ interface AdvancedJsonEditorProps {
   onPaintChange: (paint: Record<string, unknown>) => void;
   onLayoutChange: (layout: Record<string, unknown>) => void;
   defaultOpen?: boolean;
+  layerType?: string;
 }
 
-function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defaultOpen = false }: AdvancedJsonEditorProps) {
+// Valid MapLibre paint properties per layer type for client-side validation
+const VALID_PAINT_KEYS: Record<string, Set<string>> = {
+  fill: new Set(['fill-color', 'fill-opacity', 'fill-outline-color', 'fill-antialias', 'fill-translate', 'fill-translate-anchor', 'fill-pattern', '_outline-color', '_outline-width', '_fill-disabled', '_stroke-disabled']),
+  line: new Set(['line-color', 'line-opacity', 'line-width', 'line-gap-width', 'line-blur', 'line-dasharray', 'line-translate', 'line-translate-anchor', 'line-offset', 'line-gradient', 'line-pattern']),
+  circle: new Set(['circle-color', 'circle-opacity', 'circle-radius', 'circle-blur', 'circle-stroke-color', 'circle-stroke-opacity', 'circle-stroke-width', 'circle-translate', 'circle-translate-anchor', 'circle-pitch-scale', 'circle-pitch-alignment']),
+  heatmap: new Set(['heatmap-radius', 'heatmap-weight', 'heatmap-intensity', 'heatmap-color', 'heatmap-opacity']),
+};
+
+function validatePaintJson(paint: Record<string, unknown>, layerType?: string): string[] {
+  if (!layerType) return [];
+  const validKeys = VALID_PAINT_KEYS[layerType];
+  if (!validKeys) return [];
+  const errors: string[] = [];
+  for (const key of Object.keys(paint)) {
+    if (!validKeys.has(key)) {
+      errors.push(`"${key}" is not a valid ${layerType} paint property`);
+    }
+  }
+  return errors;
+}
+
+function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defaultOpen = false, layerType }: AdvancedJsonEditorProps) {
   const { t } = useTranslation('builder');
   const [open, setOpen] = useState(defaultOpen);
 
@@ -530,6 +553,7 @@ function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defa
             label={t('style.paintJson')}
             value={paint}
             onApply={onPaintChange}
+            layerType={layerType}
           />
           <JsonBlock
             label={t('style.layoutJson')}
@@ -542,7 +566,7 @@ function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defa
   );
 }
 
-function JsonBlock({ label, value, onApply }: { label: string; value: Record<string, unknown>; onApply: (v: Record<string, unknown>) => void }) {
+function JsonBlock({ label, value, onApply, layerType }: { label: string; value: Record<string, unknown>; onApply: (v: Record<string, unknown>) => void; layerType?: string }) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
@@ -560,6 +584,14 @@ function JsonBlock({ label, value, onApply }: { label: string; value: Record<str
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         setError(t('style.jsonError'));
         return;
+      }
+      // Validate paint properties against MapLibre spec if layerType is available
+      if (layerType) {
+        const validationErrors = validatePaintJson(parsed, layerType);
+        if (validationErrors.length > 0) {
+          setError(validationErrors.join('; '));
+          return;
+        }
       }
       onApply(parsed);
       setError(null);

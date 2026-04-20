@@ -21,6 +21,7 @@ import app.processing.raster.models  # noqa: F401
 import app.modules.catalog.search.saved  # noqa: F401
 import app.modules.settings.models  # noqa: F401
 import app.processing.embeddings.models  # noqa: F401
+import app.processing.ai.token_usage  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
