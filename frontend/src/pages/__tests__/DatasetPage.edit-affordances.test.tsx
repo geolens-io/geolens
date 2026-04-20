@@ -22,6 +22,10 @@ vi.mock('react-router', async (importOriginal) => {
   };
 });
 
+vi.mock('@/hooks/use-unsaved-guard', () => ({
+  useUnsavedGuard: () => ({ state: 'unblocked', reset: vi.fn(), proceed: vi.fn() }),
+}));
+
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn(),
   useUpdateDataset: vi.fn(),
@@ -271,7 +275,7 @@ describe('DatasetPage editable affordance integration', () => {
     const summaryInput = screen.getByDisplayValue('Original summary');
     await user.clear(summaryInput);
     await user.type(summaryInput, 'Updated summary pending save');
-    await user.tab();
+    await user.keyboard('{Control>}{Enter}{/Control}');
 
     expect(await screen.findByTestId('pending-edits-bar')).toBeInTheDocument();
     expect(screen.getByTestId('pending-edits-count')).toHaveTextContent('1 unsaved change');
@@ -294,7 +298,7 @@ describe('DatasetPage editable affordance integration', () => {
     const secondEditInput = screen.getByDisplayValue('Original summary');
     await user.clear(secondEditInput);
     await user.type(secondEditInput, 'Summary that will be canceled');
-    await user.tab();
+    await user.keyboard('{Control>}{Enter}{/Control}');
 
     expect(await screen.findByTestId('pending-edits-bar')).toBeInTheDocument();
 

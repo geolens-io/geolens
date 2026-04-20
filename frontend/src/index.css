@@ -96,6 +96,20 @@
   --type-vrt: oklch(0.50 0.16 300);
   --type-vrt-bg: oklch(0.94 0.04 300);
 
+  /* ─ Code snippet syntax tokens ─ */
+  --code-bg: oklch(0.17 0.006 250);
+  --code-chrome: oklch(0.14 0.006 250);
+  --code-chrome-border: oklch(0.22 0.008 250);
+  --code-text: oklch(0.92 0 0);
+  --code-muted: oklch(0.55 0 0);
+  --code-keyword: oklch(0.75 0.17 300);
+  --code-function: oklch(0.78 0.13 220);
+  --code-string: oklch(0.78 0.13 140);
+  --code-number: oklch(0.8 0.14 70);
+  --code-comment: oklch(0.5 0.008 250);
+  --code-method-badge: oklch(0.75 0.14 155);
+  --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
+
   /* ─ Data visualization categorical palette ─ */
   --viz-1: oklch(0.55 0.18 250);   /* blue */
   --viz-2: oklch(0.70 0.17 55);    /* orange */
@@ -196,6 +210,20 @@
   --type-table-bg: oklch(0.28 0.04 200);
   --type-vrt: oklch(0.68 0.15 300);
   --type-vrt-bg: oklch(0.28 0.06 300);
+
+  /* ─ Code snippet syntax tokens (dark mode) ─ */
+  --code-bg: oklch(0.15 0.006 250);
+  --code-chrome: oklch(0.12 0.006 250);
+  --code-chrome-border: oklch(0.20 0.008 250);
+  --code-text: oklch(0.92 0 0);
+  --code-muted: oklch(0.55 0 0);
+  --code-keyword: oklch(0.75 0.17 300);
+  --code-function: oklch(0.78 0.13 220);
+  --code-string: oklch(0.78 0.13 140);
+  --code-number: oklch(0.8 0.14 70);
+  --code-comment: oklch(0.5 0.008 250);
+  --code-method-badge: oklch(0.75 0.14 155);
+  --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
 
   /* ─ Data visualization categorical palette (dark mode) ─ */
   --viz-1: oklch(0.72 0.17 250);   /* blue */

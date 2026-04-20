@@ -10,6 +10,8 @@ interface InlineEditProps {
   placeholder?: string;
   canEdit?: boolean;
   onDirtyChange?: (isDirty: boolean) => void;
+  /** Start in edit mode immediately (e.g. after clicking "Add" CTA). */
+  initialEditing?: boolean;
 }
 
 export function InlineEdit({
@@ -21,8 +23,9 @@ export function InlineEdit({
   placeholder = '',
   canEdit = true,
   onDirtyChange,
+  initialEditing = false,
 }: InlineEditProps) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const isDirtyRef = useRef(false);
@@ -135,10 +138,11 @@ export function InlineEdit({
           ref={inputRef as React.RefObject<HTMLTextAreaElement>}
           value={draft}
           onChange={(e) => handleDraftChange(e.target.value)}
-          onBlur={save}
+          onBlur={cancel}
           onKeyDown={handleKeyDown}
           className={cn(inputClasses, 'resize-none min-h-[3rem]')}
           rows={3}
+          title="Ctrl+Enter to save, Escape to cancel"
         />
       );
     }

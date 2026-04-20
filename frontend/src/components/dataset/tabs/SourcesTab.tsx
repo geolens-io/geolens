@@ -320,7 +320,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
                     colSpan={canEdit ? 7 : 6}
                     className="text-center text-muted-foreground py-8"
                   >
-                    No sources
+                    {t('vrt.noSources', { defaultValue: 'No sources' })}
                   </TableCell>
                 </TableRow>
               ) : (
