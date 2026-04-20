@@ -95,7 +95,7 @@ test.describe.serial('Collections', () => {
       page.getByRole('heading', { name: 'Add Datasets' }),
     ).toBeVisible();
 
-    await page.getByPlaceholder('Search datasets by name...').fill('Railroads');
+    await page.getByPlaceholder('Search datasets by name...').fill('Reefs');
     await page.getByRole('button', { name: 'Search' }).click();
 
     const addButton = page.getByRole('button', { name: 'Add' }).first();
@@ -130,7 +130,9 @@ test.describe.serial('Collections', () => {
   test('delete collection', async ({ page }) => {
     await openCollectionDetail(page);
 
-    await page.getByRole('button', { name: 'Delete' }).click();
+    // Delete is in the overflow menu (...)
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
     await expect(
       page.getByRole('heading', { name: 'Delete Collection' }),
     ).toBeVisible();

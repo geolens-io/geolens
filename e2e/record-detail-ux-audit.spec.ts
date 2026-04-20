@@ -34,17 +34,10 @@ interface FocusState {
 
 const targetsPath = path.resolve(
   process.env.E2E_QA_TARGETS_PATH ??
-    path.join(
-      process.cwd(),
-      '.planning/quick/260320-use-the-playwright-mcp-server-to-qa-all-/qa-targets.json',
-    ),
+    path.join(process.cwd(), 'e2e/fixtures/qa-targets.json'),
 );
 const outputDir = path.resolve(
-  process.env.QA_OUTPUT_DIR ??
-    path.join(
-      process.cwd(),
-      '.planning/quick/260321-perform-a-second-deeper-ui-ux-qa-pass-ov',
-    ),
+  process.env.QA_OUTPUT_DIR ?? path.join(process.cwd(), 'test-results/ux-audit'),
 );
 
 const manifest: TargetManifest = fs.existsSync(targetsPath)

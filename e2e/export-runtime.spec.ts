@@ -667,7 +667,7 @@ test.describe('Runtime export integrity', () => {
     expect(csvWhereResponse.ok()).toBeTruthy();
 
     const auditResponse = await request.get(
-      `/api/admin/audit-logs?action=dataset.export&date_from=${encodeURIComponent(auditDateFrom)}&limit=200`,
+      `/api/admin/audit-logs/?action=dataset.export&date_from=${encodeURIComponent(auditDateFrom)}&limit=200`,
       {
         headers: authHeader,
       },
