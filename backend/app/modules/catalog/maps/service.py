@@ -3,7 +3,6 @@
 Handles CRUD operations for maps and map layers, plus default style generation.
 """
 
-import hashlib
 import logging
 import re
 import secrets
@@ -710,19 +709,14 @@ async def create_share_token(
             token_obj.is_active = True
         return token_obj
     raw_token = secrets.token_urlsafe(16)
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     token_obj = MapShareToken(
         map_id=map_id,
-        token=token_hash,
+        token=raw_token,
         created_by=created_by,
         expires_at=expires_at,
     )
     session.add(token_obj)
     await session.flush()
-    # Stash the raw token as a non-mapped attribute so the API can return it.
-    # Do NOT set token_obj.token = raw_token — that dirties the ORM object
-    # and the next commit() auto-flush would overwrite the hash in the DB.
-    token_obj._raw_token = raw_token
     return token_obj
 
 
@@ -780,10 +774,9 @@ async def get_shared_map(
     if user_roles is None:
         user_roles = set()
 
-    # Look up the share token by hash
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    # Look up the share token directly
     result = await session.execute(
-        select(MapShareToken).where(MapShareToken.token == token_hash)
+        select(MapShareToken).where(MapShareToken.token == token)
     )
     token_obj = result.scalar_one_or_none()
     if token_obj is None:

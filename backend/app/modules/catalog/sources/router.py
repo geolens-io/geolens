@@ -292,8 +292,8 @@ async def preview_service_layer(
             )
     except HTTPException:
         raise
-    except (ValueError, KeyError):
-        # resolve_service_type raises ValueError for unknown service types —
+    except (ValueError, KeyError, IngestionError):
+        # resolve_service_type raises IngestionError for unknown service types —
         # skip the duplicate check and let Step 2 handle validation.
         pass
 

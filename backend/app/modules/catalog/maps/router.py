@@ -519,20 +519,19 @@ async def share_map_endpoint(
     token_obj = await create_share_token(
         db, map_id, user.id, expires_at=body.expires_at if body else None
     )
-    raw_token = getattr(token_obj, "_raw_token", token_obj.token)
     await log_action(
         db,
         user_id=user.id,
         action="map.share",
         resource_type="map",
         resource_id=map_id,
-        details={"token": raw_token},
+        details={"token": token_obj.token},
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
     return ShareTokenResponse(
-        token=raw_token,
-        share_url=f"/m/{raw_token}",
+        token=token_obj.token,
+        share_url=f"/m/{token_obj.token}",
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
