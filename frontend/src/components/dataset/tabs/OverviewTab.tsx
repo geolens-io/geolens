@@ -366,6 +366,7 @@ export function OverviewTab({
                     placeholder={t('inline.noDescription')}
                     className="text-sm leading-7"
                     onDirtyChange={onSummaryDirtyChange}
+                    initialEditing={summaryExpanded && !summaryValue}
                   />
                 </EditableFieldShell>
               )}

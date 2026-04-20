@@ -30,7 +30,7 @@ export function DatasetDetailSkeleton({ isTable }: DatasetDetailSkeletonProps = 
       </div>
 
       {/* Hero map placeholder */}
-      <Skeleton className={cn('w-full rounded-lg', isTable ? 'h-[60vh]' : 'h-64 lg:h-80')} data-testid="hero-skeleton" />
+      <Skeleton className={cn('w-full rounded-lg', isTable ? 'h-[60vh]' : 'h-72 lg:h-96')} data-testid="hero-skeleton" />
 
       {/* Tab bar skeleton */}
       <div className="flex items-center gap-1">

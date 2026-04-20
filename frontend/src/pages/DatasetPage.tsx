@@ -49,6 +49,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -236,6 +237,7 @@ export function DatasetPage() {
 
   const updateDataset = useUpdateDataset();
   const hasUnsavedChanges = metadataPendingCount > 0 || isGeometryEditDirty;
+  const blocker = useUnsavedGuard(hasUnsavedChanges);
 
   const handleSaveName = useCallback(
     async (newName: string) => {
@@ -257,16 +259,6 @@ export function DatasetPage() {
     },
     [handleTabChange],
   );
-
-  // Warn before navigating away with unsaved changes
-  useEffect(() => {
-    if (!hasUnsavedChanges) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
@@ -491,7 +483,7 @@ export function DatasetPage() {
           data-field-anchor="dataset_map"
           tabIndex={-1}
           className={cn(
-            'rounded-lg border shadow-sm overflow-hidden relative',
+            'rounded-lg border shadow-sm overflow-hidden relative transition-[height] duration-300 ease-in-out',
             isDrawing ? 'h-[60vh]' : 'h-72 lg:h-96'
           )}
         >
@@ -607,6 +599,25 @@ export function DatasetPage() {
             <AlertDialogCancel>{t('common.cancel', { defaultValue: 'Cancel' })}</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={handleUnpublish}>
               {t('publish.unpublish')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={blocker.state === 'blocked'} onOpenChange={() => blocker.reset?.()}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('unsaved.title', { defaultValue: 'Unsaved Changes' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('unsaved.description', { defaultValue: 'You have unsaved changes. Are you sure you want to leave? Your changes will be lost.' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => blocker.reset?.()}>
+              {t('unsaved.stay', { defaultValue: 'Stay' })}
+            </AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => blocker.proceed?.()}>
+              {t('unsaved.leave', { defaultValue: 'Leave' })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

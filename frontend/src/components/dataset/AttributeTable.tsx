@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { formatNumber } from '@/lib/format';
-import { Loader2, ArrowUpDown, Settings2 } from 'lucide-react';
+import { Loader2, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
 
 /** Columns that are not user-editable */
 const NON_EDITABLE_COLUMNS = new Set(['gid', 'geom']);
@@ -191,10 +191,11 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           return (
             <button
               type="button"
-              className="rounded px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full block truncate"
+              className="group/cell flex items-center gap-1 rounded px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full"
               onClick={() => setEditingCell({ rowGid: gid, column: col.name })}
             >
-              {cellValue}
+              <span className="truncate">{cellValue}</span>
+              <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/cell:text-muted-foreground/50" />
             </button>
           );
         }
@@ -242,7 +243,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     );
   }
 
-  if (isError) return <div className="p-4 text-sm text-destructive">Failed to load data. Please try again.</div>;
+  if (isError) return <div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>;
 
   if (effectiveTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
     return (

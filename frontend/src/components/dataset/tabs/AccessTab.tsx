@@ -11,13 +11,13 @@ import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { ExportButton } from '@/components/dataset/ExportButton';
 import { cn } from '@/lib/utils';
 
-// Syntax highlight tokens for code snippets
+// Syntax highlight tokens — mapped to CSS custom properties in index.css
 const SYN = {
-  kw:  'text-[oklch(0.75_0.17_300)]',
-  fn:  'text-[oklch(0.78_0.13_220)]',
-  str: 'text-[oklch(0.78_0.13_140)]',
-  num: 'text-[oklch(0.8_0.14_70)]',
-  com: 'text-[oklch(0.5_0.008_250)] italic',
+  kw:  'text-(--code-keyword)',
+  fn:  'text-(--code-function)',
+  str: 'text-(--code-string)',
+  num: 'text-(--code-number)',
+  com: 'text-(--code-comment) italic',
 } as const;
 
 interface AccessTabProps {
@@ -130,7 +130,7 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
           {t('overview.apiTitle', { defaultValue: 'Access via API' })}
         </h2>
         <span className="font-mono text-[11px] text-muted-foreground tracking-wide">
-          OGC API Features
+          {t('overview.ogcApiFeatures', { defaultValue: 'OGC API Features' })}
         </span>
       </div>
       <div className="flex items-center gap-1 mb-3 bg-muted/40 border rounded-lg p-1 w-fit">
@@ -149,18 +149,18 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
           </button>
         ))}
       </div>
-      <div className="rounded-lg overflow-hidden border bg-[oklch(0.17_0.006_250)] text-[oklch(0.92_0_0)]">
-        <div className="flex items-center gap-2 px-3.5 py-2 bg-[oklch(0.14_0.006_250)] border-b border-[oklch(0.22_0.008_250)]">
-          <span className="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold text-[oklch(0.75_0.14_155)] bg-[oklch(0.75_0.14_155_/_15%)]">
+      <div className="rounded-lg overflow-hidden border bg-(--code-bg) text-(--code-text)">
+        <div className="flex items-center gap-2 px-3.5 py-2 bg-(--code-chrome) border-b border-(--code-chrome-border)">
+          <span className="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold text-(--code-method-badge) bg-(--code-method-badge-bg)">
             {activeTab === 'qgis' ? 'ADD' : 'GET'}
           </span>
-          <span className="font-mono text-[11px] text-[oklch(0.55_0_0)]">
+          <span className="font-mono text-[11px] text-(--code-muted)">
             {activeTab === 'qgis' ? 'Layer → Add Vector Layer' : `${baseUrl}/api/v1/collections/${collectionId}/items`}
           </span>
           <span className="flex-1" />
           <button
             onClick={handleCopy}
-            className="px-2 py-0.5 rounded text-[11px] font-mono bg-[oklch(0.22_0.008_250)] text-[oklch(0.8_0_0)] hover:text-white cursor-pointer border-0"
+            className="px-2 py-0.5 rounded text-[11px] font-mono bg-(--code-chrome-border) text-(--code-text)/80 hover:text-(--code-text) cursor-pointer border-0"
           >
             {copied ? <Check className="inline size-3 me-1" /> : <Copy className="inline size-3 me-1" />}
             {copied ? 'Copied' : 'Copy'}

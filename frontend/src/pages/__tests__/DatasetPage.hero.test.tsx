@@ -26,6 +26,10 @@ vi.mock('react-router', async (importOriginal) => {
   };
 });
 
+vi.mock('@/hooks/use-unsaved-guard', () => ({
+  useUnsavedGuard: () => ({ state: 'unblocked', reset: vi.fn(), proceed: vi.fn() }),
+}));
+
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn(),
   useUpdateDataset: vi.fn(),

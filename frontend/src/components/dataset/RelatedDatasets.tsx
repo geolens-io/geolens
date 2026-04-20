@@ -4,7 +4,6 @@ import { GitCompareArrows } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRelatedDatasets } from '@/components/dataset/hooks/use-records';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
-import { formatNumber } from '@/lib/format';
 
 interface RelatedDatasetsProps {
   datasetId: string;
@@ -46,7 +45,7 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
                 <RecordTypeBadge recordType={item.record_type ?? 'vector_dataset'} />
                 {item.feature_count != null && (
                   <p className="text-xs text-muted-foreground">
-                    {formatNumber(item.feature_count)} features
+                    {t('relatedDatasets.featureCount', { count: item.feature_count, defaultValue: '{{count}} features' })}
                   </p>
                 )}
                 {item.band_count != null && !item.feature_count && (
@@ -56,7 +55,7 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
                 )}
               </div>
               <span className="text-[10px] text-muted-foreground mt-1 block">
-                {Math.round(item.similarity * 100)}% match
+                {t('relatedDatasets.similarityMatch', { percent: Math.round(item.similarity * 100), defaultValue: '{{percent}}% match' })}
               </span>
             </Link>
           ))}
