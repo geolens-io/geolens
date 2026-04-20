@@ -5,7 +5,7 @@ import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, formatBytes, formatResolution, formatNodata } from '@/lib/format';
-import { resolveProvenanceIdentity, formatProvenanceTime } from '@/lib/provenance-attribution';
+import { resolveProvenanceIdentity } from '@/lib/provenance-attribution';
 import { ChevronDown } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -151,12 +151,11 @@ export function OverviewTab({
   onSummaryDraftSave,
   onSummaryDirtyChange,
 }: OverviewTabProps) {
-  const { t, i18n } = useTranslation('dataset');
+  const { t } = useTranslation('dataset');
 
   const unknownLabel = t('metadata.provenanceUnknown', { defaultValue: 'Unknown' });
   const restrictedLabel = t('metadata.provenanceRestricted', { defaultValue: 'Restricted user' });
   const systemLabel = t('metadata.provenanceSystem', { defaultValue: 'System' });
-  const neverLabel = t('metadata.never', { defaultValue: 'Never' });
   const notAvailableLabel = t('common:notAvailable', { defaultValue: 'Not available' });
 
   const createdByIdentity = resolveProvenanceIdentity(dataset.created_by_display, {
@@ -164,28 +163,6 @@ export function OverviewTab({
     restricted: restrictedLabel,
     system: systemLabel,
   });
-  const createdTime = formatProvenanceTime(dataset.created_at, {
-    fallbackRelative: notAvailableLabel,
-    fallbackAbsolute: notAvailableLabel,
-    locale: i18n.language,
-  });
-
-  const lastEditedHasTimestamp = Boolean(dataset.last_edited_at);
-  const lastEditedIdentity = lastEditedHasTimestamp
-    ? resolveProvenanceIdentity(dataset.last_edited_by_display, {
-        unknown: unknownLabel,
-        restricted: restrictedLabel,
-        system: systemLabel,
-      })
-    : neverLabel;
-  const lastEditedTime = formatProvenanceTime(
-    lastEditedHasTimestamp ? dataset.last_edited_at : null,
-    {
-      fallbackRelative: neverLabel,
-      fallbackAbsolute: neverLabel,
-      locale: i18n.language,
-    },
-  );
 
   const { isAIAvailable } = useAIAvailability();
   const summaryDraft = useSummaryDraft();

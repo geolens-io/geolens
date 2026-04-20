@@ -226,12 +226,12 @@ export function MapBuilderPage() {
     if (!mapData) return;
     if (mapData.notes) {
       setDockNotes(mapData.notes);
-      try { localStorage.removeItem(`geolens-map-notes-${id}`); } catch {}
+      try { localStorage.removeItem(`geolens-map-notes-${id}`); } catch { /* localStorage unavailable */ }
     } else {
       try {
         const local = localStorage.getItem(`geolens-map-notes-${id}`);
         if (local) setDockNotes(local);
-      } catch {}
+      } catch { /* localStorage unavailable */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
   }, [mapData?.notes, id]);
