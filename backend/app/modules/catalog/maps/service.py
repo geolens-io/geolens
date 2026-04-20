@@ -37,7 +37,34 @@ async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> Non
     )
 
 
-def generate_default_style(geometry_type: str | None) -> dict:
+async def get_dataset_meta(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+) -> tuple[str | None, str | None, str | None, str | None, object, list | None, int | None, dict | None, str | None, bool | None]:
+    """Fetch dataset metadata for building a layer response. Single query.
+
+    Returns (record_type, title, geometry_type, table_name, extent, column_info,
+             feature_count, sample_values, record_type, is_3d).
+    """
+    result = await session.execute(
+        select(
+            Record.record_type,
+            Record.title,
+            Dataset.geometry_type,
+            Dataset.table_name,
+            Record.spatial_extent,
+            Dataset.column_info,
+            Dataset.feature_count,
+            Dataset.sample_values,
+            Dataset.is_3d,
+        )
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id == dataset_id)
+    )
+    return result.one_or_none()  # type: ignore[return-value]
+
+
+def generate_default_style(geometry_type: str | None) -> dict[str, dict]:
     """Generate MapLibre-native default paint/layout for a geometry type.
 
     Returns {"paint": {...}, "layout": {...}} ready to store in map_layers.
@@ -610,14 +637,20 @@ async def add_layer(
 
     Does NOT commit.
     """
-    # Auto-detect layer_type from record_type if not provided
-    resolved_layer_type = await _resolve_layer_type(session, dataset_id, layer_type)
+    # Single query for record_type + geometry_type (replaces two separate queries)
+    meta = await get_dataset_meta(session, dataset_id)
+    record_type = meta[0] if meta else None
+    geometry_type = meta[2] if meta else None
 
-    # Look up dataset geometry type
-    ds_result = await session.execute(
-        select(Dataset.geometry_type).where(Dataset.id == dataset_id)
-    )
-    geometry_type = ds_result.scalar_one_or_none()
+    # Resolve layer_type from explicit value or auto-detected record_type
+    if layer_type is not None:
+        resolved_layer_type = layer_type
+    else:
+        resolved_layer_type = (
+            "raster_geolens"
+            if record_type in ("raster_dataset", "vrt_dataset")
+            else "vector_geolens"
+        )
 
     # Raster layers use empty paint/layout (no vector style defaults)
     if resolved_layer_type == "raster_geolens":

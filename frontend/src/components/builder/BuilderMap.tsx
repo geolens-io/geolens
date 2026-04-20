@@ -89,9 +89,12 @@ export function BuilderMap({
   );
 
   // Fetch tile tokens for all layers
+  // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
+  const datasetIdKey = useMemo(() => layers.map((l) => l.dataset_id).join(','), [layers]);
   const datasetIds = useMemo(
     () => layers.map((l) => l.dataset_id).filter(Boolean),
-    [layers],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on structural identity
+    [datasetIdKey],
   );
   const tokenQueries = useTileTokens(datasetIds);
 
@@ -220,7 +223,7 @@ export function BuilderMap({
       .filter((id) => map.getLayer(id));
   }, [layers, mapReady]);
 
-  // Click handler: show popup with feature attributes
+  // Click + mousemove handlers: popup and pointer cursor
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
@@ -256,17 +259,6 @@ export function BuilderMap({
       }
     };
 
-    map.on('click', handleClick);
-    return () => {
-      map.off('click', handleClick);
-    };
-  }, [mapReady, t]);
-
-  // Mousemove: pointer cursor on interactive features (RAF-throttled)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-
     let rafId = 0;
     const handleMouseMove = (e: MapMouseEvent) => {
       cancelAnimationFrame(rafId);
@@ -284,13 +276,15 @@ export function BuilderMap({
       });
     };
 
+    map.on('click', handleClick);
     map.on('mousemove', handleMouseMove);
     return () => {
+      map.off('click', handleClick);
       cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
       if (map.getCanvas()) map.getCanvas().style.cursor = '';
     };
-  }, [mapReady]);
+  }, [mapReady, t]);
 
   // Stable string key for visibility changes — avoids per-render allocations
   const visibilityKey = useMemo(() => layers.map((l) => l.visible).join(','), [layers]);

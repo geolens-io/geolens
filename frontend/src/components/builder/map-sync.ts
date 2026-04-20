@@ -51,7 +51,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     dataset_geometry_type: layer.dataset_geometry_type,
     opacity: layer.opacity ?? 1,
     visible: layer.visible,
-    paint: (layer.paint as Record<string, unknown>) ?? {},
+    paint: layer.paint ?? {},
     layout: (layer.layout as Record<string, unknown>) ?? {},
     filter: layer.filter,
     label_config: layer.label_config,
@@ -177,7 +177,8 @@ export function syncLayersToMap(
         map.addSource(sourceId, { type: 'geojson', data: geojsonData });
         adapter.addLayers(map, adapterInput);
       } else {
-        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojsonData as GeoJSON.GeoJSON);
+        const src = map.getSource(sourceId);
+        if (src && src.type === 'geojson') (src as maplibregl.GeoJSONSource).setData(geojsonData as GeoJSON.GeoJSON);
         adapter.syncPaint(map, adapterInput);
       }
       desiredSources.add(sourceId);

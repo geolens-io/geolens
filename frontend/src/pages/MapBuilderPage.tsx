@@ -59,6 +59,12 @@ const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 600;
 
+const IS_MAC = typeof navigator !== 'undefined' && (
+  (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform === 'macOS' ||
+  /Mac/i.test(navigator.userAgent)
+);
+const SAVE_SHORTCUT = IS_MAC ? '\u2318S' : 'Ctrl+S';
+
 function ChatPanelContent({
   mapId,
   layers,
@@ -187,6 +193,7 @@ function SidebarContent({
         onRemove={layers.handleRemove}
         onZoomToLayer={layers.handleZoomToLayer}
         onToggleLegend={layers.handleToggleLegend}
+        onRenderModeChange={layers.handleRenderModeChange}
         onAddDataClick={onAddDataClick}
         inspectorMode={inspectorMode}
       />
@@ -206,7 +213,7 @@ function SidebarContent({
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
-  const { data: mapData, isLoading, error } = useMap(id);
+  const { data: mapData, isLoading, error } = useMap(id, { refetchOnWindowFocus: false });
   const addLayer = useAddLayer();
   const removeLayer = useRemoveLayer();
 
@@ -378,12 +385,6 @@ export function MapBuilderPage() {
       </div>
     );
   }
-
-  const isMac = typeof navigator !== 'undefined' && (
-    (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform === 'macOS' ||
-    /Mac/i.test(navigator.userAgent)
-  );
-  const saveShortcut = isMac ? '\u2318S' : 'Ctrl+S';
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
@@ -595,7 +596,7 @@ export function MapBuilderPage() {
                   )}
                   onClick={save.handleSave}
                   disabled={save.isSaving}
-                  aria-label={t('tooltips.save', { shortcut: saveShortcut })}
+                  aria-label={t('tooltips.save', { shortcut: SAVE_SHORTCUT })}
                 >
                   {save.isSaving ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -613,7 +614,7 @@ export function MapBuilderPage() {
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 {layers.hasUnsavedChanges
-                  ? t('tooltips.save', { shortcut: saveShortcut })
+                  ? t('tooltips.save', { shortcut: SAVE_SHORTCUT })
                   : t('tooltips.allSaved')}
               </TooltipContent>
             </Tooltip>

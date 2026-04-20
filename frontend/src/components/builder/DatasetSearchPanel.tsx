@@ -76,7 +76,7 @@ export function DatasetSearchPanel({
         <p className="text-xs text-muted-foreground px-2 py-2">{t('search.hint', { defaultValue: 'Type to search for datasets to add to your map.' })}</p>
       )}
 
-      {error && <p className="text-sm text-destructive px-3 py-2">{t('search.error', { defaultValue: 'Failed to load results' })}</p>}
+      {error && !isFetching && <p className="text-sm text-destructive px-3 py-2">{t('search.error', { defaultValue: 'Failed to load results' })}</p>}
 
       {(isLoading || isFetching) && (
         <div className="flex items-center justify-center py-3">

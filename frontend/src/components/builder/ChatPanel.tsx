@@ -100,6 +100,9 @@ export function ChatPanel({
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Keep a ref to the latest layers so snapshots capture fresh state
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
   // B-011: Single-level undo for chat-initiated map mutations
   const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; messageIndex: number } | null>(null);
 
@@ -269,7 +272,7 @@ export function ChatPanel({
           case 'actions':
             // B-011: Snapshot layers before first mutation
             if (pendingActions.length === 0) {
-              lastSnapshotRef.current = { layers: [...layers], messageIndex: messages.length };
+              lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
             }
             for (const action of data.actions as ChatAction[]) {
               if (action.type === 'show_query_result') {
@@ -352,7 +355,7 @@ export function ChatPanel({
           const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, history);
           // B-011: Snapshot layers before non-streaming fallback mutations
           if (response.actions.length > 0) {
-            lastSnapshotRef.current = { layers: [...layers], messageIndex: messages.length };
+            lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
           }
           for (const action of response.actions) {
             handleChatAction(action);

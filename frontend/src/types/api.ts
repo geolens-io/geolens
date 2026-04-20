@@ -757,7 +757,7 @@ export interface MapResponse {
   pitch: number;
   basemap_style: string;
   show_basemap_labels: boolean;
-  visibility: string;
+  visibility: MapVisibility;
   thumbnail_url: string | null;
   created_by: string | null;
   created_by_username: string | null;
@@ -778,7 +778,7 @@ export interface MapSummaryResponse {
   id: string;
   name: string;
   description: string | null;
-  visibility: string;
+  visibility: MapVisibility;
   thumbnail_url: string | null;
   layer_count: number;
   created_by_username: string | null;
@@ -816,7 +816,7 @@ export interface MapUpdateRequest {
   pitch?: number | null;
   basemap_style?: string | null;
   show_basemap_labels?: boolean | null;
-  visibility?: string | null;
+  visibility?: MapVisibility | null;
   layers?: MapLayerInput[];
   widgets?: string[] | null;
 }
@@ -877,7 +877,7 @@ export interface SharedMapResponse {
 
 export interface ShareTokenResponse {
   token: string;
-  share_url: string;
+  share_url: string | null;
   expires_at: string | null;
   is_active: boolean;
 }

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 
 interface MapErrorBoundaryState {
   hasError: boolean;
+  resetKey: number;
 }
 
 interface MapErrorBoundaryProps {
@@ -45,10 +46,10 @@ function MapErrorFallback({
 export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorBoundaryState> {
   constructor(props: MapErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, resetKey: 0 };
   }
 
-  static getDerivedStateFromError(): MapErrorBoundaryState {
+  static getDerivedStateFromError(): Partial<MapErrorBoundaryState> {
     return { hasError: true };
   }
 
@@ -57,7 +58,7 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
   }
 
   private handleReset = () => {
-    this.setState({ hasError: false });
+    this.setState((prev) => ({ hasError: false, resetKey: prev.resetKey + 1 }));
   };
 
   render() {
@@ -69,6 +70,6 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
         />
       );
     }
-    return this.props.children;
+    return <div key={this.state.resetKey}>{this.props.children}</div>;
   }
 }

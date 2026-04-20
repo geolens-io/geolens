@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -41,6 +41,7 @@ interface LayerPanelProps {
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
+  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
   onAddDataClick?: () => void;
   inspectorMode?: boolean;
 }
@@ -65,6 +66,7 @@ export const LayerPanel = memo(function LayerPanel({
   onRemove,
   onZoomToLayer,
   onToggleLegend,
+  onRenderModeChange,
   onAddDataClick,
   inspectorMode,
 }: LayerPanelProps) {
@@ -76,13 +78,13 @@ export const LayerPanel = memo(function LayerPanel({
 
   const sortableIds = useMemo(() => layers.map((l) => l.id), [layers]);
 
-  function handleDragEnd(event: DragEndEvent) {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = layers.findIndex((l) => l.id === active.id);
     const newIndex = layers.findIndex((l) => l.id === over.id);
     onReorder(arrayMove(layers, oldIndex, newIndex));
-  }
+  }, [layers, onReorder]);
 
   return (
     <div>
@@ -158,6 +160,7 @@ export const LayerPanel = memo(function LayerPanel({
                   onRemove={onRemove}
                   onZoomToLayer={onZoomToLayer}
                   onToggleLegend={onToggleLegend}
+                  onRenderModeChange={onRenderModeChange}
                   inspectorMode={inspectorMode}
                 />
               ))}
