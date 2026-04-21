@@ -56,13 +56,13 @@ export function StyleSpecView({ layer }: StyleSpecViewProps) {
   return (
     <div className="mt-3 border-t pt-3">
       <div className="flex items-center justify-between mb-2">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="font-mono text-2xs uppercase tracking-widest text-muted-foreground">
           {t('inspector.specTitle', { defaultValue: 'Style Spec' })}
         </span>
         <button
           onClick={handleCopy}
           className={cn(
-            'inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded transition-colors',
+            'inline-flex items-center gap-1 text-2xs font-mono px-1.5 py-0.5 rounded transition-colors',
             copyState === 'copied'
               ? 'text-success bg-success/10'
               : copyState === 'failed'

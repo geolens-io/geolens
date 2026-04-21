@@ -96,11 +96,11 @@ export function DatasetSearchPanel({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate">{record.properties.title}</p>
                   {record.properties.record_type === 'raster_dataset' ? (
-                    <Badge variant="outline" className={cn('text-[10px] mt-0.5', semanticBadgeColors.success)}>
+                    <Badge variant="outline" className={cn('text-2xs mt-0.5', semanticBadgeColors.success)}>
                       {t('search.raster', { defaultValue: 'Raster' })}
                     </Badge>
                   ) : record.properties.geometry_type ? (
-                    <Badge variant="outline" className="text-[10px] mt-0.5">
+                    <Badge variant="outline" className="text-2xs mt-0.5">
                       {getGeometryTypeLabel(t, record.properties.geometry_type)}
                     </Badge>
                   ) : null}

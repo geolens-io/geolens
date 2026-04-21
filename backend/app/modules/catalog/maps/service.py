@@ -9,9 +9,10 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -22,6 +23,20 @@ from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.processing.raster.models import RasterAsset
 
 logger = logging.getLogger(__name__)
+
+
+class DatasetMeta(NamedTuple):
+    """Metadata returned by get_dataset_meta — one row per dataset."""
+
+    record_type: str | None
+    title: str | None
+    geometry_type: str | None
+    table_name: str | None
+    extent: object | None
+    column_info: list | None
+    feature_count: int | None
+    sample_values: dict | None
+    is_3d: bool | None
 
 
 async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> None:
@@ -40,23 +55,8 @@ async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> Non
 async def get_dataset_meta(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-) -> tuple[
-    str | None,
-    str | None,
-    str | None,
-    str | None,
-    object,
-    list | None,
-    int | None,
-    dict | None,
-    str | None,
-    bool | None,
-]:
-    """Fetch dataset metadata for building a layer response. Single query.
-
-    Returns (record_type, title, geometry_type, table_name, extent, column_info,
-             feature_count, sample_values, record_type, is_3d).
-    """
+) -> DatasetMeta | None:
+    """Fetch dataset metadata for building a layer response. Single query."""
     result = await session.execute(
         select(
             Record.record_type,
@@ -72,7 +72,8 @@ async def get_dataset_meta(
         .join(Record, Dataset.record_id == Record.id)
         .where(Dataset.id == dataset_id)
     )
-    return result.one_or_none()  # type: ignore[return-value]
+    row = result.one_or_none()
+    return DatasetMeta(*row) if row else None
 
 
 def generate_default_style(geometry_type: str | None) -> dict[str, dict]:
@@ -232,7 +233,7 @@ async def list_maps(
     is_admin = "admin" in user_roles
 
     # Build visibility filter (RBAC)
-    def _apply_vis_filter(stmt):
+    def _apply_vis_filter(stmt: Select) -> Select:
         if is_admin:
             return stmt  # admins see everything
         if user_id is not None:
@@ -246,7 +247,7 @@ async def list_maps(
         return stmt.where(Map.visibility == "public")
 
     # Build search/visibility filters (applied to both count and data queries)
-    def _apply_extra_filters(stmt):
+    def _apply_extra_filters(stmt: Select) -> Select:
         if search:
             pattern = f"%{search}%"
             stmt = stmt.where(
@@ -329,7 +330,20 @@ async def list_maps(
 async def update_map(
     session: AsyncSession,
     map_id: uuid.UUID,
-    **kwargs,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    notes: str | None = None,
+    center_lng: float | None = None,
+    center_lat: float | None = None,
+    zoom: float | None = None,
+    bearing: float | None = None,
+    pitch: float | None = None,
+    basemap_style: str | None = None,
+    show_basemap_labels: bool | None = None,
+    visibility: str | None = None,
+    widgets: list[str] | None = None,
+    layers: list[dict] | None = None,
 ) -> Map:
     """Update map fields. If 'layers' key present, replace all layers.
 
@@ -341,12 +355,23 @@ async def update_map(
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
 
-    # Extract layers before updating scalar fields
-    layers = kwargs.pop("layers", None)
-
     # Update scalar fields (skip None values)
-    for key, value in kwargs.items():
-        if value is not None and hasattr(map_obj, key):
+    scalar_fields = {
+        "name": name,
+        "description": description,
+        "notes": notes,
+        "center_lng": center_lng,
+        "center_lat": center_lat,
+        "zoom": zoom,
+        "bearing": bearing,
+        "pitch": pitch,
+        "basemap_style": basemap_style,
+        "show_basemap_labels": show_basemap_labels,
+        "visibility": visibility,
+        "widgets": widgets,
+    }
+    for key, value in scalar_fields.items():
+        if value is not None:
             setattr(map_obj, key, value)
 
     # Replace layers if provided
@@ -609,7 +634,11 @@ async def duplicate_map(
 
 def _infer_layer_type(record_type: str | None) -> str:
     """Infer layer_type from record_type."""
-    return "raster_geolens" if record_type in ("raster_dataset", "vrt_dataset") else "vector_geolens"
+    return (
+        "raster_geolens"
+        if record_type in ("raster_dataset", "vrt_dataset")
+        else "vector_geolens"
+    )
 
 
 async def add_layer(
@@ -629,8 +658,8 @@ async def add_layer(
     """
     # Single query for record_type + geometry_type (replaces two separate queries)
     meta = await get_dataset_meta(session, dataset_id)
-    record_type = meta[0] if meta else None
-    geometry_type = meta[2] if meta else None
+    record_type = meta.record_type if meta else None
+    geometry_type = meta.geometry_type if meta else None
 
     # Resolve layer_type from explicit value or auto-detected record_type
     if layer_type is not None:
@@ -779,6 +808,79 @@ async def get_active_share_token(
     return result.scalar_one_or_none()
 
 
+async def _validate_share_token(
+    session: AsyncSession,
+    token: str,
+) -> MapShareToken | None | str:
+    """Look up and validate a share token.
+
+    Returns the MapShareToken on success, ``"expired"`` if revoked/expired,
+    or ``None`` if the token does not exist.
+    """
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    result = await session.execute(
+        select(MapShareToken).where(MapShareToken.token_hash == token_hash)
+    )
+    token_obj = result.scalar_one_or_none()
+    if token_obj is None:
+        return None
+    if not token_obj.is_active:
+        return "expired"
+    if token_obj.expires_at is not None and token_obj.expires_at < datetime.now(
+        timezone.utc
+    ):
+        return "expired"
+    return token_obj
+
+
+def _build_shared_layer_dict(
+    layer: MapLayer,
+    ds_name: str | None,
+    ds_geom_type: str | None,
+    ds_table_name: str | None,
+    ds_column_info: list | None,
+    ds_visibility: str | None,
+    ds_record_type: str | None,
+    ds_is_3d: bool | None,
+    ds_feature_count: int | None,
+    ds_is_dem: bool | None,
+) -> tuple[dict, bool]:
+    """Build a shared-layer response dict from a joined layer row.
+
+    Returns ``(layer_dict, is_non_public)``.
+    """
+    is_public = ds_visibility == "public"
+    if ds_record_type in ("raster_dataset", "vrt_dataset"):
+        tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
+    elif is_public:
+        tile_url = f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+    else:
+        tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
+    return {
+        "dataset_id": str(layer.dataset_id),
+        "dataset_name": ds_name,
+        "display_name": layer.display_name,
+        "table_name": ds_table_name,
+        "geometry_type": ds_geom_type,
+        "column_info": ds_column_info,
+        "sort_order": layer.sort_order,
+        "visible": layer.visible,
+        "opacity": layer.opacity,
+        "paint": layer.paint,
+        "layout": layer.layout,
+        "layer_type": layer.layer_type or "vector_geolens",
+        "dataset_record_type": ds_record_type,
+        "filter": layer.filter,
+        "label_config": layer.label_config,
+        "style_config": layer.style_config,
+        "show_in_legend": layer.show_in_legend,
+        "tile_url": tile_url,
+        "is_dem": bool(ds_is_dem) if ds_is_dem else None,
+        "is_3d": bool(ds_is_3d) if ds_is_3d else None,
+        "feature_count": ds_feature_count,
+    }, not is_public
+
+
 async def get_shared_map(
     session: AsyncSession,
     token: str,
@@ -800,20 +902,11 @@ async def get_shared_map(
     if user_roles is None:
         user_roles = set()
 
-    # Look up the share token by hash
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    result = await session.execute(
-        select(MapShareToken).where(MapShareToken.token_hash == token_hash)
-    )
-    token_obj = result.scalar_one_or_none()
+    token_obj = await _validate_share_token(session, token)
     if token_obj is None:
         return None
-    if not token_obj.is_active:
-        return "expired"
-    if token_obj.expires_at is not None and token_obj.expires_at < datetime.now(
-        timezone.utc
-    ):
-        return "expired"
+    if isinstance(token_obj, str):
+        return token_obj  # "expired"
 
     # Load the map
     map_obj = await get_map(session, token_obj.map_id)
@@ -858,40 +951,21 @@ async def get_shared_map(
         ds_feature_count,
         ds_is_dem,
     ) in layer_rows:
-        is_public = ds_visibility == "public"
-        if not is_public:
-            has_non_public = True
-        if ds_record_type in ("raster_dataset", "vrt_dataset"):
-            tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
-        elif is_public:
-            tile_url = f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
-        else:
-            tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
-        layers.append(
-            {
-                "dataset_id": str(layer.dataset_id),
-                "dataset_name": ds_name,
-                "display_name": layer.display_name,
-                "table_name": ds_table_name,
-                "geometry_type": ds_geom_type,
-                "column_info": ds_column_info,
-                "sort_order": layer.sort_order,
-                "visible": layer.visible,
-                "opacity": layer.opacity,
-                "paint": layer.paint,
-                "layout": layer.layout,
-                "layer_type": layer.layer_type or "vector_geolens",
-                "dataset_record_type": ds_record_type,
-                "filter": layer.filter,
-                "label_config": layer.label_config,
-                "style_config": layer.style_config,
-                "show_in_legend": layer.show_in_legend,
-                "tile_url": tile_url,
-                "is_dem": bool(ds_is_dem) if ds_is_dem else None,
-                "is_3d": bool(ds_is_3d) if ds_is_3d else None,
-                "feature_count": ds_feature_count,
-            }
+        layer_dict, is_non_public = _build_shared_layer_dict(
+            layer,
+            ds_name,
+            ds_geom_type,
+            ds_table_name,
+            ds_column_info,
+            ds_visibility,
+            ds_record_type,
+            ds_is_3d,
+            ds_feature_count,
+            ds_is_dem,
         )
+        if is_non_public:
+            has_non_public = True
+        layers.append(layer_dict)
 
     map_data = {
         "name": map_obj.name,

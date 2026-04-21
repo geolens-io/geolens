@@ -131,12 +131,12 @@ export function RampStopEditor({ expression, column, onChange }: RampStopEditorP
 
   return (
     <div className="mt-2 space-y-1">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+      <div className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1.5">
         {t('inspector.colorStops', { defaultValue: 'Color Stops' })}
       </div>
       {stops.map((stop, i) => (
         <div key={i} className="flex items-center gap-2 group">
-          <span className="font-mono text-[11px] text-muted-foreground w-10 text-end tabular-nums shrink-0">
+          <span className="font-mono text-2xs text-muted-foreground w-10 text-end tabular-nums shrink-0">
             {stop.value === -Infinity ? '< ' : ''}
             {stop.value === -Infinity
               ? (stops[1]?.value ?? 0)

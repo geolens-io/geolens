@@ -35,7 +35,7 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count 
               ))}
             </div>
           )}
-          <div className="text-[10px] italic text-muted-foreground">
+          <div className="text-2xs italic text-muted-foreground">
             {t('dataDriven.customColors')}
           </div>
         </div>
@@ -65,7 +65,7 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count 
                 />
               ))}
             </div>
-            <span className="text-[10px] text-muted-foreground w-24 truncate shrink-0">
+            <span className="text-2xs text-muted-foreground w-24 truncate shrink-0">
               {ramp.label}
             </span>
           </button>

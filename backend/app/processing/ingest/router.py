@@ -166,25 +166,32 @@ async def request_presigned_upload(
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
     if request.file_size > threshold:
-        upload_id = await asyncio.to_thread(
-            storage.initiate_multipart_upload,
-            s3_key,
-            request.content_type,
-        )
-        num_parts = math.ceil(request.file_size / PART_SIZE)
-        urls = list(
-            await asyncio.gather(
-                *[
-                    asyncio.to_thread(
-                        storage.generate_presigned_part_url,
-                        s3_key,
-                        upload_id,
-                        part_num,
-                    )
-                    for part_num in range(1, num_parts + 1)
-                ]
+        try:
+            upload_id = await asyncio.to_thread(
+                storage.initiate_multipart_upload,
+                s3_key,
+                request.content_type,
             )
-        )
+            num_parts = math.ceil(request.file_size / PART_SIZE)
+            urls = list(
+                await asyncio.gather(
+                    *[
+                        asyncio.to_thread(
+                            storage.generate_presigned_part_url,
+                            s3_key,
+                            upload_id,
+                            part_num,
+                        )
+                        for part_num in range(1, num_parts + 1)
+                    ]
+                )
+            )
+        except Exception:
+            logger.exception("presigned_multipart_failed", s3_key=s3_key)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Storage service unavailable",
+            )
         job.user_metadata = {
             "presigned": True,
             "s3_key": s3_key,
@@ -200,11 +207,18 @@ async def request_presigned_upload(
             part_size=PART_SIZE,
         )
     else:
-        url = await asyncio.to_thread(
-            storage.generate_presigned_put_url,
-            s3_key,
-            request.content_type,
-        )
+        try:
+            url = await asyncio.to_thread(
+                storage.generate_presigned_put_url,
+                s3_key,
+                request.content_type,
+            )
+        except Exception:
+            logger.exception("presigned_put_failed", s3_key=s3_key)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Storage service unavailable",
+            )
         job.user_metadata = {"presigned": True, "s3_key": s3_key, "multipart": False}
         await db.commit()
         return PresignedUploadResponse(
@@ -235,12 +249,18 @@ async def complete_presigned_upload(
     s3_key = um["s3_key"]
 
     if um.get("multipart") and request.parts:
-        await asyncio.to_thread(
-            storage.complete_multipart_upload,
-            s3_key,
-            um["upload_id"],
-            [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
-        )
+        try:
+            await asyncio.to_thread(
+                storage.complete_multipart_upload,
+                s3_key,
+                um["upload_id"],
+                [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Upload completion failed — the upload session may have expired. Please try again.",
+            )
 
     if not await storage.exists(s3_key):
         raise HTTPException(
@@ -604,9 +624,18 @@ async def commit_import(
     await db.commit()
 
     # Dispatch routing lives in the service layer (KISS-9).
-    # queue_ingest_job now owns the orphan-guard: a defer failure will
-    # flip the committed pending job to failed and raise 503 (RESILIENCE-2).
-    await queue_ingest_job(job, str(user.id), db=db, token=token)
+    # queue_ingest_job owns the orphan-guard: a defer failure flips the job
+    # to failed and raises 503 (RESILIENCE-2). Clean up the staging file
+    # on failure so it isn't orphaned on disk/S3.
+    try:
+        await queue_ingest_job(job, str(user.id), db=db, token=token)
+    except Exception:
+        if job.file_path:
+            saved: Path | str = (
+                Path(job.file_path) if job.file_path.startswith("/") else job.file_path
+            )
+            await _cleanup_saved_upload(saved, str(job.id))
+        raise
 
     return CommitResponse(
         job_id=job.id,

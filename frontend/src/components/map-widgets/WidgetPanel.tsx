@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
@@ -19,7 +19,7 @@ interface WidgetPanelProps {
  * Used internally by {@link WidgetHost} when rendering each visible widget
  * from the registry; widget authors do not import this directly.
  */
-export function WidgetPanel({ def, children }: WidgetPanelProps) {
+export const WidgetPanel = memo(function WidgetPanel({ def, children }: WidgetPanelProps) {
   const { t } = useTranslation('builder');
   const Icon = def.icon;
 
@@ -41,4 +41,4 @@ export function WidgetPanel({ def, children }: WidgetPanelProps) {
       </div>
     </div>
   );
-}
+});

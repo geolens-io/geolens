@@ -52,7 +52,6 @@ vi.mock('@/components/builder/BasemapPicker', () => ({
 
 vi.mock('@/components/map-widgets', () => ({
   WidgetHost: () => null,
-  WidgetToolbar: () => null,
   getWidgets: () => [],
   usePartitionedWidgets: () => ({ byAnchor: {} }),
 }));

@@ -4,13 +4,14 @@ import json
 import time
 import uuid
 from datetime import date, datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlencode
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies import get_current_active_user, get_optional_user
@@ -207,7 +208,7 @@ class SearchQueryParams(_BaseModel):
     and geometry_geojson).
     """
 
-    q: str | None = Query(None, description="Full-text search query")
+    q: str | None = Query(None, max_length=1000, description="Full-text search query")
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy")
     keywords: list[str] | None = Query(None, description="Filter by keywords")
     geometry_type: str | None = Query(None, description="Filter by geometry type")
@@ -231,6 +232,7 @@ class SearchQueryParams(_BaseModel):
     limit: int = Query(10, ge=1, le=1000, description="Page size")
     cql2_filter: str | None = Query(
         None,
+        max_length=10000,
         alias="filter",
         validation_alias="filter",
         description="CQL2 filter expression",
@@ -252,7 +254,7 @@ class SearchQueryParams(_BaseModel):
         "intersects", description="Spatial predicate: intersects or within"
     )
     geometry: str | None = Query(
-        None, description="GeoJSON geometry for spatial filter"
+        None, max_length=50000, description="GeoJSON geometry for spatial filter"
     )
     collection_id: uuid.UUID | None = Query(
         None, description="Filter by collection membership"
@@ -351,12 +353,18 @@ async def _handle_search(
     else:
         user_roles = set()
 
-    datasets, total = await search_datasets(
-        db,
-        user,
-        user_roles,
-        filters,
-    )
+    try:
+        datasets, total = await search_datasets(
+            db,
+            user,
+            user_roles,
+            filters,
+        )
+    except DataError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid spatial filter geometry",
+        )
 
     # Bulk-query DatasetAsset rows for STAC assets
     from app.processing.raster.models import DatasetAsset
@@ -733,14 +741,14 @@ def _invalidate_collection_meta_cache() -> None:
 
 async def _distinct_aggregate(
     db: AsyncSession,
-    column,
+    column: Any,
     user: User | None,
     user_roles: set[str],
     *,
     from_dataset: bool = True,
     extra_joins: list | None = None,
     extra_filters: list | None = None,
-) -> list:
+) -> list[Any]:
     """Run a distinct aggregate query with visibility filtering.
 
     Args:
@@ -803,12 +811,18 @@ async def _build_collection_metadata(
     extent_stmt = apply_visibility_filter(
         extent_stmt, user, user_roles, Record, DatasetGrant
     )
-    result = await db.execute(extent_stmt)
-    row = result.one()
+    try:
+        result = await db.execute(extent_stmt)
+        row = result.one()
+    except Exception:
+        logger.error(
+            "Failed to compute spatial extent for collection metadata", exc_info=True
+        )
+        row = None
 
     # Parse spatial extent
     spatial_extent = None
-    if row.bbox_geojson is not None:
+    if row is not None and row.bbox_geojson is not None:
         geojson = json.loads(row.bbox_geojson)
         coords = geojson["coordinates"][0]
         xs = [c[0] for c in coords]
@@ -817,7 +831,9 @@ async def _build_collection_metadata(
 
     # Build temporal extent
     temporal_extent = None
-    if row.temporal_start is not None or row.temporal_end is not None:
+    if row is not None and (
+        row.temporal_start is not None or row.temporal_end is not None
+    ):
         temporal_extent = {
             "interval": [
                 [
@@ -834,37 +850,41 @@ async def _build_collection_metadata(
     if temporal_extent is not None:
         extent["temporal"] = temporal_extent
 
-    # Summaries via reusable aggregate helper
-    geometry_types = await _distinct_aggregate(
-        db,
-        Dataset.geometry_type,
-        user,
-        user_roles,
-        extra_filters=[Dataset.geometry_type.isnot(None)],
+    # Summaries: geometry_types, srids, and organizations in a single query
+    # (replaces 3 sequential _distinct_aggregate round-trips)
+    summary_stmt = (
+        select(
+            func.array_agg(func.distinct(Dataset.geometry_type))
+            .filter(Dataset.geometry_type.isnot(None))
+            .label("geometry_types"),
+            func.array_agg(func.distinct(Dataset.srid))
+            .filter(Dataset.srid.isnot(None))
+            .label("srids"),
+            func.array_agg(func.distinct(Record.source_organization))
+            .filter(
+                Record.source_organization.isnot(None),
+                Record.source_organization != "",
+            )
+            .label("organizations"),
+        )
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id)
     )
-    srids = await _distinct_aggregate(
-        db,
-        Dataset.srid,
-        user,
-        user_roles,
-        extra_filters=[Dataset.srid.isnot(None)],
+    summary_stmt = apply_visibility_filter(
+        summary_stmt, user, user_roles, Record, DatasetGrant
     )
+    summary_row = (await db.execute(summary_stmt)).one()
+    geometry_types = sorted(summary_row.geometry_types or [])
+    srids = sorted(summary_row.srids or [])
+    organizations = sorted(summary_row.organizations or [])
+
+    # Keywords need a separate join to RecordKeyword
     keywords_list = await _distinct_aggregate(
         db,
         RecordKeyword.keyword,
         user,
         user_roles,
         extra_joins=[(RecordKeyword, RecordKeyword.record_id == Record.id)],
-    )
-    organizations = await _distinct_aggregate(
-        db,
-        Record.source_organization,
-        user,
-        user_roles,
-        extra_filters=[
-            Record.source_organization.isnot(None),
-            Record.source_organization != "",
-        ],
     )
 
     # Build summaries
@@ -1102,7 +1122,7 @@ async def get_collection_metadata(
     return OGCCollectionMetadataResponse(**result)
 
 
-@collections_router.get("/datasets/queryables")
+@collections_router.get("/datasets/queryables", response_class=JSONResponse)
 async def get_queryables(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1115,7 +1135,7 @@ async def get_queryables(
     )
 
 
-@collections_router.get("/datasets/schema")
+@collections_router.get("/datasets/schema", response_class=JSONResponse)
 async def get_record_schema(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1199,7 +1219,7 @@ async def _lookup_by_external_id(
     )
 
 
-@collections_router.get("/datasets/sortables")
+@collections_router.get("/datasets/sortables", response_class=JSONResponse)
 async def get_sortables(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1237,7 +1257,7 @@ async def get_sortables(
     )
 
 
-@collections_router.get("/datasets/items")
+@collections_router.get("/datasets/items", response_class=JSONResponse)
 async def collection_items(
     request: Request,
     params: SearchQueryParams = Depends(),
@@ -1259,7 +1279,7 @@ async def collection_items(
         return await _lookup_by_external_id(db, external_id, request)
 
     # Apply OGC-specific overrides via model_copy to keep params immutable
-    overrides: dict = {}
+    overrides: dict[str, object] = {}
     if type_param and not params.record_type:
         overrides["record_type"] = type_param
     if sortby is not None:
@@ -1299,7 +1319,7 @@ async def collection_items(
     )
 
 
-@collections_router.get("/datasets/items/{record_id}")
+@collections_router.get("/datasets/items/{record_id}", response_class=JSONResponse)
 async def get_collection_item(
     record_id: uuid.UUID,
     request: Request,

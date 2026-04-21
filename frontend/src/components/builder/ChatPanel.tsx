@@ -531,7 +531,7 @@ export function ChatPanel({
         />
         {horizontal ? (
           <div className="flex items-center gap-2 shrink-0">
-            <span className="font-mono text-[10px] text-muted-foreground tracking-wider">↵ {t('chat.sendTitle')}</span>
+            <span className="font-mono text-2xs text-muted-foreground tracking-wider">↵ {t('chat.sendTitle')}</span>
             <div className="flex-1" />
             {isLoading ? (
               <Button size="sm" variant="destructive" onClick={handleCancel} className="h-7 text-xs">
