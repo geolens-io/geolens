@@ -609,28 +609,9 @@ async def duplicate_map(
     return new_map, excluded_count
 
 
-async def _resolve_layer_type(
-    session: AsyncSession,
-    dataset_id: uuid.UUID,
-    layer_type: str | None,
-) -> str:
-    """Resolve layer_type from explicit value or auto-detect from record_type.
-
-    Returns 'raster_geolens' for raster_dataset records, 'vector_geolens' otherwise.
-    """
-    if layer_type is not None:
-        return layer_type
-    result = await session.execute(
-        select(Record.record_type)
-        .join(Dataset, Dataset.record_id == Record.id)
-        .where(Dataset.id == dataset_id)
-    )
-    record_type = result.scalar_one_or_none()
-    return (
-        "raster_geolens"
-        if record_type in ("raster_dataset", "vrt_dataset")
-        else "vector_geolens"
-    )
+def _infer_layer_type(record_type: str | None) -> str:
+    """Infer layer_type from record_type."""
+    return "raster_geolens" if record_type in ("raster_dataset", "vrt_dataset") else "vector_geolens"
 
 
 async def add_layer(

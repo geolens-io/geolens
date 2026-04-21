@@ -352,12 +352,10 @@ async def update_map_endpoint(
     if body.visibility == MapVisibility.public:
         non_public = await validate_public_visibility(db, map_id)
         if non_public:
+            names = ", ".join(non_public)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "Cannot set visibility to public: map contains non-public datasets",
-                    "datasets": non_public,
-                },
+                detail=f"Cannot set visibility to public: non-public datasets: {names}",
             )
 
     # Build update kwargs from non-None fields

@@ -145,7 +145,7 @@ async def list_features(
     # Extract property filters from query params
     reserved_params = {"limit", "offset", "bbox", "include_geometry", "api_key"}
     column_names = {col["name"] for col in (dataset.column_info or [])}
-    property_filters: dict = {}
+    property_filters: dict[str, str] = {}
     for key, value in request.query_params.items():
         if key not in reserved_params and key in column_names:
             property_filters[key] = value

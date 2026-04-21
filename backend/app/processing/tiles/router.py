@@ -376,7 +376,7 @@ async def raster_tile_proxy(
             await asyncio.sleep(0.5 * (2**attempt))
             continue
         else:
-            if resp.status_code == 503 and attempt < max_retries:
+            if resp.status_code in (500, 503) and attempt < max_retries:
                 logger.debug(
                     "Raster tile proxy got 503; retrying",
                     attempt=attempt,

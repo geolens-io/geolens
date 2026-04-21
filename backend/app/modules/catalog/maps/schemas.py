@@ -9,6 +9,8 @@ from app.core.text import normalize_nfc as _nfc
 
 
 class MapVisibility(str, Enum):
+    # Note: 'restricted' is intentionally omitted — maps don't support
+    # restricted visibility; only datasets do.
     private = "private"
     internal = "internal"
     public = "public"
@@ -82,7 +84,7 @@ class MapUpdate(BaseModel):
         default=None, ge=0, le=85, description="Map tilt in degrees (0-85)"
     )
     basemap_style: str | None = Field(
-        default=None, max_length=30, description="Basemap style ID or URL"
+        default=None, max_length=2000, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
     visibility: MapVisibility | None = Field(

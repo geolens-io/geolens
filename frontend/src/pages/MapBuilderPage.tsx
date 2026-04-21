@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2, Download, X, PanelLeftClose, PanelLeftOpen, Share2, Copy, Info, MoreHorizontal, GripVertical, Sparkles } from 'lucide-react';
@@ -91,14 +92,14 @@ function ChatPanelContent({
         </Button>
       </div>
       <div className="flex-1 overflow-hidden">
-        <Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
+        <LazyLoadErrorBoundary><Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
           <ChatPanel
             mapId={mapId}
             layers={layers.localLayers}
             layerActions={layerActions}
             onQueryResult={layers.handleQueryResult}
           />
-        </Suspense>
+        </Suspense></LazyLoadErrorBoundary>
       </div>
     </>
   );
@@ -653,7 +654,7 @@ export function MapBuilderPage() {
                   layerActions={chatLayerActions}
                   onQueryResult={layers.handleQueryResult}
                 />
-              </Suspense>
+              </Suspense></LazyLoadErrorBoundary>
             </div>
           )}
           {dockTab === 'notes' && (
