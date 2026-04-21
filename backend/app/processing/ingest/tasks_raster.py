@@ -312,15 +312,24 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
         except Exception as exc:
             await session.rollback()
-            job.status = "failed"
-            job.error_message = str(exc)
-            job.completed_at = datetime.now(timezone.utc)
             structlog.get_logger().exception(
                 "Ingest task failed",
                 job_id=str(job.id),
                 task="ingest_raster",
             )
-            await session.commit()
+            async with async_session() as err_session:
+                from sqlalchemy import update as sa_update
+
+                await err_session.execute(
+                    sa_update(IngestJob)
+                    .where(IngestJob.id == uuid.UUID(job_id))
+                    .values(
+                        status="failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                )
+                await err_session.commit()
             raise
         finally:
             # Clean up temp COG dir

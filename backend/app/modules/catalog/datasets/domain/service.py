@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import logging
 
@@ -311,7 +311,7 @@ async def get_datasets_list(
     skip: int = 0,
     limit: int = 50,
     base_url: str | None = None,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict[str, Any]], int]:
     """Fetch paginated dataset list with raster assets, VRT source counts, and actor info.
 
     Returns (dataset_response_list, total_count) ready for the API response.
@@ -340,7 +340,7 @@ async def get_datasets_list(
         for d in datasets
         if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
     ]
-    raster_assets_by_dataset_id: dict = {}
+    raster_assets_by_dataset_id: dict[uuid.UUID, Any] = {}
     if raster_ids:
         ra_result = await db.execute(
             select(RasterAsset).where(RasterAsset.dataset_id.in_(raster_ids))
@@ -354,7 +354,7 @@ async def get_datasets_list(
         for d in datasets
         if getattr(d.record, "record_type", None) == "vrt_dataset"
     ]
-    source_counts: dict = {}
+    source_counts: dict[str, int] = {}
     if vrt_ids:
         sc_result = await db.execute(
             text(
@@ -859,7 +859,7 @@ async def get_dataset_versions(
     dataset_id: uuid.UUID,
     skip: int = 0,
     limit: int = 50,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict[str, Any]], int]:
     """List version history for a dataset, ordered by version_number desc.
 
     Returns a tuple of (versions, total_count).

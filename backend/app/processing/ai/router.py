@@ -2,6 +2,8 @@
 
 import json
 import uuid as uuid_mod
+from collections.abc import Awaitable
+from typing import TypeVar
 
 import anthropic
 import openai
@@ -45,6 +47,8 @@ from app.modules.catalog.maps.models import Map
 from app.core.persistent_config import AI_ENABLED, LLM_PROVIDER
 from app.modules.auth.router import limiter
 from app.platform.sandbox.validator import build_table_allowlist
+
+_T = TypeVar("_T")
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -403,7 +407,7 @@ async def chat_stream_endpoint(
 # ---------------------------------------------------------------------------
 
 
-async def _call_metadata_ai(coro, error_prefix: str):
+async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
     """Shared error handler for metadata AI endpoints.
 
     Wraps the coroutine with the standard LLM error handling: ValueError,
