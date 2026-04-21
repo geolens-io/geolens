@@ -17,6 +17,7 @@ import type {
   ChatHistoryMessage,
   ChatRequest,
   ChatResponse,
+  VisibilityCheckResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
 import { useAuthStore } from '@/stores/auth-store';
@@ -102,8 +103,8 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   return apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
 }
 
-export async function checkMapVisibility(mapId: string): Promise<{ non_public_datasets: string[]; has_non_public: boolean }> {
-  return apiFetch(`/maps/${mapId}/visibility-check/`);
+export async function checkMapVisibility(mapId: string): Promise<VisibilityCheckResponse> {
+  return apiFetch<VisibilityCheckResponse>(`/maps/${mapId}/visibility-check/`);
 }
 
 export async function publishMap(id: string, visibility: 'public' | 'private' | 'internal'): Promise<MapResponse> {

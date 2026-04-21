@@ -115,6 +115,8 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict]:
             "paint": {
                 "fill-color": "#3b82f6",
                 "fill-opacity": 0.3,
+                # GeoLens-private keys consumed by the frontend layer-adapter;
+                # not valid MapLibre paint properties.
                 "_outline-color": "#1d4ed8",
                 "_outline-width": 1,
             },
@@ -387,11 +389,7 @@ async def _replace_layers(
             resolved_layer_type = explicit_lt
         else:
             record_type, _ = ds_meta.get(dataset_id, (None, None))
-            resolved_layer_type = (
-                "raster_geolens"
-                if record_type in ("raster_dataset", "vrt_dataset")
-                else "vector_geolens"
-            )
+            resolved_layer_type = _infer_layer_type(record_type)
 
         _, geometry_type = ds_meta.get(dataset_id, (None, None))
 
@@ -638,11 +636,7 @@ async def add_layer(
     if layer_type is not None:
         resolved_layer_type = layer_type
     else:
-        resolved_layer_type = (
-            "raster_geolens"
-            if record_type in ("raster_dataset", "vrt_dataset")
-            else "vector_geolens"
-        )
+        resolved_layer_type = _infer_layer_type(record_type)
 
     # Raster layers use empty paint/layout (no vector style defaults)
     if resolved_layer_type == "raster_geolens":

@@ -343,23 +343,23 @@ export function DatasetPage() {
   // Metadata editing (overview/metadata tabs) and management actions remain ungated.
   const canEditData = isEditor && dataEditingEnabled;
 
-  const executeStatusChain = async (
-    chain: readonly string[],
-    currentStatus: string,
-    successMsg: string,
-  ) => {
-    if (!id) return;
-    const startIdx = chain.indexOf(currentStatus);
-    const steps = startIdx === -1 ? chain : chain.slice(startIdx + 1);
-    try {
-      for (const step of steps) {
-        await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
+  // TODO: PERF-14 — consolidate into single target_status backend endpoint
+  const executeStatusChain = useCallback(
+    async (chain: readonly string[], currentStatus: string, successMsg: string) => {
+      if (!id) return;
+      const startIdx = chain.indexOf(currentStatus);
+      const steps = startIdx === -1 ? chain : chain.slice(startIdx + 1);
+      try {
+        for (const step of steps) {
+          await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
+        }
+        toast.success(successMsg);
+      } catch {
+        toast.error(t('publish.failed'));
       }
-      toast.success(successMsg);
-    } catch {
-      toast.error(t('publish.failed'));
-    }
-  };
+    },
+    [id, updatePublicationStatus, t],
+  );
 
   const handlePublishToggle = async () => {
     if (!id) return;

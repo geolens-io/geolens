@@ -91,12 +91,10 @@ export function BuilderMap({
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
-  const datasetIdKey = useMemo(() => layers.map((l) => l.dataset_id).join(','), [layers]);
-  const datasetIds = useMemo(
-    () => layers.map((l) => l.dataset_id).filter(Boolean),
+  const datasetIds = useMemo(() => {
+    return layers.map((l) => l.dataset_id).filter(Boolean);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on structural identity
-    [datasetIdKey],
-  );
+  }, [layers.map((l) => l.dataset_id).join(',')]);
   const tokenQueries = useTileTokens(datasetIds);
 
   // Stable string key for token changes — avoids per-render .map().join() in dep arrays
@@ -165,21 +163,23 @@ export function BuilderMap({
       // surface anything else as a deduped toast so the editor knows a
       // real error has occurred (RES-3). Previously silenced in production.
       errorHandlerRef.current = (e: { error: { message?: string; status?: number } }) => {
-        const msg = e.error?.message ?? '';
         const status = e.error?.status;
-        if (msg.includes('source-') || status === 404) {
-          return; // Expected no-data tile, suppress
-        }
-        if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
-        if (status === 401 || status === 403) {
-          toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
-            id: 'builder-map-auth-error',
-          });
+        // Suppress expected no-data tiles (404) and other client errors
+        if (status && status >= 400 && status < 500) {
+          if (status === 401 || status === 403) {
+            toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
+              id: 'builder-map-auth-error',
+            });
+          }
           return;
         }
-        toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
-          id: 'builder-map-error',
-        });
+        // Surface server errors (5xx) and unknown errors
+        if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
+        if (status && status >= 500) {
+          toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
+            id: 'builder-map-error',
+          });
+        }
       };
       map.on('error', errorHandlerRef.current);
 
@@ -309,13 +309,20 @@ export function BuilderMap({
     [layers],
   );
 
+  // Memoized sync inputs — avoids re-allocating on every effect run (token refresh, etc.)
+  const syncInputs = useMemo(
+    () => layers.map(toSyncInput),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- structural changes only
+    [structuralKey],
+  );
+
   // Sync layers to map — runs on structural changes (add/remove/visibility) and token refresh.
   // Paint/filter/opacity edits are handled imperatively by use-layer-map-sync.ts.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-    syncLayersToMap(map, layers.map(toSyncInput), tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
+    syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
     refreshQueryLayerIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structuralKey, mapReady, tileConfig?.cdn_base_url, tokenMap]);
