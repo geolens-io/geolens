@@ -66,6 +66,7 @@ export function BuilderMap({
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  const [tilesLoading, setTilesLoading] = useState(false);
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
   // container. Mirrors the ViewerMap hook from 6a5f0181 so the Playwright
   // demo-smoke spec can poll a deterministic signal regardless of whether
@@ -143,6 +144,10 @@ export function BuilderMap({
       // replace its 2 s arbitrary wait with a deterministic signal. Matches
       // the ViewerMap hook from 6a5f0181.
       map.once('idle', () => setTilesIdle(true));
+
+      // Tile loading indicator
+      map.on('dataloading', () => setTilesLoading(true));
+      map.on('idle', () => setTilesLoading(false));
 
       // Absolutify URLs and attach auth header for raster tile requests
       map.setTransformRequest((url: string) => {
@@ -420,6 +425,9 @@ export function BuilderMap({
       className="relative h-full w-full"
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
     >
+      {tilesLoading && (
+        <div className="absolute top-0 left-0 right-0 z-10 h-0.5 bg-primary/60 animate-pulse" />
+      )}
       <MapGL
         initialViewState={defaultView}
         mapStyle={styleValue as string}

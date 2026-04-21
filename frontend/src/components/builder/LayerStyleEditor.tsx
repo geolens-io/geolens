@@ -186,7 +186,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   }, [layer.id, paint, geomType, strokeEnabled, onPaintChange]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Render as dropdown — point layers only */}
       {geomType === 'circle' && (
         <div className="space-y-1">

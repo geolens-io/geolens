@@ -99,7 +99,7 @@ export const LayerPanel = memo(function LayerPanel({
           <Button
             variant="outline"
             size="sm"
-            className="h-6 text-xs gap-1"
+            className="h-8 text-xs gap-1"
             onClick={onAddDataClick}
           >
             <Plus className="h-3 w-3" />

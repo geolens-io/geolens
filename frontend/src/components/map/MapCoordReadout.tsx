@@ -27,8 +27,8 @@ export function MapCoordReadout({ map }: MapCoordReadoutProps) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
         if (disposed) return;
-        const lat = parseFloat(e.lngLat.lat.toFixed(4));
-        const lng = parseFloat(e.lngLat.lng.toFixed(4));
+        const lat = parseFloat(e.lngLat.lat.toFixed(2));
+        const lng = parseFloat(e.lngLat.lng.toFixed(2));
         const zoom = parseFloat(map.getZoom().toFixed(1));
         setCoords((prev) => {
           if (prev && prev.lat === lat && prev.lng === lng && prev.zoom === zoom) return prev;
@@ -72,9 +72,9 @@ export function MapCoordReadout({ map }: MapCoordReadoutProps) {
   return (
     <div className="absolute bottom-1.5 right-1.5 z-10 pointer-events-none">
       <div className="font-mono text-2xs tracking-wide text-muted-foreground/70 bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5">
-        {Math.abs(coords.lat).toFixed(4)}° {latDir}
+        {Math.abs(coords.lat).toFixed(2)}° {latDir}
         {' · '}
-        {Math.abs(coords.lng).toFixed(4)}° {lngDir}
+        {Math.abs(coords.lng).toFixed(2)}° {lngDir}
         {' · '}
         <span className="text-foreground/50">z</span> {coords.zoom.toFixed(1)}
       </div>
