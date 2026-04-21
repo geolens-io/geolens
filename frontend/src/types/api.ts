@@ -836,6 +836,11 @@ export interface MapLayerInput {
   show_in_legend?: boolean;
 }
 
+export interface VisibilityCheckResponse {
+  non_public_datasets: string[];
+  has_non_public: boolean;
+}
+
 // Shared / Public Maps
 export interface SharedLayerResponse {
   dataset_id: string;

@@ -82,6 +82,7 @@ PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 
 # Fallback list used when the persistent_config DB lookup fails (R-7).
 # Kept intentionally conservative: matches the original production default.
+# Canonical source: UPLOAD_ALLOWED_EXTENSIONS in app/core/persistent_config.py.
 _FALLBACK_ALLOWED_EXTENSIONS: list[str] = [
     ".geojson",
     ".json",
