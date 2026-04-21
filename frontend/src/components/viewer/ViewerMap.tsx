@@ -160,15 +160,18 @@ export function ViewerMap({
   const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
-  const resolvedId = resolveBasemapId(basemapStyle);
-  // For default basemaps (positron/dark-matter), auto-switch with theme —
-  // but only when the basemap comes from the saved map data, not a user override.
-  const isDefaultBasemap = !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
-  const effectiveBasemap = isDefaultBasemap
-    ? getThemeBasemap(basemaps ?? [], resolvedTheme)
-    : findBasemapById(basemaps ?? [], basemapStyle);
-  const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-  const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
+
+  const styleValue = useMemo(() => {
+    const resolvedId = resolveBasemapId(basemapStyle);
+    // For default basemaps (positron/dark-matter), auto-switch with theme —
+    // but only when the basemap comes from the saved map data, not a user override.
+    const isDefaultBasemap = !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
+    const effectiveBasemap = isDefaultBasemap
+      ? getThemeBasemap(basemaps ?? [], resolvedTheme)
+      : findBasemapById(basemaps ?? [], basemapStyle);
+    const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+    return toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
+  }, [basemapStyle, basemapOverride, basemaps, resolvedTheme]);
 
   // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07)
   useEffect(() => {

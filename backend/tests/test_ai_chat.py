@@ -110,7 +110,7 @@ async def test_validate_overwrites_client_table_name(
     )
 
     layer = _make_chat_layer(dataset, table_name_override="fake_injected_table")
-    validated = await _validate_chat_layers(session, admin, str(map_obj.id), [layer])
+    validated, _basemap = await _validate_chat_layers(session, admin, str(map_obj.id), [layer])
 
     assert len(validated) == 1
     assert validated[0].dataset_table_name == dataset.table_name
@@ -146,7 +146,7 @@ async def test_validate_filters_inaccessible_dataset(
     viewer_map = await _create_map(session, created_by=viewer.id, name="Viewer Map")
 
     layer = _make_chat_layer(private_ds)
-    validated = await _validate_chat_layers(
+    validated, _basemap = await _validate_chat_layers(
         session, viewer, str(viewer_map.id), [layer]
     )
 

@@ -100,7 +100,7 @@ async def test_stream_returns_sse_events(client: AsyncClient, admin_auth_header:
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=CHAT_BODY["layers"],
+            return_value=(CHAT_BODY["layers"], None),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tokens
@@ -131,7 +131,7 @@ async def test_non_streaming_fallback(client: AsyncClient, admin_auth_header: di
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=CHAT_BODY["layers"],
+            return_value=(CHAT_BODY["layers"], None),
         ),
         patch(
             "app.processing.ai.router.chat_edit_map", new_callable=AsyncMock
@@ -152,7 +152,7 @@ async def test_tool_progress_events(client: AsyncClient, admin_auth_header: dict
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=CHAT_BODY["layers"],
+            return_value=(CHAT_BODY["layers"], None),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tools
@@ -210,7 +210,7 @@ async def test_query_data_stage_events(client: AsyncClient, admin_auth_header: d
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=body["layers"],
+            return_value=(body["layers"], None),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit",
@@ -313,7 +313,7 @@ async def test_show_query_result_action_in_stream(
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=body["layers"],
+            return_value=(body["layers"], None),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit",
