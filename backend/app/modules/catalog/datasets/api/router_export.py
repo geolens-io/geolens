@@ -84,6 +84,7 @@ async def get_dcat_catalog(
     catalog = catalog_to_dcat(datasets, base_url)
 
     from app.standards.ogc.utils import parse_accept_language
+
     lang = parse_accept_language(request)
     return JSONResponse(
         content=catalog,
@@ -126,6 +127,7 @@ async def get_dcat_record(
     dcat = record_to_dcat(dataset, base_url)
 
     from app.standards.ogc.utils import parse_accept_language
+
     lang = parse_accept_language(request)
     return JSONResponse(
         content=dcat,

@@ -21,16 +21,45 @@ if TYPE_CHECKING:
     )
 
 _LANG_URIS = {
-    "en": "ENG", "de": "DEU", "fr": "FRA", "es": "SPA",
-    "it": "ITA", "pt": "POR", "nl": "NLD", "pl": "POL",
-    "sv": "SWE", "da": "DAN", "fi": "FIN", "no": "NOR",
-    "cs": "CES", "sk": "SLK", "hu": "HUN", "ro": "RON",
-    "bg": "BUL", "hr": "HRV", "sl": "SLV", "et": "EST",
-    "lv": "LAV", "lt": "LIT", "el": "ELL", "ga": "GLE",
-    "mt": "MLT", "ar": "ARA", "zh": "ZHO", "ja": "JPN",
-    "ko": "KOR", "ru": "RUS", "uk": "UKR", "tr": "TUR",
-    "he": "HEB", "hi": "HIN", "th": "THA", "vi": "VIE",
-    "id": "IND", "ms": "MSA", "sw": "SWA",
+    "en": "ENG",
+    "de": "DEU",
+    "fr": "FRA",
+    "es": "SPA",
+    "it": "ITA",
+    "pt": "POR",
+    "nl": "NLD",
+    "pl": "POL",
+    "sv": "SWE",
+    "da": "DAN",
+    "fi": "FIN",
+    "no": "NOR",
+    "cs": "CES",
+    "sk": "SLK",
+    "hu": "HUN",
+    "ro": "RON",
+    "bg": "BUL",
+    "hr": "HRV",
+    "sl": "SLV",
+    "et": "EST",
+    "lv": "LAV",
+    "lt": "LIT",
+    "el": "ELL",
+    "ga": "GLE",
+    "mt": "MLT",
+    "ar": "ARA",
+    "zh": "ZHO",
+    "ja": "JPN",
+    "ko": "KOR",
+    "ru": "RUS",
+    "uk": "UKR",
+    "tr": "TUR",
+    "he": "HEB",
+    "hi": "HIN",
+    "th": "THA",
+    "vi": "VIE",
+    "id": "IND",
+    "ms": "MSA",
+    "sw": "SWA",
 }
 
 _LANG_URI_BASE = "http://publications.europa.eu/resource/authority/language/"
@@ -103,7 +132,10 @@ def record_to_dcat(
         result["dcterms:license"] = record.license
 
     if record.lineage_summary is not None:
-        result["dcterms:provenance"] = {"@value": record.lineage_summary, "@language": lang}
+        result["dcterms:provenance"] = {
+            "@value": record.lineage_summary,
+            "@language": lang,
+        }
 
     if record.update_frequency is not None:
         result["dcterms:accrualPeriodicity"] = record.update_frequency

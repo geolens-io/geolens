@@ -74,6 +74,7 @@ class MapUpdate(BaseModel):
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")

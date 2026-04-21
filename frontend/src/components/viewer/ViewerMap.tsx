@@ -340,11 +340,6 @@ export function ViewerMap({
     };
   }, [mapReady, queryInteractiveFeatures]);
 
-  // Clear popup when layer visibility changes
-  useEffect(() => {
-    setPopupInfo(null);
-  }, [visibleLayers]);
-
   // Ref to hold current sync inputs so the style.load callback can access them
   const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels });
   syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels };
@@ -357,6 +352,11 @@ export function ViewerMap({
     const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
     syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, geojsonDataRef.current, syncOpts);
   }, []);
+
+  // Clear popup when layer visibility changes
+  useEffect(() => {
+    setPopupInfo(null);
+  }, [visibleLayers]);
 
   // Sync layers to map (on data/visibility changes)
   useEffect(() => {

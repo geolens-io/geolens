@@ -64,7 +64,11 @@ class StagingResult:
     geometry_type: str | None
 
 
-_connector_kwargs: dict = {"min_size": 1, "max_size": 3, "kwargs": {"connect_timeout": 5}}
+_connector_kwargs: dict = {
+    "min_size": 1,
+    "max_size": 3,
+    "kwargs": {"connect_timeout": 5},
+}
 if settings.db_use_external_pooler:
     _connector_kwargs["kwargs"]["prepare_threshold"] = None
 

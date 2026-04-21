@@ -262,7 +262,7 @@ jobs:
         run: uv run bandit -r app/ -c pyproject.toml --severity-level high --confidence-level high
 
       - name: Run pip-audit (dependency vulnerability scan)
-        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539
+        run: uv run pip-audit --strict --desc
 
   # ---------- E2E (disabled to save CI minutes — run locally via `npx playwright test`) ----------
   e2e-test:
