@@ -91,10 +91,11 @@ export function BuilderMap({
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
+  const datasetIdKey = layers.map((l) => l.dataset_id).join(',');
   const datasetIds = useMemo(() => {
     return layers.map((l) => l.dataset_id).filter(Boolean);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on structural identity
-  }, [layers.map((l) => l.dataset_id).join(',')]);
+  }, [datasetIdKey]);
   const tokenQueries = useTileTokens(datasetIds);
 
   // Stable string key for token changes — avoids per-render .map().join() in dep arrays
@@ -348,7 +349,7 @@ export function BuilderMap({
       const source = map.getSource(sourceId);
       if (source && 'setTiles' in source) {
         const newUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
-        (source as maplibregl.VectorTileSource).setTiles([newUrl]);
+        (source as { setTiles: (tiles: string[]) => void }).setTiles([newUrl]);
       }
     }
   }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url]);

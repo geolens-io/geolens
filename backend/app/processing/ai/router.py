@@ -225,7 +225,15 @@ async def generate_map_endpoint(
     return MapGenerateResponse(**result)
 
 
-@router.post("/generate-map/stream/")
+@router.post(
+    "/generate-map/stream/",
+    responses={
+        200: {
+            "description": "Server-Sent Events stream",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_stream_endpoint(
     request: Request,
@@ -338,7 +346,15 @@ async def chat_endpoint(
         )
 
 
-@router.post("/chat/stream/")
+@router.post(
+    "/chat/stream/",
+    responses={
+        200: {
+            "description": "Server-Sent Events stream",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_stream_endpoint(
     request: Request,
@@ -435,7 +451,7 @@ async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
     except (
         Exception
     ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception(f"{error_prefix} failed")
+        logger.exception("ai_metadata_failed", error_prefix=error_prefix)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="AI metadata generation failed unexpectedly",

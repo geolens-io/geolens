@@ -52,7 +52,7 @@ import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialog
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
-import { WidgetHost, WidgetToolbar, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
+import { WidgetHost, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 
@@ -595,7 +595,6 @@ export function MapBuilderPage() {
           />
         )}
         <MapToolbar
-          aiAvailable={aiAvailable}
           showChat={dialogs.showChat}
           onToggleChat={handleToggleChat}
         />
@@ -603,7 +602,6 @@ export function MapBuilderPage() {
           layers={layers.localLayers}
           onClearFilter={handleClearFilter}
         />
-        <WidgetToolbar />
         <WidgetHost byAnchor={byAnchor} ctx={widgetCtx} />
 
       </div>
@@ -652,7 +650,7 @@ export function MapBuilderPage() {
           {/* Tab content */}
           {dockTab === 'chat' && (
             <div className="flex-1 overflow-hidden" role="tabpanel" id="dock-panel-chat" aria-labelledby="dock-tab-chat">
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
+              <LazyLoadErrorBoundary><Suspense fallback={<div className="flex-1 flex items-center justify-center p-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>}>
                 <ChatPanel
                   horizontal
                   mapId={id}

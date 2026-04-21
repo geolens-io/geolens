@@ -5,4 +5,3 @@ export type { WidgetAnchor, WidgetPlacement, WidgetContext, WidgetDefinition } f
 export { registerWidget, getWidgets, getWidget } from './registry';
 export { WidgetHost, usePartitionedWidgets } from './WidgetHost';
 export { WidgetPanel } from './WidgetPanel';
-export { WidgetToolbar } from './WidgetToolbar';

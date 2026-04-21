@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Hand, Ruler, PanelBottomOpen } from 'lucide-react';
+import { Hand, Ruler, PanelBottomOpen, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import {
@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/tooltip';
 
 interface MapToolbarProps {
-  aiAvailable?: boolean;
   showChat?: boolean;
   onToggleChat?: () => void;
 }
@@ -20,10 +19,11 @@ interface MapToolbarProps {
  * Floating horizontal toolbar on the map canvas.
  * Provides quick access to map interaction tools.
  */
-export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }: MapToolbarProps) {
+export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
   const { t } = useTranslation('builder');
   const measureActive = useWidgetStore((s) => s.activeWidgets.has('measurement'));
-  const toggleMeasure = useWidgetStore((s) => s.toggle);
+  const legendActive = useWidgetStore((s) => s.activeWidgets.has('legend'));
+  const toggle = useWidgetStore((s) => s.toggle);
 
   const tools = useMemo(() => [
     {
@@ -33,7 +33,7 @@ export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }
       shortcut: 'V',
       active: !measureActive,
       onClick: () => {
-        if (measureActive) toggleMeasure('measurement');
+        if (measureActive) toggle('measurement');
       },
     },
     {
@@ -42,9 +42,9 @@ export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }
       label: t('widgets.measurement.label', { defaultValue: 'Measure' }),
       shortcut: 'M',
       active: measureActive,
-      onClick: () => { toggleMeasure('measurement'); },
+      onClick: () => { toggle('measurement'); },
     },
-  ], [measureActive, toggleMeasure, t]);
+  ], [measureActive, toggle, t]);
 
   // Dock toggle — always available (dock has Attributes + Notes tabs even without AI)
   const dockTool = onToggleChat ? {
@@ -89,32 +89,55 @@ export function MapToolbar({ aiAvailable: _aiAvailable, showChat, onToggleChat }
           ))}
         </div>
 
-        {/* Dock toggle — separate from tool modes (panel visibility, not a map tool) */}
-        {dockTool && (
+        {/* Panel toggles — separate from tool modes (panel visibility, not map tools) */}
+        <div className="flex items-center bg-background/95 backdrop-blur-sm border rounded-lg shadow-md overflow-hidden">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={dockTool.onClick}
+                onClick={() => toggle('legend')}
                 className={cn(
-                  'flex items-center justify-center h-8 w-8 rounded-lg bg-background/95 backdrop-blur-sm border shadow-md transition-colors',
-                  dockTool.active
+                  'flex items-center justify-center h-8 w-8 transition-colors',
+                  legendActive
                     ? 'bg-signature-soft text-signature'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
-                aria-label={dockTool.label}
-                aria-pressed={dockTool.active}
+                aria-label={t('widgets.legend.label', { defaultValue: 'Legend' })}
+                aria-pressed={legendActive}
               >
-                <dockTool.icon className="h-3.5 w-3.5" />
+                <Layers className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {dockTool.label}
-              {dockTool.shortcut && (
-                <span className="ms-1.5 font-mono text-2xs text-muted-foreground">{dockTool.shortcut}</span>
-              )}
+              {t('widgets.legend.label', { defaultValue: 'Legend' })}
+              <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
             </TooltipContent>
           </Tooltip>
-        )}
+          {dockTool && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={dockTool.onClick}
+                  className={cn(
+                    'flex items-center justify-center h-8 w-8 border-l border-border/50 transition-colors',
+                    dockTool.active
+                      ? 'bg-signature-soft text-signature'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                  aria-label={dockTool.label}
+                  aria-pressed={dockTool.active}
+                >
+                  <dockTool.icon className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {dockTool.label}
+                {dockTool.shortcut && (
+                  <span className="ms-1.5 font-mono text-2xs text-muted-foreground">{dockTool.shortcut}</span>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </div>
     </TooltipProvider>
   );

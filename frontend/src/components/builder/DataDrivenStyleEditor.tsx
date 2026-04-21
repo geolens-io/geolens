@@ -637,7 +637,7 @@ export function DataDrivenStyleEditor({
       )}
 
       {hasTooManyCategories && (
-        <p className="text-[10px] text-warning">
+        <p className="text-2xs text-warning">
           {t('dataDriven.categoriesWarning', { count: valuesData.values.length })}
         </p>
       )}

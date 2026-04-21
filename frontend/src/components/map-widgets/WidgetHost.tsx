@@ -8,15 +8,17 @@ import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 
 // Anchor offsets account for map overlay controls:
 // top-left: below MapToolbar (h-8 + top-3 = ~44px ≈ top-12)
-// top-right: below action buttons (h-8 + top-3) + WidgetToolbar (h-8 + gap)
+// top-right: below MapToolbar row
 // bottom-left: above ScaleControl
 // bottom-right: above NavigationControl
 const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'top-left': 'absolute top-12 left-3 z-10 flex flex-col gap-2',
-  'top-right': 'absolute top-[5.5rem] right-3 z-10 flex flex-col gap-2',
+  'top-right': 'absolute top-12 right-3 z-10 flex flex-col gap-2',
   'bottom-left': 'absolute bottom-20 left-4 z-10 flex flex-col gap-2',
   'bottom-right': 'absolute bottom-4 right-4 z-10 flex flex-col gap-2',
 };
+
+const ANCHORS = Object.keys(ANCHOR_POSITIONS) as WidgetAnchor[];
 
 /** Partition active+enabled widgets by placement mode. Call once in the parent. */
 export function usePartitionedWidgets() {
@@ -32,18 +34,15 @@ export function usePartitionedWidgets() {
     );
 
     const byAnchor: Record<string, WidgetDefinition[]> = {};
-    const sidebar: WidgetDefinition[] = [];
 
     for (const w of definitions) {
       if (w.placement.mode === 'floating') {
         const anchor = w.placement.anchor;
         (byAnchor[anchor] ??= []).push(w);
-      } else {
-        sidebar.push(w);
       }
     }
 
-    return { byAnchor, sidebar };
+    return { byAnchor };
   }, [activeWidgets, enabledWidgetIds]);
 }
 
@@ -54,7 +53,7 @@ interface WidgetHostProps {
 
 /** Renders floating widgets anchored to map corners */
 export function WidgetHost({ byAnchor, ctx }: WidgetHostProps) {
-  const anchors = Object.keys(ANCHOR_POSITIONS) as WidgetAnchor[];
+  const anchors = ANCHORS;
 
   return (
     <>

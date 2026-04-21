@@ -1,12 +1,18 @@
 """Feature query service: paginated GeoJSON features from PostGIS data tables."""
 
+from __future__ import annotations
+
 import json
 import re
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.processing.ingest.metadata import _qtable
+
+if TYPE_CHECKING:
+    from app.modules.catalog.datasets.domain.models import Dataset
 
 # Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -91,14 +97,17 @@ async def get_features(
 
     if bbox is not None and has_geometry:
         if bbox[0] > bbox[2]:
-            # Antimeridian-crossing: split into two envelopes
+            # Antimeridian-crossing: split into two envelopes (each with && pre-filter for index)
             where_clauses.append(
-                "(ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326))"
-                " OR ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)))"
+                "((geom_4326 && ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)"
+                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)))"
+                " OR (geom_4326 && ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)"
+                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326))))"
             )
         else:
             where_clauses.append(
-                "ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
+                "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)"
+                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
             )
         bind_values["minx"] = bbox[0]
         bind_values["miny"] = bbox[1]
@@ -294,7 +303,10 @@ async def insert_feature(
     result = await db.execute(text(sql).bindparams(**params))
     gid = result.scalar_one()
 
-    return await get_feature_by_id(db, table_name, gid)
+    row = await get_feature_by_id(db, table_name, gid)
+    if row is None:
+        raise RuntimeError(f"Feature {gid} not found immediately after insert")
+    return row
 
 
 async def replace_feature(
@@ -334,7 +346,10 @@ async def replace_feature(
     if result.rowcount == 0:
         raise ValueError("Feature not found")
 
-    return await get_feature_by_id(db, table_name, gid)
+    row = await get_feature_by_id(db, table_name, gid)
+    if row is None:
+        raise RuntimeError(f"Feature {gid} not found immediately after replace")
+    return row
 
 
 async def update_feature(
@@ -379,7 +394,10 @@ async def update_feature(
     if result.rowcount == 0:
         raise ValueError("Feature not found")
 
-    return await get_feature_by_id(db, table_name, gid)
+    row = await get_feature_by_id(db, table_name, gid)
+    if row is None:
+        raise RuntimeError(f"Feature {gid} not found immediately after update")
+    return row
 
 
 async def delete_feature(
@@ -418,7 +436,7 @@ async def _refresh_count_and_extent(
     return int(row[0]), row[1]
 
 
-async def refresh_dataset_metadata(session: AsyncSession, dataset) -> None:
+async def refresh_dataset_metadata(session: AsyncSession, dataset: Dataset) -> None:
     """Refresh feature_count and extent on a Dataset after write operations.
 
     Uses a single COUNT(*) + ST_Extent query instead of the full

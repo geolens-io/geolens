@@ -352,10 +352,12 @@ async def update_map_endpoint(
     if body.visibility == MapVisibility.public:
         non_public = await validate_public_visibility(db, map_id)
         if non_public:
-            names = ", ".join(non_public)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot set visibility to public: non-public datasets: {names}",
+                detail={
+                    "message": "Cannot set visibility to public: map contains non-public datasets",
+                    "datasets": ", ".join(non_public),
+                },
             )
 
     # Build update kwargs from non-None fields
@@ -470,6 +472,11 @@ async def duplicate_map_endpoint(
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
         db, new_map.id
     )
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found after duplication",
+        )
     layers = _layers_from_tuples(layer_tuples)
     base_resp = _build_map_response(
         map_obj,
@@ -681,7 +688,14 @@ async def upload_thumbnail(
     storage_key = f"maps/thumbnails/{map_id}.{ext}"
 
     storage = get_storage()
-    await storage.put(storage_key, image_bytes)
+    try:
+        await storage.put(storage_key, image_bytes)
+    except Exception:
+        logger.exception("thumbnail_upload_failed", map_id=str(map_id))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Thumbnail storage unavailable",
+        )
 
     map_obj.thumbnail_uri = storage_key
     await db.commit()
@@ -788,15 +802,15 @@ async def add_layer_endpoint(
     return _build_layer_response(
         layer,
         DatasetMetaKwargs(
-            dataset_name=meta[1] if meta else "Unknown",
-            geometry_type=meta[2] if meta else None,
-            table_name=meta[3] if meta else "",
-            extent=meta[4] if meta else None,
-            column_info=meta[5] if meta else None,
-            feature_count=meta[6] if meta else None,
-            sample_values=meta[7] if meta else None,
-            record_type=meta[0] if meta else None,
-            is_3d=meta[8] if meta else None,
+            dataset_name=meta.title if meta else "Unknown",
+            geometry_type=meta.geometry_type if meta else None,
+            table_name=meta.table_name if meta else "",
+            extent=meta.extent if meta else None,
+            column_info=meta.column_info if meta else None,
+            feature_count=meta.feature_count if meta else None,
+            sample_values=meta.sample_values if meta else None,
+            record_type=meta.record_type if meta else None,
+            is_3d=meta.is_3d if meta else None,
         ),
     )
 

@@ -20,7 +20,6 @@ All widgets appear in the Widgets toolbar popover, where users can toggle them o
 | `frontend/src/components/map-widgets/register-widgets.ts` | Built-in widget registrations |
 | `frontend/src/components/map-widgets/WidgetHost.tsx` | Floating widget renderer + sidebar section |
 | `frontend/src/components/map-widgets/WidgetPanel.tsx` | Widget wrapper (header, close button) |
-| `frontend/src/components/map-widgets/WidgetToolbar.tsx` | Toolbar popover (toggle widgets on/off) |
 | `frontend/src/components/map-widgets/builtin/` | Built-in widget components |
 
 ## Creating a widget
