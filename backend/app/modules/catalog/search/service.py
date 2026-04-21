@@ -372,7 +372,11 @@ async def get_facet_counts(
         spatial_fn = (
             func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
         )
-        stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
+        # Pre-filter with && bounding-box operator to enable spatial index usage
+        stmt = stmt.where(
+            Record.spatial_extent.op("&&")(func.ST_Envelope(geom)),
+            spatial_fn(Record.spatial_extent, geom),
+        )
     elif bbox and len(bbox) == 4:
         stmt = stmt.where(
             make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate)
@@ -465,7 +469,10 @@ async def get_facet_counts(
     if geometry_geojson:
         _fg = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_geojson), 4326)
         _fsf = func.ST_Within if spatial_predicate == "within" else func.ST_Intersects
-        filtered_base = filtered_base.where(_fsf(Record.spatial_extent, _fg))
+        filtered_base = filtered_base.where(
+            Record.spatial_extent.op("&&")(func.ST_Envelope(_fg)),
+            _fsf(Record.spatial_extent, _fg),
+        )
     elif bbox and len(bbox) == 4:
         filtered_base = filtered_base.where(
             make_bbox_filter(Record.spatial_extent, bbox, predicate=spatial_predicate)
@@ -738,7 +745,10 @@ async def search_datasets(
             if filters.spatial_predicate == "within"
             else func.ST_Intersects
         )
-        stmt = stmt.where(spatial_fn(Record.spatial_extent, geom))
+        stmt = stmt.where(
+            Record.spatial_extent.op("&&")(func.ST_Envelope(geom)),
+            spatial_fn(Record.spatial_extent, geom),
+        )
     elif filters.bbox and len(filters.bbox) == 4:
         stmt = stmt.where(
             make_bbox_filter(
