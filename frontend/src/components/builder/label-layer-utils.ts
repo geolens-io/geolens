@@ -16,7 +16,9 @@ export function buildLabelLayerSpec(opts: {
   visibility?: 'visible' | 'none';
 }): AddLayerObject {
   const { labelId, sourceId, sourceLayer, lc, geomType, visibility } = opts;
-  const placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+  // LB-04: fill geometries only support point placement — override if mismatched
+  let placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+  if (geomType === 'fill' && placement !== 'point') placement = 'point';
 
   return {
     id: labelId,
@@ -30,7 +32,6 @@ export function buildLabelLayerSpec(opts: {
       'text-size': lc.fontSize ?? 12,
       'symbol-placement': placement,
       'text-allow-overlap': lc.allowOverlap ?? false,
-      'icon-allow-overlap': lc.allowOverlap ?? false,
       'text-font': ['Noto Sans Regular', 'Open Sans Regular', 'Arial Unicode MS Regular'],
       'text-max-width': 10,
       ...(geomType === 'fill' ? { 'symbol-avoid-edges': true } : {}),
@@ -58,7 +59,9 @@ export function syncLabelLayer(
   lc: LabelConfig,
   geomType: string,
 ) {
-  const placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+  // LB-04: fill geometries only support point placement — override if mismatched
+  let placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+  if (geomType === 'fill' && placement !== 'point') placement = 'point';
   map.setLayoutProperty(labelId, 'text-field', ['get', lc.column]);
   map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
   map.setLayoutProperty(labelId, 'symbol-placement', placement);

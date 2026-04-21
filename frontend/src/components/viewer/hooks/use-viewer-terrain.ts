@@ -78,16 +78,19 @@ export function useViewerTerrain({
   const reseedTerrainOnStyleLoad = () => {
     const currentDemTileUrl = demTileUrlRef.current;
     if (currentDemTileUrl) {
-      setTimeout(() => {
-        const m = mapRef.current;
-        if (!m) return;
-        seedTerrainSource(m, currentDemTileUrl);
+      const m = mapRef.current;
+      if (!m) return;
+      // SH-10: Wait for map idle instead of arbitrary setTimeout
+      m.once('idle', () => {
+        const map = mapRef.current;
+        if (!map) return;
+        seedTerrainSource(map, currentDemTileUrl);
         setTerrainReady(true);
         // Re-enable terrain if it was active before the basemap swap
         if (terrainActiveRef.current) {
-          m.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
+          map.setTerrain({ source: 'terrain-dem' });
         }
-      }, 50);
+      });
     }
   };
 

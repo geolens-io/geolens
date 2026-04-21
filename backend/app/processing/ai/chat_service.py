@@ -411,10 +411,15 @@ def _validate_actions(
     for action in actions:
         # add_layer: validate dataset_id is present (actual RBAC check happens on the frontend add)
         if action.type == "add_layer":
-            if action.dataset_id:
-                validated.append(action)
-            else:
+            if not action.dataset_id:
                 dropped.append("add_layer (missing dataset_id)")
+                continue
+            try:
+                UUID(action.dataset_id)
+            except (ValueError, AttributeError):
+                dropped.append(f"add_layer (invalid dataset_id: {action.dataset_id})")
+                continue
+            validated.append(action)
             continue
         if action.layer_id and action.layer_id not in valid_layer_ids:
             logger.warning(
@@ -823,6 +828,9 @@ async def _build_graduated_style(
     else:
         # quantile: use the dynamically-computed quantiles from stats
         breaks = stats.get("quantiles", [])
+
+    if not breaks:
+        return {"error": f"Cannot compute class breaks for column '{column}'"}
 
     # Build MapLibre step expression: ["step", ["get", column], color0, break1, color1, ...]
     step_expr: list = ["step", ["get", column], colors[0]]

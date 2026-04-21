@@ -116,6 +116,7 @@ async def _stream_anthropic_chat(
     total_input = 0
     total_output = 0
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
+    final_message = None
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -229,6 +230,10 @@ async def _stream_anthropic_chat(
         input_tokens=total_input,
         output_tokens=total_output,
     )
+
+    if final_message is None:
+        yield {"type": "error", "message": "No response generated. Please try again."}
+        return
 
     explanation = "".join(
         block.text for block in final_message.content if block.type == "text"

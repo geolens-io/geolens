@@ -1,6 +1,8 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, resolveAdapterType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 
@@ -80,49 +82,25 @@ export function useLayerMapSync(
         (l) => ({ ...l, paint: newPaint }),
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
-          const outlineId = `layer-${layerId}-outline`;
           const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
+          const adapter = getAdapter(adapterType);
 
-          // Generic paint property sync
-          for (const [prop, value] of Object.entries(newPaint)) {
-            if (CUSTOM_PAINT_PROPS.has(prop)) continue;
-            if (value !== undefined && map.getLayer(mapLayerId)) {
-              try {
-                map.setPaintProperty(mapLayerId, prop, value);
-              } catch (e) {
-                if (import.meta.env.DEV) console.debug(`[builder] Failed to set ${prop}:`, e);
-              }
-            }
-          }
+          const input: AdapterLayerInput = {
+            id: layer.id,
+            dataset_table_name: layer.dataset_table_name,
+            dataset_geometry_type: layer.dataset_geometry_type,
+            opacity: layer.opacity ?? 1,
+            visible: layer.visible,
+            paint: newPaint,
+            layout: (layer.layout ?? {}) as Record<string, unknown>,
+            filter: layer.filter ?? null,
+            sourceId: `source-${layerId}`,
+            layerId: mapLayerId,
+            sourceLayer: `data.${layer.dataset_table_name}`,
+            tileUrl: '',
+          };
 
-          // Compound opacity override (product of per-type and master opacity)
-          if (map.getLayer(mapLayerId)) {
-            if (adapterType === 'heatmap') {
-              const storedHeatmapOpacity = (newPaint['heatmap-opacity'] as number) ?? 0.8;
-              map.setPaintProperty(mapLayerId, 'heatmap-opacity', (layer.opacity ?? 1) * storedHeatmapOpacity);
-            } else {
-              const geomType = adapterType as 'fill' | 'line' | 'circle';
-              map.setPaintProperty(mapLayerId, `${geomType}-opacity`, getCompoundOpacity(newPaint, geomType, layer.opacity ?? 1));
-            }
-          }
-
-          // Also compound circle-stroke-opacity with master opacity
-          if (adapterType === 'circle' && newPaint['circle-stroke-opacity'] !== undefined && map.getLayer(mapLayerId)) {
-            const strokeOpacity = (newPaint['circle-stroke-opacity'] as number) * (layer.opacity ?? 1);
-            map.setPaintProperty(mapLayerId, 'circle-stroke-opacity', strokeOpacity);
-          }
-
-          // Custom outline props -> outline line layer (not applicable for heatmap)
-          if (adapterType !== 'heatmap' && map.getLayer(outlineId)) {
-            const oc = newPaint['_outline-color'] ?? newPaint['outline-color'];
-            if (oc !== undefined) {
-              map.setPaintProperty(outlineId, 'line-color', oc);
-            }
-            const ow = newPaint['_outline-width'] ?? newPaint['outline-width'];
-            if (ow !== undefined) {
-              map.setPaintProperty(outlineId, 'line-width', ow);
-            }
-          }
+          adapter.syncPaint(map, input);
         },
       );
     },
@@ -300,7 +278,8 @@ export function useLayerMapSync(
         config = null;
       }
       const layer = layersRef.current.find((l) => l.id === layerId);
-      const geomType = layer ? getLayerType(layer.dataset_geometry_type) : 'fill';
+      if (!layer) return;
+      const geomType = getLayerType(layer.dataset_geometry_type);
 
       applyLayerUpdate(
         layerId,

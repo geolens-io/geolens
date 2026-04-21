@@ -17,6 +17,8 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
         "_outline-width",
         "_fill-disabled",
         "_stroke-disabled",
+        "_outline-width-saved",
+        "_fill-opacity-saved",
         "fill-antialias",
         "fill-translate",
         "fill-translate-anchor",

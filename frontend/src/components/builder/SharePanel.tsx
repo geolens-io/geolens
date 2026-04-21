@@ -92,7 +92,12 @@ function ShareLinkSettings({
     try {
       const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
       await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
-      toast.success(t('share.expirationUpdated'));
+      // SH-20: Distinct message when expiration is cleared vs. updated
+      if (newExpires) {
+        toast.success(t('share.expirationUpdated'));
+      } else {
+        toast.success(t('share.expirationCleared', { defaultValue: 'Link expiration removed — link never expires' }));
+      }
     } catch {
       toast.error(t('share.updateFailed'));
     }
@@ -107,6 +112,8 @@ function ShareLinkSettings({
         tokenId: resolvedEmbedTokenId,
         allowedOrigins: origins.length > 0 ? origins : null,
       });
+      // SH-19: Reset input from saved state so it reflects the canonical value
+      setDomainsValue(origins.length > 0 ? origins.join(', ') : '');
       toast.success(t('share.domainsUpdated'));
     } catch {
       toast.error(t('share.updateFailed'));
@@ -210,7 +217,7 @@ function ShareLinkSettings({
                     <Input
                       value={domainsValue}
                       onChange={(e) => setDomainsValue(e.target.value)}
-                      placeholder="example.com, app.example.com"
+                      placeholder="example.com, http://localhost:3000"
                       className="h-8 text-sm font-mono flex-1"
                     />
                     <Button

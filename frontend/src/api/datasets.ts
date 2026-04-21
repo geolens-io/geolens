@@ -132,6 +132,18 @@ export async function updatePublicationStatus(
   });
 }
 
+/** Walk the full transition chain server-side in a single request. */
+export async function setTargetStatus(
+  id: string,
+  status: string,
+): Promise<DatasetResponse> {
+  return apiFetch<DatasetResponse>(`/datasets/${id}/target-status/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+}
+
 export async function deleteDataset(
   id: string,
   confirmName: string,

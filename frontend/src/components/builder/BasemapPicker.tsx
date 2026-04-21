@@ -25,7 +25,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
       <button
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        aria-label={t('basemap.title')}
+        aria-label={`${t('basemap.title')}: ${current?.label ?? t('basemap.title')}`}
         className="flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-muted/40 hover:bg-accent/50 transition-colors border border-border/40"
       >
         <img
@@ -51,6 +51,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
             <button
               key={b.id}
               data-testid="basemap-option"
+              aria-pressed={value === b.id}
               onClick={() => {
                 onChange(b.id);
                 setOpen(false);

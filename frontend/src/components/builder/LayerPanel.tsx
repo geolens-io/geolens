@@ -11,6 +11,7 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import {
   SortableContext,
   verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
   arrayMove,
 } from '@dnd-kit/sortable';
 import { useTranslation } from 'react-i18next';
@@ -73,7 +74,9 @@ export const LayerPanel = memo(function LayerPanel({
   const { t } = useTranslation('builder');
   const sensors = useSensors(
     useSensor(PointerSensor),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   const sortableIds = useMemo(() => layers.map((l) => l.id), [layers]);

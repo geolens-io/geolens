@@ -254,6 +254,7 @@ export function MapBuilderPage() {
     return 260;
   });
   const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarElRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
 
   const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -264,16 +265,12 @@ export function MapBuilderPage() {
     const startX = e.clientX;
     const startWidth = sidebarWidthRef.current;
 
-    let rafPending = false;
     const onMove = (moveEvent: PointerEvent) => {
       const w = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), SIDEBAR_MIN), SIDEBAR_MAX);
       sidebarWidthRef.current = w;
-      if (!rafPending) {
-        rafPending = true;
-        requestAnimationFrame(() => {
-          rafPending = false;
-          setSidebarWidth(sidebarWidthRef.current);
-        });
+      // P-12: Set DOM style directly during drag, skip React state
+      if (sidebarElRef.current) {
+        sidebarElRef.current.style.width = `${w}px`;
       }
     };
 
@@ -281,12 +278,28 @@ export function MapBuilderPage() {
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       isDraggingRef.current = false;
+      // Commit final width to React state on pointerup
+      setSidebarWidth(sidebarWidthRef.current);
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
       mapInstanceRef.current?.resize();
     };
 
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
+  }, []);
+
+  // UX-13: Arrow-key resize on sidebar separator
+  const handleSeparatorKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const step = e.shiftKey ? 50 : 10;
+    const delta = e.key === 'ArrowRight' ? step : -step;
+    setSidebarWidth((prev) => {
+      const next = Math.min(Math.max(prev + delta, SIDEBAR_MIN), SIDEBAR_MAX);
+      sidebarWidthRef.current = next;
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
+      return next;
+    });
   }, []);
 
   // Composed hooks
@@ -486,6 +499,7 @@ export function MapBuilderPage() {
 
       {/* Desktop sidebar */}
       {!isMobile && <div
+        ref={sidebarElRef}
         data-testid="builder-sidebar"
         className={cn(
           "relative border-e bg-background flex flex-col shrink-0 overflow-hidden",
@@ -500,10 +514,15 @@ export function MapBuilderPage() {
         {!dialogs.sidebarCollapsed && (
           <div
             onPointerDown={handleDragStart}
+            onKeyDown={handleSeparatorKeyDown}
+            tabIndex={0}
             data-testid="builder-sidebar-resize-handle"
             role="separator"
             aria-orientation="vertical"
             aria-label={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
+            aria-valuenow={sidebarWidth}
+            aria-valuemin={SIDEBAR_MIN}
+            aria-valuemax={SIDEBAR_MAX}
             title={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
             className="group absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 transition-colors hover:bg-primary/10 active:bg-primary/15"
           >
@@ -669,7 +688,7 @@ export function MapBuilderPage() {
                 value={dockNotes}
                 onChange={(e) => {
                   setDockNotes(e.target.value);
-                  layers.setHasUnsavedChanges(true);
+                  if (!layers.hasUnsavedChanges) layers.setHasUnsavedChanges(true);
                 }}
               />
             </div>

@@ -58,6 +58,8 @@ class S3StorageProvider:
         config = Config(
             s3={"addressing_style": addressing_style},
             retries={"max_attempts": 3, "mode": "adaptive"},
+            connect_timeout=10,
+            read_timeout=60,
         )
 
         kwargs: dict = {

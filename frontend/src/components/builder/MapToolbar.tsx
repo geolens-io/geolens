@@ -67,7 +67,7 @@ export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
                 <button
                   onClick={tool.onClick}
                   className={cn(
-                    'flex items-center justify-center h-8 w-8 transition-colors',
+                    'flex items-center justify-center h-8 w-8 p-1.5 transition-colors',
                     tool.active
                       ? 'bg-signature-soft text-signature'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -80,7 +80,7 @@ export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
-                {tool.label}
+                {tool.label} ({tool.active ? t('toolbar.active', { defaultValue: 'active' }) : t('toolbar.inactive', { defaultValue: 'inactive' })})
                 {tool.shortcut && (
                   <span className="ms-1.5 font-mono text-2xs text-muted-foreground">{tool.shortcut}</span>
                 )}
@@ -96,7 +96,7 @@ export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
               <button
                 onClick={() => toggle('legend')}
                 className={cn(
-                  'flex items-center justify-center h-8 w-8 transition-colors',
+                  'flex items-center justify-center h-8 w-8 p-1.5 transition-colors',
                   legendActive
                     ? 'bg-signature-soft text-signature'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -108,7 +108,7 @@ export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {t('widgets.legend.label', { defaultValue: 'Legend' })}
+              {t('widgets.legend.label', { defaultValue: 'Legend' })} ({legendActive ? t('toolbar.active', { defaultValue: 'active' }) : t('toolbar.inactive', { defaultValue: 'inactive' })})
               <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
             </TooltipContent>
           </Tooltip>
@@ -118,7 +118,7 @@ export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
                 <button
                   onClick={dockTool.onClick}
                   className={cn(
-                    'flex items-center justify-center h-8 w-8 border-l border-border/50 transition-colors',
+                    'flex items-center justify-center h-8 w-8 p-1.5 border-l border-border/50 transition-colors',
                     dockTool.active
                       ? 'bg-signature-soft text-signature'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -130,7 +130,7 @@ export function MapToolbar({ showChat, onToggleChat }: MapToolbarProps) {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
-                {dockTool.label}
+                {dockTool.label} ({dockTool.active ? t('toolbar.active', { defaultValue: 'active' }) : t('toolbar.inactive', { defaultValue: 'inactive' })})
                 {dockTool.shortcut && (
                   <span className="ms-1.5 font-mono text-2xs text-muted-foreground">{dockTool.shortcut}</span>
                 )}

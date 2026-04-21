@@ -120,7 +120,8 @@ export function RampStopEditor({ expression, column, onChange }: RampStopEditorP
     // Guard against -Infinity sentinel in step expressions
     const lastVal = isFinite(last.value) ? last.value : 0;
     const prevVal = isFinite(secondLast.value) ? secondLast.value : lastVal - 10;
-    const newValue = Math.round((lastVal + (lastVal - prevVal)) * 100) / 100;
+    const delta = Math.max(1, Math.abs(lastVal - prevVal));
+    const newValue = Math.round((lastVal + delta) * 100) / 100;
     const next = [...stops, { value: newValue, color: last.color }];
     onChange(buildExpression(kind, next, column));
   }, [parsed, onChange, column]);

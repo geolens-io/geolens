@@ -11,6 +11,7 @@ import {
   removeDatasetFromCollection,
 } from '@/api/collections';
 import type { CollectionUpdateRequest } from '@/types/api';
+import { toast } from 'sonner';
 
 // Collections change rarely (append-only from the user's perspective).
 // 60s stale time prevents refetch on every mount while still picking up
@@ -55,6 +56,7 @@ export function useCreateCollection() {
           Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
       });
     },
+    onError: () => { toast.error('Failed to create collection'); },
   });
 }
 
@@ -70,6 +72,7 @@ export function useUpdateCollection() {
           Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
       });
     },
+    onError: () => { toast.error('Failed to update collection'); },
   });
 }
 
@@ -83,6 +86,7 @@ export function useDeleteCollection() {
           Array.isArray(query.queryKey) && query.queryKey[0] === 'collections',
       });
     },
+    onError: () => { toast.error('Failed to delete collection'); },
   });
 }
 
@@ -102,6 +106,7 @@ export function useAddDatasetsToCollection() {
         qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
       }
     },
+    onError: () => { toast.error('Failed to add datasets to collection'); },
   });
 }
 
@@ -119,5 +124,6 @@ export function useRemoveDatasetFromCollection() {
       });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
     },
+    onError: () => { toast.error('Failed to remove dataset from collection'); },
   });
 }

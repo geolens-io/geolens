@@ -15,7 +15,11 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from app.modules.catalog.datasets.domain.models import AttributeMetadata, Dataset
+    from app.modules.catalog.datasets.domain.models import (
+        AttributeMetadata,
+        Dataset,
+        Record,
+    )
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -454,6 +458,98 @@ async def get_sample_values(
     return result
 
 
+async def _score_metadata_completeness(
+    session: AsyncSession,
+    record: "Record",
+) -> float:
+    """Percentage of optional metadata fields that are populated (0-100)."""
+    from app.modules.catalog.datasets.domain.models import RecordKeyword
+
+    kw_count = await session.scalar(
+        select(func.count()).where(RecordKeyword.record_id == record.id)
+    )
+    has_keywords = True if kw_count and kw_count > 0 else None
+
+    optional_fields = [
+        record.summary,
+        has_keywords,
+        record.license,
+        record.source_organization,
+        record.temporal_start,
+        record.lineage_summary,
+        record.update_frequency,
+        record.usage_constraints,
+        record.access_constraints,
+        record.theme_category if record.theme_category else None,
+    ]
+    filled = sum(1 for f in optional_fields if f is not None)
+    return round(filled / len(optional_fields) * 100, 1)
+
+
+def _score_crs(dataset: "Dataset") -> float:
+    """100 if SRID is defined or dataset has no geometry, else 0."""
+    has_geometry = dataset.geometry_type is not None
+    return 100.0 if (dataset.srid is not None or not has_geometry) else 0.0
+
+
+async def _score_geometry_validity(
+    session: AsyncSession,
+    table_name: str,
+    has_geometry: bool,
+    max_rows: int,
+) -> float:
+    """Percentage of valid geometries (0-100). Degrades to 100 on error."""
+    if not has_geometry:
+        return 100.0
+    try:
+        async with session.begin_nested():
+            result = await session.execute(
+                text(
+                    f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
+                    f"FROM (SELECT geom FROM {_qtable(table_name)} LIMIT :max_rows) sub"
+                ).bindparams(max_rows=max_rows)
+            )
+            val = result.scalar_one_or_none()
+            if val is not None:
+                return round(float(val), 1)
+    except Exception:
+        pass
+    return 100.0
+
+
+async def _score_attribute_completeness(
+    session: AsyncSession,
+    table_name: str,
+    column_info: list[dict],
+) -> float:
+    """Average non-null percentage across non-geometry columns (0-100)."""
+    non_geom_cols = [
+        c
+        for c in column_info
+        if "geometry" not in c.get("type", "").lower() and c.get("name")
+    ]
+    if not non_geom_cols:
+        return 100.0
+    col_exprs = ", ".join(
+        f"COUNT({_sql_quote_ident(col['name'])}) "
+        f'* 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
+        for i, col in enumerate(non_geom_cols)
+    )
+    try:
+        async with session.begin_nested():
+            result = await session.execute(
+                text(f"SELECT {col_exprs} FROM {_qtable(table_name)}")
+            )
+            row = result.one_or_none()
+            if row is not None:
+                col_scores: list[float] = [float(v) for v in row if v is not None]
+                if col_scores:
+                    return round(sum(col_scores) / len(col_scores), 1)
+    except Exception:
+        pass
+    return 100.0
+
+
 async def compute_quality_score(
     session: AsyncSession,
     table_name: str,
@@ -471,93 +567,26 @@ async def compute_quality_score(
 
     Returns a dict with overall score and per-dimension scores.
     """
-
     _validate_table_name(table_name)
-
-    # 1. Metadata completeness (weight 0.30)
     record = dataset.record
-
-    # Check keyword presence via explicit query (avoids lazy-load in async context)
-    from app.modules.catalog.datasets.domain.models import RecordKeyword
-
-    kw_count = await session.scalar(
-        select(func.count()).where(RecordKeyword.record_id == record.id)
-    )
-    has_keywords = True if kw_count and kw_count > 0 else None
-
-    optional_fields = [
-        record.summary,
-        has_keywords,  # replaces old tags field (Issue 5 -- use keywords, not theme_category)
-        record.license,
-        record.source_organization,
-        record.temporal_start,
-        record.lineage_summary,
-        record.update_frequency,
-        record.usage_constraints,
-        record.access_constraints,
-        record.theme_category if record.theme_category else None,
-    ]
-    filled = sum(1 for f in optional_fields if f is not None)
-    metadata_score = round(filled / len(optional_fields) * 100, 1)
-
-    # 2. CRS defined (weight 0.15)
     has_geometry = dataset.geometry_type is not None
-    crs_score: float = 100.0 if (dataset.srid is not None or not has_geometry) else 0.0
 
-    # 3. Geometry validity (weight 0.30)
-    # Wrap in a SAVEPOINT (begin_nested) so that a failed query (e.g. missing
-    # table in tests, permission denied) does not poison the outer transaction.
-    geometry_score: float = 100.0
-    if has_geometry:
-        try:
-            async with session.begin_nested():
-                result = await session.execute(
-                    text(
-                        f"SELECT COUNT(*) FILTER (WHERE ST_IsValid(geom)) * 100.0 / NULLIF(COUNT(*), 0) "
-                        f"FROM (SELECT geom FROM {_qtable(table_name)} LIMIT :max_rows) sub"
-                    ).bindparams(max_rows=max_validity_rows)
-                )
-                val = result.scalar_one_or_none()
-                if val is not None:
-                    geometry_score = round(float(val), 1)
-        except Exception:  # broad: geometry validity query wrapped in SAVEPOINT; any PostGIS error degrades gracefully
-            geometry_score = 100.0
+    metadata_score = await _score_metadata_completeness(session, record)
+    crs_score = _score_crs(dataset)
+    geometry_score = await _score_geometry_validity(
+        session,
+        table_name,
+        has_geometry,
+        max_validity_rows,
+    )
+    attribute_score = await _score_attribute_completeness(
+        session,
+        table_name,
+        column_info,
+    )
 
-    # 4. Attribute completeness (weight 0.25)
-    # Compute per-column non-null percentage in a SINGLE query instead of N queries.
-    # A 50-column dataset previously triggered 50 sequential full-table scans.
-    # Column identifiers are SQL-quoted below so non-ASCII / mixed-case / CJK
-    # column names are counted correctly (see RESEARCH §2.5 regression fix).
-    attribute_score: float = 100.0
-    non_geom_cols = [
-        c
-        for c in column_info
-        if "geometry" not in c.get("type", "").lower() and c.get("name")
-    ]
-    if non_geom_cols:
-        col_exprs = ", ".join(
-            f"COUNT({_sql_quote_ident(col['name'])}) "
-            f'* 100.0 / NULLIF(COUNT(*), 0) AS "s_{i}"'
-            for i, col in enumerate(non_geom_cols)
-        )
-        try:
-            async with session.begin_nested():
-                result = await session.execute(
-                    text(f"SELECT {col_exprs} FROM {_qtable(table_name)}")
-                )
-                row = result.one_or_none()
-                if row is not None:
-                    col_scores: list[float] = [float(v) for v in row if v is not None]
-                    if col_scores:
-                        attribute_score = round(sum(col_scores) / len(col_scores), 1)
-        except Exception:  # broad: attribute completeness query wrapped in SAVEPOINT; any failure degrades gracefully
-            # On failure, leave attribute_score at its 100.0 default (same as prior behavior)
-            pass
-
-    # 5. Composite
     # For table records, geometry_validity and crs_defined are not applicable.
-    # Re-normalize weights over the two applicable dimensions:
-    #   metadata (30) + attribute (25) = 55 total → metadata (30/55) + attribute (25/55)
+    # Re-normalize weights: metadata (30) + attribute (25) = 55 total.
     is_table = getattr(record, "record_type", None) == "table"
     if is_table:
         overall = round(metadata_score * (30 / 55) + attribute_score * (25 / 55))
@@ -565,8 +594,8 @@ async def compute_quality_score(
             "overall": overall,
             "metadata_completeness": metadata_score,
             "attribute_completeness": attribute_score,
-            "geometry_validity": None,  # N/A for tables
-            "crs_defined": None,  # N/A for tables
+            "geometry_validity": None,
+            "crs_defined": None,
             "computed_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -1065,6 +1094,25 @@ def _build_attribute_metadata(
     )
 
 
+def _build_geometry_attribute_row(
+    dataset_id: uuid.UUID,
+    geometry_type: str | None,
+) -> "AttributeMetadata":
+    """Factory for the special ``geom`` attribute metadata row."""
+    from app.modules.catalog.datasets.domain.models import AttributeMetadata
+
+    return AttributeMetadata(
+        dataset_id=dataset_id,
+        field_name="geom",
+        title="Geometry",
+        data_type=geometry_type or "geometry",
+        semantic_role="geometry",
+        domain_type="geometry",
+        example_values=None,
+        is_current=True,
+    )
+
+
 async def generate_attribute_metadata(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -1110,16 +1158,7 @@ async def generate_attribute_metadata(
 
     # Geometry row
     if geometry_type is not None and "geom" not in existing_fields:
-        am = AttributeMetadata(
-            dataset_id=dataset_id,
-            field_name="geom",
-            title="Geometry",
-            data_type=geometry_type or "geometry",
-            semantic_role="geometry",
-            domain_type="geometry",
-            example_values=None,
-            is_current=True,
-        )
+        am = _build_geometry_attribute_row(dataset_id, geometry_type)
         session.add(am)
         created.append(am)
 
@@ -1213,17 +1252,7 @@ async def refresh_attribute_metadata(
             if "domain_type" not in modified:
                 geom_am.domain_type = "geometry"
         else:
-            am = AttributeMetadata(
-                dataset_id=dataset_id,
-                field_name="geom",
-                title="Geometry",
-                data_type=geometry_type or "geometry",
-                semantic_role="geometry",
-                domain_type="geometry",
-                example_values=None,
-                is_current=True,
-            )
-            session.add(am)
+            session.add(_build_geometry_attribute_row(dataset_id, geometry_type))
 
     # Mark removed columns as is_current=False
     for field_name, am in existing.items():

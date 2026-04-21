@@ -26,8 +26,6 @@ export function getSmartSuggestions(layers: MapLayerResponse[], t: AnyTFunction)
     const geom = (layer.dataset_geometry_type ?? '').toLowerCase();
 
     if (geom.includes('point')) {
-      if (!layer.style_config && suggestions.length < 4)
-        suggestions.push(t('chat.suggestions.heatmap', { name: mention }));
       if (suggestions.length < 4)
         suggestions.push(t('chat.suggestions.colorByAttribute', { name: mention }));
     } else if (geom.includes('polygon') || geom.includes('multipolygon')) {

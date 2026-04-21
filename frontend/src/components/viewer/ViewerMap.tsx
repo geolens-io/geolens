@@ -23,7 +23,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { resolveAdapterType, syncLayersToMap } from '@/components/builder/map-sync';
+import { resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import { fetchGeoJsonZ } from '@/api/geojson-z';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -63,15 +63,15 @@ interface ViewerMapProps {
 const VIEWER_PREFIX = 'viewer-';
 
 function getViewerSourceId(sortOrder: number) {
-  return `${VIEWER_PREFIX}source-${sortOrder}`;
+  return prefixed('source', String(sortOrder), VIEWER_PREFIX);
 }
 
 function getViewerLayerId(sortOrder: number) {
-  return `${VIEWER_PREFIX}layer-${sortOrder}`;
+  return prefixed('layer', String(sortOrder), VIEWER_PREFIX);
 }
 
 function getViewerLabelLayerId(sortOrder: number) {
-  return `${VIEWER_PREFIX}layer-${sortOrder}-label`;
+  return prefixed('label', String(sortOrder), VIEWER_PREFIX);
 }
 
 /** Shared field mapping common to both SyncLayerInput and AdapterLayerInput. */
@@ -389,6 +389,8 @@ export function ViewerMap({
   // Gate on `source.type === 'vector'` and on the token also being the
   // vector kind so rasters (which have stable URLs and no expiration) are
   // left untouched.
+  // NOTE: The setTiles call intentionally duplicates what syncLayersToMap does —
+  // this effect fires on token refresh alone without triggering a full layer sync.
   const cdnBaseUrl = tileConfig?.cdn_base_url;
   useEffect(() => {
     const map = mapRef.current;
@@ -413,23 +415,28 @@ export function ViewerMap({
   // Note: runSync also calls syncVisibility via syncLayersToMap, but this
   // dedicated effect is needed for *visibility-only* changes where other
   // sync inputs (layers, tokenMap) haven't changed.
+  const prevVisibleRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
+    const prev = prevVisibleRef.current;
     for (const layer of layers) {
+      const wasVisible = prev.has(layer.sort_order);
+      const isVisible = visibleLayers.has(layer.sort_order);
+      if (wasVisible === isVisible) continue;
+
       const type = resolveAdapterType(layer.geometry_type, layer.style_config);
       const adapter = getAdapter(type);
       const adapterInput = toAdapterInput(layer, visibleLayers);
       adapter.syncVisibility(map, adapterInput);
 
-      // Also sync label visibility (not handled by adapters)
       const labelId = getViewerLabelLayerId(layer.sort_order);
       if (map.getLayer(labelId)) {
-        const vis = visibleLayers.has(layer.sort_order) ? 'visible' : 'none';
-        map.setLayoutProperty(labelId, 'visibility', vis);
+        map.setLayoutProperty(labelId, 'visibility', isVisible ? 'visible' : 'none');
       }
     }
+    prevVisibleRef.current = new Set(visibleLayers);
   }, [visibleLayers, layers, mapReady]);
 
   // Re-add data layers after any basemap/style change.
@@ -493,7 +500,7 @@ export function ViewerMap({
         <NavigationControl position="top-right" />
         <FullscreenControl position="top-right" />
         {terrainReady && (
-          <TerrainControl source="terrain-dem" exaggeration={1.5} position="top-right" />
+          <TerrainControl source="terrain-dem" position="top-right" />
         )}
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         <AttributionControl position="bottom-right" compact={true} />

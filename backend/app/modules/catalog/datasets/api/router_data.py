@@ -251,3 +251,66 @@ async def update_publication_status(
     await db.commit()
     await db.refresh(dataset)
     return StatusUpdateResponse(id=str(dataset.id), record_status=target)
+
+
+# Ordered status chain used by target_status to walk transitions
+_STATUS_ORDER = ["draft", "ready", "internal", "published"]
+
+
+@router.patch("/{dataset_id}/target-status/", response_model=StatusUpdateResponse)
+async def set_target_status(
+    dataset_id: uuid.UUID,
+    body: StatusUpdate,
+    request: Request,
+    user: User = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StatusUpdateResponse:
+    """Walk the publication chain from current status to target in one request.
+
+    Executes each intermediate transition so the full chain
+    (e.g. draft -> ready -> internal -> published) completes server-side.
+    """
+    dataset = await db.execute(
+        select(DatasetModel)
+        .options(joinedload(DatasetModel.record))
+        .where(DatasetModel.id == dataset_id)
+    )
+    dataset = dataset.unique().scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
+    current = dataset.record.record_status
+    target = body.status
+
+    if current == target:
+        return StatusUpdateResponse(id=str(dataset.id), record_status=current)
+
+    cur_idx = _STATUS_ORDER.index(current) if current in _STATUS_ORDER else -1
+    tgt_idx = _STATUS_ORDER.index(target) if target in _STATUS_ORDER else -1
+    if cur_idx == -1 or tgt_idx == -1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown status value: '{current}' or '{target}'",
+        )
+
+    step = 1 if tgt_idx > cur_idx else -1
+    idx = cur_idx
+    while idx != tgt_idx:
+        next_idx = idx + step
+        next_status = _STATUS_ORDER[next_idx]
+        if next_status not in ALLOWED_TRANSITIONS.get(_STATUS_ORDER[idx], set()):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Cannot transition from '{_STATUS_ORDER[idx]}' to '{next_status}'. "
+                    f"Allowed: {ALLOWED_TRANSITIONS.get(_STATUS_ORDER[idx], set())}"
+                ),
+            )
+        dataset.record.record_status = next_status
+        idx = next_idx
+
+    await db.commit()
+    await db.refresh(dataset)
+    return StatusUpdateResponse(id=str(dataset.id), record_status=target)

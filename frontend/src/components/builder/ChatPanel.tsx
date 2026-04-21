@@ -100,6 +100,7 @@ export function ChatPanel({
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   // Keep a ref to the latest layers so snapshots capture fresh state
   const layersRef = useRef(layers);
   layersRef.current = layers;
@@ -110,6 +111,8 @@ export function ChatPanel({
   useEffect(() => {
     if (messages.length > 0) {
       try { sessionStorage.setItem(`geolens-chat-${mapId}`, JSON.stringify(messages.slice(-50))); } catch (e) { if (import.meta.env.DEV) console.warn('[ChatPanel] sessionStorage error:', e); }
+    } else {
+      try { sessionStorage.removeItem(`geolens-chat-${mapId}`); } catch { /* ignore */ }
     }
   }, [messages, mapId]);
 
@@ -149,9 +152,12 @@ export function ChatPanel({
       action.bbox.length === 4 &&
       action.bbox.every((n: unknown) => typeof n === 'number')
     ) {
+      const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
+      // AI-12: Reject bbox values outside WGS84 bounds
+      if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
-        action.bbox as [number, number, number, number],
+        [minX, minY, maxX, maxY],
       );
     }
   }
@@ -160,6 +166,20 @@ export function ChatPanel({
   const handleUndo = useCallback(() => {
     const snapshot = lastSnapshotRef.current;
     if (!snapshot) return;
+    const snapshotIds = new Set(snapshot.layers.map((l) => l.id));
+    const currentIds = new Set(layersRef.current.map((l) => l.id));
+
+    // AI-03: Remove layers that were added after the snapshot
+    for (const id of currentIds) {
+      if (!snapshotIds.has(id)) onRemove(id);
+    }
+    // AI-03: Re-add layers that were removed after the snapshot
+    for (const layer of snapshot.layers) {
+      if (!currentIds.has(layer.id)) {
+        onAddDataset(layer.dataset_id);
+      }
+    }
+
     for (const layer of snapshot.layers) {
       // Restore paint
       if (layer.paint) onPaintChange(layer.id, layer.paint);
@@ -178,7 +198,7 @@ export function ChatPanel({
     }
     lastSnapshotRef.current = null;
     toast.success(t('chat.undoApplied'));
-  }, [onPaintChange, onFilterChange, onLabelChange, onToggleVisibility, onStyleConfigChange, onOpacityChange, t]);
+  }, [onPaintChange, onFilterChange, onLabelChange, onToggleVisibility, onStyleConfigChange, onOpacityChange, onRemove, onAddDataset, t]);
 
   function handleChatAction(action: ChatAction) {
     switch (action.type) {
@@ -352,7 +372,7 @@ export function ChatPanel({
       } else {
         // No actions applied yet — safe to retry via non-streaming
         try {
-          const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, history);
+          const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
           // B-011: Snapshot layers before non-streaming fallback mutations
           if (response.actions.length > 0) {
             lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
@@ -399,7 +419,7 @@ export function ChatPanel({
   }
 
   return (
-    <div className={cn("flex h-full", horizontal ? "flex-row" : "flex-col")}>
+    <div ref={containerRef} className={cn("flex h-full", horizontal ? "flex-row" : "flex-col")}>
       {/* Message list */}
       <div className={cn("flex-1 overflow-y-auto px-3 py-2 space-y-2", horizontal && "border-e")} role="log" aria-live="polite">
         {messages.length === 0 && (
@@ -418,6 +438,9 @@ export function ChatPanel({
                   className="text-xs px-2.5 py-1 rounded-full border border-border hover:bg-accent hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => {
                     setInput(suggestion);
+                    requestAnimationFrame(() => {
+                      containerRef.current?.querySelector('textarea')?.focus();
+                    });
                   }}
                 >
                   {suggestion}

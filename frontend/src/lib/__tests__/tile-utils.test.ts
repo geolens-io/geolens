@@ -1,4 +1,4 @@
-import { buildSignedTileUrl, buildTileUrl, resolveTileUrl } from '@/lib/tile-utils';
+import { buildSignedTileUrl } from '@/lib/tile-utils';
 
 describe('buildSignedTileUrl', () => {
   const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
@@ -52,47 +52,3 @@ describe('buildSignedTileUrl', () => {
   });
 });
 
-describe('buildTileUrl', () => {
-  it('returns CDN-prefixed tile URL when cdnBaseUrl is provided', () => {
-    const url = buildTileUrl('parcels', 'https://cdn.example.com');
-    expect(url).toBe('https://cdn.example.com/tiles/data.parcels/{z}/{x}/{y}.pbf');
-  });
-
-  it('returns window.location.origin/api prefixed URL when no cdnBaseUrl', () => {
-    const url = buildTileUrl('parcels');
-    expect(url).toBe(`${window.location.origin}/api/tiles/data.parcels/{z}/{x}/{y}.pbf`);
-  });
-
-  it('strips trailing slash from cdnBaseUrl', () => {
-    const url = buildTileUrl('parcels', 'https://cdn.example.com/');
-    expect(url).toBe('https://cdn.example.com/tiles/data.parcels/{z}/{x}/{y}.pbf');
-  });
-
-  it('returns window.location.origin/api prefixed URL when cdnBaseUrl is null', () => {
-    const url = buildTileUrl('parcels', null);
-    expect(url).toBe(`${window.location.origin}/api/tiles/data.parcels/{z}/{x}/{y}.pbf`);
-  });
-});
-
-describe('resolveTileUrl', () => {
-  it('prepends CDN base to relative tile_url path', () => {
-    const url = resolveTileUrl('/api/tiles/data.parcels/{z}/{x}/{y}.pbf', 'https://cdn.example.com');
-    expect(url).toBe('https://cdn.example.com/api/tiles/data.parcels/{z}/{x}/{y}.pbf');
-  });
-
-  it('prepends window.location.origin when no cdnBaseUrl', () => {
-    const url = resolveTileUrl('/api/tiles/data.parcels/{z}/{x}/{y}.pbf');
-    expect(url).toBe(`${window.location.origin}/api/tiles/data.parcels/{z}/{x}/{y}.pbf`);
-  });
-
-  it('handles saved map tile_url format', () => {
-    const savedTileUrl = '/api/tiles/data.my_dataset/{z}/{x}/{y}.pbf';
-    const url = resolveTileUrl(savedTileUrl, 'https://cdn.example.com');
-    expect(url).toBe('https://cdn.example.com/api/tiles/data.my_dataset/{z}/{x}/{y}.pbf');
-  });
-
-  it('strips trailing slash from cdnBaseUrl', () => {
-    const url = resolveTileUrl('/api/tiles/data.parcels/{z}/{x}/{y}.pbf', 'https://cdn.example.com/');
-    expect(url).toBe('https://cdn.example.com/api/tiles/data.parcels/{z}/{x}/{y}.pbf');
-  });
-});

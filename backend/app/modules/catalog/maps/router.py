@@ -732,7 +732,7 @@ async def get_thumbnail(
     cache_control = (
         "public, max-age=3600"
         if map_obj.visibility == "public"
-        else "private, max-age=3600"
+        else "private, no-cache"
     )
     return Response(
         content=data,
