@@ -80,10 +80,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 job.error_message = str(exc)
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
-                # N2: do NOT unlink here. The finally block keeps local
-                # uploads around for retry and only cleans up S3-downloaded
-                # copies (source of truth is S3). Deleting validation
-                # failures inline contradicted that retry-preserving contract.
+                # retry=0: no retry will ever occur, so unlink the staging
+                # file to prevent permanent orphaning.
+                Path(file_path).unlink(missing_ok=True)
                 return
 
             # Check for user-supplied metadata from commit step
@@ -242,17 +241,27 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             )
 
         except Exception as exc:
-            # On any failure, mark job as failed
             await session.rollback()
-            job.status = "failed"
-            job.error_message = str(exc)
-            job.completed_at = datetime.now(timezone.utc)
             structlog.get_logger().exception(
                 "Ingest task failed",
                 job_id=str(job.id),
                 task="ingest_file",
             )
-            await session.commit()
+            # Write failure status via a fresh session — the original may
+            # be in a broken state after rollback on a dead connection.
+            async with async_session() as err_session:
+                from sqlalchemy import update as sa_update
+
+                await err_session.execute(
+                    sa_update(IngestJob)
+                    .where(IngestJob.id == uuid.UUID(job_id))
+                    .values(
+                        status="failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                )
+                await err_session.commit()
             raise
         finally:
             # Clean up local file on success always; on failure only if it was

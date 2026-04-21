@@ -3,6 +3,7 @@
 import asyncio
 import math
 import uuid
+from datetime import datetime, timezone
 
 import structlog
 from pathlib import Path
@@ -918,8 +919,6 @@ async def add_vrt_source(
         )
 
     async def _rollback(defer_exc: BaseException) -> None:
-        from datetime import datetime, timezone
-
         # Revert VRT asset state to what it was before step 8.
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id
@@ -1055,8 +1054,6 @@ async def remove_vrt_source(
         )
 
     async def _rollback(defer_exc: BaseException) -> None:
-        from datetime import datetime, timezone
-
         # Re-insert the deleted source link with its original position.
         await db.execute(
             text(
