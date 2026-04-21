@@ -33,7 +33,7 @@ export function DatasetSearchPanel({
   if (debouncedQuery.trim()) searchParams.q = debouncedQuery;
   if (recordType) searchParams.record_type = recordType;
 
-  const { data, isLoading, isFetching, error } = useQuery({
+  const { data, isLoading, isFetching, isError } = useQuery({
     queryKey: queryKeys.datasetSearch.results(debouncedQuery, recordType),
     queryFn: () => searchDatasets(searchParams),
     enabled: true,
@@ -72,7 +72,7 @@ export function DatasetSearchPanel({
         </ToggleGroup>
       </div>
 
-      {error && !isFetching && <p className="text-sm text-destructive px-3 py-2">{t('search.error', { defaultValue: 'Failed to load results' })}</p>}
+      {isError && <p className="text-sm text-destructive px-3 py-2">{t('search.error', { defaultValue: 'Failed to load results' })}</p>}
 
       {(isLoading || isFetching) && (
         <div className="flex items-center justify-center py-3">
