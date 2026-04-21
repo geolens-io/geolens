@@ -12,6 +12,7 @@ import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
 import { getJobStatus } from '@/api/ingest';
 import { queryKeys } from '@/lib/query-keys';
+import { getVisibilityLabel } from '@/i18n/labels';
 import type { FileEntry } from '@/types/api';
 
 const isRasterFile = (name: string) => /\.tiff?$/i.test(name);
@@ -144,7 +145,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                   <p className="truncate text-[13.5px] font-medium tracking-tight">{entry.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <Badge variant="secondary" className="text-[10px]">{entry.kind}</Badge>
-                    <Badge variant="outline" className="text-[10px] capitalize">{entry.visibility}</Badge>
+                    <Badge variant="outline" className="text-[10px]">{getVisibilityLabel(t, entry.visibility)}</Badge>
                   </div>
                 </div>
                 <StatusPill status="complete" />

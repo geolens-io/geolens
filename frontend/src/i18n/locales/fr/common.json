@@ -235,13 +235,14 @@
     "visibility": {
       "public": "Public",
       "internal": "Interne",
-      "private": "Privé"
+      "private": "Privé",
+      "restricted": "Restreint"
     },
     "recordStatus": {
       "draft": "Brouillon",
-      "published": "Publié",
-      "archived": "Archivé",
-      "deprecated": "Obsolète"
+      "ready": "Prêt",
+      "internal": "Interne",
+      "published": "Publié"
     },
     "sourceFormat": {
       "geojson": "GeoJSON",
