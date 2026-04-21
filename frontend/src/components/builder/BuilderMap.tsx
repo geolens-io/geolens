@@ -30,7 +30,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
  * the `layer-adapters` registry and `map-sync` helpers so styling renders
  * identically in editing and viewing modes.
  */
-export interface SelectedFeature {
+interface SelectedFeature {
   properties: Record<string, unknown>;
   layerName: string;
   columnInfo: { name: string; type: string }[] | null;
@@ -352,7 +352,6 @@ export function BuilderMap({
   const prevLayerCountRef = useRef(layers.length);
 
   // Auto-fit to visible layers (skip on initial load if saved view exists)
-  const layerVisibilityKey = useMemo(() => layers.map((l) => `${l.id}:${l.visible}`).join(','), [layers]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -398,7 +397,7 @@ export function BuilderMap({
       map.setZoom(2);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hasSavedView/layers read from refs, not reactive deps
-  }, [layers.length, layerVisibilityKey, mapReady]);
+  }, [layers.length, structuralKey, mapReady]);
 
   // Cleanup on unmount
   useEffect(() => {
