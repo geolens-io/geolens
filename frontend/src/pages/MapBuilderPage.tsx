@@ -388,16 +388,65 @@ export function MapBuilderPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
-      {/* Sub-header breadcrumb */}
+      {/* Sub-header breadcrumb + action buttons */}
       <div className="border-b bg-accent/30 shrink-0">
-        <div className="h-10 flex items-center gap-3.5 px-5 font-mono text-xs tracking-wide text-muted-foreground uppercase">
-          <Link to="/maps" className="hover:text-foreground transition-colors min-h-[44px] flex items-center">
+        <div className="h-8 flex items-center gap-3 px-4 font-mono text-xs tracking-wide text-muted-foreground uppercase">
+          <Link to="/maps" className="hover:text-foreground transition-colors flex items-center shrink-0">
             {t('common:nav.maps', { defaultValue: 'Maps' })}
           </Link>
           <span className="opacity-40">/</span>
           <span className="font-sans text-sm font-medium text-foreground normal-case tracking-normal truncate">
             {layers.localName}
           </span>
+          <div className="flex-1" />
+          <TooltipProvider delayDuration={300}>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={save.handleExportPNG} aria-label={t('tooltips.downloadPng')}>
+                    <Download className="h-3 w-3" />
+                    <span className="hidden sm:inline">{t('tooltips.downloadPng')}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('tooltips.downloadPng')}</TooltipContent>
+              </Tooltip>
+              {id && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => dialogs.setShowShare(true)} aria-label={t('tooltips.share')}>
+                      <Share2 className="h-3 w-3" />
+                      <span className="hidden sm:inline">{t('share.title')}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{t('tooltips.share')}</TooltipContent>
+                </Tooltip>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={layers.hasUnsavedChanges ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs gap-1 relative"
+                    onClick={save.handleSave}
+                    disabled={save.isSaving}
+                    aria-label={t('tooltips.save', { shortcut: SAVE_SHORTCUT })}
+                  >
+                    {save.isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                    <span className="hidden sm:inline">{t('actions.save')}</span>
+                    {layers.hasUnsavedChanges && (
+                      <>
+                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
+                        <span className="sr-only">Unsaved changes</span>
+                      </>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {layers.hasUnsavedChanges ? t('tooltips.save', { shortcut: SAVE_SHORTCUT }) : t('tooltips.allSaved')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
       </div>
 
@@ -550,76 +599,6 @@ export function MapBuilderPage() {
         <WidgetToolbar />
         <WidgetHost byAnchor={byAnchor} ctx={widgetCtx} />
 
-        {/* Floating action buttons (Composed: top-right of map) */}
-        <TooltipProvider delayDuration={300}>
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
-                  onClick={save.handleExportPNG}
-                  aria-label={t('tooltips.downloadPng')}
-                >
-                  <Download className="h-3 w-3" />
-                  <span className="hidden sm:inline">{t('tooltips.downloadPng')}</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('tooltips.downloadPng')}</TooltipContent>
-            </Tooltip>
-            {id && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs gap-1 bg-background/95 backdrop-blur-sm shadow-sm"
-                    onClick={() => dialogs.setShowShare(true)}
-                    aria-label={t('tooltips.share')}
-                  >
-                    <Share2 className="h-3 w-3" />
-                    <span className="hidden sm:inline">{t('share.title')}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t('tooltips.share')}</TooltipContent>
-              </Tooltip>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={layers.hasUnsavedChanges ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "h-8 text-xs gap-1 shadow-sm relative",
-                    !layers.hasUnsavedChanges && "bg-background/95 backdrop-blur-sm",
-                  )}
-                  onClick={save.handleSave}
-                  disabled={save.isSaving}
-                  aria-label={t('tooltips.save', { shortcut: SAVE_SHORTCUT })}
-                >
-                  {save.isSaving ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Save className="h-3 w-3" />
-                  )}
-                  <span className="hidden sm:inline">{t('actions.save')}</span>
-                  {layers.hasUnsavedChanges && (
-                    <>
-                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
-                      <span className="sr-only">Unsaved changes</span>
-                    </>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {layers.hasUnsavedChanges
-                  ? t('tooltips.save', { shortcut: SAVE_SHORTCUT })
-                  : t('tooltips.allSaved')}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
       </div>
 
       {/* Chat dock (desktop — bottom of map column, tabbed) */}

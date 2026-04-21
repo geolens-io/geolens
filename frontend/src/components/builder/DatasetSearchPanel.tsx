@@ -36,7 +36,7 @@ export function DatasetSearchPanel({
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: queryKeys.datasetSearch.results(debouncedQuery, recordType),
     queryFn: () => searchDatasets(searchParams),
-    enabled: debouncedQuery.trim().length > 0 || recordType !== '',
+    enabled: true,
     staleTime: 30_000,
   });
 
@@ -71,10 +71,6 @@ export function DatasetSearchPanel({
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
-
-      {!debouncedQuery.trim() && !recordType && (
-        <p className="text-xs text-muted-foreground px-2 py-2">{t('search.hint', { defaultValue: 'Type to search for datasets to add to your map.' })}</p>
-      )}
 
       {error && !isFetching && <p className="text-sm text-destructive px-3 py-2">{t('search.error', { defaultValue: 'Failed to load results' })}</p>}
 

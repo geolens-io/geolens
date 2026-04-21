@@ -169,7 +169,7 @@ export const LayerItem = memo(function LayerItem({
         !layer.visible && 'opacity-50',
       )}>
         <div
-          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
+          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded min-w-6 min-h-6 flex items-center justify-center"
           {...attributes}
           {...listeners}
           aria-label={t('layerItem.dragToReorder')}
@@ -217,7 +217,7 @@ export const LayerItem = memo(function LayerItem({
           <span
             role="button"
             tabIndex={0}
-            className="flex-1 text-sm truncate cursor-text flex items-center gap-1 min-w-0 rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            className="flex-1 text-sm truncate cursor-text flex items-center gap-1 min-w-0 min-h-[28px] py-0.5 rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             onDoubleClick={() => setEditing(true)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'F2') setEditing(true); }}
             title={t('layerItem.renameHint')}
@@ -272,7 +272,7 @@ export const LayerItem = memo(function LayerItem({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 shrink-0 min-h-[44px] min-w-[44px]"
+              className="h-8 w-8 shrink-0"
               aria-label={t('layerItem.moreActions')}
             >
               <MoreVertical className="h-3 w-3" />
@@ -352,7 +352,7 @@ export const LayerItem = memo(function LayerItem({
                 role="tab"
                 aria-selected={activeTab === tab}
                 className={cn(
-                  'px-2 py-1.5 text-xs font-semibold transition-colors',
+                  'px-2 py-2 text-xs font-semibold transition-colors',
                   activeTab === tab
                     ? 'text-foreground border-b-2 border-primary'
                     : 'text-muted-foreground hover:text-foreground'

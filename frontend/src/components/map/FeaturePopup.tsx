@@ -98,13 +98,13 @@ export function FeaturePopup({
       latitude={latitude}
       onClose={onClose}
       closeOnClick={false}
-      maxWidth="320px"
+      maxWidth="360px"
     >
       <div className="text-xs">
         {/* Header: layer name + feature counter */}
         <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b">
           {layerName && (
-            <span className="font-semibold font-mono text-[10px] uppercase tracking-wider text-muted-foreground truncate">
+            <span className="font-medium font-mono text-[11px] uppercase tracking-wider text-muted-foreground truncate">
               {layerName}
             </span>
           )}
@@ -132,7 +132,7 @@ export function FeaturePopup({
         </div>
 
         {/* Attribute table */}
-        <div className="max-h-48 overflow-y-auto">
+        <div className="max-h-64 overflow-y-auto">
           {visibleEntries.length === 0 ? (
             <p className="text-muted-foreground py-1">{t('featurePopup.noAttributes')}</p>
           ) : (
