@@ -49,7 +49,7 @@ export function DetailPanel(props: DetailPanelProps) {
   const isVrt = recordType === 'vrt_dataset';
   const isVector = recordType === 'vector_dataset' || isTable || !recordType;
 
-  const showData = isVector && !isTable;
+  const showData = isVector;
   const showStructure = isVector;
   const showSources = isVrt;
 

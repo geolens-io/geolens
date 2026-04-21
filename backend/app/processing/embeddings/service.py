@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import random
 import uuid
 from datetime import datetime, timezone
 
@@ -94,7 +95,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
                     error=str(exc),
                     model=model,
                 )
-                await asyncio.sleep(backoff)
+                await asyncio.sleep(backoff * (1 + random.random() * 0.3))
             else:
                 logger.error(
                     "Embedding API call failed after retries",

@@ -43,6 +43,7 @@ export function useTileConfig() {
     queryKey: queryKeys.settings.tileConfig,
     queryFn: getTileConfig,
     staleTime: 300_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -51,6 +52,7 @@ export function useEnabledWidgets() {
     queryKey: queryKeys.settings.enabledWidgets,
     queryFn: getEnabledWidgets,
     staleTime: 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -59,6 +61,7 @@ export function useFeatureFlags() {
     queryKey: queryKeys.settings.featureFlags,
     queryFn: getFeatureFlags,
     staleTime: 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -70,6 +73,7 @@ export function useAllSettings(options?: { enabled?: boolean }) {
     queryFn: getAllSettings,
     enabled: options?.enabled,
     staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -86,6 +90,7 @@ export function useApiKeyStatus() {
     queryKey: queryKeys.settings.apiKeyStatus,
     queryFn: getApiKeyStatus,
     staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 
@@ -125,6 +130,7 @@ export function useBranding() {
     queryKey: queryKeys.settings.branding,
     queryFn: getBranding,
     staleTime: 60_000,
+    gcTime: 30 * 60_000,
   });
 }
 

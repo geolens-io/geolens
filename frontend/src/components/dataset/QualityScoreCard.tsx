@@ -86,12 +86,13 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
       <CardContent className="space-y-3">
         {dimensions.map(({ key, labelKey, weight }) => {
           type NumericScoreKey = Exclude<keyof QualityScore, 'computed_at' | 'overall'>;
-          const value = qualityScore[key as NumericScoreKey] as number;
+          const raw = qualityScore[key as NumericScoreKey];
+          const value = raw ?? 0;
           return (
             <div key={key} className="space-y-1">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>{t(labelKey)}</span>
-                <span>{Math.round(value)} ({weight})</span>
+                <span>{raw != null ? `${Math.round(value)} (${weight})` : `— (${weight})`}</span>
               </div>
               <div className="h-2 rounded-full bg-muted">
                 <div

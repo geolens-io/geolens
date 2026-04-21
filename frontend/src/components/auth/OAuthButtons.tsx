@@ -69,7 +69,8 @@ export function OAuthButtons() {
   const { data: providers, isLoading, isError } = useQuery({
     queryKey: queryKeys.authConfig.oauthProviders,
     queryFn: getOAuthProviders,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 
   if (isError) {

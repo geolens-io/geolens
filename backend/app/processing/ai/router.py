@@ -61,17 +61,16 @@ _AI_GENERATE_LIMIT = "10/minute"
 _AI_METADATA_LIMIT = "20/minute"
 
 
-async def _check_ai_available(
-    db: AsyncSession, *, status_code: int = status.HTTP_403_FORBIDDEN
-) -> None:
+async def _check_ai_available(db: AsyncSession) -> None:
     """Raise if AI is not configured or has been disabled at runtime.
 
     Validates that the admin-selected LLM provider has an API key configured.
-    Uses 403 by default (policy toggle), callers may override.
+    Returns 403 when admin has disabled the feature (policy decision),
+    503 when the service is unavailable (missing API key).
     """
     if not await AI_ENABLED.get(db):
         raise HTTPException(
-            status_code=status_code,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="AI features are disabled by administrator",
         )
     provider = await LLM_PROVIDER.get(db)
