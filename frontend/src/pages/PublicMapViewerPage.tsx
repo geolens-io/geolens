@@ -71,7 +71,6 @@ export function PublicMapViewerPage() {
   if (isError || !data) {
     const is403 = error instanceof ApiError && error.status === 403;
     const is404 = error instanceof ApiError && error.status === 404;
-    const isNotFound = is403 || is404;
     return (
       <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_hsl(var(--muted))_0,_transparent_55%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted))/0.45)] px-6">
         <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">

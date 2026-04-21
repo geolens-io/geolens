@@ -517,8 +517,8 @@ export function MapBuilderPage() {
             onKeyDown={handleSeparatorKeyDown}
             tabIndex={0}
             data-testid="builder-sidebar-resize-handle"
-            role="separator"
-            aria-orientation="vertical"
+            role="slider"
+            aria-orientation="horizontal"
             aria-label={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
             aria-valuenow={sidebarWidth}
             aria-valuemin={SIDEBAR_MIN}
