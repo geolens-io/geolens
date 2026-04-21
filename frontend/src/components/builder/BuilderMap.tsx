@@ -199,6 +199,7 @@ export function BuilderMap({
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
       syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
       reorderBasemapLabels(map, sbl);
+      refreshQueryLayerIds();
     };
 
     map.once('style.load', onStyleLoad);
@@ -213,15 +214,17 @@ export function BuilderMap({
     };
   }, [basemapEntry?.url]);
 
-  // Update cached queryable layer IDs when layers change
-  useEffect(() => {
+  // Helper: refresh the cached list of queryable layer IDs.
+  // Called after every syncLayersToMap so the click/hover handlers
+  // see the layers that actually exist on the map right now.
+  const refreshQueryLayerIds = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
     queryLayerIdsRef.current = layers
       .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
       .map((l) => getLayerId(l.id))
       .filter((id) => map.getLayer(id));
-  }, [layers, mapReady]);
+  }, [layers]);
 
   // Click + mousemove handlers: popup and pointer cursor
   useEffect(() => {
@@ -308,6 +311,7 @@ export function BuilderMap({
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
     syncLayersToMap(map, layers.map(toSyncInput), tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
+    refreshQueryLayerIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structuralKey, mapReady, tileConfig?.cdn_base_url, tokenMap]);
 
