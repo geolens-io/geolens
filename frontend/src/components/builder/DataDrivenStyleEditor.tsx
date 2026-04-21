@@ -293,6 +293,11 @@ export function DataDrivenStyleEditor({
       ...layer.paint,
       [colorProp]: MAP_COLORS.default.fill,
     };
+    // Delete custom boolean props that shouldn't persist after clearing
+    delete resetPaint['_fill-disabled'];
+    delete resetPaint['_stroke-disabled'];
+    delete resetPaint['_fill-opacity-saved'];
+    delete resetPaint['_outline-width-saved'];
     // Reset size paint properties to scalar defaults
     const radiusProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
     if (radiusProp) resetPaint[radiusProp] = 5;
@@ -319,6 +324,10 @@ export function DataDrivenStyleEditor({
     setMode(newMode);
     setColumn('');
     setRamp(newMode === 'categorical' ? 'Set2' : 'YlOrRd');
+    // Reset color property to flat default to clear stale expressions from previous mode
+    const colorProp = getColorProperty(layer.dataset_geometry_type);
+    const clearPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
+    onStyleConfigChange(layer.id, null, clearPaint);
     if (newMode === 'categorical') {
       // Categorical does not support size targets — force back to color
       setTarget('color');
@@ -477,6 +486,7 @@ export function DataDrivenStyleEditor({
             onChange={setRamp}
             mode={mode}
             customColors={ramp === 'custom' && layer.style_config?.colors ? layer.style_config.colors : undefined}
+            count={mode === 'graduated' ? classCount : undefined}
           />
         </>
       )}

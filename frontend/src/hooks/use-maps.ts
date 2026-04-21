@@ -21,6 +21,7 @@ import {
   fetchDatasetMaps,
 } from '@/api/maps';
 import type { MapUpdateRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
+import { toast } from 'sonner';
 
 export type { MapBrowseParams };
 
@@ -50,6 +51,7 @@ export function useCreateMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to create map'); },
   });
 }
 
@@ -62,6 +64,7 @@ export function useUpdateMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to save map'); },
   });
 }
 
@@ -72,6 +75,7 @@ export function useDuplicateMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to duplicate map'); },
   });
 }
 
@@ -82,6 +86,7 @@ export function useDeleteMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to delete map'); },
   });
 }
 
@@ -93,6 +98,7 @@ export function useAddLayer() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
     },
+    onError: () => { toast.error('Failed to add layer'); },
   });
 }
 
@@ -104,6 +110,7 @@ export function useRemoveLayer() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
     },
+    onError: () => { toast.error('Failed to remove layer'); },
   });
 }
 
@@ -113,7 +120,7 @@ export function useSharedMap(token: string | undefined, apiKey?: string) {
     queryFn: () => getSharedMap(token!, apiKey),
     enabled: !!token,
     retry: false,
-    staleTime: 5 * 60_000,
+    staleTime: 30_000,
   });
 }
 
@@ -135,6 +142,7 @@ export function usePublishMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to update map visibility'); },
   });
 }
 
@@ -146,6 +154,7 @@ export function useUpdateShareToken() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
+    onError: () => { toast.error('Failed to update share token'); },
   });
 }
 
@@ -157,6 +166,7 @@ export function useCreateShareToken() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
+    onError: () => { toast.error('Failed to create share token'); },
   });
 }
 
@@ -170,6 +180,7 @@ export function useRevokeShareToken() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(mapId) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to revoke share token'); },
   });
 }
 
@@ -180,6 +191,7 @@ export function useGenerateMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
+    onError: () => { toast.error('Failed to generate map'); },
   });
 }
 

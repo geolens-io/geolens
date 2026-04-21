@@ -25,7 +25,7 @@ export function StyleSpecView({ layer }: StyleSpecViewProps) {
 
     if (layer.paint && Object.keys(layer.paint).length > 0) {
       obj.paint = Object.fromEntries(
-        Object.entries(layer.paint as Record<string, unknown>).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k))
+        Object.entries(layer.paint as Record<string, unknown>).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k) && k !== 'opacity')
       );
     }
     if (layer.layout && Object.keys(layer.layout).length > 0) {

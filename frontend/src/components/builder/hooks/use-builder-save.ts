@@ -64,6 +64,7 @@ function waitForVisibleLayerSources(
   map: MaplibreMap,
   layers: MapLayerResponse[],
   fn: () => void,
+  signal?: { cancelled: boolean },
 ) {
   const visibleSourceIds = layers
     .filter((layer) => layer.visible)
@@ -77,9 +78,10 @@ function waitForVisibleLayerSources(
   const deadline = Date.now() + 5000;
 
   const poll = () => {
+    if (signal?.cancelled) return;
     const sourcesReady = visibleSourceIds.every((sourceId) => !!map.getSource(sourceId));
     if (sourcesReady || Date.now() >= deadline) {
-      whenMapIdle(map, fn);
+      if (!signal?.cancelled) whenMapIdle(map, fn);
       return;
     }
     setTimeout(poll, 100);
@@ -97,10 +99,11 @@ function captureThumbnail(
   mapId: string,
   queryClient: ReturnType<typeof useQueryClient>,
   layers: MapLayerResponse[],
+  signal?: { cancelled: boolean },
 ) {
   // Auto-capture can run before BuilderMap has synced GeoLens sources. Wait
   // for visible sources first so the thumbnail includes rendered layers.
-  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient));
+  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient), signal);
 }
 
 function resolveWidgetsPayload(
@@ -245,14 +248,21 @@ export function useBuilderSave(state: SaveState) {
   // Memoized to stabilize the callback ref identity in MapBuilderPage,
   // preventing transient null ref cycles during re-renders.
   const thumbCaptured = useRef(false);
+  const captureSignalRef = useRef<{ cancelled: boolean }>({ cancelled: false });
   const localLayersRef = useRef(state.localLayers);
   localLayersRef.current = state.localLayers;
 
   const maybeAutoCaptureThumbnail = useCallback((map: MaplibreMap) => {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
     thumbCaptured.current = true;
-    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current);
+    captureSignalRef.current = { cancelled: false };
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current);
   }, [state.hasThumbnail, state.mapId, queryClient]);
+
+  // P-08: Cancel in-flight polling on unmount
+  useEffect(() => {
+    return () => { captureSignalRef.current.cancelled = true; };
+  }, []);
 
   // Warn before tab close / refresh with unsaved changes, and block in-app navigation
   const blocker = useUnsavedGuard(state.hasUnsavedChanges);

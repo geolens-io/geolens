@@ -6,6 +6,7 @@ import {
   getDatasetRows,
   updateDataset,
   updatePublicationStatus,
+  setTargetStatus,
   deleteDataset,
   getDatasetHistory,
   reuploadDataset,
@@ -82,6 +83,20 @@ export function useUpdatePublicationStatus() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
       qc.invalidateQueries({ queryKey: queryKeys.search.all });
       // PERF-D1: keep validation in sync with publication_status changes.
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
+    },
+  });
+}
+
+export function useSetTargetStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, status }: { datasetId: string; status: string }) =>
+      setTargetStatus(datasetId, status),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
     },
   });

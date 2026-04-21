@@ -1,4 +1,4 @@
-import { useState, useMemo, memo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Eye,
@@ -121,6 +121,13 @@ export const LayerItem = memo(function LayerItem({
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState(layer.display_name ?? layer.dataset_name);
 
+  // L-09: Resync nameValue when canonical name changes externally (e.g. AI rename)
+  useEffect(() => {
+    if (!editing) {
+      setNameValue(layer.display_name ?? layer.dataset_name);
+    }
+  }, [layer.display_name, layer.dataset_name, editing]);
+
   const {
     attributes,
     listeners,
@@ -138,10 +145,13 @@ export const LayerItem = memo(function LayerItem({
 
   function commit() {
     setEditing(false);
-    const newName = nameValue.trim() || null;
+    const trimmed = nameValue.trim();
+    // L-12: If empty, revert to original name instead of persisting null
+    const newName = trimmed || (layer.display_name ?? layer.dataset_name);
     if (newName !== layer.display_name) {
       onRename(layer.id, newName);
     }
+    setNameValue(newName);
   }
 
   const columns = layer.dataset_column_info ?? [];
@@ -346,11 +356,19 @@ export const LayerItem = memo(function LayerItem({
       {isExpanded && !inspectorMode && !isRaster && (
         <div className="px-2 pb-2">
           <div className="flex gap-1 mb-2 border-b" role="tablist">
-            {(['style', 'filter', 'labels'] as const).map((tab) => (
+            {(['style', 'filter', 'labels'] as const)
+              .filter((tab) => {
+                if (tab === 'filter') return caps.supportsFilterEditor;
+                if (tab === 'labels') return caps.supportsLabelEditor;
+                return true;
+              })
+              .map((tab) => (
               <button
                 key={tab}
+                id={`tab-${layer.id}-${tab}`}
                 role="tab"
                 aria-selected={activeTab === tab}
+                aria-controls={`tabpanel-${layer.id}-${tab}`}
                 className={cn(
                   'px-2 py-2 text-xs font-semibold transition-colors',
                   activeTab === tab
@@ -364,32 +382,38 @@ export const LayerItem = memo(function LayerItem({
             ))}
           </div>
           {activeTab === 'style' && (
-            <LayerStyleEditor
-              layer={layer}
-              onPaintChange={onPaintChange}
-              onOpacityChange={onOpacityChange}
-              onStyleConfigChange={onStyleConfigChange}
-              onLayoutChange={onLayoutChange}
-              onRenderModeChange={onRenderModeChange}
-            />
-          )}
-          {activeTab === 'style' && columns.length > 0 && (
-            <ColumnsReference columns={columns} />
+            <div role="tabpanel" id={`tabpanel-${layer.id}-style`} aria-labelledby={`tab-${layer.id}-style`}>
+              <LayerStyleEditor
+                layer={layer}
+                onPaintChange={onPaintChange}
+                onOpacityChange={onOpacityChange}
+                onStyleConfigChange={onStyleConfigChange}
+                onLayoutChange={onLayoutChange}
+                onRenderModeChange={onRenderModeChange}
+              />
+              {columns.length > 0 && (
+                <ColumnsReference columns={columns} />
+              )}
+            </div>
           )}
           {activeTab === 'filter' && (
-            <LayerFilterEditor
-              columnInfo={columns}
-              filter={layer.filter ?? null}
-              onFilterChange={(expr) => onFilterChange(layer.id, expr)}
-            />
+            <div role="tabpanel" id={`tabpanel-${layer.id}-filter`} aria-labelledby={`tab-${layer.id}-filter`}>
+              <LayerFilterEditor
+                columnInfo={columns}
+                filter={layer.filter ?? null}
+                onFilterChange={(expr) => onFilterChange(layer.id, expr)}
+              />
+            </div>
           )}
           {activeTab === 'labels' && (
-            <LabelEditor
-              columns={columns}
-              labelConfig={layer.label_config ?? null}
-              onLabelChange={(config) => onLabelChange(layer.id, config)}
-              geometryType={layer.dataset_geometry_type}
-            />
+            <div role="tabpanel" id={`tabpanel-${layer.id}-labels`} aria-labelledby={`tab-${layer.id}-labels`}>
+              <LabelEditor
+                columns={columns}
+                labelConfig={layer.label_config ?? null}
+                onLabelChange={(config) => onLabelChange(layer.id, config)}
+                geometryType={layer.dataset_geometry_type}
+              />
+            </div>
           )}
         </div>
       )}

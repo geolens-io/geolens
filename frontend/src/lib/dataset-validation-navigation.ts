@@ -1,5 +1,3 @@
-import type { ValidationIssue } from '@/types/api';
-
 export type DatasetTabValue =
   | 'overview'
   | 'metadata'
@@ -149,22 +147,4 @@ export function getValidationNavigationAction(
     default:
       return null;
   }
-}
-
-export function getValidationNavigationActions(
-  issues: ValidationIssue[],
-): ValidationNavigationAction[] {
-  const unique = new Map<string, ValidationNavigationAction>();
-
-  for (const issue of issues) {
-    const action = getValidationNavigationAction(issue.field);
-    if (!action) continue;
-
-    const key = `${action.tab ?? 'page'}:${action.anchor}`;
-    if (!unique.has(key)) {
-      unique.set(key, action);
-    }
-  }
-
-  return [...unique.values()].sort((a, b) => a.priority - b.priority);
 }

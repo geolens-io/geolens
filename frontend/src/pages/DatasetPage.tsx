@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, L
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
-import { useDataset, useUpdateDataset, useUpdatePublicationStatus, useValidation } from '@/components/dataset/hooks/use-dataset';
+import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation } from '@/components/dataset/hooks/use-dataset';
 import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
 import { useDatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
@@ -58,8 +58,8 @@ import type { DatasetResponse } from '@/types/api';
 import { downloadCog } from '@/api/datasets';
 
 const VALID_TABS = ['overview', 'metadata', 'data', 'structure', 'sources', 'members', 'access'] as const;
-const PUBLISH_CHAIN = ['ready', 'internal', 'published'] as const;
-const UNPUBLISH_CHAIN = ['internal', 'ready', 'draft'] as const;
+const PUBLISH_TARGET = 'published';
+const UNPUBLISH_TARGET = 'draft';
 
 function normalizeLegacyTabHash(hash: string): string | null {
   if (hash === 'source-quality' || hash === 'coverage' || hash === 'source-coverage') {
@@ -179,7 +179,7 @@ export function DatasetPage() {
     refetchInterval: (query) => query.state.data?.raster?.status === 'regenerating' ? 5_000 : false,
   });
   const [activeDialog, setActiveDialog] = useState<'delete' | 'reupload' | 'vrt' | 'unpublish' | null>(null);
-  const updatePublicationStatus = useUpdatePublicationStatus();
+  const setTargetStatus = useSetTargetStatus();
   const token = useAuthStore((s) => s.token);
   const { data: validationData } = useValidation(token ? id : undefined);
   const { data: featureFlags } = useFeatureFlags();
@@ -343,24 +343,6 @@ export function DatasetPage() {
   // Metadata editing (overview/metadata tabs) and management actions remain ungated.
   const canEditData = isEditor && dataEditingEnabled;
 
-  // TODO: PERF-14 — consolidate into single target_status backend endpoint
-  const executeStatusChain = useCallback(
-    async (chain: readonly string[], currentStatus: string, successMsg: string) => {
-      if (!id) return;
-      const startIdx = chain.indexOf(currentStatus);
-      const steps = startIdx === -1 ? chain : chain.slice(startIdx + 1);
-      try {
-        for (const step of steps) {
-          await updatePublicationStatus.mutateAsync({ datasetId: id, status: step });
-        }
-        toast.success(successMsg);
-      } catch {
-        toast.error(t('publish.failed'));
-      }
-    },
-    [id, updatePublicationStatus, t],
-  );
-
   const handlePublishToggle = async () => {
     if (!id) return;
     if (isPublished) {
@@ -371,12 +353,20 @@ export function DatasetPage() {
       toast.error(t('publish.validationBlocker', { defaultValue: 'Resolve validation issues before publishing' }));
       return;
     }
-    await executeStatusChain(PUBLISH_CHAIN, dataset.record_status, t('publish.success'));
+    try {
+      await setTargetStatus.mutateAsync({ datasetId: id, status: PUBLISH_TARGET });
+      toast.success(t('publish.success'));
+    } catch {
+      toast.error(t('publish.failed'));
+    }
   };
 
   const handleUnpublish = async () => {
     try {
-      await executeStatusChain(UNPUBLISH_CHAIN, dataset.record_status, t('publish.unpublished'));
+      await setTargetStatus.mutateAsync({ datasetId: id, status: UNPUBLISH_TARGET });
+      toast.success(t('publish.unpublished'));
+    } catch {
+      toast.error(t('publish.failed'));
     } finally {
       setActiveDialog(null);
     }
@@ -404,7 +394,7 @@ export function DatasetPage() {
       onSelect: handlePublishToggle,
       priority: 5,
       visible: isEditor,
-      disabled: updatePublicationStatus.isPending,
+      disabled: setTargetStatus.isPending,
     },
     {
       id: 'reupload',

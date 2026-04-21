@@ -44,7 +44,7 @@ class Map(Base):
 
     # Basemap
     basemap_style: Mapped[str] = mapped_column(
-        String(30),
+        String(2000),
         default="openfreemap-positron",
         server_default="openfreemap-positron",
     )

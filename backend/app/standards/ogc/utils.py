@@ -1,5 +1,5 @@
 from fastapi import Request
-from starlette.responses import Response
+
 
 from app.core.public_urls import get_env_public_api_url, join_public_url
 
@@ -51,8 +51,3 @@ def parse_accept_language(request: Request) -> str:
         if base in _SUPPORTED_LANGS:
             return base
     return "en"
-
-
-def set_content_language(response: Response, lang: str = "en") -> None:
-    """Set the Content-Language header on an OGC/DCAT response."""
-    response.headers["Content-Language"] = lang

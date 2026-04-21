@@ -11,6 +11,7 @@ import {
 } from '@/api/records';
 import { fetchRelatedDatasets } from '@/api/datasets';
 import type { ContactCreate, KeywordCreate } from '@/types/api';
+import { toast } from 'sonner';
 
 export function useContacts(recordId: string | undefined) {
   return useQuery({
@@ -29,6 +30,7 @@ export function useCreateContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
+    onError: () => { toast.error('Failed to add contact'); },
   });
 }
 
@@ -40,6 +42,7 @@ export function useDeleteContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
+    onError: () => { toast.error('Failed to delete contact'); },
   });
 }
 
@@ -60,6 +63,7 @@ export function useCreateKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
+    onError: () => { toast.error('Failed to add keyword'); },
   });
 }
 
@@ -71,6 +75,7 @@ export function useDeleteKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
+    onError: () => { toast.error('Failed to delete keyword'); },
   });
 }
 

@@ -21,7 +21,7 @@ class AITokenUsage(Base):
     __table_args__ = {"schema": "catalog"}
 
     id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, server_default=func.gen_random_uuid(), init=False
+        primary_key=True, server_default=func.gen_random_uuid()
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
@@ -33,7 +33,7 @@ class AITokenUsage(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), init=False
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

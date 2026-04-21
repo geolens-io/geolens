@@ -79,7 +79,7 @@ function coerceValue(value: string, pgType: string): string | number | boolean {
   if (colType === 'number') {
     if (value === '') return '';
     const n = Number(value);
-    return isNaN(n) ? '' : n;
+    return isNaN(n) ? value : n;
   }
   if (colType === 'boolean') {
     return value.toLowerCase() === 'true';
@@ -146,7 +146,8 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       e[0] === 'any' &&
       e.length === 3 &&
       Array.isArray(e[1]) && e[1][0] === '!' && Array.isArray(e[1][1]) && e[1][1][0] === 'has' &&
-      Array.isArray(e[2]) && e[2][0] === '==' && Array.isArray(e[2][1]) && e[2][1][0] === 'get' && e[2][2] === null
+      Array.isArray(e[2]) && e[2][0] === '==' && Array.isArray(e[2][1]) && e[2][1][0] === 'get' && e[2][2] === null &&
+      e[1][1][1] === e[2][1][1]
     ) {
       return {
         id: crypto.randomUUID(),
@@ -461,8 +462,8 @@ export function LayerFilterEditor({
         /* Visual editing mode */
         <>
           {/* Combinator select */}
-          <Select value={combinator} onValueChange={handleCombinatorChange}>
-            <SelectTrigger className="h-7 text-xs w-44">
+          <Select value={combinator} onValueChange={handleCombinatorChange} aria-label={t('filters.combinator', { defaultValue: 'Match condition' })}>
+            <SelectTrigger className="h-7 text-xs w-44" aria-label={t('filters.combinator', { defaultValue: 'Match condition' })}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -524,7 +525,7 @@ export function LayerFilterEditor({
                       value={cond.value || 'true'}
                       onValueChange={(val) => updateCondition(cond.id, { value: val })}
                     >
-                      <SelectTrigger className="h-7 text-xs w-24 shrink-0">
+                      <SelectTrigger className="h-7 text-xs w-24 shrink-0" aria-label={t('filters.value')}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

@@ -29,7 +29,7 @@ vi.mock('@/hooks/use-unsaved-guard', () => ({
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDataset: vi.fn(),
   useUpdateDataset: vi.fn(),
-  useUpdatePublicationStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSetTargetStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useValidation: () => ({ data: { errors: [], warnings: [] } }),
   useDatasetVersions: () => ({ data: { versions: [], total: 0 }, isLoading: false }),
   useAttributes: () => ({ data: [] }),

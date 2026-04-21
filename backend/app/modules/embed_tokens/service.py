@@ -94,7 +94,7 @@ async def create_embed_token(
             for h in revoked_hashes:
                 await cache.delete(f"embed_token:{h}")
         except Exception:
-            logger.warning("Cache invalidation failed for embed token", exc_info=True)
+            logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     # Generate raw token
     raw_token = "et_" + secrets.token_urlsafe(32)
@@ -166,7 +166,7 @@ async def revoke_embed_token(
         cache = get_cache()
         await cache.delete(f"embed_token:{token.token_hash}")
     except Exception:
-        logger.warning("Cache invalidation failed for embed token", exc_info=True)
+        logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return token
 
@@ -197,7 +197,7 @@ async def update_embed_token(
         cache = get_cache()
         await cache.delete(f"embed_token:{token.token_hash}")
     except Exception:
-        logger.warning("Cache invalidation failed for embed token", exc_info=True)
+        logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return token
 
@@ -385,6 +385,6 @@ async def bulk_revoke_embed_tokens(
         for token in tokens:
             await cache.delete(f"embed_token:{token.token_hash}")
     except Exception:
-        logger.warning("Cache invalidation failed for embed token", exc_info=True)
+        logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return len(tokens)

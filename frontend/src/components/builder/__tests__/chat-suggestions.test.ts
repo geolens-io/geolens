@@ -44,10 +44,10 @@ describe('getSmartSuggestions', () => {
     expect(result.length).toBeLessThanOrEqual(4);
   });
 
-  it('generates point-specific suggestions (heatmap)', () => {
+  it('generates point-specific suggestions (colorByAttribute)', () => {
     const layer = makeLayer({ dataset_geometry_type: 'Point', style_config: null });
     const result = getSmartSuggestions([layer], mockT as never);
-    expect(result.some((s) => s.includes('chat.suggestions.heatmap'))).toBe(true);
+    expect(result.some((s) => s.includes('chat.suggestions.colorByAttribute'))).toBe(true);
   });
 
   it('generates polygon-specific suggestions (colorByAttribute, areaLabels)', () => {

@@ -127,6 +127,7 @@ export function useCreateUser() {
     mutationFn: (data: { username: string; password: string; email?: string; role: string }) =>
       createUser(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onError: () => { toast.error('Failed to create user'); },
   });
 }
 
@@ -136,6 +137,7 @@ export function useUpdateUser() {
     mutationFn: ({ userId, data }: { userId: string; data: { email?: string; is_active?: boolean; role?: string } }) =>
       updateUser(userId, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onError: () => { toast.error('Failed to update user'); },
   });
 }
 
@@ -144,6 +146,7 @@ export function useDeactivateUser() {
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onError: () => { toast.error('Failed to deactivate user'); },
   });
 }
 
@@ -152,6 +155,7 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: (userId: string) => deleteUser(userId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onError: () => { toast.error('Failed to delete user'); },
   });
 }
 
@@ -161,6 +165,7 @@ export function useApproveUser() {
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       approveUser(userId, role),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onError: () => { toast.error('Failed to approve user'); },
   });
 }
 
@@ -169,6 +174,7 @@ export function useRejectUser() {
   return useMutation({
     mutationFn: (userId: string) => rejectUser(userId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onError: () => { toast.error('Failed to reject user'); },
   });
 }
 
@@ -201,6 +207,7 @@ export function useAdminRevokeShareToken() {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allShareTokens });
       qc.invalidateQueries({ queryKey: queryKeys.admin.allEmbedTokens });
     },
+    onError: () => { toast.error('Failed to revoke share token'); },
   });
 }
 
@@ -228,6 +235,7 @@ export function useBulkRevokeEmbedTokens() {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allEmbedTokens });
       qc.invalidateQueries({ queryKey: queryKeys.admin.allShareTokens });
     },
+    onError: () => { toast.error('Failed to revoke embed tokens'); },
   });
 }
 
@@ -248,6 +256,7 @@ export function useCreateApiKey() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.apiKeys(variables.userId) });
     },
+    onError: () => { toast.error('Failed to create API key'); },
   });
 }
 
@@ -259,6 +268,7 @@ export function useRevokeApiKey() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.apiKeys(variables.userId) });
     },
+    onError: () => { toast.error('Failed to revoke API key'); },
   });
 }
 

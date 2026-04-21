@@ -36,6 +36,9 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     label_config: layer.label_config,
     style_config: layer.style_config,
     show_in_legend: layer.show_in_legend,
+    layer_type: layer.layer_type ?? undefined,
+    dataset_record_type: layer.dataset_record_type ?? undefined,
+    is_3d: layer.is_3d ?? null,
   };
 }
 
@@ -66,14 +69,20 @@ export function PublicMapViewerPage() {
   }
 
   if (isError || !data) {
-    const isNotFound = error instanceof ApiError && (error.status === 404 || error.status === 403);
+    const is403 = error instanceof ApiError && error.status === 403;
+    const is404 = error instanceof ApiError && error.status === 404;
+    const isNotFound = is403 || is404;
     return (
       <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_hsl(var(--muted))_0,_transparent_55%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted))/0.45)] px-6">
         <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">
           <MapPinOff className="size-10 text-muted-foreground" />
           <div className="mt-4 space-y-2 text-center">
             <h1 className="text-2xl font-semibold text-foreground">
-              {isNotFound ? t('viewer.mapNotFound') : t('viewer.loadFailed')}
+              {is403
+                ? t('viewer.accessDenied', { defaultValue: 'Access denied' })
+                : is404
+                  ? t('viewer.mapNotFound')
+                  : t('viewer.loadFailed')}
             </h1>
             <p className="mx-auto max-w-md text-sm text-muted-foreground">
               {t('viewer.mapNotFoundDescription')}

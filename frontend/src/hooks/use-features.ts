@@ -3,6 +3,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { createFeature, updateFeature, deleteFeature } from '@/api/features';
 import { addColumn, dropColumn } from '@/api/datasets';
 import type { Geometry } from 'geojson';
+import { toast } from 'sonner';
 
 export function useCreateFeature() {
   const qc = useQueryClient();
@@ -85,6 +86,7 @@ export function useAddColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
     },
+    onError: () => { toast.error('Failed to add column'); },
   });
 }
 
@@ -103,5 +105,6 @@ export function useDropColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
     },
+    onError: () => { toast.error('Failed to drop column'); },
   });
 }

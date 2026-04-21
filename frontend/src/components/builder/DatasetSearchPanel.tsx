@@ -85,7 +85,7 @@ export function DatasetSearchPanel({
       )}
 
       {results.length > 0 && (
-        <div className="space-y-0.5 max-h-48 overflow-y-auto px-1">
+        <div className={cn("space-y-0.5 max-h-48 overflow-y-auto px-1", isFetching && !isLoading && "opacity-50 pointer-events-none")}>
           {results.map((record) => {
             const isAdded = existingDatasetIds.includes(record.id);
             return (

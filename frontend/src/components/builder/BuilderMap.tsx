@@ -178,7 +178,7 @@ export function BuilderMap({
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
         if (status && status >= 500) {
           toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
-            id: 'builder-map-error',
+            id: `builder-map-error-${Date.now()}`,
           });
         }
       };
@@ -295,20 +295,18 @@ export function BuilderMap({
     };
   }, [mapReady, t]);
 
-  // Stable string key for visibility changes — avoids per-render allocations
-  const visibilityKey = useMemo(() => layers.map((l) => l.visible).join(','), [layers]);
-
-  // Clear popup when layer visibility changes
-  useEffect(() => {
-    setPopupInfo(null);
-  }, [visibilityKey]);
-
   // Structural key: only changes when layers are added/removed/reordered/toggled —
   // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).
+  // Also drives popup clearing on visibility changes (P-17: single key replaces separate visibilityKey).
   const structuralKey = useMemo(
     () => layers.map((l) => `${l.id}:${l.visible}:${l.dataset_id}`).join(','),
     [layers],
   );
+
+  // Clear popup when layer visibility changes
+  useEffect(() => {
+    setPopupInfo(null);
+  }, [structuralKey]);
 
   // Memoized sync inputs — avoids re-allocating on every effect run (token refresh, etc.)
   const syncInputs = useMemo(
@@ -325,8 +323,8 @@ export function BuilderMap({
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
     syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
     refreshQueryLayerIds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [structuralKey, mapReady, tileConfig?.cdn_base_url, tokenMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tokenMap handled by separate token-refresh effect (P-05)
+  }, [structuralKey, mapReady, tileConfig?.cdn_base_url]);
 
   // Reorder basemap labels — only when showBasemapLabels actually changes
   useEffect(() => {

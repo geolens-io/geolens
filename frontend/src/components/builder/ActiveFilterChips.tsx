@@ -28,6 +28,16 @@ function summarizeFilter(filter: FilterSpecification): string | null {
     if (field) return `${field} ${op} ${value}`;
   }
 
+  // is_null compound: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
+  // Must be checked BEFORE the generic all/any combinator handler
+  if (op === 'any' && filter.length === 3 &&
+      Array.isArray(filter[1]) && filter[1][0] === '!' &&
+      Array.isArray(filter[1][1]) && filter[1][1][0] === 'has' &&
+      Array.isArray(filter[2]) && filter[2][0] === '==' &&
+      Array.isArray(filter[2][1]) && filter[2][1][0] === 'get' && filter[2][2] === null) {
+    return `${filter[1][1][1]} is null`;
+  }
+
   // "all" / "any" combinator: ["all", cond1, cond2, ...]
   if ((op === 'all' || op === 'any') && filter.length > 1) {
     const parts = filter
@@ -64,13 +74,6 @@ function summarizeFilter(filter: FilterSpecification): string | null {
   if (op === '!' && Array.isArray(filter[1])) {
     const inner = summarizeFilter(filter[1] as FilterSpecification);
     if (inner) return `NOT (${inner})`;
-  }
-
-  // is_null compound: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
-  if (op === 'any' && filter.length === 3 &&
-      Array.isArray(filter[1]) && filter[1][0] === '!' &&
-      Array.isArray(filter[1][1]) && filter[1][1][0] === 'has') {
-    return `${filter[1][1][1]} is null`;
   }
 
   return null;

@@ -38,6 +38,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
       newPaint['heatmap-weight'] = 1;
       delete newPaint['_heatmap-weight-column'];
     } else {
+      // Note: MapLibre clamps negative heatmap-weight values to 0 at render time
       newPaint['heatmap-weight'] = ['get', col];
       newPaint['_heatmap-weight-column'] = col;
     }

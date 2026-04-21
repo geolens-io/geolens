@@ -53,14 +53,15 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
     return PLACEMENT_OPTIONS.filter(p => p.value === 'point');
   }, [geometryType]);
 
-  // B-021: Preserve label config when toggling off so it can be restored
-  const savedConfigRef = useRef<LabelConfig | null>(null);
+  // B-017/LB-01: Sync from prop so the ref survives unmount/remount cycles
+  const lastConfigRef = useRef<LabelConfig | null>(labelConfig);
+  if (labelConfig) lastConfigRef.current = labelConfig;
 
   function handleToggle(checked: boolean) {
     if (checked) {
-      // Restore saved config or use defaults
-      if (savedConfigRef.current) {
-        onLabelChange(savedConfigRef.current);
+      // Restore last known config or use defaults
+      if (lastConfigRef.current) {
+        onLabelChange(lastConfigRef.current);
       } else {
         onLabelChange({
           ...DEFAULTS,
@@ -69,8 +70,6 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
         });
       }
     } else {
-      // Save before clearing
-      savedConfigRef.current = labelConfig ?? null;
       onLabelChange(null);
     }
   }

@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
@@ -73,9 +74,15 @@ async def get_features_geojson_z_endpoint(
             detail="Dataset has no geometry",
         )
 
-    rows, truncated, total_count = await get_features_geojson_z(
-        db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
-    )
+    try:
+        rows, truncated, total_count = await get_features_geojson_z(
+            db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
+        )
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is unavailable",
+        )
 
     body = {
         "type": "FeatureCollection",
@@ -153,18 +160,24 @@ async def list_features(
     has_geometry = dataset.geometry_type is not None
 
     # Query features
-    rows, total = await get_features(
-        db,
-        dataset.table_name,
-        limit=limit,
-        offset=offset,
-        bbox=parsed_bbox,
-        property_filters=property_filters if property_filters else None,
-        has_geometry=has_geometry,
-        allowed_columns=column_names,
-        include_geometry=include_geometry,
-        cached_feature_count=dataset.feature_count,
-    )
+    try:
+        rows, total = await get_features(
+            db,
+            dataset.table_name,
+            limit=limit,
+            offset=offset,
+            bbox=parsed_bbox,
+            property_filters=property_filters if property_filters else None,
+            has_geometry=has_geometry,
+            allowed_columns=column_names,
+            include_geometry=include_geometry,
+            cached_feature_count=dataset.feature_count,
+        )
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is unavailable",
+        )
 
     # Build GeoJSON features
     features = [

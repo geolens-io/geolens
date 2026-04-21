@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { listMyApiKeys, createMyApiKey, revokeMyApiKey } from '@/api/auth';
+import { toast } from 'sonner';
 
 export function useMyApiKeys() {
   return useQuery({
@@ -16,6 +17,7 @@ export function useCreateMyApiKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.mine });
     },
+    onError: () => { toast.error('Failed to create API key'); },
   });
 }
 
@@ -26,5 +28,6 @@ export function useRevokeMyApiKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.mine });
     },
+    onError: () => { toast.error('Failed to revoke API key'); },
   });
 }

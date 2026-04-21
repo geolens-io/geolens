@@ -53,6 +53,9 @@ export const fillAdapter: LayerAdapter = {
         },
       });
       map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
+      if (strokeDisabled) {
+        map.setLayoutProperty(outlineId, 'visibility', 'none');
+      }
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(outlineId, filter);
       }
@@ -100,10 +103,11 @@ export const fillAdapter: LayerAdapter = {
       const outlineColor = (rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
       try {
         map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'rgba(0,0,0,0)' : (outlineColor ?? 'rgba(0,0,0,0)'));
-      } catch { /* fill-outline-color may not be supported on all styles */ }
+      } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] fill-outline-color may not be supported on all styles:`, e); }
     }
     // Sync outline companion layer
     if (map.getLayer(outlineId)) {
+      const outlineStrokeDisabled = !!rawPaint['_stroke-disabled'];
       const outlineColor = rawPaint['_outline-color'] ?? rawPaint['outline-color'];
       const outlineWidth = rawPaint['_outline-width'] ?? rawPaint['outline-width'];
       if (typeof outlineColor === 'string') {
@@ -119,6 +123,7 @@ export const fillAdapter: LayerAdapter = {
         } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-width on ${outlineId}:`, e); }
       }
       map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
+      map.setLayoutProperty(outlineId, 'visibility', outlineStrokeDisabled ? 'none' : 'visible');
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(outlineId, filter);
       } else {
@@ -148,7 +153,7 @@ export const fillAdapter: LayerAdapter = {
           if (map.getFilter(extrusionId) != null) map.setFilter(extrusionId, null);
         }
         // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
-        try { map.triggerRepaint(); } catch { /* ok if not available */ }
+        try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
       }
     }
   },

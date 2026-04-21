@@ -802,12 +802,9 @@ def _build_search_filters(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid intersects geometry: {e}",
                 )
-        filters.append(
-            func.ST_Intersects(
-                Record.spatial_extent,
-                func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326),
-            )
-        )
+        _geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326)
+        filters.append(Record.spatial_extent.op("&&")(func.ST_Envelope(_geom)))
+        filters.append(func.ST_Intersects(Record.spatial_extent, _geom))
     elif bbox:
         # Filter by bbox (only if intersects not provided) — accept string or list
         try:

@@ -193,6 +193,7 @@ export async function* streamGenerateMap(
   const decoder = new TextDecoder();
   let buffer = '';
   let eventType = 'message';
+  let dataLines: string[] = [];
 
   try {
     while (true) {
@@ -207,15 +208,26 @@ export async function* streamGenerateMap(
         if (line.startsWith('event: ')) {
           eventType = line.slice(7).trim();
         } else if (line.startsWith('data: ')) {
+          dataLines.push(line.slice(6));
+        } else if (line === '' && dataLines.length > 0) {
+          // AI-08: Blank line = SSE frame boundary; join accumulated data lines
           try {
-            const eventData = JSON.parse(line.slice(6));
+            const eventData = JSON.parse(dataLines.join('\n'));
             yield { event: eventType, data: eventData };
           } catch {
             // Skip malformed JSON
           }
+          dataLines = [];
           eventType = 'message';
         }
       }
+    }
+    // Flush any remaining data lines at end of stream
+    if (dataLines.length > 0) {
+      try {
+        const eventData = JSON.parse(dataLines.join('\n'));
+        yield { event: eventType, data: eventData };
+      } catch { /* skip */ }
     }
   } finally {
     reader.releaseLock();
@@ -327,6 +339,7 @@ export async function* streamChatMessage(
   const decoder = new TextDecoder();
   let buffer = '';
   let eventType = 'message';
+  let dataLines: string[] = [];
 
   try {
     while (true) {
@@ -341,16 +354,26 @@ export async function* streamChatMessage(
         if (line.startsWith('event: ')) {
           eventType = line.slice(7).trim();
         } else if (line.startsWith('data: ')) {
+          dataLines.push(line.slice(6));
+        } else if (line === '' && dataLines.length > 0) {
+          // AI-08: Blank line = SSE frame boundary; join accumulated data lines
           try {
-            const data = JSON.parse(line.slice(6));
+            const data = JSON.parse(dataLines.join('\n'));
             yield { event: eventType, data };
           } catch {
             // Skip malformed JSON lines
           }
+          dataLines = [];
           eventType = 'message';
         }
-        // Empty lines (SSE separators) are ignored
       }
+    }
+    // Flush any remaining data lines at end of stream
+    if (dataLines.length > 0) {
+      try {
+        const data = JSON.parse(dataLines.join('\n'));
+        yield { event: eventType, data };
+      } catch { /* skip */ }
     }
   } finally {
     reader.releaseLock();

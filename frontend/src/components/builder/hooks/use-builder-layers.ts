@@ -166,6 +166,7 @@ export function useBuilderLayers(
 
   const handleToggleExpand = useCallback((layerId: string) => {
     setExpandedLayerId((prev) => {
+      if (!layerId) return null;
       const next = prev === layerId ? null : layerId;
       if (next !== null) setActiveEditorTab('style');
       return next;
@@ -279,6 +280,10 @@ export function useBuilderLayers(
     const outlineId = `layer-${layer.id}-outline`;
     if (map.getLayer(outlineId)) {
       map.removeLayer(outlineId);
+    }
+    const extrusionId = `layer-${layer.id}-extrusion`;
+    if (map.getLayer(extrusionId)) {
+      map.removeLayer(extrusionId);
     }
 
     // Get tile URL from existing source

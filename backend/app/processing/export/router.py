@@ -108,6 +108,11 @@ async def export_dataset_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Export failed",
         )
+    except OSError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Export temporarily unavailable",
+        )
 
     # 7. Audit log
     await log_action(

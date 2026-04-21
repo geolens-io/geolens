@@ -134,10 +134,13 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
 
     for attempt in range(1, max_attempts + 1):
         try:
-            response = await asyncio.to_thread(
-                client.embeddings.create,
-                model=model,
-                input="dimension probe",
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.embeddings.create,
+                    model=model,
+                    input="dimension probe",
+                ),
+                timeout=30.0,
             )
             return len(response.data[0].embedding)
         except Exception as exc:  # broad: OpenAI-compatible SDKs can raise various network/API/timeout errors

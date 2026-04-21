@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 
 interface LayerLike {
   visible: boolean;
@@ -45,10 +45,21 @@ export function useViewerLayers(
     });
   }, [layers]);
 
-  const [isLegendOpen, setIsLegendOpen] = useState(() => {
+  const [isLegendOpen, setIsLegendOpenRaw] = useState(() => {
     if (!showLegend) return false;
     return typeof window !== 'undefined' ? window.innerWidth >= 500 : true;
   });
+
+  // SH-21: Track whether the user has manually toggled the legend so the
+  // resize handler doesn't override their preference.
+  const userHasToggled = useRef(false);
+  const setIsLegendOpen = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      userHasToggled.current = true;
+      setIsLegendOpenRaw(value);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!showLegend) return;
@@ -57,7 +68,8 @@ export function useViewerLayers(
     const handleResize = () => {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
-        setIsLegendOpen(window.innerWidth >= 500);
+        if (userHasToggled.current) return;
+        setIsLegendOpenRaw(window.innerWidth >= 500);
       }, 150);
     };
 
