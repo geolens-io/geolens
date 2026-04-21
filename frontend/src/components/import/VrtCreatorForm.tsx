@@ -163,8 +163,8 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
   });
 
   useEffect(() => {
-    if (initialSourceError) toast.error('Failed to load source dataset');
-  }, [initialSourceError]);
+    if (initialSourceError) toast.error(t('vrt.loadSourceFailed'));
+  }, [initialSourceError, t]);
 
   useEffect(() => {
     if (
@@ -203,9 +203,9 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
   const multiSourceErrorCount = multiSourceQueries.filter((q) => q.isError).length;
   useEffect(() => {
     if (multiSourceErrorCount > 0) {
-      toast.error(`Failed to load ${multiSourceErrorCount} raster source(s)`);
+      toast.error(t('vrt.loadSourcesFailed', { count: multiSourceErrorCount }));
     }
-  }, [multiSourceErrorCount]);
+  }, [multiSourceErrorCount, t]);
 
   // Debounce search query
   useEffect(() => {
@@ -373,7 +373,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                 }}
               />
               {isSearchFetching && (
-                <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                <Loader2 className="absolute end-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
               )}
             </div>
 

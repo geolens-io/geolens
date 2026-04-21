@@ -246,7 +246,7 @@ export function JobList() {
                             {expandedId === job.id ? (
                               <ChevronDown className="size-4" />
                             ) : (
-                              <ChevronRight className="size-4" />
+                              <ChevronRight className="size-4 rtl-mirror" />
                             )}
                           </Button>
                         </TableCell>

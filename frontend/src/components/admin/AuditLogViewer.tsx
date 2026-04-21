@@ -273,7 +273,7 @@ export function AuditLogViewer() {
                             {expandedId === log.id ? (
                               <ChevronDown className="size-4" />
                             ) : (
-                              <ChevronRight className="size-4" />
+                              <ChevronRight className="size-4 rtl-mirror" />
                             )}
                           </Button>
                         </TableCell>

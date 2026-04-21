@@ -54,7 +54,7 @@ function TabsList({
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-muted to-transparent group-data-[variant=line]/tabs-list:hidden"
+        className="pointer-events-none absolute inset-y-0 end-0 w-6 bg-gradient-to-l from-muted to-transparent group-data-[variant=line]/tabs-list:hidden"
       />
     </div>
   )

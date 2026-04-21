@@ -20,20 +20,50 @@ if TYPE_CHECKING:
         RecordDistribution,
     )
 
-_LANG_URIS = {
-    "en": "ENG", "de": "DEU", "fr": "FRA", "es": "SPA",
-    "it": "ITA", "pt": "POR", "nl": "NLD", "pl": "POL",
-    "sv": "SWE", "da": "DAN", "fi": "FIN", "no": "NOR",
-    "cs": "CES", "sk": "SLK", "hu": "HUN", "ro": "RON",
-    "bg": "BUL", "hr": "HRV", "sl": "SLV", "et": "EST",
-    "lv": "LAV", "lt": "LIT", "el": "ELL", "ga": "GLE",
-    "mt": "MLT", "ar": "ARA", "zh": "ZHO", "ja": "JPN",
-    "ko": "KOR", "ru": "RUS", "uk": "UKR", "tr": "TUR",
-    "he": "HEB", "hi": "HIN", "th": "THA", "vi": "VIE",
-    "id": "IND", "ms": "MSA", "sw": "SWA",
-}
-
 _LANG_URI_BASE = "http://publications.europa.eu/resource/authority/language/"
+
+# ISO 639-1 → ISO 639-3 (uppercase) mapping used by the EU Authority Table.
+# Covers all languages with ISO 639-1 codes that have entries in the
+# EU Publications Office Named Authority Lists.
+_LANG_URIS: dict[str, str] = {
+    "aa": "AAR", "ab": "ABK", "af": "AFR", "ak": "AKA", "am": "AMH",
+    "an": "ARG", "ar": "ARA", "as": "ASM", "av": "AVA", "ay": "AYM",
+    "az": "AZE", "ba": "BAK", "be": "BEL", "bg": "BUL", "bh": "BIH",
+    "bi": "BIS", "bm": "BAM", "bn": "BEN", "bo": "BOD", "br": "BRE",
+    "bs": "BOS", "ca": "CAT", "ce": "CHE", "ch": "CHA", "co": "COS",
+    "cr": "CRE", "cs": "CES", "cu": "CHU", "cv": "CHV", "cy": "CYM",
+    "da": "DAN", "de": "DEU", "dv": "DIV", "dz": "DZO", "ee": "EWE",
+    "el": "ELL", "en": "ENG", "eo": "EPO", "es": "SPA", "et": "EST",
+    "eu": "EUS", "fa": "FAS", "ff": "FUL", "fi": "FIN", "fj": "FIJ",
+    "fo": "FAO", "fr": "FRA", "fy": "FRY", "ga": "GLE", "gd": "GLA",
+    "gl": "GLG", "gn": "GRN", "gu": "GUJ", "gv": "GLV", "ha": "HAU",
+    "he": "HEB", "hi": "HIN", "ho": "HMO", "hr": "HRV", "ht": "HAT",
+    "hu": "HUN", "hy": "HYE", "hz": "HER", "ia": "INA", "id": "IND",
+    "ie": "ILE", "ig": "IBO", "ii": "III", "ik": "IPK", "io": "IDO",
+    "is": "ISL", "it": "ITA", "iu": "IKU", "ja": "JPN", "jv": "JAV",
+    "ka": "KAT", "kg": "KON", "ki": "KIK", "kj": "KUA", "kk": "KAZ",
+    "kl": "KAL", "km": "KHM", "kn": "KAN", "ko": "KOR", "kr": "KAU",
+    "ks": "KAS", "ku": "KUR", "kv": "KOM", "kw": "COR", "ky": "KIR",
+    "la": "LAT", "lb": "LTZ", "lg": "LUG", "li": "LIM", "ln": "LIN",
+    "lo": "LAO", "lt": "LIT", "lu": "LUB", "lv": "LAV", "mg": "MLG",
+    "mh": "MAH", "mi": "MRI", "mk": "MKD", "ml": "MAL", "mn": "MON",
+    "mr": "MAR", "ms": "MSA", "mt": "MLT", "my": "MYA", "na": "NAU",
+    "nb": "NOB", "nd": "NDE", "ne": "NEP", "ng": "NDO", "nl": "NLD",
+    "nn": "NNO", "no": "NOR", "nr": "NBL", "nv": "NAV", "ny": "NYA",
+    "oc": "OCI", "oj": "OJI", "om": "ORM", "or": "ORI", "os": "OSS",
+    "pa": "PAN", "pi": "PLI", "pl": "POL", "ps": "PUS", "pt": "POR",
+    "qu": "QUE", "rm": "ROH", "rn": "RUN", "ro": "RON", "ru": "RUS",
+    "rw": "KIN", "sa": "SAN", "sc": "SRD", "sd": "SND", "se": "SME",
+    "sg": "SAG", "si": "SIN", "sk": "SLK", "sl": "SLV", "sm": "SMO",
+    "sn": "SNA", "so": "SOM", "sq": "SQI", "sr": "SRP", "ss": "SSW",
+    "st": "SOT", "su": "SUN", "sv": "SWE", "sw": "SWA", "ta": "TAM",
+    "te": "TEL", "tg": "TGK", "th": "THA", "ti": "TIR", "tk": "TUK",
+    "tl": "TGL", "tn": "TSN", "to": "TON", "tr": "TUR", "ts": "TSO",
+    "tt": "TAT", "tw": "TWI", "ty": "TAH", "ug": "UIG", "uk": "UKR",
+    "ur": "URD", "uz": "UZB", "ve": "VEN", "vi": "VIE", "vo": "VOL",
+    "wa": "WLN", "wo": "WOL", "xh": "XHO", "yi": "YID", "yo": "YOR",
+    "za": "ZHA", "zh": "ZHO", "zu": "ZUL",
+}
 
 
 def _lang_to_uri(code: str | None) -> dict:
@@ -158,7 +188,7 @@ def record_to_dcat(
     # Theme categories
     if record.theme_category:
         result["dcat:theme"] = [
-            {"@type": "skos:Concept", "skos:prefLabel": theme}
+            {"@type": "skos:Concept", "skos:prefLabel": {"@value": theme, "@language": lang}}
             for theme in record.theme_category
         ]
 
@@ -211,8 +241,8 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
         "@context": DCAT_CONTEXT,
         "@type": "dcat:Catalog",
         "@id": f"{base_url}/datasets/dcat",
-        "dcterms:title": "GeoLens Dataset Catalog",
-        "dcterms:description": "Geospatial dataset catalog managed by GeoLens",
+        "dcterms:title": {"@value": "GeoLens Dataset Catalog", "@language": "en"},
+        "dcterms:description": {"@value": "Geospatial dataset catalog managed by GeoLens", "@language": "en"},
         "dcterms:issued": datetime.now(timezone.utc).isoformat(),
         "dcterms:language": {
             "@id": "http://publications.europa.eu/resource/authority/language/ENG"

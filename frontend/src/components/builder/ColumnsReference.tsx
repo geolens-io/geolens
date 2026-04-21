@@ -26,7 +26,7 @@ export function ColumnsReference({ columns, defaultOpen = false }: ColumnsRefere
         className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}
         {t('layerItem.columns')}
         <span className="text-muted-foreground/60 ms-auto">{columns.length}</span>
       </button>

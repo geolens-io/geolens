@@ -543,7 +543,7 @@ function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defa
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}
         <Code className="h-3 w-3" />
         {t('style.advancedJson')}
       </button>

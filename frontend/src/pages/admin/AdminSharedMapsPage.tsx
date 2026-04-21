@@ -342,7 +342,7 @@ export function AdminSharedMapsPage() {
                               {isExpanded ? (
                                 <ChevronDown className="h-4 w-4" />
                               ) : (
-                                <ChevronRight className="h-4 w-4" />
+                                <ChevronRight className="h-4 w-4 rtl-mirror" />
                               )}
                             </button>
                           ) : (

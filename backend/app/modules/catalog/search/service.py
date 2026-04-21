@@ -158,7 +158,11 @@ def _build_text_filter(q: str, *, use_alias: bool = False):
 
     kw_fts_sel = select(RK.id).where(
         RK.record_id == Record.id,
-        func.to_tsvector("english", RK.keyword).bool_op("@@")(ts_query),
+        (
+            func.to_tsvector("english", RK.keyword).bool_op("||")(
+                func.to_tsvector("simple", RK.keyword)
+            )
+        ).bool_op("@@")(ts_query),
     )
     kw_like_sel = select(RK.id).where(
         RK.record_id == Record.id,
@@ -166,9 +170,16 @@ def _build_text_filter(q: str, *, use_alias: bool = False):
     )
     ct_fts_sel = select(RC.id).where(
         RC.record_id == Record.id,
-        func.to_tsvector(
-            "english",
-            func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+        (
+            func.to_tsvector(
+                "english",
+                func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+            ).bool_op("||")(
+                func.to_tsvector(
+                    "simple",
+                    func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+                )
+            )
         ).bool_op("@@")(ts_query),
     )
     ct_like_sel = select(RC.id).where(
