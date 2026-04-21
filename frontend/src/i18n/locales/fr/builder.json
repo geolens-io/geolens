@@ -416,5 +416,11 @@
     "askAi": "Ask AI",
     "notes": "Notes",
     "notesPlaceholder": "Add notes about this map..."
+  },
+  "leaveWarning": {
+    "title": "Modifications non enregistrées",
+    "description": "Vous avez des modifications non enregistrées qui seront perdues si vous quittez cette page.",
+    "stay": "Rester",
+    "leave": "Quitter"
   }
 }

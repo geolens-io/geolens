@@ -416,5 +416,11 @@
     "askAi": "Ask AI",
     "notes": "Notes",
     "notesPlaceholder": "Add notes about this map..."
+  },
+  "leaveWarning": {
+    "title": "Unsaved changes",
+    "description": "You have unsaved changes that will be lost if you leave this page.",
+    "stay": "Stay",
+    "leave": "Leave"
   }
 }
