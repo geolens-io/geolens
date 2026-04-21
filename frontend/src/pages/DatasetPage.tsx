@@ -36,7 +36,7 @@ import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
 import { MapErrorBoundary } from '@/components/error';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
-import { getRecordStatusLabel } from '@/i18n/labels';
+import { getRecordStatusLabel, getVisibilityLabel } from '@/i18n/labels';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -378,9 +378,9 @@ export function DatasetPage() {
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
         <span className="text-muted-foreground/50">·</span>
-        <Badge variant="outline" className={cn('text-xs capitalize', visibilityColors[dataset.visibility] ?? '')}>
+        <Badge variant="outline" className={cn('text-xs', visibilityColors[dataset.visibility] ?? '')}>
           {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
-          {dataset.visibility}
+          {getVisibilityLabel(t, dataset.visibility)}
         </Badge>
       </div>
     </>

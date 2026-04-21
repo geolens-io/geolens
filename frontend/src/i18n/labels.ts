@@ -13,13 +13,14 @@ const VISIBILITY_KEYS = {
   public: 'common:enums.visibility.public',
   internal: 'common:enums.visibility.internal',
   private: 'common:enums.visibility.private',
+  restricted: 'common:enums.visibility.restricted',
 } as const;
 
 const RECORD_STATUS_KEYS = {
   draft: 'common:enums.recordStatus.draft',
+  ready: 'common:enums.recordStatus.ready',
+  internal: 'common:enums.recordStatus.internal',
   published: 'common:enums.recordStatus.published',
-  archived: 'common:enums.recordStatus.archived',
-  deprecated: 'common:enums.recordStatus.deprecated',
 } as const;
 
 const SOURCE_FORMAT_KEYS = {

@@ -26,6 +26,7 @@ export const userStatusColors: Record<string, string> = {
 
 export const visibilityColors: Record<string, string> = {
   public: semanticBadgeColors.success,
+  internal: semanticBadgeColors.info,
   restricted: semanticBadgeColors.warning,
   private: semanticBadgeColors.destructive,
 };
@@ -64,6 +65,7 @@ export const ingestionStatusColors: Record<string, string> = {
   draft: semanticBadgeColors.warning,
   ready: semanticBadgeColors.info,
   internal: 'border-border bg-muted text-muted-foreground',
+  published: semanticBadgeColors.success,
 };
 
 export const validationLevelColors = {

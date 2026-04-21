@@ -227,13 +227,14 @@
     "visibility": {
       "public": "Public",
       "internal": "Internal",
-      "private": "Private"
+      "private": "Private",
+      "restricted": "Restricted"
     },
     "recordStatus": {
       "draft": "Draft",
-      "published": "Published",
-      "archived": "Archived",
-      "deprecated": "Deprecated"
+      "ready": "Ready",
+      "internal": "Internal",
+      "published": "Published"
     },
     "sourceFormat": {
       "geojson": "GeoJSON",

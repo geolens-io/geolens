@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Copy, Check, Eye } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { visibilityColors } from '@/lib/status-colors';
+import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
+import { getVisibilityLabel } from '@/i18n/labels';
 import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { ExportButton } from '@/components/dataset/ExportButton';
 import { cn } from '@/lib/utils';
@@ -235,8 +237,8 @@ export function AccessTab({ dataset }: AccessTabProps) {
                 'bg-muted text-muted-foreground border-border'
               }
             >
-              <Eye className="h-3 w-3 me-1" />
-              {dataset.visibility}
+              <VisibilityIcon visibility={dataset.visibility} />
+              <span className="ms-1">{getVisibilityLabel(t, dataset.visibility)}</span>
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
