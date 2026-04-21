@@ -1,6 +1,7 @@
 """Schemas for AI map generation."""
 
 import re
+from typing import Literal
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -245,7 +246,7 @@ class LLMMapSpec(BaseModel):
 class ChatHistoryMessage(BaseModel):
     """A single message in the conversation history."""
 
-    role: str  # "user" or "assistant"
+    role: Literal["user", "assistant"]
     content: str
 
 
@@ -306,7 +307,17 @@ class GeoJSONFeatureCollection(BaseModel):
 
 
 class ChatAction(BaseModel):
-    type: str  # set_filter, set_style, set_data_driven_style, set_label, toggle_visibility, add_layer, remove_layer, show_query_result, set_opacity
+    type: Literal[
+        "set_filter",
+        "set_style",
+        "set_data_driven_style",
+        "set_label",
+        "toggle_visibility",
+        "add_layer",
+        "remove_layer",
+        "show_query_result",
+        "set_opacity",
+    ]
     layer_id: str | None = None
     expression: list | None = None  # for set_filter
     paint: dict | None = None  # for set_style / set_data_driven_style

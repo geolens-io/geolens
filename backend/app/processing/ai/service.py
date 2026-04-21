@@ -1,5 +1,6 @@
 """AI map generation service: LLM orchestration with tool calling."""
 
+import asyncio
 import json
 import re
 import uuid
@@ -744,18 +745,21 @@ async def stream_generate_map(
             )
             return result
 
-        result = await run_tool_loop(
-            provider=provider,
-            model=model,
-            system_prompt=system_prompt,
-            user_message=prompt,
-            tools_anthropic=ANTHROPIC_TOOLS,
-            tools_openai=OPENAI_TOOLS,
-            tool_executor=tracking_executor,
-            base_url=base_url,
-            temperature=0.3,
-            max_tokens=1500,
-            max_rounds=8,
+        result = await asyncio.wait_for(
+            run_tool_loop(
+                provider=provider,
+                model=model,
+                system_prompt=system_prompt,
+                user_message=prompt,
+                tools_anthropic=ANTHROPIC_TOOLS,
+                tools_openai=OPENAI_TOOLS,
+                tool_executor=tracking_executor,
+                base_url=base_url,
+                temperature=0.3,
+                max_tokens=1500,
+                max_rounds=8,
+            ),
+            timeout=300.0,  # 5-minute hard cap on LLM tool loop
         )
 
         # Yield all collected tool events
@@ -798,6 +802,12 @@ async def stream_generate_map(
         yield {
             "type": "error",
             "message": "Map generation required too many steps. Try a simpler prompt.",
+        }
+    except TimeoutError:
+        logger.warning("Streaming map generation timed out")
+        yield {
+            "type": "error",
+            "message": "Map generation timed out. Try a simpler prompt.",
         }
     except Exception as e:
         logger.exception("Streaming map generation failed")

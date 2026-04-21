@@ -122,9 +122,9 @@ export interface DatasetResponse {
   quality_detail?: {
     overall: number;
     metadata_completeness: number;
-    geometry_validity: number;
+    geometry_validity: number | null;
     attribute_completeness: number;
-    crs_defined: number;
+    crs_defined: number | null;
     computed_at: string | null;
   } | null;
   record_type: string;

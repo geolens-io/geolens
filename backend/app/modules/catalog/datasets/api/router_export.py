@@ -177,7 +177,7 @@ async def _resolve_download_user(
     )
 
 
-@router.get("/{dataset_id}/download/cog")
+@router.get("/{dataset_id}/download/cog", response_class=Response)
 async def download_cog(
     dataset_id: uuid.UUID,
     request: Request,
