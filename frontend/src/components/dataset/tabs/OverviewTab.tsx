@@ -111,7 +111,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
             <div key={v.id} className={cn('relative pb-4 last:pb-0')}>
               {/* Timeline dot */}
               <div className={cn(
-                'absolute -left-5 top-[5px] size-[9px] rounded-full border-[1.5px]',
+                'absolute -start-5 top-[5px] size-[9px] rounded-full border-[1.5px]',
                 i === 0 ? 'border-primary bg-background' : 'border-muted-foreground/40 bg-muted',
               )} />
               <div className="font-mono text-[10.5px] text-muted-foreground tracking-wider uppercase mb-0.5">

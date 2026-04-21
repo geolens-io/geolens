@@ -91,7 +91,7 @@ export function LoginForm() {
               <button
                 type="button"
                 onClick={() => setShowPassword((visible) => !visible)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
+                className="absolute inset-y-0 end-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
                 aria-label={
                   showPassword
                     ? t('hidePassword', { defaultValue: 'Hide password' })

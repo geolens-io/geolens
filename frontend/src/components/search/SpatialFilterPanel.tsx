@@ -303,7 +303,7 @@ export function SpatialFilterPanel({
           <Button
             variant="ghost"
             size="icon"
-            className="absolute top-4 right-4"
+            className="absolute top-4 end-4"
             onClick={onClose}
             aria-label={t('spatial.close', { defaultValue: 'Close' })}
           >

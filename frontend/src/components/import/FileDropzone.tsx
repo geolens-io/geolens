@@ -52,9 +52,9 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
   const onDropRejected = useCallback((rejections: FileRejection[]) => {
     for (const { file, errors } of rejections) {
       const reason = errors.map((e) => e.message).join(', ');
-      toast.error(`${file.name}: ${reason}`);
+      toast.error(t('dropzone.fileRejected', { filename: file.name, reason }));
     }
-  }, []);
+  }, [t]);
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({

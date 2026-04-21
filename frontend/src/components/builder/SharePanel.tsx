@@ -575,7 +575,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     <Button
                       variant="outline"
                       size="icon-xs"
-                      className="absolute top-1.5 right-1.5"
+                      className="absolute top-1.5 end-1.5"
                       onClick={handleCopyEmbedCode}
                       title={t('share.copyEmbedCode')}
                     >

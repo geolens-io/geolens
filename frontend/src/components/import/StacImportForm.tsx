@@ -72,7 +72,7 @@ export function StacImportForm() {
     try {
       new URL(trimmed);
     } catch {
-      setError('Please enter a valid URL (e.g. https://earth-search.aws.element84.com/v1)');
+      setError(t('stac.invalidUrl'));
       return;
     }
 
@@ -88,7 +88,7 @@ export function StacImportForm() {
       setCollections(collectionsResult.collections);
       setStep('collections');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to connect to STAC catalog';
+      const msg = err instanceof ApiError ? err.message : t('stac.connectFailed');
       setError(msg);
       setStep('idle');
       toast.error(msg);
@@ -111,7 +111,7 @@ export function StacImportForm() {
       setSelectedItems(new Set());
       setStep('items');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to search items';
+      const msg = err instanceof ApiError ? err.message : t('stac.searchItemsFailed');
       setError(msg);
       setStep('collections');
       toast.error(msg);
@@ -162,10 +162,10 @@ export function StacImportForm() {
       setImportResult({ created: result.created, skipped: result.skipped, errors: result.errors });
       setStep('done');
       if (result.created > 0) {
-        toast.success(`Imported ${result.created} dataset${result.created !== 1 ? 's' : ''}`);
+        toast.success(t('stac.importedCount', { count: result.created }));
       }
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Import failed';
+      const msg = err instanceof ApiError ? err.message : t('stac.importFailed');
       setError(msg);
       setStep('items');
       toast.error(msg);
@@ -177,7 +177,7 @@ export function StacImportForm() {
     const label =
       step === 'connecting' ? t('stac.connecting', { defaultValue: 'Connecting to STAC catalog...' })
       : step === 'loading-items' ? t('stac.searching', { defaultValue: 'Searching items...' })
-      : `Importing ${selectedItems.size} item${selectedItems.size !== 1 ? 's' : ''}...`;
+      : t('stac.importing', { count: selectedItems.size });
     return (
       <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-5 py-8 justify-center">
         <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -193,26 +193,26 @@ export function StacImportForm() {
         <div className="rounded-xl border border-success/30 bg-success/5 p-5">
           <div className="flex items-center gap-2 mb-3">
             <Check className="size-5 text-success" />
-            <h3 className="text-[15px] font-medium">Import Complete</h3>
+            <h3 className="text-[15px] font-medium">{t('stac.importComplete')}</h3>
           </div>
           <div className="flex gap-6 text-sm text-muted-foreground">
             {importResult.created > 0 && (
-              <span className="text-success">{importResult.created} created</span>
+              <span className="text-success">{t('stac.createdCount', { count: importResult.created })}</span>
             )}
             {importResult.skipped > 0 && (
-              <span>{importResult.skipped} skipped (duplicate)</span>
+              <span>{t('stac.skippedCount', { count: importResult.skipped })}</span>
             )}
             {importResult.errors > 0 && (
-              <span className="text-destructive">{importResult.errors} failed</span>
+              <span className="text-destructive">{t('stac.failedCount', { count: importResult.errors })}</span>
             )}
           </div>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={reset}>
-            Import more
+            {t('stac.importMore')}
           </Button>
           <Button variant="outline" onClick={() => { setStep('items'); setImportResult(null); }}>
-            Back to results
+            {t('stac.backToResults')}
           </Button>
         </div>
       </div>
@@ -226,7 +226,7 @@ export function StacImportForm() {
         {/* Connected state header */}
         <div className="rounded-xl border border-border bg-card p-5">
           <span className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-            STAC Catalog — connected
+            {t('stac.catalogConnected')}
           </span>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
             <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-success">
@@ -243,7 +243,7 @@ export function StacImportForm() {
               onClick={reset}
               className="border-l border-border bg-surface-2 px-4 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground"
             >
-              Clear
+              {t('stac.clear')}
             </button>
           </div>
         </div>
@@ -257,7 +257,7 @@ export function StacImportForm() {
             <div className="flex-1">
               <h3 className="text-[15px] font-medium tracking-tight">{catalogInfo.title}</h3>
               <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
-                {collections.length} collection{collections.length !== 1 ? 's' : ''} available
+                {t('stac.collectionsAvailable', { count: collections.length })}
               </p>
             </div>
           </div>
@@ -265,7 +265,7 @@ export function StacImportForm() {
           <div className="grid gap-2 p-2 sm:grid-cols-2">
             {collections.length === 0 && (
               <p className="col-span-2 px-3 py-4 text-center text-sm text-muted-foreground">
-                No collections found in this catalog.
+                {t('stac.noCollections')}
               </p>
             )}
             {collections.map((col) => (
@@ -285,7 +285,7 @@ export function StacImportForm() {
                     </p>
                   )}
                   <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-muted-foreground/70">
-                    {col.item_count != null && <span>{col.item_count} items</span>}
+                    {col.item_count != null && <span>{t('stac.itemCount', { count: col.item_count })}</span>}
                     {col.license && <span>{col.license}</span>}
                     {col.temporal_start && (
                       <span className="flex items-center gap-0.5">
@@ -322,13 +322,13 @@ export function StacImportForm() {
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-3.5 rtl-mirror" />
-            Collections
+            {t('stac.collections')}
           </button>
           <ChevronRight className="size-3 text-muted-foreground/40 rtl-mirror" />
           <span className="font-medium">{selectedCollection.title}</span>
           {matchedCount != null && (
             <span className="font-mono text-[11px] text-muted-foreground">
-              ({matchedCount} total)
+              {t('stac.matchedTotal', { count: matchedCount })}
             </span>
           )}
         </div>
@@ -343,15 +343,15 @@ export function StacImportForm() {
               className="rounded border-border"
             />
             {selectedItems.size > 0
-              ? `${selectedItems.size} of ${items.length} selected`
-              : `${items.length} items`}
+              ? t('stac.selectedCount', { selected: selectedItems.size, total: items.length })
+              : t('stac.itemCount', { count: items.length })}
           </label>
           <Button
             size="sm"
             disabled={selectedItems.size === 0}
             onClick={handleImport}
           >
-            Import {selectedItems.size > 0 ? selectedItems.size : ''} item{selectedItems.size !== 1 ? 's' : ''}
+            {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
           </Button>
         </div>
 
@@ -359,7 +359,7 @@ export function StacImportForm() {
         <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
           {items.length === 0 && (
             <p className="px-5 py-8 text-center text-sm text-muted-foreground">
-              No items found in this collection.
+              {t('stac.noItems')}
             </p>
           )}
           {items.map((item) => {
@@ -408,15 +408,15 @@ export function StacImportForm() {
                       </span>
                     )}
                     {item.epsg && <span>EPSG:{item.epsg}</span>}
-                    {item.gsd != null && <span>{item.gsd}m GSD</span>}
-                    {item.cloud_cover != null && <span>{item.cloud_cover.toFixed(0)}% cloud</span>}
-                    <span>{item.asset_count} asset{item.asset_count !== 1 ? 's' : ''}</span>
+                    {item.gsd != null && <span>{t('stac.gsd', { value: item.gsd })}</span>}
+                    {item.cloud_cover != null && <span>{t('stac.cloudCover', { value: item.cloud_cover.toFixed(0) })}</span>}
+                    <span>{t('stac.assetCount', { count: item.asset_count })}</span>
                   </div>
                 </div>
 
                 {!hasAsset && (
                   <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                    No COG asset
+                    {t('stac.noCogAsset')}
                   </span>
                 )}
               </label>
@@ -459,7 +459,7 @@ export function StacImportForm() {
           </div>
           <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span>
-              Browse and import raster datasets from public STAC catalogs like{' '}
+              {t('stac.catalogHelp')}{' '}
               <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px]">
                 Earth Search
               </code>{' '}

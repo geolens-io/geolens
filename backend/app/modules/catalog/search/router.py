@@ -39,7 +39,7 @@ from app.standards.ogc.filtering import (
     build_queryables_response,
     build_record_schema_response,
 )
-from app.standards.ogc.utils import build_url
+from app.standards.ogc.utils import build_url, parse_accept_language
 from app.core.public_urls import get_public_api_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
@@ -1313,9 +1313,11 @@ async def collection_items(
     effective_params = params.model_copy(update=overrides) if overrides else params
 
     result = await _handle_search(db, user, request, effective_params)
+    lang = parse_accept_language(request)
     return JSONResponse(
         content=result.model_dump(mode="json"),
         media_type="application/geo+json",
+        headers={"Content-Language": lang},
     )
 
 
@@ -1372,6 +1374,7 @@ async def get_collection_item(
         item_raster_meta = await _build_raster_assets(db, record_id)
 
     public_api_url = await get_public_api_url(db, request=request)
+    lang = parse_accept_language(request)
     return JSONResponse(
         content=dataset_to_ogc_record(
             dataset,
@@ -1380,4 +1383,5 @@ async def get_collection_item(
             raster_meta=item_raster_meta,
         ),
         media_type="application/geo+json",
+        headers={"Content-Language": lang},
     )

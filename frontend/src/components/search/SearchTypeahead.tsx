@@ -97,7 +97,7 @@ export function SearchTypeahead({
     <div
       id={listboxId}
       role="listbox"
-      className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[22px] border border-border/70 bg-popover/98 text-popover-foreground shadow-xl backdrop-blur-sm"
+      className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-[22px] border border-border/70 bg-popover/98 text-popover-foreground shadow-xl backdrop-blur-sm"
     >
       {isLoading && (
         <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">

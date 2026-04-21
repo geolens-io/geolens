@@ -249,7 +249,7 @@ export function BulkReviewList({
                     {canExpand && (
                       isExpanded
                         ? <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
-                        : <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+                        : <ChevronRight className="size-3.5 text-muted-foreground shrink-0 rtl-mirror" />
                     )}
                     <span className="truncate text-[13.5px] font-medium tracking-tight">
                       {entry.fileName.replace(/\.[^.]+$/, '')}
