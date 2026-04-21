@@ -348,6 +348,12 @@ export function MapBuilderPage() {
     layers.handleAiRemoveLayer, layers.handleOpacityChange,
   ]);
 
+  const handleAddDataClick = useCallback(
+    () => dialogs.setShowAddData(true),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setter from useBuilderDialogs
+    [dialogs.setShowAddData],
+  );
+
   const handleToggleChat = useCallback(
     () => dialogs.setShowChat((v) => !v),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setter from useBuilderDialogs
@@ -473,7 +479,7 @@ export function MapBuilderPage() {
                 </Button>
               </div>
             </SidebarHeader>
-            <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={() => dialogs.setShowAddData(true)} />
+            <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={handleAddDataClick} />
           </SheetContent>
         </Sheet>
       )}
@@ -555,7 +561,7 @@ export function MapBuilderPage() {
         </SidebarHeader>
 
         {/* Scrollable content */}
-        <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={() => dialogs.setShowAddData(true)} />
+        <SidebarContent layers={layers} inspectorMode={false} onAddDataClick={handleAddDataClick} />
       </div>}
 
       {/* Main content: map + chat dock */}

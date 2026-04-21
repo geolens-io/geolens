@@ -63,15 +63,15 @@ interface ViewerMapProps {
 const VIEWER_PREFIX = 'viewer-';
 
 function getViewerSourceId(sortOrder: number) {
-  return `viewer-source-${sortOrder}`;
+  return `${VIEWER_PREFIX}source-${sortOrder}`;
 }
 
 function getViewerLayerId(sortOrder: number) {
-  return `viewer-layer-${sortOrder}`;
+  return `${VIEWER_PREFIX}layer-${sortOrder}`;
 }
 
 function getViewerLabelLayerId(sortOrder: number) {
-  return `viewer-layer-${sortOrder}-label`;
+  return `${VIEWER_PREFIX}layer-${sortOrder}-label`;
 }
 
 /** Shared field mapping common to both SyncLayerInput and AdapterLayerInput. */
@@ -197,7 +197,9 @@ export function ViewerMap({
         }
       }
     }
-    fetchAll();
+    fetchAll().catch(() => {
+      toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load 3D layer data' }), { id: 'geojson-z-error' });
+    });
     return () => { cancelled = true; };
   }, [geojsonZLayers, apiKey, embedToken, mapReady]);
 
@@ -510,7 +512,7 @@ export function ViewerMap({
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
-            <button onClick={reload} className="text-sm underline text-primary">{t('reload')}</button>
+            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded px-1">{t('reload')}</button>
           </div>
         </div>
       )}
