@@ -194,19 +194,19 @@ RUN python3 /build/csv_to_choropleth.py \
       --output $DATA_DIR/life_expectancy_2021.geojson \
     || { echo "ERROR: csv_to_choropleth failed on OWID life expectancy — check 'Code'/'Life expectancy' columns still exist in upstream CSV"; exit 1; }
 
-# Manhattan OSM buildings (Geofabrik free shapefile).
-# The free .shp variant does not carry the OSM `height` tag — it only has
-# osm_id, code, fclass, name, type. So we drop the height filter and clip
-# to the Manhattan bbox only. Result is ~20k building polygons, which
-# ogr2ogr emits as a single GeoJSON.
-RUN curl -fsSL -o /tmp/ny.shp.zip \
-      "https://download.geofabrik.de/north-america/us/new-york-latest-free.shp.zip" \
-    && unzip -o /tmp/ny.shp.zip "gis_osm_buildings_a_free_1.*" -d /tmp/ny_buildings/ \
+# Manhattan buildings with real heights (NYC Open Data, dataset 5zhs-2jue).
+# HEIGHT_ROOF is photogrammetric roof height in US feet — converted to meters
+# via * 0.3048. Socrata within_box clips to the Manhattan bbox; $limit=50000
+# covers the ~42k Manhattan buildings in a single request.
+RUN curl -fsSL -o /tmp/manhattan_buildings_raw.geojson \
+      "https://data.cityofnewyork.us/resource/5zhs-2jue.geojson?\$where=within_box(the_geom,40.80,-74.05,40.68,-73.90)&\$limit=50000" \
     && ogr2ogr -f GeoJSON \
-         -clipsrc -74.05 40.68 -73.90 40.80 \
+         -lco COORDINATE_PRECISION=6 \
          $DATA_DIR/manhattan_buildings.geojson \
-         /tmp/ny_buildings/gis_osm_buildings_a_free_1.shp \
-    && rm -rf /tmp/ny.shp.zip /tmp/ny_buildings/
+         /tmp/manhattan_buildings_raw.geojson \
+         -sql "SELECT geometry, name, height_roof, ROUND(height_roof * 0.3048, 1) AS height FROM manhattan_buildings_raw" \
+         -dialect SQLite \
+    && rm -f /tmp/manhattan_buildings_raw.geojson
 
 # ----------------------------------------------------------------------------
 # THEME 3: conflict + refugees

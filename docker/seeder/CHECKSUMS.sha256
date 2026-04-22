@@ -23,7 +23,9 @@ d95ddde5fdfa3a73def60479f91b1899611b381edfc36b99042484629ffa7943  srtm_himalayas
 # ----- Theme 2 indicator pre-joins + Manhattan buildings -----
 6fba0b33ac7b50e2cc8ed56c2bdccbc4b72f403824343603703571d0fcb4c890  gdp_per_capita_ppp_2023.geojson
 9cce62440ffacd7bd026d3547ac64205526807d72892902bf743fe4fe125495a  life_expectancy_2021.geojson
-dcdec5d1419209c84830ecd327b39c03365111851e8245eb80dd364fd68a74c2  manhattan_buildings.geojson
+# manhattan_buildings.geojson — excluded from strict checksums because it is
+# fetched from NYC Open Data's live Socrata API (dataset 5zhs-2jue) and the
+# response bytes vary between builds as the dataset is updated.
 
 # ----- Theme 3 conflict + refugees -----
 9ba874598f7af3784f2023c64ad07bf34f265a46c030bbad53cdfd780c2944e1  ucdp_ged_v25_1.csv
