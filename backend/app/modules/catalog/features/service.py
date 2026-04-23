@@ -45,15 +45,23 @@ def _geometry_sql(dataset_geometry_type: str) -> str:
 
 
 def parse_bbox(bbox_str: str) -> list[float]:
-    """Parse a comma-separated bbox string into [minx, miny, maxx, maxy].
+    """Parse a comma-separated bbox string into a 4- or 6-element list.
+
+    Accepts:
+      - 4 values: minx, miny, maxx, maxy (2D)
+      - 6 values: minx, miny, minz, maxx, maxy, maxz (3D — Z values are
+        accepted but ignored for spatial queries)
 
     Allows antimeridian-crossing bboxes where minx > maxx (e.g. 170,-45,-170,-30).
-    Raises ValueError if not exactly 4 values or latitude bounds are invalid.
+    Raises ValueError if not 4 or 6 values, or latitude bounds are invalid.
     """
     parts = bbox_str.split(",")
-    if len(parts) != 4:
-        raise ValueError("bbox must have exactly 4 comma-separated values")
+    if len(parts) not in (4, 6):
+        raise ValueError("bbox must have 4 or 6 comma-separated values")
     values = [float(p) for p in parts]
+    if len(values) == 6:
+        # 3D bbox: extract 2D envelope (minx, miny, maxx, maxy)
+        values = [values[0], values[1], values[3], values[4]]
     # Only validate latitude (lon wraps at antimeridian)
     if values[1] >= values[3]:
         raise ValueError("bbox miny must be less than maxy")

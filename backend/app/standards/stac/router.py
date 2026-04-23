@@ -549,9 +549,11 @@ async def get_collection_items(
     if bbox:
         try:
             parts = bbox.split(",")
-            if len(parts) != 4:
-                raise ValueError("need 4 values")
+            if len(parts) not in (4, 6):
+                raise ValueError("need 4 or 6 values")
             bbox_vals = [float(p) for p in parts]
+            if len(bbox_vals) == 6:
+                bbox_vals = [bbox_vals[0], bbox_vals[1], bbox_vals[3], bbox_vals[4]]
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -810,13 +812,15 @@ def _build_search_filters(
         try:
             if isinstance(bbox, str):
                 parts = bbox.split(",")
-                if len(parts) != 4:
-                    raise ValueError("need 4 values")
+                if len(parts) not in (4, 6):
+                    raise ValueError("need 4 or 6 values")
                 bbox_vals = [float(p) for p in parts]
             else:
                 bbox_vals = list(bbox)
-                if len(bbox_vals) != 4:
-                    raise ValueError("need 4 values")
+                if len(bbox_vals) not in (4, 6):
+                    raise ValueError("need 4 or 6 values")
+            if len(bbox_vals) == 6:
+                bbox_vals = [bbox_vals[0], bbox_vals[1], bbox_vals[3], bbox_vals[4]]
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

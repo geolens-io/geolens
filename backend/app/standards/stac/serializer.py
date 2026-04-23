@@ -31,10 +31,15 @@ def _build_stac_links(
     stac_api_url: str,
 ) -> list[dict]:
     """Build the ``links`` array for a STAC Item."""
+    self_href = (
+        f"{stac_api_url}/collections/{collection_id}/items/{item_id}"
+        if collection_id
+        else f"{stac_api_url}/items/{item_id}"
+    )
     links: list[dict] = [
         {
             "rel": "self",
-            "href": f"{stac_api_url}/items/{item_id}",
+            "href": self_href,
             "type": "application/geo+json",
         },
         {
