@@ -240,7 +240,7 @@ async def test_contacts_null_fields_omitted(client: AsyncClient, test_db_session
     assert "email" not in contact, "null email should be omitted, not included as null"
     assert "phone" not in contact, "null phone should be omitted, not included as null"
     assert contact["name"] == "No Email Person"
-    assert contact["role"] == "pointOfContact"
+    assert contact["roles"] == ["pointOfContact"]
 
 
 @pytest.mark.anyio

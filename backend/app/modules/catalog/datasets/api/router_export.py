@@ -27,6 +27,7 @@ from app.core.config import settings
 from app.modules.auth.visibility import (
     apply_visibility_filter,
     check_dataset_access,
+    check_dataset_access_or_anonymous,
     get_user_roles,
 )
 from app.standards.dcat.service import catalog_to_dcat, record_to_dcat
@@ -96,7 +97,7 @@ async def get_dcat_catalog(
 async def get_dcat_record(
     dataset_id: uuid.UUID,
     request: Request,
-    user: User = Depends(get_current_active_user),
+    user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """DCAT 3 JSON-LD for a single dataset."""
@@ -106,7 +107,7 @@ async def get_dcat_record(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # Ensure relationships are loaded
     from sqlalchemy.orm import joinedload as _jl

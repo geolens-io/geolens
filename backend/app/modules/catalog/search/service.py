@@ -1023,7 +1023,9 @@ def dataset_to_ogc_record(
         except Exception:
             geometry = None
 
-    # STAC 1.0.0 datetime rules
+    # STAC 1.0.0 datetime rules: if datetime is null, start_datetime AND
+    # end_datetime MUST both be present.  When no temporal extent exists,
+    # fall back to created_at so the item always passes STAC validation.
     _ts = record.temporal_start
     _te = record.temporal_end
     if _ts is not None and _te is None:
@@ -1035,7 +1037,12 @@ def dataset_to_ogc_record(
         stac_start_datetime = f"{_ts.isoformat()}T00:00:00Z"
         stac_end_datetime = f"{_te.isoformat()}T00:00:00Z"
     else:
-        stac_datetime = None
+        # No temporal extent — use created_at as fallback
+        stac_datetime = (
+            record.created_at.isoformat().replace("+00:00", "Z")
+            if record.created_at
+            else None
+        )
         stac_start_datetime = None
         stac_end_datetime = None
 
@@ -1098,7 +1105,7 @@ def dataset_to_ogc_record(
                     for k, v in {
                         "name": c.name,
                         "organization": c.organization,
-                        "role": c.role,
+                        "roles": [c.role] if c.role else [],
                         "email": c.email,
                         "phone": c.phone,
                     }.items()
@@ -1177,13 +1184,16 @@ def dataset_to_ogc_record(
     # STAC properties for raster/VRT records
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
     if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
+        has_proj = False
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:epsg"] = raster_meta["epsg"]
+            has_proj = True
         if raster_meta.get("width") and raster_meta.get("height"):
             ogc_record["properties"]["proj:shape"] = [
                 raster_meta["height"],
                 raster_meta["width"],
             ]
+            has_proj = True
         if (
             raster_meta.get("res_x") is not None
             and raster_meta.get("res_y") is not None
@@ -1193,6 +1203,12 @@ def dataset_to_ogc_record(
             )
         if raster_meta.get("band_count"):
             ogc_record["properties"]["band_count"] = raster_meta["band_count"]
+
+        # Declare STAC extensions used by this item
+        if has_proj:
+            ogc_record.setdefault("stac_extensions", []).append(
+                "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+            )
 
         # Build bands array from band_info
         bands = []

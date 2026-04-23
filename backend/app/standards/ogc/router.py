@@ -151,6 +151,7 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             # OGC API Records Part 1
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core",
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core-query-parameters",
+            "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/sorting",
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/json",
         ]
     )

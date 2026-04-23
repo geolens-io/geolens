@@ -53,11 +53,14 @@ class SearchParams(BaseModel):
     def validate_bbox(cls, v: str | None) -> str | None:
         if v is not None:
             parts = v.split(",")
-            if len(parts) != 4:
-                raise ValueError("bbox must have exactly 4 comma-separated values")
+            if len(parts) not in (4, 6):
+                raise ValueError("bbox must have 4 or 6 comma-separated values")
             floats = [float(p) for p in parts]
+            # For 6-element (3D) bbox, validate the 2D envelope
+            miny = floats[1]
+            maxy = floats[3] if len(floats) == 4 else floats[4]
             # Allow antimeridian-crossing bboxes (minx > maxx)
-            if floats[1] >= floats[3]:
+            if miny >= maxy:
                 raise ValueError("bbox miny must be less than maxy")
         return v
 

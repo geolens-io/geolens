@@ -313,7 +313,7 @@ export interface OGCRecordProperties {
   feature_count: number | null;
   row_count?: number | null;
   column_count?: number | null;
-  contacts?: Array<{ name?: string; organization?: string; role?: string; email?: string; phone?: string }> | null;
+  contacts?: Array<{ name?: string; organization?: string; roles?: string[]; email?: string; phone?: string }> | null;
   license: string | null;
   source_organization: string | null;
   quality_detail?: {

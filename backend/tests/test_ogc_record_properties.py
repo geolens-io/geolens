@@ -257,7 +257,7 @@ async def test_record_contacts_from_record_contacts_table(
     contacts = sorted(props["contacts"], key=lambda c: c["name"])
     assert contacts[0]["name"] == "Jane Doe"
     assert contacts[0]["organization"] == "ACME GIS"
-    assert contacts[0]["role"] == "pointOfContact"
+    assert contacts[0]["roles"] == ["pointOfContact"]
 
 
 @pytest.mark.anyio

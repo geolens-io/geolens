@@ -129,6 +129,10 @@ def record_to_dcat(
     if record.keywords:
         result["dcat:keyword"] = [kw.keyword for kw in record.keywords]
 
+    # Publisher: use source_organization when available, else "GeoLens"
+    publisher_name = record.source_organization or "GeoLens"
+    result["dcterms:publisher"] = {"@type": "foaf:Agent", "foaf:name": publisher_name}
+
     if record.license is not None:
         result["dcterms:license"] = record.license
 
