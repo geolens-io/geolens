@@ -8,8 +8,8 @@ from app.modules.catalog.datasets.domain.schemas import DatasetResponse
 
 
 class CollectionCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=2000)
+    name: str = Field(min_length=1, max_length=255, description="Display name for the collection", example="NYC Open Data")
+    description: str | None = Field(default=None, max_length=2000, description="Optional text description", example="Datasets from the NYC Open Data portal")
 
     @field_validator("name", "description", mode="before")
     @classmethod
@@ -18,8 +18,8 @@ class CollectionCreate(BaseModel):
 
 
 class CollectionUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=2000)
+    name: str | None = Field(default=None, min_length=1, max_length=255, description="Updated display name")
+    description: str | None = Field(default=None, max_length=2000, description="Updated description")
 
     @field_validator("name", "description", mode="before")
     @classmethod
@@ -55,7 +55,7 @@ class CollectionListResponse(BaseModel):
 
 
 class CollectionAddDatasetsRequest(BaseModel):
-    dataset_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+    dataset_ids: list[uuid.UUID] = Field(min_length=1, max_length=100, description="Dataset IDs to add to the collection (1-100)")
 
 
 class CollectionDatasetResponse(BaseModel):

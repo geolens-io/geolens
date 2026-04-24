@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `app/main.py:193` S3 health-check error-branch typo: `settings.s3_endpoint_url` (which does not exist) corrected to `settings.s3_endpoint`. The bug was pre-existing; it would have crashed the app with `AttributeError` the first time the S3 startup health check actually failed, masking the real S3 error behind an unrelated traceback. Found and fixed during the env-audit post-implementation review.
 - CI E2E workflow sed commands were silently no-op'ing: they targeted empty values (`^VAR=$`) that never existed in `.env.example`. The patterns were rewritten to match any value (`^VAR=.*`) so the E2E job actually injects the CI-distinct secrets it claims to set. CI `JWT_SECRET_KEY` values were also padded to ≥ 32 characters so the new length validator passes in CI. The 1879-test full backend suite continues to pass.
 - Test infrastructure: removed brittle `os.environ.setdefault` / `del sys.modules["app.config"]` blocks from `test_cache.py`, `test_health.py`, `test_metrics.py`, `test_tile_cache.py`, and `test_config.py`. These were workarounds for a module-level import failure that no longer exists now that config.py resolves the project-root `.env` at import time. The old pattern also caused cross-test stale-settings pollution when `test_config.py` ran before `test_auth.py`.
-- **Post-impl audit 2026-04-10 follow-ups** (`docs-internal/audits/post-impl-20260410-HANDOFF.md`):
+- **Post-impl audit 2026-04-10 follow-ups:**
   - **S1 — source `geom`/`geometry` column collision (P1):** vector uploads with an attribute literally named `geom` or `geometry` no longer crash `ogr2ogr` at CREATE TABLE time. `run_ogr2ogr`/`run_ogr2ogr_service` now use `GEOMETRY_NAME=_geolens_geom` as a placeholder, which `ensure_geom_column` renames to `geom` after `rename_reserved_columns` has moved the source attribute to `src_geom`. Regression test lives in `tests/test_ingest_column_preservation.py::test_source_geom_attribute_renamed_to_src_geom`; the `reserved_names.geojson` fixture once again includes a source `geom` attribute.
   - **S2 — cross-module mypy cleanup (P1):** resolved 7 errors in `app/datasets/service.py` (including the UUID-vs-Dataset attr-defined errors in `get_related_datasets`), 2 in `app/storage/provider.py`, 2 in `app/public_urls.py`, 6 in `app/audit/service.py`, 3 in `app/maps/service.py`, 3 in `app/persistent_config.py`, and 1 in `app/services/preview.py`. `mypy` is now clean across `app/ingest/`, `app/datasets/service.py`, and the audited supporting modules.
   - **S3 — structured ingest warnings surfaced to the UI (P2):** `JobStatusResponse` now exposes `warnings`, `archive_failed`, and `temporal_parse_errors` alongside the existing `warning_message`. A new `IngestWarningsBanner` component renders reserved-name renames, Shapefile DBF collisions, archive failures, and temporal-parse failures in `JobProgress` on the upload success screen AND permanently on the dataset detail page. A new `GET /jobs/by-dataset/{dataset_id}` endpoint powers the persistent banner by looking up the most recent ingest job for a dataset with visibility filtering. Translations added for en/de/es/fr.
@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **K3-PRE — VRT test mock warnings:** `test_vrt_source_management_174.py::TestRegenerateVrtTask` no longer emits `RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited` — `mock_session.add` is now explicitly bound to a synchronous `MagicMock` to match real SQLAlchemy semantics.
   - **K5 — `create_vrt` validation moved to service layer (P3, KISS-10):** `create_vrt_job` lives in `app/ingest/service.py`; the router handler is now a 3-line wrapper.
   - **K7 — `_finalize_ingest` IngestContext refactor (P3, KISS-2):** the 11-parameter signature is now a dataclass. Both `ingest_file` and `ingest_service` construct a single `IngestContext` instead of repeating the call-site noise.
-- **Post-impl audit 2026-04-10 **B** follow-ups** — a narrow-scope audit of the above remediation work itself surfaced 22 new findings. 5 were fixed in the original session; the remaining 14 landed as a follow-up pass (see `docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md`). Fixes landed in this session:
+- **Post-impl audit 2026-04-10 (B) follow-ups** — a narrow-scope audit of the above remediation work itself surfaced 22 new findings. 5 were fixed in the original session; the remaining 14 landed as a follow-up pass. Fixes landed in this session:
   - **RESILIENCE-1 (P1):** `_archive_original_file` had an unguarded `session.commit()` inside its best-effort exception block. A transient DB error during archive-metadata persistence (deadlock, pooler drop) would propagate out of the helper and flip the already-successful ingest into a `failed` job via the outer task `except Exception`, triggering Procrastinate retries and potentially producing duplicate datasets. The metadata commit is now wrapped in its own try/except with rollback-on-failure, matching the quicklook commit pattern. Regression test: `test_archive_original_file_commit_failure_does_not_raise`.
   - **KISS-1/CLEANUP-1 (P2):** removed the dead `assumes_4326` parameter from `_resolve_effective_srid` that was being `del`'d immediately on entry.
   - **KISS-3/CLEANUP-3/TYPE-6 (P2):** deleted the unused `IngestJobUserMetadata` TypeScript interface that had zero references in the codebase (the named-key + `[key: string]: unknown` index signature also defeated type safety for the listed fields).
@@ -121,6 +121,19 @@ UPDATE catalog.records
    AND record_status = 'draft'
    AND visibility = 'public';
 ```
+
+## [14.0] - 2026-03-30
+
+### Added
+- Astro-based marketing site at getgeolens.com (phases 212-214)
+- Marketing site content pages: features overview, use cases, architecture, and pricing
+- 3D data and maps support feasibility design doc
+
+### Fixed
+- Shared map raster tile URL path resolution for VRT datasets
+- DEM terrain tiles skip rescale for terrainrgb algorithm
+- Duplicate Alembic revision ID and broken chain for 3D columns migration
+- Post-implementation audit findings across 3D and shared vector staging phases
 
 ## [1.0.0] - 2026-04-01
 
@@ -356,6 +369,7 @@ UPDATE catalog.records
 
 [Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/geolens-io/geolens/releases/tag/v1.0.0
+[14.0]: https://github.com/geolens-io/geolens/compare/v13.0...v14.0
 [13.0]: https://github.com/geolens-io/geolens/compare/v12.3...v13.0
 [12.3]: https://github.com/geolens-io/geolens/compare/v12.2...v12.3
 [12.2]: https://github.com/geolens-io/geolens/compare/v12.1...v12.2

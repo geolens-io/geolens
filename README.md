@@ -82,6 +82,8 @@ curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=
 
 Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
 
+See [FEATURES.md](FEATURES.md) for a detailed feature overview.
+
 ## Features
 
 ### Map Builder and Sharing
@@ -217,7 +219,7 @@ All configuration is managed through environment variables in `.env`. See the [C
 | [Admin Guide](docs/admin-guide.md) | User management, datasets, system health |
 | [Cloud Deployment](docs/cloud-deployment.md) | AWS, GCP, and DigitalOcean deployment guides |
 | [Widget Development](docs/widget-development.md) | Build custom map builder widgets |
-| [API Reference](docs/install-guide.md#verify-services) | Interactive Swagger UI at `/api/docs` |
+| [API Reference](#see-it-in-action) | Interactive Swagger UI at `/api/docs` when running |
 
 ## Community
 

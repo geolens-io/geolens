@@ -105,6 +105,15 @@ The fresh-install default in `.env.example` (`dev-only-change-me-in-production`,
 - The `backend/.env` symlink has been removed. Host-side workflows (`cd backend && uv run pytest`) now resolve `./.env` at the project root via the Settings `env_file` path. No action required unless you had local scripts depending on `backend/.env` as a literal path.
 - `VITE_API_PROXY_TARGET` (docker-compose.yml frontend service) was renamed to `API_PROXY_TARGET`. The old name still works for one release via a fallback in `vite.config.ts` — update your local compose overrides when convenient.
 
+### Unreleased — Landing page removal
+
+The landing page has been removed. The root route (`/`) now serves the Search page directly. The `SHOW_LANDING_PAGE` environment variable has been removed from backend config and the branding API.
+
+**What this means:**
+- Existing bookmarks to `/` will show the Search page instead of the landing page.
+- The `/search` route redirects to `/` — existing `/search` bookmarks continue to work.
+- Remove `SHOW_LANDING_PAGE` from your `.env` if present (it is ignored but produces no error).
+
 ### About 1.0.0 (the public release)
 
 GeoLens 1.0.0 is the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 13.0 during pre-public development. Those legacy versions never shipped to anyone outside the project.
