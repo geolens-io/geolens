@@ -23,6 +23,7 @@ class ContactCreate(BaseModel):
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
     phone: str | None = Field(default=None, max_length=50)
     extra_json: dict[str, Any] | None = Field(
         default=None, description="Arbitrary extra fields stored as JSON"

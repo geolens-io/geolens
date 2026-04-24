@@ -55,9 +55,23 @@ class MapLayerInput(BaseModel):
 
 
 class MapCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=255, description="Map display name", example="NYC Infrastructure")
-    description: str | None = Field(default=None, max_length=2000, description="Short description for sharing", example="Buildings, parks, and transit routes in Manhattan")
-    notes: str | None = Field(default=None, max_length=50_000, description="Private notes (not shown publicly)")
+    name: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Map display name",
+        example="NYC Infrastructure",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Short description for sharing",
+        example="Buildings, parks, and transit routes in Manhattan",
+    )
+    notes: str | None = Field(
+        default=None,
+        max_length=50_000,
+        description="Private notes (not shown publicly)",
+    )
 
     @field_validator("name", "description", "notes", mode="before")
     @classmethod
@@ -74,6 +88,7 @@ class MapUpdate(BaseModel):
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
     center_lng: float | None = Field(default=None, description="Map center longitude")
     center_lat: float | None = Field(default=None, description="Map center latitude")
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")

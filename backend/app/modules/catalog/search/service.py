@@ -177,7 +177,9 @@ def _build_text_filter(q: str, *, use_alias: bool = False):
             ).bool_op("||")(
                 func.to_tsvector(
                     "simple",
-                    func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+                    func.coalesce(RC.name, "")
+                    + " "
+                    + func.coalesce(RC.organization, ""),
                 )
             )
         ).bool_op("@@")(ts_query),

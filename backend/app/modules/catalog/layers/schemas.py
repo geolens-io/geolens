@@ -66,10 +66,24 @@ class ColumnListResponse(BaseModel):
 
 
 class CreateLayerRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=500, description="Display name for the new layer", example="Survey Points")
-    geometry_type: str = Field(description="OGC geometry type: Point, MultiPoint, LineString, MultiLineString, Polygon, or MultiPolygon", example="Point")
-    summary: str | None = Field(default=None, max_length=5000, description="Optional text description of the layer")
-    columns: list[ColumnDef] | None = Field(default=None, description="Optional initial column definitions")
+    title: str = Field(
+        min_length=1,
+        max_length=500,
+        description="Display name for the new layer",
+        example="Survey Points",
+    )
+    geometry_type: str = Field(
+        description="OGC geometry type: Point, MultiPoint, LineString, MultiLineString, Polygon, or MultiPolygon",
+        example="Point",
+    )
+    summary: str | None = Field(
+        default=None,
+        max_length=5000,
+        description="Optional text description of the layer",
+    )
+    columns: list[ColumnDef] | None = Field(
+        default=None, description="Optional initial column definitions"
+    )
 
     @field_validator("geometry_type")
     @classmethod
@@ -88,5 +102,7 @@ class CreateLayerResponse(BaseModel):
     table_name: str = Field(description="PostGIS table name in the data schema")
     geometry_type: str = Field(description="OGC geometry type")
     feature_count: int = Field(description="Number of features (0 for new layers)")
-    visibility: str = Field(description="Visibility level: private, internal, or public")
+    visibility: str = Field(
+        description="Visibility level: private, internal, or public"
+    )
     created_at: datetime = Field(description="Creation timestamp")
