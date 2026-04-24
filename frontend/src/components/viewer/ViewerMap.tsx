@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
@@ -118,7 +118,7 @@ function toAdapterInput(
   };
 }
 
-export function ViewerMap({
+export const ViewerMap = memo(function ViewerMap({
   layers,
   basemapStyle,
   initialViewState,
@@ -259,7 +259,7 @@ export function ViewerMap({
     () =>
       layers
         .filter((l) => visibleLayers.has(l.sort_order))
-        .filter((l) => (l.style_config as Record<string, unknown> | undefined)?.render_mode !== 'heatmap')
+        .filter((l) => l.style_config?.render_mode !== 'heatmap')
         .map((l) => getViewerLayerId(l.sort_order)),
     [layers, visibleLayers],
   );
@@ -478,13 +478,13 @@ export function ViewerMap({
     };
   }, []);
 
-  const defaultView = {
+  const defaultView = useMemo(() => ({
     longitude: initialViewState.center_lng,
     latitude: initialViewState.center_lat,
     zoom: initialViewState.zoom,
     bearing: initialViewState.bearing,
     pitch: initialViewState.pitch,
-  };
+  }), [initialViewState.center_lng, initialViewState.center_lat, initialViewState.zoom, initialViewState.bearing, initialViewState.pitch]);
 
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
 
@@ -531,4 +531,4 @@ export function ViewerMap({
       )}
     </div>
   );
-}
+});

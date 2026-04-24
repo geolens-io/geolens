@@ -1,5 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
+import { toast } from 'sonner';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
@@ -292,6 +293,7 @@ export function syncLayersToMap(
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
+      toast.error(`Layer sync failed for "${layer.dataset_table_name}"`, { id: `sync-error-${layer.id}` });
     }
   }
 

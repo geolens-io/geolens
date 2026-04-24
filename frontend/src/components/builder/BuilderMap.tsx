@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
@@ -53,7 +53,7 @@ interface BuilderMapProps {
   onFeatureSelect?: (feature: SelectedFeature | null) => void;
 }
 
-export function BuilderMap({
+export const BuilderMap = memo(function BuilderMap({
   layers,
   basemapStyle,
   initialViewState,
@@ -360,7 +360,7 @@ export function BuilderMap({
       if (token?.kind === 'raster') continue;
       const sourceId = getSourceId(layer.id);
       const source = map.getSource(sourceId);
-      if (source && 'setTiles' in source) {
+      if (source && source.type === 'vector') {
         const newUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
         (source as { setTiles: (tiles: string[]) => void }).setTiles([newUrl]);
       }
@@ -430,13 +430,13 @@ export function BuilderMap({
     };
   }, [onMapRef]);
 
-  const defaultView = {
+  const defaultView = useMemo(() => ({
     longitude: initialViewState?.center_lng ?? mapDefaults?.center_lng ?? 0,
     latitude: initialViewState?.center_lat ?? mapDefaults?.center_lat ?? 20,
     zoom: Math.max(initialViewState?.zoom ?? mapDefaults?.zoom ?? 2, 2),
     bearing: initialViewState?.bearing ?? 0,
     pitch: initialViewState?.pitch ?? 0,
-  };
+  }), [initialViewState?.center_lng, initialViewState?.center_lat, initialViewState?.zoom, initialViewState?.bearing, initialViewState?.pitch, mapDefaults?.center_lng, mapDefaults?.center_lat, mapDefaults?.zoom]);
 
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
 
@@ -487,4 +487,4 @@ export function BuilderMap({
       )}
     </div>
   );
-}
+});

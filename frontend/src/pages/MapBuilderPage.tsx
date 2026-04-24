@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -36,7 +36,7 @@ const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 600;
 
-function SidebarContent({
+const SidebarContent = memo(function SidebarContent({
   layers,
   onAddDataClick,
 }: {
@@ -71,7 +71,7 @@ function SidebarContent({
       </div>
     </div>
   );
-}
+});
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -194,7 +194,7 @@ export function MapBuilderPage() {
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {
-    (mapInstanceRef as React.MutableRefObject<MaplibreMap | null>).current = map;
+    mapInstanceRef.current = map;
     setMapInstance(map);
     if (map) save.maybeAutoCaptureThumbnail(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the method reference matters, not the whole `save` object
@@ -229,9 +229,8 @@ export function MapBuilderPage() {
   ]);
 
   const handleMarkDirty = useCallback(
-    () => { if (!layers.hasUnsavedChanges) layers.setHasUnsavedChanges(true); },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setter
-    [layers.hasUnsavedChanges, layers.setHasUnsavedChanges],
+    () => { layers.setHasUnsavedChanges(true); },
+    [layers.setHasUnsavedChanges],
   );
 
   const railProps = useMemo(() => ({

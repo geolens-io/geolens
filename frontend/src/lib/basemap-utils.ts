@@ -9,6 +9,9 @@ export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
 export const BLANK_BASEMAP_ID = 'blank';
 
+/** Fallback glyphs for inline styles (raster basemaps, blank basemap) so text labels render. */
+const FALLBACK_GLYPHS = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+
 const BLANK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">' +
   '<rect fill="#f3f4f6" width="160" height="160" rx="8" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 4"/>' +
@@ -70,7 +73,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
           paint: { 'background-color': 'rgba(0,0,0,0)' },
         },
       ],
-      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      glyphs: FALLBACK_GLYPHS,
     };
   }
   const urlPath = url.split('?')[0];
