@@ -7,8 +7,18 @@ import brightThumb from '@/assets/basemaps/bright.png';
 
 export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
+export const BLANK_BASEMAP_ID = 'blank';
+
+const BLANK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">' +
+  '<rect fill="#f3f4f6" width="160" height="160" rx="8" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 4"/>' +
+  '<line x1="30" y1="30" x2="130" y2="130" stroke="#9ca3af" stroke-width="3" stroke-linecap="round"/>' +
+  '<text x="80" y="148" text-anchor="middle" font-size="12" fill="#9ca3af" font-family="system-ui,sans-serif">None</text>' +
+  '</svg>'
+)}`;
 
 const BUILTIN_THUMBNAILS: Record<string, string> = {
+  'blank': BLANK_THUMBNAIL,
   'openfreemap-positron': positronThumb,
   'openfreemap-dark': darkThumb,
   'openstreetmap': osmThumb,
@@ -49,6 +59,20 @@ const LEGACY_KEY_MAP: Record<string, string> = {
  *   MapLibre's AttributionControl displays it.
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
+  if (url === BLANK_BASEMAP_ID) {
+    return {
+      version: 8 as const,
+      sources: {},
+      layers: [
+        {
+          id: 'background',
+          type: 'background' as const,
+          paint: { 'background-color': 'rgba(0,0,0,0)' },
+        },
+      ],
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    };
+  }
   const urlPath = url.split('?')[0];
   if (urlPath.endsWith('.json') || url.includes('/styles/')) {
     return url;

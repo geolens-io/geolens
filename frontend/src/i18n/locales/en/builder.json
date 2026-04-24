@@ -268,7 +268,8 @@
   },
   "basemap": {
     "title": "Basemap",
-    "showLabels": "Show place labels"
+    "showLabels": "Show place labels",
+    "blank": "None"
   },
   "featurePopup": {
     "noAttributes": "No attributes",
