@@ -1,6 +1,15 @@
 import type { Geometry } from 'geojson';
 import type { FilterSpecification } from 'maplibre-gl';
 
+/** OGC/PostGIS geometry type values returned by the API. */
+export type GeometryTypeName =
+  | 'Point' | 'LineString' | 'Polygon'
+  | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon'
+  | 'GeometryCollection';
+
+/** Layer type discriminator for map layers. */
+export type MapLayerType = 'vector_geolens' | 'raster_geolens';
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -92,7 +101,7 @@ export interface DatasetResponse {
   title: string;
   summary: string | null;
   srid: number | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   feature_count: number | null;
   extent_bbox: number[] | null;
   column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
@@ -314,7 +323,7 @@ export interface OGCRecordProperties {
   updated_by_display: string | null;
   never_edited: boolean;
   crs: string | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   feature_count: number | null;
   row_count?: number | null;
   column_count?: number | null;
@@ -373,7 +382,7 @@ export interface SearchResponse {
 }
 
 export interface CatalogSummary {
-  geometry_type?: string[];
+  geometry_type?: GeometryTypeName[];
   srid?: number[];
   keywords?: string[];
   source_organization?: string[];
@@ -541,7 +550,7 @@ export interface FilePreviewResponse {
   source_filename: string | null;
   columns: { name: string; type: string }[];
   crs: number | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   feature_count: number | null;
   sample_rows: Record<string, unknown>[];
   layer_name: string;
@@ -632,7 +641,7 @@ export interface ReuploadPreviewResponse {
   source_filename: string | null;
   columns: Array<{ name: string; type: string }>;
   crs: number | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   feature_count: number | null;
   sample_rows: Record<string, unknown>[];
   layer_name: string;
@@ -658,7 +667,7 @@ export interface DatasetVersionResponse {
   source_format: string | null;
   feature_count: number | null;
   srid: number | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   file_hash: string | null;
   uploaded_by: string | null;
   uploaded_at: string;
@@ -729,7 +738,7 @@ export interface MapLayerResponse {
   id: string;
   dataset_id: string;
   dataset_name: string;
-  dataset_geometry_type: string | null;
+  dataset_geometry_type: GeometryTypeName | null;
   dataset_table_name: string;
   dataset_extent_bbox: number[] | null;
   dataset_column_info: { name: string; type: string }[] | null;
@@ -744,7 +753,7 @@ export interface MapLayerResponse {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
-  layer_type?: string | null;
+  layer_type?: MapLayerType | null;
   dataset_record_type?: string | null;
   show_in_legend?: boolean;
   is_3d?: boolean | null;
@@ -837,7 +846,7 @@ export interface MapLayerInput {
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
-  layer_type?: string | null;
+  layer_type?: MapLayerType | null;
   show_in_legend?: boolean;
 }
 
@@ -852,7 +861,7 @@ export interface SharedLayerResponse {
   dataset_name: string;
   display_name: string | null;
   table_name: string;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
   sort_order: number;
   visible: boolean;
@@ -863,7 +872,7 @@ export interface SharedLayerResponse {
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   show_in_legend?: boolean;
-  layer_type?: string;
+  layer_type?: MapLayerType;
   dataset_record_type?: string;
   is_dem?: boolean;
   is_3d?: boolean | null;
@@ -935,7 +944,7 @@ export interface ChatMapLayer {
   name: string;
   dataset_id: string;
   dataset_table_name: string;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
   visible: boolean;
   filter: FilterSpecification | null;
@@ -983,7 +992,7 @@ export interface ChatResponse {
 export interface LayerInfo {
   name: string;
   title: string | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   feature_count: number | null;
   layer_type: string;
   layer_id: number | string | null;
@@ -1012,7 +1021,7 @@ export interface ServicePreviewResponse {
   source_filename: string | null;
   columns: { name: string; type: string }[];
   crs: number | null;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   feature_count: number | null;
   sample_rows: Record<string, unknown>[];
   layer_name: string;
@@ -1051,7 +1060,7 @@ export type DataKind = 'vector' | 'raster' | 'table' | 'vrt';
 // Table discovery types
 export interface DiscoveredTable {
   table_name: string;
-  geometry_type: string | null;
+  geometry_type: GeometryTypeName | null;
   srid: number | null;
   estimated_rows: number | null;
 }

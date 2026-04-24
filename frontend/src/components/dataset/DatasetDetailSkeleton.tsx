@@ -1,6 +1,5 @@
 import { PageShell } from '@/components/layout/PageShell';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 
 interface DatasetDetailSkeletonProps {
   isTable?: boolean;

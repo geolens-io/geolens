@@ -86,7 +86,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-layout', () => ({
-  useBuilderLayout: () => ({ isCompact: false, isMobile: false }),
+  useBuilderLayout: () => ({ isMobile: false }),
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
@@ -96,6 +96,10 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
     localLayers: [],
+    localName: 'Operations Map',
+    setLocalName: vi.fn(),
+    localDescription: 'Map description',
+    setLocalDescription: vi.fn(),
     localBasemap: 'carto',
     showBasemapLabels: true,
     setLocalBasemap: vi.fn(),
@@ -127,6 +131,7 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     handleAiRemoveLayer: vi.fn(),
     handleQueryResult: vi.fn(),
     handleDismissEphemeral: vi.fn(),
+    handleRenderModeChange: vi.fn(),
   }),
 }));
 
@@ -155,7 +160,7 @@ describe('MapBuilderPage header actions', () => {
 
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
-    const shareButton = screen.getByRole('button', { name: 'tooltips.share' });
+    const shareButton = screen.getByRole('button', { name: 'share.title' });
     expect(shareButton).toBeInTheDocument();
 
     await user.click(shareButton);

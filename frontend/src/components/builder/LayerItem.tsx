@@ -32,16 +32,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LayerStyleEditor } from './LayerStyleEditor';
-import { LayerFilterEditor } from './LayerFilterEditor';
-import { LabelEditor } from './LabelEditor';
-import { RasterLayerControls } from './RasterLayerControls';
-import { ColumnsReference } from './ColumnsReference';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
-import type { FilterSpecification } from 'maplibre-gl';
-import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapLayerResponse } from '@/types/api';
 
 /* ---------- Style summary badge helpers ---------- */
 
@@ -73,15 +67,7 @@ interface LayerItemProps {
   isFirst: boolean;
   isLast: boolean;
   isExpanded: boolean;
-  activeTab: 'style' | 'filter' | 'labels' | null;
   onToggleExpand: (id: string) => void;
-  onTabChange: (layerId: string, tab: 'style' | 'filter' | 'labels') => void;
-  onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
-  onOpacityChange: (layerId: string, opacity: number) => void;
-  onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
-  onLabelChange: (layerId: string, config: LabelConfig | null) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
-  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onToggleVisibility: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
@@ -89,8 +75,6 @@ interface LayerItemProps {
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
-  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
-  inspectorMode?: boolean;
 }
 
 export const LayerItem = memo(function LayerItem({
@@ -98,15 +82,7 @@ export const LayerItem = memo(function LayerItem({
   isFirst,
   isLast,
   isExpanded,
-  activeTab,
   onToggleExpand,
-  onTabChange,
-  onPaintChange,
-  onOpacityChange,
-  onFilterChange,
-  onLabelChange,
-  onStyleConfigChange,
-  onLayoutChange,
   onToggleVisibility,
   onMoveUp,
   onMoveDown,
@@ -114,8 +90,6 @@ export const LayerItem = memo(function LayerItem({
   onRemove,
   onZoomToLayer,
   onToggleLegend,
-  onRenderModeChange,
-  inspectorMode,
 }: LayerItemProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -154,12 +128,11 @@ export const LayerItem = memo(function LayerItem({
     setNameValue(newName);
   }
 
-  const columns = layer.dataset_column_info ?? [];
   const layerColors = useMemo(() => getLayerColors(layer), [layer]);
   const styleHints = useMemo(
     () => extractStyleHints(
       layer.paint ?? {},
-      (layer.layout as Record<string, unknown>) ?? {},
+      layer.layout ?? {},
       layer.dataset_geometry_type,
       layer.opacity,
     ),
@@ -167,16 +140,16 @@ export const LayerItem = memo(function LayerItem({
   );
   const hasActiveFilter = layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0;
   const styleSummary = useMemo(() => getStyleSummary(layer, t), [layer, t]);
-  const filterSummary = hasActiveFilter ? getFilterSummary(layer) : null;
+  const filterSummary = useMemo(() => hasActiveFilter ? getFilterSummary(layer) : null, [hasActiveFilter, layer]);
   const labelSummary = useMemo(() => getLabelSummary(layer), [layer]);
   const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
-  const isRaster = caps.kind !== 'vector';
 
   return (
     <div ref={setNodeRef} style={style} role="group" aria-label={layer.display_name ?? layer.dataset_name}>
       <div className={cn(
-        'flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-accent/50 group transition-opacity duration-200',
+        'flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-accent/50 group transition-[opacity,background-color] duration-200',
         !layer.visible && 'opacity-50',
+        isExpanded && 'bg-accent/40',
       )}>
         <div
           className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded min-w-6 min-h-6 flex items-center justify-center"
@@ -268,6 +241,7 @@ export const LayerItem = memo(function LayerItem({
         )}
 
         <Button
+          id={`layer-expand-${layer.id}`}
           variant="ghost"
           size="icon"
           className="h-7 w-7 shrink-0 min-h-[44px] min-w-[44px]"
@@ -343,80 +317,6 @@ export const LayerItem = memo(function LayerItem({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      {isExpanded && !inspectorMode && isRaster && (
-        <div className="px-2 pb-2">
-          <RasterLayerControls
-            opacity={layer.opacity ?? 1}
-            onOpacityChange={(v) => onOpacityChange(layer.id, v)}
-          />
-        </div>
-      )}
-
-      {isExpanded && !inspectorMode && !isRaster && (
-        <div className="px-2 pb-2">
-          <div className="flex gap-1 mb-2 border-b" role="tablist">
-            {(['style', 'filter', 'labels'] as const)
-              .filter((tab) => {
-                if (tab === 'filter') return caps.supportsFilterEditor;
-                if (tab === 'labels') return caps.supportsLabelEditor;
-                return true;
-              })
-              .map((tab) => (
-              <button
-                key={tab}
-                id={`tab-${layer.id}-${tab}`}
-                role="tab"
-                aria-selected={activeTab === tab}
-                aria-controls={`tabpanel-${layer.id}-${tab}`}
-                className={cn(
-                  'px-2 py-2 text-xs font-semibold transition-colors',
-                  activeTab === tab
-                    ? 'text-foreground border-b-2 border-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-                onClick={() => onTabChange(layer.id, tab)}
-              >
-                {t(`layerItem.${tab}Tab`)}
-              </button>
-            ))}
-          </div>
-          {activeTab === 'style' && (
-            <div role="tabpanel" id={`tabpanel-${layer.id}-style`} aria-labelledby={`tab-${layer.id}-style`}>
-              <LayerStyleEditor
-                layer={layer}
-                onPaintChange={onPaintChange}
-                onOpacityChange={onOpacityChange}
-                onStyleConfigChange={onStyleConfigChange}
-                onLayoutChange={onLayoutChange}
-                onRenderModeChange={onRenderModeChange}
-              />
-              {columns.length > 0 && (
-                <ColumnsReference columns={columns} />
-              )}
-            </div>
-          )}
-          {activeTab === 'filter' && (
-            <div role="tabpanel" id={`tabpanel-${layer.id}-filter`} aria-labelledby={`tab-${layer.id}-filter`}>
-              <LayerFilterEditor
-                columnInfo={columns}
-                filter={layer.filter ?? null}
-                onFilterChange={(expr) => onFilterChange(layer.id, expr)}
-              />
-            </div>
-          )}
-          {activeTab === 'labels' && (
-            <div role="tabpanel" id={`tabpanel-${layer.id}-labels`} aria-labelledby={`tab-${layer.id}-labels`}>
-              <LabelEditor
-                columns={columns}
-                labelConfig={layer.label_config ?? null}
-                onLabelChange={(config) => onLabelChange(layer.id, config)}
-                geometryType={layer.dataset_geometry_type}
-              />
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 });
