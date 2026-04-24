@@ -24,23 +24,71 @@ function swatchClass(s?: SwatchStyle) {
   return cn('w-3.5 h-3.5 rounded-sm shrink-0', !s?.strokeDisabled && 'border');
 }
 
+/* ── Geometry-aware swatch ─────────────────────────── */
+
+interface GeometrySwatchProps {
+  geometryType?: string | null;
+  color: string;
+  style?: SwatchStyle;
+}
+
+export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatchProps) {
+  const gt = (geometryType ?? '').toUpperCase();
+  const opacityStyle: React.CSSProperties | undefined =
+    s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : undefined;
+
+  // Point: filled circle
+  if (gt.includes('POINT')) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" style={opacityStyle} aria-hidden="true">
+        <circle
+          cx="7" cy="7" r="5"
+          fill={color}
+          stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
+          strokeWidth={s?.strokeDisabled ? 0 : 1}
+        />
+      </svg>
+    );
+  }
+
+  // Line: horizontal line segment
+  if (gt.includes('LINE')) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" style={opacityStyle} aria-hidden="true">
+        <line
+          x1="1" y1="7" x2="13" y2="7"
+          stroke={color}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  // Polygon / default: filled rectangle (existing div-based swatch)
+  return (
+    <div
+      className={swatchClass(s)}
+      style={swatchStyle(color, s)}
+      aria-hidden="true"
+    />
+  );
+}
+
 /* ── Categorical legend ──────────────────────────── */
 
 interface CategoricalLegendProps {
   categories: { value: string; color: string }[];
+  geometryType?: string | null;
   style?: SwatchStyle;
 }
 
-export function CategoricalLegend({ categories, style: s }: CategoricalLegendProps) {
+export function CategoricalLegend({ categories, geometryType, style: s }: CategoricalLegendProps) {
   return (
     <ul className="space-y-0.5">
       {categories.map((cat, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <div
-            className={swatchClass(s)}
-            style={swatchStyle(cat.color, s)}
-            aria-hidden="true"
-          />
+          <GeometrySwatch geometryType={geometryType} color={cat.color} style={s} />
           <span className="text-muted-foreground truncate">{cat.value}</span>
         </li>
       ))}
@@ -53,19 +101,16 @@ export function CategoricalLegend({ categories, style: s }: CategoricalLegendPro
 interface GraduatedColorLegendProps {
   colors: string[];
   breaks: number[];
+  geometryType?: string | null;
   style?: SwatchStyle;
 }
 
-export function GraduatedColorLegend({ colors, breaks, style: s }: GraduatedColorLegendProps) {
+export function GraduatedColorLegend({ colors, breaks, geometryType, style: s }: GraduatedColorLegendProps) {
   return (
     <ul className="space-y-0.5">
       {colors.map((color, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <div
-            className={swatchClass(s)}
-            style={swatchStyle(color, s)}
-            aria-hidden="true"
-          />
+          <GeometrySwatch geometryType={geometryType} color={color} style={s} />
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
         </li>
       ))}

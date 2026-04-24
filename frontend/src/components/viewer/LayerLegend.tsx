@@ -3,7 +3,7 @@ import type { SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { breakLabel } from '@/lib/legend-utils';
-import { HeatmapLegend } from '@/components/map/LegendEntries';
+import { GeometrySwatch, HeatmapLegend } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 
 interface LayerLegendProps {
@@ -30,16 +30,14 @@ function getSwatchColor(layer: SharedLayerResponse): string {
 }
 
 /** Accessible swatch + label used inside a <dl> */
-function LegendSwatch({ color, label }: { color: string; label: string }) {
+function LegendSwatch({ color, label, geometryType, outlineColor }: {
+  color: string; label: string; geometryType?: string | null; outlineColor?: string;
+}) {
   return (
     <div className="flex items-center gap-1.5">
       <dt className="sr-only">{label}</dt>
       <dd className="flex items-center gap-1.5">
-        <div
-          className="w-3.5 h-3.5 rounded-sm flex-shrink-0 border border-black/10"
-          style={{ backgroundColor: color }}
-          aria-hidden="true"
-        />
+        <GeometrySwatch geometryType={geometryType} color={color} style={{ outlineColor }} />
         <span className="text-[11px] text-muted-foreground truncate">{label}</span>
       </dd>
     </div>
@@ -110,15 +108,12 @@ export function LayerLegend({
             const isHeatmap = sc?.render_mode === 'heatmap';
             const color = isHeatmap ? null : getSwatchColor(layer);
             const layerName = layer.display_name || layer.dataset_name;
+            const outlineColor = (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined;
             return (
               <li key={layer.sort_order} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
                   {color && (
-                    <div
-                      className="w-4 h-4 rounded-sm flex-shrink-0 border border-black/10"
-                      style={{ backgroundColor: color }}
-                      aria-hidden="true"
-                    />
+                    <GeometrySwatch geometryType={layer.geometry_type} color={color} />
                   )}
                   <span className="text-sm text-foreground flex-1 line-clamp-2" title={layerName}>
                     {layerName}
@@ -150,10 +145,10 @@ export function LayerLegend({
                   ) : (
                     <dl className="mt-1.5 ms-6 space-y-0.5">
                       {sc.mode === 'categorical' && sc.categories?.map((cat, i) => (
-                        <LegendSwatch key={i} color={cat.color} label={cat.value} />
+                        <LegendSwatch key={i} color={cat.color} label={cat.value} geometryType={layer.geometry_type} outlineColor={outlineColor} />
                       ))}
                       {sc.mode === 'graduated' && sc.breaks && sc.colors?.map((clr, i) => (
-                        <LegendSwatch key={i} color={clr} label={breakLabel(i, sc.breaks!)} />
+                        <LegendSwatch key={i} color={clr} label={breakLabel(i, sc.breaks!)} geometryType={layer.geometry_type} outlineColor={outlineColor} />
                       ))}
                     </dl>
                   )
