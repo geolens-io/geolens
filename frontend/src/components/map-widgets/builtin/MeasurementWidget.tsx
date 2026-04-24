@@ -166,8 +166,12 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
         }
       }
 
-      const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-      src?.setData({ type: 'FeatureCollection', features });
+      try {
+        const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+        src?.setData({ type: 'FeatureCollection', features });
+      } catch {
+        // Map may be destroyed during click handling
+      }
     };
 
     map.on('click', handleClick);
@@ -175,7 +179,7 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
     return () => {
       map.off('click', handleClick);
       try {
-        map.getCanvas().style.cursor = '';
+        if (map.getCanvas()) map.getCanvas().style.cursor = '';
         if (map.getLayer(MEASURE_POINTS_LAYER)) map.removeLayer(MEASURE_POINTS_LAYER);
         if (map.getLayer(MEASURE_LINE_LAYER)) map.removeLayer(MEASURE_LINE_LAYER);
         if (map.getSource(MEASURE_SOURCE)) map.removeSource(MEASURE_SOURCE);
@@ -231,8 +235,12 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
         });
       }
     }
-    const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    src?.setData({ type: 'FeatureCollection', features });
+    try {
+      const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      src?.setData({ type: 'FeatureCollection', features });
+    } catch {
+      // Map may be destroyed during mode change
+    }
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleClear() {
@@ -240,8 +248,12 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
     pointsRef.current = [];
     setResult(null);
     if (!map) return;
-    const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    src?.setData({ type: 'FeatureCollection', features: [] });
+    try {
+      const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      src?.setData({ type: 'FeatureCollection', features: [] });
+    } catch {
+      // Map may be destroyed during teardown
+    }
   }
 
   return (

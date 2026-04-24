@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
 import { basemapThumbnail, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { cn } from '@/lib/utils';
+import type { BasemapEntry } from '@/api/settings';
 
 interface BasemapPickerProps {
   value: string;
@@ -17,7 +18,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
   const { data: basemaps } = useBasemaps();
   const [open, setOpen] = useState(false);
   const enabled = (basemaps ?? []).filter((b) => b.enabled);
-  const blankEntry = { id: BLANK_BASEMAP_ID, label: t('basemap.blank'), url: BLANK_BASEMAP_ID, enabled: true, is_preset: false };
+  const blankEntry: BasemapEntry = { id: BLANK_BASEMAP_ID, label: t('basemap.blank'), url: BLANK_BASEMAP_ID, enabled: true, is_preset: false };
   const options = [blankEntry, ...enabled];
   const current = options.find((b) => b.id === value);
 
