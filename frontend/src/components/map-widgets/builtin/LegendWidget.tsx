@@ -56,6 +56,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                   {layer.style_config.mode === 'categorical' && layer.style_config.categories && (
                     <CategoricalLegend
                       categories={layer.style_config.categories}
+                      geometryType={layer.dataset_geometry_type}
                       style={swatchStyle}
                     />
                   )}
@@ -66,6 +67,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                         styleConfig={layer.style_config}
                         paint={layer.paint ?? {}}
                         style={swatchStyle}
+                        geometryType={layer.dataset_geometry_type}
                       />
                     )}
                 </>
@@ -106,10 +108,12 @@ function GraduatedLegendSwitch({
   styleConfig,
   paint,
   style,
+  geometryType,
 }: {
   styleConfig: { breaks?: number[]; target?: string; sizes?: number[]; colors?: string[] };
   paint: Record<string, unknown>;
   style: { outlineColor?: string; strokeDisabled: boolean; opacity: number };
+  geometryType?: string | null;
 }) {
   const breaks = styleConfig.breaks!;
 
@@ -142,6 +146,7 @@ function GraduatedLegendSwitch({
     <GraduatedColorLegend
       colors={styleConfig.colors}
       breaks={breaks}
+      geometryType={geometryType}
       style={style}
     />
   );
