@@ -268,7 +268,8 @@
   },
   "basemap": {
     "title": "Basiskarte",
-    "showLabels": "Ortsbeschriftungen anzeigen"
+    "showLabels": "Ortsbeschriftungen anzeigen",
+    "blank": "Keine"
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",
