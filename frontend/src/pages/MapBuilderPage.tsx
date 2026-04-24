@@ -418,7 +418,7 @@ export function MapBuilderPage() {
 
         {/* Layer editor flyout — extends from sidebar into map area */}
         {editingLayer && !isMobile && (
-          <div className="absolute left-0 top-0 bottom-0 z-[6] w-72 bg-background border-e shadow-md flex flex-col overflow-hidden">
+          <div className="absolute left-0 top-0 bottom-0 z-20 w-72 bg-background border-e shadow-md flex flex-col overflow-hidden">
             <LazyLoadErrorBoundary>
               <LayerEditorPanel
                 layer={editingLayer}
