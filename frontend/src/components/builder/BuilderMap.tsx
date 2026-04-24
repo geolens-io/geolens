@@ -441,7 +441,7 @@ export const BuilderMap = memo(function BuilderMap({
       )}
       <MapGL
         initialViewState={defaultView}
-        mapStyle={styleValue as string}
+        mapStyle={styleValue}
         styleDiffing={false}
         // Required for thumbnail capture via canvas.toBlob()
         canvasContextAttributes={{ preserveDrawingBuffer: true }}

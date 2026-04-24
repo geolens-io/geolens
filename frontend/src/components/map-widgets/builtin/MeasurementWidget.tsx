@@ -191,18 +191,19 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
 
   // Update overlay when mode changes (recompute result from existing points)
   useEffect(() => {
-    if (points.length === 0) return;
+    const pts = pointsRef.current;
+    if (pts.length === 0) return;
     let computed: number | null = null;
-    if (mode === 'distance' && points.length >= 2) {
+    if (mode === 'distance' && pts.length >= 2) {
       let total = 0;
-      for (let i = 1; i < points.length; i++) {
-        const from = point([points[i - 1].lng, points[i - 1].lat]);
-        const to = point([points[i].lng, points[i].lat]);
+      for (let i = 1; i < pts.length; i++) {
+        const from = point([pts[i - 1].lng, pts[i - 1].lat]);
+        const to = point([pts[i].lng, pts[i].lat]);
         total += turfDistance(from, to, { units: 'meters' });
       }
       computed = total;
-    } else if (mode === 'area' && points.length >= 3) {
-      const coords = points.map((p) => [p.lng, p.lat]);
+    } else if (mode === 'area' && pts.length >= 3) {
+      const coords = pts.map((p) => [p.lng, p.lat]);
       coords.push(coords[0]);
       const poly = polygon([coords]);
       computed = turfArea(poly);
@@ -212,16 +213,16 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
     // Rebuild GeoJSON for mode change
     if (!map) return;
     const features: GeoJSON.Feature[] = [];
-    points.forEach((p) => {
+    pts.forEach((p) => {
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
         properties: {},
       });
     });
-    if (points.length >= 2) {
-      const coords = points.map((p) => [p.lng, p.lat]);
-      if (mode === 'area' && points.length >= 3) {
+    if (pts.length >= 2) {
+      const coords = pts.map((p) => [p.lng, p.lat]);
+      if (mode === 'area' && pts.length >= 3) {
         features.push({
           type: 'Feature',
           geometry: { type: 'LineString', coordinates: [...coords, coords[0]] },
@@ -241,7 +242,7 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
     } catch {
       // Map may be destroyed during mode change
     }
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps -- pointsRef is stable
 
   function handleClear() {
     setPoints([]);
