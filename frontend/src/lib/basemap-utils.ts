@@ -9,8 +9,8 @@ export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
 export const BLANK_BASEMAP_ID = 'blank';
 
-/** Fallback glyphs for inline styles (raster basemaps, blank basemap) so text labels render. */
-const FALLBACK_GLYPHS = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+/** Fallback glyphs for inline styles (raster basemaps) so text labels render. */
+const FALLBACK_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
 const BLANK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">' +
@@ -63,6 +63,8 @@ const LEGACY_KEY_MAP: Record<string, string> = {
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
   if (url === BLANK_BASEMAP_ID) {
+    // No glyphs property — blank basemap has zero symbol/text layers so no
+    // glyph fetch is needed. Omitting prevents any glyph request attempts.
     return {
       version: 8 as const,
       sources: {},
@@ -73,7 +75,6 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
           paint: { 'background-color': 'rgba(0,0,0,0)' },
         },
       ],
-      glyphs: FALLBACK_GLYPHS,
     };
   }
   const urlPath = url.split('?')[0];
@@ -91,7 +92,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
       },
     },
     layers: [{ id: 'basemap-tiles', type: 'raster' as const, source: 'basemap' }],
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    glyphs: FALLBACK_GLYPHS,
   };
 }
 
