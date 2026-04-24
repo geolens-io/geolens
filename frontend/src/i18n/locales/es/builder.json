@@ -268,7 +268,8 @@
   },
   "basemap": {
     "title": "Mapa base",
-    "showLabels": "Mostrar etiquetas de lugares"
+    "showLabels": "Mostrar etiquetas de lugares",
+    "blank": "Ninguno"
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",

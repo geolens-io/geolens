@@ -268,7 +268,8 @@
   },
   "basemap": {
     "title": "Fond de carte",
-    "showLabels": "Afficher les libellés des lieux"
+    "showLabels": "Afficher les libellés des lieux",
+    "blank": "Aucun"
   },
   "featurePopup": {
     "noAttributes": "Aucun attribut",

@@ -5,8 +5,10 @@ import {
   resolveBasemapId,
   getThemeBasemap,
   findBasemapById,
+  basemapThumbnail,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
+  BLANK_BASEMAP_ID,
 } from '../basemap-utils';
 import type { BasemapEntry } from '@/api/settings';
 
@@ -70,6 +72,33 @@ describe('toMaplibreStyle', () => {
     const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const result = toMaplibreStyle(url) as StyleSpecification;
     expect(result.glyphs).toBeDefined();
+  });
+});
+
+describe('BLANK_BASEMAP_ID', () => {
+  it('toMaplibreStyle returns a StyleSpecification with transparent background for blank ID', () => {
+    const result = toMaplibreStyle(BLANK_BASEMAP_ID) as StyleSpecification;
+    expect(result.version).toBe(8);
+    expect(result.sources).toEqual({});
+    expect(result.layers).toHaveLength(1);
+    expect(result.layers[0]).toMatchObject({
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': 'rgba(0,0,0,0)' },
+    });
+    expect(result.glyphs).toBeDefined();
+  });
+
+  it('toMaplibreStyle blank ignores attribution param', () => {
+    const result = toMaplibreStyle(BLANK_BASEMAP_ID, '© Example') as StyleSpecification;
+    expect(result.version).toBe(8);
+    expect(result.sources).toEqual({});
+  });
+
+  it('basemapThumbnail returns a defined string for blank ID', () => {
+    expect(basemapThumbnail(BLANK_BASEMAP_ID)).toBeDefined();
+    expect(typeof basemapThumbnail(BLANK_BASEMAP_ID)).toBe('string');
+    expect(basemapThumbnail(BLANK_BASEMAP_ID).length).toBeGreaterThan(0);
   });
 });
 
