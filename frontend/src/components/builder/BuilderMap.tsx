@@ -12,6 +12,7 @@ import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
+import type { VectorTileSource } from 'maplibre-gl';
 import { syncLayersToMap, toSyncInput, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -95,11 +96,11 @@ export const BuilderMap = memo(function BuilderMap({
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
-  const datasetIdKey = layers.map((l) => l.dataset_id).join(',');
-  const datasetIds = useMemo(() => {
-    return layers.map((l) => l.dataset_id).filter(Boolean);
+  const datasetIds = useMemo(
+    () => layers.map((l) => l.dataset_id).filter(Boolean),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on structural identity
-  }, [datasetIdKey]);
+    [layers.map((l) => l.dataset_id).join(',')],
+  );
   const tokenQueries = useTileTokens(datasetIds);
 
   // Stable string key for token changes — avoids per-render .map().join() in dep arrays
@@ -353,7 +354,7 @@ export const BuilderMap = memo(function BuilderMap({
       const source = map.getSource(sourceId);
       if (source && source.type === 'vector') {
         const newUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
-        (source as { setTiles: (tiles: string[]) => void }).setTiles([newUrl]);
+        (source as VectorTileSource).setTiles([newUrl]);
       }
     }
   }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url]);

@@ -1,4 +1,4 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { Map as MaplibreMap, GeoJSONSource } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
@@ -97,11 +97,11 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'label', id: str
 
 
 export function getSourceId(layerId: string) {
-  return `source-${layerId}`;
+  return prefixed('source', layerId);
 }
 
 export function getLayerId(layerId: string) {
-  return `layer-${layerId}`;
+  return prefixed('layer', layerId);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ function syncVectorLayer(
       adapter.addLayers(map, adapterInput);
     } else {
       const src = map.getSource(sourceId);
-      if (src && src.type === 'geojson') (src as { setData: (data: GeoJSON.GeoJSON) => void }).setData(geojsonData as GeoJSON.GeoJSON);
+      if (src && src.type === 'geojson') (src as GeoJSONSource).setData(geojsonData);
       adapter.syncPaint(map, adapterInput);
     }
     adapter.syncVisibility(map, adapterInput);

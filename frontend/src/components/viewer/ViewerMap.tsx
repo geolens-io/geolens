@@ -63,20 +63,11 @@ interface ViewerMapProps {
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
 const VIEWER_PREFIX = 'viewer-';
 
-function getViewerSourceId(sortOrder: number) {
-  return prefixed('source', String(sortOrder), VIEWER_PREFIX);
-}
-
-function getViewerLayerId(sortOrder: number) {
-  return prefixed('layer', String(sortOrder), VIEWER_PREFIX);
-}
-
-function getViewerLabelLayerId(sortOrder: number) {
-  return prefixed('label', String(sortOrder), VIEWER_PREFIX);
-}
-
-/** Shared field mapping common to both SyncLayerInput and AdapterLayerInput. */
-function sharedLayerFields(layer: SharedLayerResponse, visibleLayers: Set<number>) {
+/** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
+function toViewerSyncInput(
+  layer: SharedLayerResponse,
+  visibleLayers: Set<number>,
+): SyncLayerInput {
   return {
     id: String(layer.sort_order),
     dataset_table_name: layer.table_name,
@@ -88,16 +79,6 @@ function sharedLayerFields(layer: SharedLayerResponse, visibleLayers: Set<number
     filter: layer.filter ?? null,
     label_config: layer.label_config,
     style_config: layer.style_config,
-  };
-}
-
-/** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
-function toViewerSyncInput(
-  layer: SharedLayerResponse,
-  visibleLayers: Set<number>,
-): SyncLayerInput {
-  return {
-    ...sharedLayerFields(layer, visibleLayers),
     dataset_id: layer.dataset_id,
     is_3d: layer.is_3d,
     feature_count: layer.feature_count,
@@ -110,9 +91,18 @@ function toAdapterInput(
   visibleLayers: Set<number>,
 ): AdapterLayerInput {
   return {
-    ...sharedLayerFields(layer, visibleLayers),
-    sourceId: getViewerSourceId(layer.sort_order),
-    layerId: getViewerLayerId(layer.sort_order),
+    id: String(layer.sort_order),
+    dataset_table_name: layer.table_name,
+    dataset_geometry_type: layer.geometry_type,
+    opacity: layer.opacity ?? 1,
+    visible: visibleLayers.has(layer.sort_order),
+    paint: (layer.paint as Record<string, unknown>) ?? {},
+    layout: (layer.layout as Record<string, unknown>) ?? {},
+    filter: layer.filter ?? null,
+    label_config: layer.label_config,
+    style_config: layer.style_config,
+    sourceId: prefixed('source', String(layer.sort_order), VIEWER_PREFIX),
+    layerId: prefixed('layer', String(layer.sort_order), VIEWER_PREFIX),
     sourceLayer: `data.${layer.table_name}`,
     tileUrl: '',
   };
@@ -193,6 +183,7 @@ export const ViewerMap = memo(function ViewerMap({
             }
           } catch (e) {
             if (import.meta.env.DEV) console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
+            toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load 3D layer data' }), { id: `geojson-z-error-${layer.dataset_id}` });
           }
         }),
       );
@@ -202,7 +193,7 @@ export const ViewerMap = memo(function ViewerMap({
       }
     }
     fetchAll().catch(() => {
-      toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load 3D layer data' }), { id: 'geojson-z-error' });
+      // Individual layer errors are already toasted above; this only fires on unexpected scaffolding failure
     });
     return () => { cancelled = true; };
   }, [geojsonZLayers, apiKey, embedToken, t]);
@@ -265,7 +256,7 @@ export const ViewerMap = memo(function ViewerMap({
       layers
         .filter((l) => visibleLayers.has(l.sort_order))
         .filter((l) => l.style_config?.render_mode !== 'heatmap')
-        .map((l) => getViewerLayerId(l.sort_order)),
+        .map((l) => prefixed('layer', String(l.sort_order), VIEWER_PREFIX)),
     [layers, visibleLayers],
   );
   // Ref so event handlers always see current value without re-registration
@@ -412,7 +403,7 @@ export const ViewerMap = memo(function ViewerMap({
       const token = tokenMap.get(layer.dataset_id) ?? null;
       // Skip rasters — their tile_url is stable, no refresh needed.
       if (token && token.kind !== 'vector') continue;
-      const sourceId = getViewerSourceId(layer.sort_order);
+      const sourceId = prefixed('source', String(layer.sort_order), VIEWER_PREFIX);
       const source = map.getSource(sourceId);
       // Only vector sources need query-param URL refreshes.
       if (source && source.type === 'vector') {
@@ -442,7 +433,7 @@ export const ViewerMap = memo(function ViewerMap({
       const adapterInput = toAdapterInput(layer, visibleLayers);
       adapter.syncVisibility(map, adapterInput);
 
-      const labelId = getViewerLabelLayerId(layer.sort_order);
+      const labelId = prefixed('label', String(layer.sort_order), VIEWER_PREFIX);
       if (map.getLayer(labelId)) {
         map.setLayoutProperty(labelId, 'visibility', isVisible ? 'visible' : 'none');
       }

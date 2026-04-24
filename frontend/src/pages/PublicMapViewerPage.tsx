@@ -39,6 +39,8 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     layer_type: layer.layer_type ?? undefined,
     dataset_record_type: layer.dataset_record_type ?? undefined,
     is_3d: layer.is_3d ?? null,
+    feature_count: layer.dataset_feature_count ?? null,
+    tile_url: '',
   };
 }
 

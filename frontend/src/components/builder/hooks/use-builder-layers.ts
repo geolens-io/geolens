@@ -11,7 +11,7 @@ import type { LayerActions } from '@/components/builder/ChatPanel';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
-import type { MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
@@ -343,7 +343,7 @@ export function useBuilderLayers(
         ? { ...savedHeatmapPaint }
         : { ...DEFAULT_HEATMAP_PAINT };
 
-      const updatedStyleConfig = {
+      const updatedStyleConfig: Partial<StyleConfig> = {
         ...currentStyleConfig,
         render_mode: 'heatmap',
         savedCirclePaint: savedCirclePaint,
@@ -352,7 +352,7 @@ export function useBuilderLayers(
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as StyleConfig }
             : l,
         ),
       );
@@ -369,17 +369,17 @@ export function useBuilderLayers(
         'circle-stroke-width': 1,
       };
 
-      const updatedStyleConfig: Record<string, unknown> = {
-        ...currentStyleConfig,
-        render_mode: 'points',
+      const { savedCirclePaint: _dropped, ...restConfig } = currentStyleConfig;
+      const updatedStyleConfig: Partial<StyleConfig> = {
+        ...restConfig,
+        render_mode: undefined,
         heatmapPaint: savedHeatmapPaint,
       };
-      delete updatedStyleConfig['savedCirclePaint'];
 
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as typeof l.style_config }
+            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as StyleConfig }
             : l,
         ),
       );
