@@ -3,7 +3,7 @@ import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { findBasemapById, toMaplibreStyle } from '@/lib/basemap-utils';
+import { findBasemapById, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
@@ -83,11 +83,14 @@ export function BuilderMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
-  const basemapEntry = findBasemapById(basemaps ?? [], basemapStyle);
+  const isBlank = basemapStyle === BLANK_BASEMAP_ID;
+  const basemapEntry = isBlank ? undefined : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://tiles.openfreemap.org/styles/positron';
   const styleValue = useMemo(
-    () => toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
-    [basemapEntry?.url, basemapEntry?.attribution],
+    () => isBlank
+      ? toMaplibreStyle(BLANK_BASEMAP_ID)
+      : toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
+    [isBlank, basemapEntry?.url, basemapEntry?.attribution],
   );
 
   // Fetch tile tokens for all layers

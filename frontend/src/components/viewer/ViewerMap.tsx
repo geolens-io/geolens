@@ -11,6 +11,7 @@ import {
   resolveBasemapId,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
+  BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
@@ -161,14 +162,19 @@ export function ViewerMap({
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
   const resolvedId = resolveBasemapId(basemapStyle);
+  const isBlank = resolvedId === BLANK_BASEMAP_ID;
   // For default basemaps (positron/dark-matter), auto-switch with theme —
   // but only when the basemap comes from the saved map data, not a user override.
-  const isDefaultBasemap = !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
-  const effectiveBasemap = isDefaultBasemap
-    ? getThemeBasemap(basemaps ?? [], resolvedTheme)
-    : findBasemapById(basemaps ?? [], basemapStyle);
+  const isDefaultBasemap = !isBlank && !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
+  const effectiveBasemap = isBlank
+    ? undefined
+    : isDefaultBasemap
+      ? getThemeBasemap(basemaps ?? [], resolvedTheme)
+      : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-  const styleValue = toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
+  const styleValue = isBlank
+    ? toMaplibreStyle(BLANK_BASEMAP_ID)
+    : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
 
   // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07)
   useEffect(() => {
