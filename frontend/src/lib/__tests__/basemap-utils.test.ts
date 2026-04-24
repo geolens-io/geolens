@@ -86,7 +86,8 @@ describe('BLANK_BASEMAP_ID', () => {
       type: 'background',
       paint: { 'background-color': 'rgba(0,0,0,0)' },
     });
-    expect(result.glyphs).toBeDefined();
+    // Blank basemap intentionally omits glyphs — no text layers, avoids CORS errors
+    expect(result.glyphs).toBeUndefined();
   });
 
   it('toMaplibreStyle blank ignores attribution param', () => {
