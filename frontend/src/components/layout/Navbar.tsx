@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useFeatureFlags } from '@/hooks/use-settings';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -42,13 +43,22 @@ const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
 function CreateMenu() {
   const { user } = useAuth();
   const { can } = usePermissions();
+  const { data: featureFlags } = useFeatureFlags();
   const { t } = useTranslation();
   const [datasetOpen, setDatasetOpen] = useState(false);
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [vrtOpen, setVrtOpen] = useState(false);
 
+  const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
+  const canImport = can('upload');
+  const canCreateCollection = can('edit_metadata');
+  const canCreateMap = true;
+  const canCreateVrt = can('upload');
+  const hasAnyCreateItems = canCreateDataset || canImport || canCreateCollection || canCreateMap || canCreateVrt;
+
   if (!user) return null;
+  if (!hasAnyCreateItems) return null;
 
   return (
     <>
@@ -60,10 +70,12 @@ function CreateMenu() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setDatasetOpen(true)}>
-            <Database className="h-4 w-4" />
-            {t('nav.dataset')}
-          </DropdownMenuItem>
+          {canCreateDataset && (
+            <DropdownMenuItem onClick={() => setDatasetOpen(true)}>
+              <Database className="h-4 w-4" />
+              {t('nav.dataset')}
+            </DropdownMenuItem>
+          )}
           {can('upload') && (
             <DropdownMenuItem asChild>
               <Link to="/import">
@@ -195,6 +207,7 @@ function UserMenu() {
 function MobileNav() {
   const { user } = useAuth();
   const { can } = usePermissions();
+  const { data: featureFlags } = useFeatureFlags();
   const { t } = useTranslation();
   const { t: tAuth } = useTranslation('auth');
   const location = useLocation();
@@ -238,56 +251,67 @@ function MobileNav() {
             <NavLink to="/maps" className={mobileNavLinkClass}>
               {t('nav.maps')}
             </NavLink>
-            {user && (
-              <>
-                <Separator className="my-2" />
-                <p className="px-3 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                  {t('create')}
-                </p>
-                <button
-                  className={mobileNavLinkClass({ isActive: false })}
-                  onClick={() => { setDatasetOpen(true); setOpen(false); }}
-                >
-                  <Database className="h-4 w-4 me-2" />
-                  {t('nav.dataset')}
-                </button>
-                {can('edit_metadata') && (
+            {user && (() => {
+              const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
+              const canImport = can('upload');
+              const canCreateCollection = can('edit_metadata');
+              const canCreateMap = true;
+              const canCreateVrt = can('upload');
+              const hasAnyCreateItems = canCreateDataset || canImport || canCreateCollection || canCreateMap || canCreateVrt;
+              if (!hasAnyCreateItems) return null;
+              return (
+                <>
+                  <Separator className="my-2" />
+                  <p className="px-3 text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
+                    {t('create')}
+                  </p>
+                  {canCreateDataset && (
+                    <button
+                      className={mobileNavLinkClass({ isActive: false })}
+                      onClick={() => { setDatasetOpen(true); setOpen(false); }}
+                    >
+                      <Database className="h-4 w-4 me-2" />
+                      {t('nav.dataset')}
+                    </button>
+                  )}
+                  {canCreateCollection && (
+                    <button
+                      className={mobileNavLinkClass({ isActive: false })}
+                      onClick={() => { setCollectionOpen(true); setOpen(false); }}
+                    >
+                      <FolderOpen className="h-4 w-4 me-2" />
+                      {t('nav.collection')}
+                    </button>
+                  )}
                   <button
                     className={mobileNavLinkClass({ isActive: false })}
-                    onClick={() => { setCollectionOpen(true); setOpen(false); }}
+                    onClick={() => { setMapOpen(true); setOpen(false); }}
                   >
-                    <FolderOpen className="h-4 w-4 me-2" />
-                    {t('nav.collection')}
+                    <Map className="h-4 w-4 me-2" />
+                    {t('nav.map')}
                   </button>
-                )}
-                <button
-                  className={mobileNavLinkClass({ isActive: false })}
-                  onClick={() => { setMapOpen(true); setOpen(false); }}
-                >
-                  <Map className="h-4 w-4 me-2" />
-                  {t('nav.map')}
-                </button>
-                {can('upload') && (
-                  <button
-                    className={mobileNavLinkClass({ isActive: false })}
-                    onClick={() => { setVrtOpen(true); setOpen(false); }}
-                  >
-                    <Layers className="h-4 w-4 me-2" />
-                    {t('nav.virtualRaster')}
-                  </button>
-                )}
-                {can('upload') && (
-                  <Link
-                    to="/import"
-                    className={mobileNavLinkClass({ isActive: false })}
-                    onClick={() => setOpen(false)}
-                  >
-                    <Upload className="h-4 w-4 me-2" />
-                    {t('nav.importData')}
-                  </Link>
-                )}
-              </>
-            )}
+                  {canCreateVrt && (
+                    <button
+                      className={mobileNavLinkClass({ isActive: false })}
+                      onClick={() => { setVrtOpen(true); setOpen(false); }}
+                    >
+                      <Layers className="h-4 w-4 me-2" />
+                      {t('nav.virtualRaster')}
+                    </button>
+                  )}
+                  {canImport && (
+                    <Link
+                      to="/import"
+                      className={mobileNavLinkClass({ isActive: false })}
+                      onClick={() => setOpen(false)}
+                    >
+                      <Upload className="h-4 w-4 me-2" />
+                      {t('nav.importData')}
+                    </Link>
+                  )}
+                </>
+              );
+            })()}
             {!user && (
               <>
                 <Separator className="my-2" />
