@@ -16,7 +16,9 @@ def extent_to_bbox(extent: object | None) -> list[float] | None:
         return None
 
 
-def make_bbox_filter(geom_col: ColumnElement, bbox: list[float], *, predicate: str = "intersects"):
+def make_bbox_filter(
+    geom_col: ColumnElement, bbox: list[float], *, predicate: str = "intersects"
+):
     """Build a SQLAlchemy spatial filter from a bbox, handling antimeridian crossing.
 
     When ``bbox[0] > bbox[2]`` (minx > maxx), the bbox crosses the antimeridian

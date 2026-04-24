@@ -38,9 +38,26 @@ def _validate_origins(v: list[str] | None) -> list[str] | None:
 
 
 class EmbedTokenCreate(BaseModel):
-    expires_in_days: int = Field(default=30, ge=1, le=365, description="Token lifetime in days (1-365)", example=90)
-    name: str | None = Field(default=None, min_length=1, max_length=255, description="Human-readable label for the token", example="Public dashboard embed")
-    allowed_origins: list[str] | None = Field(default=None, max_length=50, description="Restrict embedding to these origins (CORS). Omit to allow any origin.", example=["https://dashboard.example.com"])
+    expires_in_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Token lifetime in days (1-365)",
+        example=90,
+    )
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Human-readable label for the token",
+        example="Public dashboard embed",
+    )
+    allowed_origins: list[str] | None = Field(
+        default=None,
+        max_length=50,
+        description="Restrict embedding to these origins (CORS). Omit to allow any origin.",
+        example=["https://dashboard.example.com"],
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
@@ -49,7 +66,11 @@ class EmbedTokenCreate(BaseModel):
 
 
 class EmbedTokenUpdate(BaseModel):
-    allowed_origins: list[str] | None = Field(default=None, max_length=50, description="Updated list of allowed embedding origins")
+    allowed_origins: list[str] | None = Field(
+        default=None,
+        max_length=50,
+        description="Updated list of allowed embedding origins",
+    )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
