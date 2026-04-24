@@ -1,5 +1,7 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { useDistributions } from '@/components/dataset/hooks/use-records';
+import { useTileConfig } from '@/hooks/use-settings';
 import { ConnectDropdown } from '../ConnectDropdown';
 import type { DatasetResponse } from '@/types/api';
 
@@ -7,6 +9,17 @@ vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({ user: { roles: ['admin'] }, token: 'test' }),
 }));
+
+vi.mock('@/components/dataset/hooks/use-records', () => ({
+  useDistributions: vi.fn(),
+}));
+
+vi.mock('@/hooks/use-settings', () => ({
+  useTileConfig: vi.fn(),
+}));
+
+const mockUseDistributions = vi.mocked(useDistributions);
+const mockUseTileConfig = vi.mocked(useTileConfig);
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
@@ -55,24 +68,82 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
 }
 
 describe('ConnectDropdown', () => {
-  it('renders both "Copy API URL" and "Copy Tile URL" for spatial datasets', async () => {
+  beforeEach(() => {
+    mockUseDistributions.mockReturnValue({
+      data: {
+        distributions: [
+          {
+            id: 'dist-ogc',
+            record_id: 'rec-1',
+            distribution_type: 'ogc_features',
+            format: 'geojson',
+            url: '/collections/ds-1/items',
+            title: 'OGC API Features',
+            description: null,
+            protocol: 'OGC:OAFeat',
+            media_type: 'application/geo+json',
+            is_primary: true,
+            auto_generated: true,
+          },
+          {
+            id: 'dist-csv',
+            record_id: 'rec-1',
+            distribution_type: 'download',
+            format: 'csv',
+            url: '/datasets/ds-1/export?format=csv',
+            title: 'CSV Download',
+            description: null,
+            protocol: 'HTTP',
+            media_type: 'text/csv',
+            is_primary: false,
+            auto_generated: true,
+          },
+          {
+            id: 'dist-tiles',
+            record_id: 'rec-1',
+            distribution_type: 'vector_tiles',
+            format: 'pbf',
+            url: '/tiles/data.public_parks/{z}/{x}/{y}.pbf',
+            title: 'Vector Tiles',
+            description: null,
+            protocol: 'OGC:WMTS',
+            media_type: 'application/vnd.mapbox-vector-tile',
+            is_primary: false,
+            auto_generated: true,
+          },
+        ],
+        total: 3,
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useDistributions>);
+    mockUseTileConfig.mockReturnValue({
+      data: {
+        public_api_url: 'https://catalog.example.com/api',
+        public_base_url: 'https://catalog.example.com',
+      },
+    } as ReturnType<typeof useTileConfig>);
+  });
+
+  it('renders OGC features and vector tiles actions for spatial datasets', async () => {
     const user = userEvent.setup();
     render(<ConnectDropdown dataset={makeDataset()} />);
 
     await user.click(screen.getByRole('button', { name: /connect/i }));
 
-    expect(screen.getByText('Copy API URL')).toBeInTheDocument();
-    expect(screen.getByText('Copy Tile URL')).toBeInTheDocument();
+    expect(screen.getByText('Copy OGC Features URL')).toBeInTheDocument();
+    expect(screen.getByText('Copy Vector Tiles URL')).toBeInTheDocument();
+    expect(screen.queryByText('Copy CSV Export URL')).not.toBeInTheDocument();
   });
 
-  it('renders only "Copy API URL" for table datasets (no tile URL)', async () => {
+  it('renders OGC features and CSV actions for table datasets', async () => {
     const user = userEvent.setup();
     render(<ConnectDropdown dataset={makeDataset({ record_type: 'table' })} />);
 
     await user.click(screen.getByRole('button', { name: /connect/i }));
 
-    expect(screen.getByText('Copy API URL')).toBeInTheDocument();
-    expect(screen.queryByText('Copy Tile URL')).not.toBeInTheDocument();
+    expect(screen.getByText('Copy OGC Features URL')).toBeInTheDocument();
+    expect(screen.getByText('Copy CSV Export URL')).toBeInTheDocument();
+    expect(screen.queryByText('Copy Vector Tiles URL')).not.toBeInTheDocument();
   });
 
   it('renders raster-specific items for raster datasets', async () => {
@@ -98,7 +169,7 @@ describe('ConnectDropdown', () => {
     expect(screen.getByText('Copy COG URL')).toBeInTheDocument();
     expect(screen.getByText('Copy XYZ Tile URL')).toBeInTheDocument();
     expect(screen.getByText('Copy S3 URI')).toBeInTheDocument();
-    expect(screen.queryByText('Copy API URL')).not.toBeInTheDocument();
-    expect(screen.queryByText('Copy Tile URL')).not.toBeInTheDocument();
+    expect(screen.queryByText('Copy OGC Features URL')).not.toBeInTheDocument();
+    expect(screen.queryByText('Copy Vector Tiles URL')).not.toBeInTheDocument();
   });
 });

@@ -19,16 +19,14 @@ describe('ExportButton', () => {
     expect(values).toContain('csv');
   });
 
-  it('excludes Shapefile option for table record type', () => {
+  it('limits table datasets to CSV export', () => {
     render(<ExportButton datasetId="ds-1" datasetName="test" recordType="table" />);
 
     const select = screen.getByRole('combobox');
     const options = Array.from(select.querySelectorAll('option'));
-    expect(options).toHaveLength(3);
+    expect(options).toHaveLength(1);
     const values = options.map((o) => o.value);
-    expect(values).not.toContain('shp');
-    expect(values).toContain('gpkg');
-    expect(values).toContain('geojson');
     expect(values).toContain('csv');
+    expect(select).toHaveValue('csv');
   });
 });

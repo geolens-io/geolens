@@ -45,6 +45,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 vi.mock('@/hooks/use-settings', () => ({
   useAllSettings: () => ({ data: { tabs: { general: [] } } }),
   useFeatureFlags: () => ({ data: { enable_dataset_editing: false, require_metadata_for_publish: false } }),
+  useTileConfig: () => ({ data: null }),
 }));
 
 vi.mock('@/hooks/use-mobile', () => ({
@@ -125,6 +126,7 @@ vi.mock('@/hooks/use-ai-metadata', () => ({
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useCreateKeyword: () => ({ mutateAsync: vi.fn() }),
   useKeywords: () => ({ data: { keywords: [] } }),
+  useDistributions: () => ({ data: { distributions: [], total: 0 }, isLoading: false }),
 }));
 
 vi.mock('@/components/collections/DatasetCollectionBadges', () => ({

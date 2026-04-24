@@ -10,7 +10,6 @@
     "backToSearch": "Back to search",
     "mapPreview": "Map Preview",
     "export": "Export",
-    "serviceUrls": "Service URLs",
     "attributeData": "Attribute Data",
     "noSpatialExtent": "No spatial extent available"
   },
@@ -59,8 +58,9 @@
     "copyCogUrl": "Copy COG URL",
     "copyXyzTileUrl": "Copy XYZ Tile URL",
     "copyS3Uri": "Copy S3 URI",
-    "copyApiUrl": "Copy API URL",
-    "copyTileUrl": "Copy Tile URL",
+    "copyCsvExportUrl": "Copy CSV Export URL",
+    "copyOgcFeaturesUrl": "Copy OGC Features URL",
+    "copyVectorTilesUrl": "Copy Vector Tiles URL",
     "copied": "Copied: {{preview}}"
   },
   "addToMap": {
@@ -295,10 +295,6 @@
     }
   },
   "serviceUrls": {
-    "vectorTiles": "Vector Tiles (MVT)",
-    "featureService": "Feature Service (GeoJSON)",
-    "datasetApi": "Dataset API",
-    "authHelp": "These endpoints accept an <1>X-Api-Key</1> or <3>Authorization: Bearer</3> header.",
     "authHelpSimple": "These endpoints accept an X-Api-Key or Authorization: Bearer header.",
     "manageApiKeys": "Manage API keys"
   },

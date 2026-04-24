@@ -1,10 +1,10 @@
 import { render, screen } from '@/test/test-utils';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
+import { resolveDistributionUrl } from '@/lib/dataset-access';
 import {
   DistributionsList,
   getDistributionGroup,
-  resolveDistributionUrl,
 } from '@/components/dataset/DistributionsList';
 
 vi.mock('@/components/dataset/hooks/use-records', () => ({

@@ -122,13 +122,18 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
   // Limit to 6 cells max
   const displayCells = cells.slice(0, 6);
 
+  const gridColsClass: Record<number, string> = {
+    1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3',
+    4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6',
+  };
+
   return (
     <div
       className={cn(
         'grid border-y border-border',
+        gridColsClass[displayCells.length] ?? 'grid-cols-6',
         className,
       )}
-      style={{ gridTemplateColumns: `repeat(${displayCells.length}, 1fr)` }}
     >
       {displayCells.map((cell) => (
         <StatCell key={cell.label} {...cell} />

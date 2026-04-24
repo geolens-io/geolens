@@ -1,6 +1,24 @@
 # GeoLens Design Guide
 
-This document is the single reference for visual consistency across GeoLens. Every value is extracted directly from source files -- if it disagrees with the code, the code wins and this guide needs updating.
+This document is the single reference for visual consistency across GeoLens. Source tokens live in code. This guide documents intended usage. If implementation and guide diverge, update whichever is wrong so they match.
+
+## Quick Reference
+
+The 90% recipe for building any GeoLens screen:
+
+- **Page wrapper:** `PageShell` (standard/narrow/wide)
+- **Page header:** `PageHeader` with breadcrumbs or back link
+- **Surfaces:** `Card` with `border border-border shadow-sm` for data-dense views
+- **Text:** `text-sm` body, `text-lg font-semibold` section headings, `text-2xl font-semibold` page titles
+- **Colors:** semantic tokens only (`bg-background`, `text-foreground`, `bg-card`, `text-muted-foreground`)
+- **Status:** `status-colors.ts` maps -- never hardcoded palette colors
+- **Tables:** default density for lists, compact for admin, dense for attribute data
+- **Map colors:** `MAP_COLORS` from `@/lib/map-colors.ts` -- never CSS vars
+- **States:** `EmptyState`, `LoadingState`, `ErrorState` from `@/components/layout/`
+- **Focus:** `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`
+- **Transitions:** `transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out`
+- **Badges:** max 3 visible per card/row; additional metadata goes to secondary text or tooltip
+- **One primary action** per page/dialog
 
 ## 1. Overview & Principles
 
@@ -8,18 +26,33 @@ GeoLens targets a clean, professional, data-focused aesthetic. The interface pri
 
 **Target platforms:** Desktop and tablet first. Mobile viewports are supported (responsive layouts, touch targets) but not optimized -- complex workflows like the map builder and data tables assume a wider viewport.
 
-**Key principles:**
+### Visual Personality
 
+GeoLens should feel like a modern spatial intelligence workspace -- technical but not developer-only, calm under large amounts of data, map-native without looking like legacy GIS software. Neutral surfaces, strong spatial previews, restrained color.
+
+**GeoLens is not:**
+
+- A generic admin dashboard with map features bolted on
+- A consumer map app
+- A spreadsheet with a map sidebar
+- An Esri/QGIS clone with web styling
+
+The warm atlas-paper surfaces, blue primary, and map-centric layout are the visual identity. Reinforce that identity through spatial affordances (map thumbnails, bbox previews, geometry-type icons, CRS labels) rather than exotic colors or heavy branding.
+
+### Key Principles
+
+- **Warm atlas paper** -- light-mode neutrals use OKLCH hue 85 (golden/tan warmth) instead of achromatic gray. This gives the app a warm, cartographic feel that complements the map-centric workflow.
 - **Generous whitespace** -- let content breathe with consistent spacing between sections and cards.
-- **Subtle accents** -- neutral base palette with color reserved for meaningful signals (status, actions, data visualization).
+- **Subtle accents** -- warm neutral base palette with color reserved for meaningful signals (status, actions, data visualization).
 - **Clear hierarchy** -- use font weight, size, and color to establish visual priority without decoration.
-- **Muted backgrounds with vibrant status indicators** -- the neutral OKLCH grays make semantic colors (success, warning, destructive) immediately visible.
+- **Muted backgrounds with vibrant status indicators** -- the warm OKLCH neutrals make semantic colors (success, warning, destructive) immediately visible.
 
 **Default rule:** When unsure which tokens or colors to use, stick with `background` + `card` + `primary`. Do not introduce new tokens or colors without a clear reason.
 
 **Technical notes:**
 
 - All colors use the **OKLCH** color space. OKLCH is perceptually uniform -- equal numeric changes in lightness produce equal perceived brightness changes. This means opacity modifiers like `bg-primary/50` produce predictable, visually consistent results across all token colors.
+- Light-mode neutrals carry a subtle warm tint (chroma ~0.003, hue 85). Dark-mode neutrals use a cool blue tint (hue 250) for contrast.
 - All theme configuration lives in `frontend/src/index.css` via `@theme inline`. There is no `tailwind.config.js`.
 - Token source of truth: `:root` (light) and `.dark` blocks in `index.css`.
 
@@ -60,20 +93,20 @@ When styling a component, reach for tokens in this order:
 
 | Token | Light Value | Dark Value | Tailwind Utility | Usage |
 |-------|------------|------------|------------------|-------|
-| `--background` | `oklch(1 0 0)` | `oklch(0.145 0.008 250)` | `bg-background` | Page background |
-| `--foreground` | `oklch(0.145 0 0)` | `oklch(0.985 0 0)` | `text-foreground` | Default body text |
-| `--card` | `oklch(1 0 0)` | `oklch(0.18 0.008 250)` | `bg-card` | Card surfaces |
-| `--card-foreground` | `oklch(0.145 0 0)` | `oklch(0.985 0 0)` | `text-card-foreground` | Text on cards |
-| `--popover` | `oklch(1 0 0)` | `oklch(0.22 0.010 250)` | `bg-popover` | Dropdown/popover surfaces |
-| `--popover-foreground` | `oklch(0.145 0 0)` | `oklch(0.985 0 0)` | `text-popover-foreground` | Text on popovers |
+| `--background` | `oklch(0.985 0.003 85)` | `oklch(0.145 0.008 250)` | `bg-background` | Page background |
+| `--foreground` | `oklch(0.145 0.005 250)` | `oklch(0.985 0 0)` | `text-foreground` | Default body text |
+| `--card` | `oklch(0.99 0.002 85)` | `oklch(0.18 0.008 250)` | `bg-card` | Card surfaces |
+| `--card-foreground` | `oklch(0.145 0.005 250)` | `oklch(0.985 0 0)` | `text-card-foreground` | Text on cards |
+| `--popover` | `oklch(0.99 0.002 85)` | `oklch(0.22 0.010 250)` | `bg-popover` | Dropdown/popover surfaces |
+| `--popover-foreground` | `oklch(0.145 0.005 250)` | `oklch(0.985 0 0)` | `text-popover-foreground` | Text on popovers |
 | `--primary` | `oklch(0.55 0.18 250)` | `oklch(0.72 0.17 250)` | `bg-primary`, `text-primary` | Primary action buttons, links |
 | `--primary-foreground` | `oklch(0.985 0 0)` | `oklch(0.18 0.008 250)` | `text-primary-foreground` | Text on primary backgrounds |
-| `--secondary` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-secondary` | Secondary surfaces |
-| `--secondary-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | `text-secondary-foreground` | Text on secondary |
-| `--muted` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-muted` | Muted backgrounds |
-| `--muted-foreground` | `oklch(0.45 0 0)` | `oklch(0.708 0 0)` | `text-muted-foreground` | De-emphasized text, captions |
-| `--accent` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-accent` | Hover/focus highlight |
-| `--accent-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | `text-accent-foreground` | Text on accent |
+| `--secondary` | `oklch(0.97 0.003 85)` | `oklch(0.269 0.008 250)` | `bg-secondary` | Secondary surfaces |
+| `--secondary-foreground` | `oklch(0.205 0.005 250)` | `oklch(0.985 0 0)` | `text-secondary-foreground` | Text on secondary |
+| `--muted` | `oklch(0.97 0.003 85)` | `oklch(0.269 0.008 250)` | `bg-muted` | Muted backgrounds |
+| `--muted-foreground` | `oklch(0.45 0.005 250)` | `oklch(0.708 0 0)` | `text-muted-foreground` | De-emphasized text, captions |
+| `--accent` | `oklch(0.97 0.003 85)` | `oklch(0.269 0.008 250)` | `bg-accent` | Hover/focus highlight |
+| `--accent-foreground` | `oklch(0.205 0.005 250)` | `oklch(0.985 0 0)` | `text-accent-foreground` | Text on accent |
 | `--destructive` | `oklch(0.577 0.245 27.325)` | `oklch(0.704 0.191 22.216)` | `bg-destructive`, `text-destructive` | Danger actions, error states |
 | `--destructive-foreground` | `oklch(0.985 0 0)` | `oklch(0.25 0.05 22)` | `text-destructive-foreground` | Text on destructive backgrounds |
 
@@ -81,8 +114,8 @@ When styling a component, reach for tokens in this order:
 
 | Token | Light Value | Dark Value | Tailwind Utility | Usage |
 |-------|------------|------------|------------------|-------|
-| `--border` | `oklch(0.87 0 0)` | `oklch(1 0 0 / 10%)` | `border-border` | Default border color |
-| `--input` | `oklch(0.87 0 0)` | `oklch(1 0 0 / 15%)` | `border-input` | Form input borders |
+| `--border` | `oklch(0.88 0.005 85)` | `oklch(1 0 0 / 10%)` | `border-border` | Default border color |
+| `--input` | `oklch(0.88 0.005 85)` | `oklch(1 0 0 / 15%)` | `border-input` | Form input borders |
 | `--ring` | `oklch(0.55 0.18 250)` | `oklch(0.72 0.17 250)` | `ring-ring` | Focus ring color |
 | `--radius` | `0.625rem` | `0.625rem` | `rounded-sm/md/lg/xl` | Border radius scale base |
 
@@ -92,10 +125,10 @@ When styling a component, reach for tokens in this order:
 
 | Token | Light Value | Dark Value | Tailwind Utility | Usage |
 |-------|------------|------------|------------------|-------|
-| `--surface-0` | `oklch(0.985 0 0)` | `oklch(0.145 0.008 250)` | `bg-surface-0` | Page base, deepest layer |
-| `--surface-1` | `oklch(1 0 0)` | `oklch(0.18 0.008 250)` | `bg-surface-1` | Cards, panels |
-| `--surface-2` | `oklch(0.98 0 0)` | `oklch(0.22 0.010 250)` | `bg-surface-2` | Popovers, dropdowns |
-| `--surface-3` | `oklch(0.96 0 0)` | `oklch(0.26 0.012 250)` | `bg-surface-3` | Tooltips, top layer |
+| `--surface-0` | `oklch(0.98 0.003 85)` | `oklch(0.145 0.008 250)` | `bg-surface-0` | Page base, deepest layer |
+| `--surface-1` | `oklch(0.99 0.002 85)` | `oklch(0.18 0.008 250)` | `bg-surface-1` | Cards, panels |
+| `--surface-2` | `oklch(0.97 0.004 85)` | `oklch(0.22 0.010 250)` | `bg-surface-2` | Popovers, dropdowns |
+| `--surface-3` | `oklch(0.95 0.005 85)` | `oklch(0.26 0.012 250)` | `bg-surface-3` | Tooltips, top layer |
 
 ### Elevation Shadows
 
@@ -149,14 +182,65 @@ Semantic colors for application states.
 
 | Token | Light Value | Dark Value | Tailwind Utility |
 |-------|------------|------------|------------------|
-| `--sidebar` | `oklch(0.985 0 0)` | `oklch(0.13 0.008 250)` | `bg-sidebar` |
-| `--sidebar-foreground` | `oklch(0.145 0 0)` | `oklch(0.985 0 0)` | `text-sidebar-foreground` |
+| `--sidebar` | `oklch(0.98 0.003 85)` | `oklch(0.13 0.008 250)` | `bg-sidebar` |
+| `--sidebar-foreground` | `oklch(0.145 0.005 250)` | `oklch(0.985 0 0)` | `text-sidebar-foreground` |
 | `--sidebar-primary` | `oklch(0.55 0.18 250)` | `oklch(0.72 0.17 250)` | `bg-sidebar-primary` |
 | `--sidebar-primary-foreground` | `oklch(0.985 0 0)` | `oklch(0.18 0.008 250)` | `text-sidebar-primary-foreground` |
-| `--sidebar-accent` | `oklch(0.97 0 0)` | `oklch(0.269 0.008 250)` | `bg-sidebar-accent` |
-| `--sidebar-accent-foreground` | `oklch(0.205 0 0)` | `oklch(0.985 0 0)` | `text-sidebar-accent-foreground` |
-| `--sidebar-border` | `oklch(0.922 0 0)` | `oklch(1 0 0 / 10%)` | `border-sidebar-border` |
+| `--sidebar-accent` | `oklch(0.97 0.003 85)` | `oklch(0.269 0.008 250)` | `bg-sidebar-accent` |
+| `--sidebar-accent-foreground` | `oklch(0.205 0.005 250)` | `oklch(0.985 0 0)` | `text-sidebar-accent-foreground` |
+| `--sidebar-border` | `oklch(0.92 0.005 85)` | `oklch(1 0 0 / 10%)` | `border-sidebar-border` |
 | `--sidebar-ring` | `oklch(0.55 0.18 250)` | `oklch(0.72 0.17 250)` | `ring-sidebar-ring` |
+
+### Brand Accent Tokens
+
+| Token | Light Value | Dark Value | Tailwind Utility | Usage |
+|-------|------------|------------|------------------|-------|
+| `--signature` | `oklch(0.48 0.14 250)` | `oklch(0.72 0.17 250)` | `bg-signature`, `text-signature` | Brand tint for decorative accents |
+| `--signature-soft` | `oklch(0.93 0.03 250)` | `oklch(0.28 0.06 250)` | `bg-signature-soft` | Subtle brand wash backgrounds |
+
+### Map-Native Surface Tones
+
+Used for map-adjacent UI surfaces that need to blend with basemap aesthetics.
+
+| Token | Light Value | Dark Value | Tailwind Utility | Usage |
+|-------|------------|------------|------------------|-------|
+| `--map-paper` | `oklch(0.95 0.008 85)` | `oklch(0.22 0.010 250)` | `bg-map-paper` | Map background / paper tone |
+| `--map-street` | `oklch(0.82 0.004 85)` | `oklch(0.32 0.010 250)` | `bg-map-street` | Street-level surface |
+| `--map-water` | `oklch(0.85 0.02 220)` | `oklch(0.30 0.04 220)` | `bg-map-water` | Water feature accent |
+
+### Record-Type Colors
+
+4 color pairs for catalog badges and import UI, each with a text color and tinted background. Dark mode adjusts lightness for readability on dark surfaces.
+
+| Token | Light Value | Dark Value | Tailwind Utility | Usage |
+|-------|------------|------------|------------------|-------|
+| `--type-vector` | `oklch(0.55 0.14 155)` | `oklch(0.72 0.14 155)` | `text-type-vector` | Vector dataset text |
+| `--type-vector-bg` | `oklch(0.94 0.04 155)` | `oklch(0.28 0.06 155)` | `bg-type-vector-bg` | Vector badge background |
+| `--type-raster` | `oklch(0.55 0.15 55)` | `oklch(0.72 0.14 55)` | `text-type-raster` | Raster dataset text |
+| `--type-raster-bg` | `oklch(0.94 0.05 55)` | `oklch(0.28 0.06 55)` | `bg-type-raster-bg` | Raster badge background |
+| `--type-table` | `oklch(0.50 0.10 200)` | `oklch(0.68 0.10 200)` | `text-type-table` | Table dataset text |
+| `--type-table-bg` | `oklch(0.94 0.03 200)` | `oklch(0.28 0.04 200)` | `bg-type-table-bg` | Table badge background |
+| `--type-vrt` | `oklch(0.50 0.16 300)` | `oklch(0.68 0.15 300)` | `text-type-vrt` | VRT dataset text |
+| `--type-vrt-bg` | `oklch(0.94 0.04 300)` | `oklch(0.28 0.06 300)` | `bg-type-vrt-bg` | VRT badge background |
+
+### Code Syntax Tokens
+
+12 tokens for code snippet rendering (API tabs, code blocks). Dark-on-dark in both themes — the code block background is always dark.
+
+| Token | Light Value | Dark Value | Tailwind Utility | Usage |
+|-------|------------|------------|------------------|-------|
+| `--code-bg` | `oklch(0.17 0.006 250)` | `oklch(0.15 0.006 250)` | `bg-code-bg` | Code block background |
+| `--code-chrome` | `oklch(0.14 0.006 250)` | `oklch(0.12 0.006 250)` | `bg-code-chrome` | Title bar / chrome |
+| `--code-chrome-border` | `oklch(0.22 0.008 250)` | `oklch(0.20 0.008 250)` | `border-code-chrome-border` | Chrome border |
+| `--code-text` | `oklch(0.92 0 0)` | `oklch(0.92 0 0)` | `text-code-text` | Default code text |
+| `--code-muted` | `oklch(0.55 0 0)` | `oklch(0.55 0 0)` | `text-code-muted` | Line numbers, secondary |
+| `--code-keyword` | `oklch(0.75 0.17 300)` | `oklch(0.75 0.17 300)` | `text-code-keyword` | Keywords (if, return, etc.) |
+| `--code-function` | `oklch(0.78 0.13 220)` | `oklch(0.78 0.13 220)` | `text-code-function` | Function names |
+| `--code-string` | `oklch(0.78 0.13 140)` | `oklch(0.78 0.13 140)` | `text-code-string` | String literals |
+| `--code-number` | `oklch(0.8 0.14 70)` | `oklch(0.8 0.14 70)` | `text-code-number` | Numeric literals |
+| `--code-comment` | `oklch(0.5 0.008 250)` | `oklch(0.5 0.008 250)` | `text-code-comment` | Comments |
+| `--code-method-badge` | `oklch(0.75 0.14 155)` | `oklch(0.75 0.14 155)` | `text-code-method-badge` | HTTP method badge text |
+| `--code-method-badge-bg` | `oklch(0.75 0.14 155 / 15%)` | `oklch(0.75 0.14 155 / 15%)` | `bg-code-method-badge-bg` | HTTP method badge background |
 
 ### Radius & Animation
 
@@ -188,10 +272,11 @@ Never use `transition-all` -- it causes layout thrash by animating width, height
 
 ### Font Family
 
-GeoLens uses **Inter Variable**, self-hosted via `@fontsource-variable/inter`. Configured in the `@theme inline` block:
+GeoLens uses **IBM Plex Sans Variable**, self-hosted via `@fontsource-variable/ibm-plex-sans`. Monospace text uses **IBM Plex Mono** via `@fontsource/ibm-plex-mono`. Configured in the `@theme inline` block:
 
 ```css
---font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+--font-sans: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif;
+--font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 ```
 
 Applied to the body via `@apply bg-background text-foreground font-sans antialiased` in the base layer.
@@ -245,10 +330,11 @@ GeoLens uses Tailwind's default spacing scale. The most commonly used values:
 
 | Context | Classes | Notes |
 |---------|---------|-------|
-| Page-level padding | `px-6 py-6` | Enforced by PageShell |
+| Page-level padding | `px-6 py-4` | Enforced by PageShell |
+| Page-level section rhythm | `space-y-4` | Enforced by PageShell |
 | Card internal padding | `p-4` or `p-6` | `p-4` for compact cards, `p-6` for detail cards |
-| Between major sections | `space-y-6` | Top-level page sections |
-| Tight within sections | `space-y-3` | Compact component internals (headers, panels) |
+| Between major sections | `space-y-6` | Top-level page sections (when not using PageShell rhythm) |
+| Tight within sections | `space-y-3` | Compact component internals (headers, panels, PageHeader) |
 | Within sections | `space-y-4` | Items within a section |
 | Form field gaps | `space-y-4` | Between label+input groups |
 | Grid gaps | `gap-3`, `gap-4`, or `gap-6` | `gap-3` for tight grids, `gap-4`/`gap-6` for standard |
@@ -309,9 +395,18 @@ Rules:
 
 **Import:** `import { Card, CardHeader, CardTitle, CardDescription, CardAction, CardContent, CardFooter } from '@/components/ui/card'`
 
-Cards use **shadow-only elevation** -- no border in the base component. The shadow provides visual lift.
+The base Card uses **shadow-only elevation** -- no border. For data-dense surfaces, add an explicit border.
 
 **Base classes:** `bg-card text-card-foreground rounded-lg py-6 shadow-sm hover:shadow-md transition-shadow duration-200 ease-out`
+
+**When to add borders:**
+
+| Context | Border? | Rationale |
+|---------|---------|-----------|
+| Overview/marketing cards | No -- shadow-only | Clean, spacious feel |
+| Dataset/catalog cards | Yes -- `border border-border` | Structure in dense lists |
+| Map-adjacent floating panels | Yes -- `border border-border shadow-md` | Separation from basemap |
+| Admin tables/settings cards | Yes -- `border border-border` | Dense data needs clear edges |
 
 **Sub-components:**
 
@@ -351,6 +446,13 @@ Cards use **shadow-only elevation** -- no border in the base component. The shad
 - Supports `asChild` for rendering as a different element.
 - For status-specific badges, prefer the status-colors pattern (see Status Badges below).
 
+**Badge density limit:** No more than 3 visible badges per compact card row or table cell. Additional metadata belongs in secondary text, a tooltip, or the detail view. Suggested priority when space is limited:
+
+1. Record type badge (vector/raster/table/VRT/collection) -- always visible
+2. Visibility or status badge -- visible when meaningful (not "public" by default)
+3. Validation or problem badge -- visible only when attention is needed
+4. Everything else -- secondary text or tooltip
+
 ### Table
 
 **Import:** `import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableFooter, TableCaption } from '@/components/ui/table'`
@@ -367,6 +469,24 @@ Cards use **shadow-only elevation** -- no border in the base component. The shad
 | `TableFooter` | `bg-muted/50 border-t font-medium` | Summary/total rows |
 
 **Focus ring exception:** Table rows use `focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring` (inset ring to avoid layout shift, unlike the standard offset ring).
+
+**Density modes:**
+
+| Mode | Padding | Row Height | Use Case |
+|------|---------|-----------|----------|
+| Default | `px-4 py-3` | ~44px | Dataset lists, search results, general tables |
+| Compact | `px-4 py-2` | ~36px | Admin tables, metadata tables, settings |
+| Dense | `px-3 py-1.5` | ~28px | Attribute tables, feature data, column-heavy views |
+
+`AttributeTable` supports a `compact` prop that activates dense mode. For admin tables, use the compact density. For attribute/feature data with many columns, use dense.
+
+**Dense table conventions:**
+- Sticky headers (`sticky top-0 z-10 bg-card`)
+- Horizontal scroll via `overflow-x-auto` wrapper
+- Numeric columns right-aligned (`text-right tabular-nums`)
+- Null/empty values displayed as `--` in `text-muted-foreground`
+- Truncated cells: `max-w-[200px] truncate` with tooltip on hover
+- Sort indicators in column headers via `ArrowUpDown` icon
 
 ### Dialog
 
@@ -486,16 +606,16 @@ Wraps all standard pages with consistent max-width and padding.
 
 | Prop | Type | Default | Effect |
 |------|------|---------|--------|
-| `maxWidth` | `'default' \| 'narrow' \| 'wide'` | `'default'` | `'default'` = `max-w-7xl` (80rem), `'narrow'` = `max-w-4xl` (56rem), `'wide'` = `max-w-screen-2xl` |
+| `maxWidth` | `'default' \| 'narrow' \| 'wide'` | `'default'` | `'default'` = `max-w-7xl` (80rem), `'narrow'` = `max-w-4xl` (56rem), `'wide'` = `max-w-6xl` |
 | `className` | `string?` | -- | Merged via `cn()` |
 
-**Base classes:** `mx-auto w-full px-6 py-6 space-y-6`
+**Base classes:** `mx-auto w-full px-6 py-4 space-y-4`
 
 **Rules:**
 - All standard (non-builder, non-admin) pages must be wrapped in PageShell.
 - DO NOT add page-level `max-width` or `padding` inline -- use PageShell.
 - Use `narrow` for form-heavy pages (settings, profile).
-- Child sections inherit `space-y-6` vertical rhythm.
+- Child sections inherit `space-y-4` vertical rhythm.
 
 ### PageHeader
 
@@ -583,6 +703,52 @@ Full-viewport map editor. No PageShell wrapper.
    - Closes automatically if AI becomes unavailable.
 
 **Key conventions:** Save via `Ctrl/Cmd+S`. Thumbnail auto-captured on save (400x250 JPEG, fire-and-forget). Layer state managed locally, synced to API on explicit save.
+
+### Dataset Card (Search Results)
+
+**Pattern source:** `SearchResultCard.tsx`
+
+The dataset card is the primary discovery object. Structure and hierarchy are intentional -- do not rearrange.
+
+**Layout:** Two-column at `md+` (content left, thumbnail right). Single-column on mobile.
+
+**Content hierarchy (strict priority order):**
+
+1. **Record type badge** (`RecordTypeBadge`) + optional status badge -- always first
+2. **Title** (`text-base font-medium`, 2-line clamp)
+3. **Source organization** (if available, `text-xs text-muted-foreground`)
+4. **Description** (auto-generated fallback if missing, `text-sm text-muted-foreground`, 2-line clamp)
+5. **Specs row** (metadata icons + values, varies by record type):
+   - Vector: geometry type, feature count, CRS
+   - Raster: band count, GSD, CRS
+   - VRT: type, source count, band count
+   - Table: row count, column count (shown in thumbnail)
+6. **Keywords** (up to 3 pill badges, "+N more" overflow)
+7. **Updated timestamp** + status badge (draft/internal/archived)
+
+**Thumbnail** (right column, hidden on mobile): 132px wide (148px at `xl`). Quicklook image, bbox preview, or table icon with row/column counts. Lazy-loaded.
+
+**Badge limit:** Max 3 visible badges. Record type is always visible. Status shown only when non-default. Keywords truncated to 3 with overflow indicator.
+
+### Map + Panel Composition
+
+Rules for UI elements that float over or sit adjacent to maps.
+
+**Floating panels** (legends, controls, toolbars): Use `border border-border shadow-md bg-background` or `bg-popover`. Never pure black or pure white -- use surface tokens so panels adapt to theme.
+
+**Map overlay placement:**
+- Top-left: attribution, scale bar (MapLibre defaults)
+- Top-center: drawing toolbar
+- Bottom-left: map legend
+- Top-right: map controls (zoom, style picker)
+- Floating panels should avoid blocking the center of the map where the user is working
+
+**Map loading states:** Map-local loading (tile loading, layer processing) should use a subtle overlay or progress indicator on the map, not a page-level `LoadingState`. Reserve page-level loading for initial data fetches.
+
+**Popup vs detail panel:**
+- Use `FeaturePopup` for quick attribute preview on click/hover (max 10 properties, scrollable)
+- Use a side panel (`DetailPanel`) for deeper editing, full attribute tables, or multi-feature workflows
+- Popups should never replace detail panels for editing workflows
 
 ## 8. Map Conventions (GUIDE-05)
 
@@ -709,9 +875,19 @@ A contributor adding a new component or page should verify ALL of the following:
 - All dark mode tokens are defined in the `.dark {}` block in `index.css`.
 - Dark mode primary scale is **inverted**: 50 is darkest, 900 is lightest (natural usage on dark backgrounds).
 - Dark mode shadow opacity is **3-5x higher** than light mode (dark backgrounds absorb shadows).
-- Dark mode surfaces use near-black base with subtle blue hue (~250) for warmth.
+- Light mode neutrals use warm earth tones (OKLCH hue ~85, chroma ~0.003) for a cartographic "atlas paper" feel.
+- Dark mode surfaces use near-black base with subtle blue hue (~250) for cool contrast.
 - Theme switching via `ThemeProvider` + `useTheme()` hook, storage key `geolens-theme`.
 - FOUC prevention: An inline script in `index.html` reads the stored theme and applies the `.dark` class before React renders, preventing a flash of the wrong theme.
+
+### Basemap Theme Pairing
+
+App dark mode should default to a dark basemap; light mode to a light basemap. `getThemeBasemap()` handles this automatically (`carto-dark-matter` for dark, `carto-positron` for light). Rules:
+
+- A user-selected basemap overrides the theme default. Respect user intent.
+- Map overlays (feature fills, labels, popups) must pass contrast checks on both light and dark basemaps. Test with both.
+- Popups, legends, floating controls, and panels above the map use `bg-popover` or `bg-surface-2` -- never pure black or pure white, which fight both basemap themes.
+- When the app theme changes, the basemap switches automatically unless the user has explicitly chosen one.
 
 ## 10. Anti-Patterns
 

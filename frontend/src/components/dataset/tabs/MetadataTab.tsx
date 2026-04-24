@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, History } from 'lucide-react';
@@ -47,6 +47,22 @@ export function MetadataTab({
   const existingKeywords = useKeywords(dataset.record_id);
   const [suggestedKeywords, setSuggestedKeywords] = useState<string[] | null>(null);
 
+  /** Translate raw validation field names to user-facing labels. */
+  const fieldLabels = useMemo<Record<string, string>>(() => ({
+    summary: t('overview.aboutTitle', { defaultValue: 'Summary' }),
+    lineage_summary: t('iso.lineage'),
+    source_url: t('iso.sourceUrl'),
+    source_organization: t('metadata.sourceOrganization'),
+    update_frequency: t('iso.updateFrequency'),
+    usage_constraints: t('iso.usageConstraints'),
+    access_constraints: t('iso.accessConstraints'),
+    sensitivity_classification: t('iso.sensitivity'),
+    quality_statement: t('iso.qualityStatement'),
+    theme_category: t('iso.themeCategory'),
+    data_vintage_start: t('temporal.startDate', { defaultValue: 'Data vintage start' }),
+    data_vintage_end: t('temporal.endDate', { defaultValue: 'Data vintage end' }),
+  }), [t]);
+
   // Health / QA summary
   const token = useAuthStore((s) => s.token);
   const { data: validationData } = useValidation(token ? dataset.id : undefined);
@@ -56,6 +72,7 @@ export function MetadataTab({
   const passedCount = Math.max(0, totalValidatableFields - requiredCount - recommendedCount);
   const completionPercent = totalValidatableFields > 0 ? Math.round((passedCount / totalValidatableFields) * 100) : 100;
   const hasIssues = requiredCount > 0 || recommendedCount > 0;
+  const nextField = validationData?.errors?.[0]?.field ?? validationData?.warnings?.[0]?.field;
 
   return (
     <>
@@ -69,22 +86,18 @@ export function MetadataTab({
             {recommendedCount > 0 && <span>{t('overview.recommendedCount', { count: recommendedCount, defaultValue: '{{count}} recommended' })}</span>}
             {' · '}
             <span>{t('overview.percentComplete', { percent: completionPercent, defaultValue: '{{percent}}% complete' })}</span>
-            {(() => {
-              const nextField = validationData?.errors?.[0]?.field ?? validationData?.warnings?.[0]?.field;
-              if (!nextField) return null;
-              return (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    className="text-primary underline underline-offset-2 hover:text-primary/80"
-                    onClick={() => onNavigateToValidationField?.(nextField)}
-                  >
-                    {t('overview.nextFillIn', { field: nextField, defaultValue: 'Next: fill in {{field}}' })}
-                  </button>
-                </>
-              );
-            })()}
+            {nextField && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className="text-primary underline underline-offset-2 hover:text-primary/80"
+                  onClick={() => onNavigateToValidationField?.(nextField)}
+                >
+                  {t('overview.nextFillIn', { field: fieldLabels[nextField] ?? nextField.replace(/_/g, ' '), defaultValue: 'Next: fill in {{field}}' })}
+                </button>
+              </>
+            )}
           </span>
           <Button
             variant="outline"

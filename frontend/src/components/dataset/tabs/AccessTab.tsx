@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Copy, Check } from 'lucide-react';
+import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,8 +23,26 @@ const SYN = {
   com: 'text-(--code-comment) italic',
 } as const;
 
+type SnippetTab = 'curl' | 'python' | 'qgis';
+
 interface AccessTabProps {
   dataset: DatasetResponse;
+}
+
+/** Copy text to clipboard with textarea fallback for non-HTTPS contexts. */
+async function copyText(value: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
 }
 
 function TileUrlSection({ tileUrl }: { tileUrl: string }) {
@@ -34,11 +53,7 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(tileUrl);
-    } catch {
-      /* fallback */
-    }
+    await copyText(tileUrl);
     setCopied(true);
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setCopied(false), 2000);
@@ -73,37 +88,57 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
   );
 }
 
+/** Build the curl URL with ?limit=10, safely handling relative URLs. */
+function buildCurlUrl(ogcFeaturesUrl: string): string {
+  try {
+    const url = new URL(ogcFeaturesUrl);
+    url.searchParams.set('limit', '10');
+    return url.toString();
+  } catch {
+    const separator = ogcFeaturesUrl.includes('?') ? '&' : '?';
+    return `${ogcFeaturesUrl}${separator}limit=10`;
+  }
+}
+
 /** API access code snippet with copy button */
-function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
+function ApiSnippet({
+  apiBaseUrl,
+  collectionId,
+  ogcFeaturesUrl,
+  srid,
+}: {
+  apiBaseUrl: string;
+  collectionId: string;
+  ogcFeaturesUrl: string;
+  srid: number;
+}) {
   const { t } = useTranslation('dataset');
-  const [activeTab, setActiveTab] = useState<'curl' | 'python' | 'qgis'>('curl');
+  const [activeTab, setActiveTab] = useState<SnippetTab>('curl');
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  const baseUrl = window.location.origin;
-  const collectionId = dataset.table_name;
-  const srid = dataset.srid ?? 4326;
+  const curlUrl = buildCurlUrl(ogcFeaturesUrl);
 
-  const plainText: Record<string, string> = {
-    curl: `# Fetch the first 10 features as GeoJSON\ncurl "${baseUrl}/api/v1/collections/${collectionId}/items?limit=10"`,
-    python: `import geopandas as gpd\n\ngdf = gpd.read_file(\n    "${baseUrl}/api/v1/collections/${collectionId}/items"\n)\ngdf.head()`,
-    qgis: `# In QGIS: Browser panel → WFS / OGC API → New Connection\n\nURL:        ${baseUrl}/api/v1\nCollection: ${collectionId}\nCRS:        EPSG:${srid}`,
+  const plainText: Record<SnippetTab, string> = {
+    curl: `# Fetch the first 10 features as GeoJSON\ncurl "${curlUrl}"`,
+    python: `import geopandas as gpd\n\ngdf = gpd.read_file(\n    "${ogcFeaturesUrl}"\n)\ngdf.head()`,
+    qgis: `# In QGIS: Browser panel → WFS / OGC API → New Connection\n\nURL:        ${apiBaseUrl}\nCollection: ${collectionId}\nCRS:        EPSG:${srid}`,
   };
 
-  const highlighted: Record<string, React.ReactNode> = {
+  const highlighted: Record<SnippetTab, React.ReactNode> = {
     curl: (
       <>
         <span className={SYN.com}>{'# Fetch the first 10 features as GeoJSON'}</span>{'\n'}
-        curl <span className={SYN.str}>{`"${baseUrl}/api/v1/collections/${collectionId}/items?limit=`}</span><span className={SYN.num}>10</span><span className={SYN.str}>"</span>
+        curl <span className={SYN.str}>{`"${curlUrl}"`}</span>
       </>
     ),
     python: (
       <>
         <span className={SYN.kw}>import</span> geopandas <span className={SYN.kw}>as</span> gpd{'\n\n'}
         gdf = gpd.<span className={SYN.fn}>read_file</span>({'\n'}
-        {'    '}<span className={SYN.str}>{`"${baseUrl}/api/v1/collections/${collectionId}/items"`}</span>{'\n'}
+        {'    '}<span className={SYN.str}>{`"${ogcFeaturesUrl}"`}</span>{'\n'}
         ){'\n'}
         gdf.<span className={SYN.fn}>head</span>()
       </>
@@ -111,7 +146,7 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
     qgis: (
       <>
         <span className={SYN.com}>{'# In QGIS: Browser panel → WFS / OGC API → New Connection'}</span>{'\n\n'}
-        URL:        <span className={SYN.str}>{baseUrl}/api/v1</span>{'\n'}
+        URL:        <span className={SYN.str}>{apiBaseUrl}</span>{'\n'}
         Collection: <span className={SYN.str}>{collectionId}</span>{'\n'}
         CRS:        <span className={SYN.str}>EPSG:{srid}</span>
       </>
@@ -119,7 +154,7 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
   };
 
   async function handleCopy() {
-    try { await navigator.clipboard.writeText(plainText[activeTab]); } catch { /* noop */ }
+    await copyText(plainText[activeTab]);
     setCopied(true);
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setCopied(false), 2000);
@@ -157,7 +192,7 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
             {activeTab === 'qgis' ? 'ADD' : 'GET'}
           </span>
           <span className="font-mono text-[11px] text-(--code-muted)">
-            {activeTab === 'qgis' ? 'Layer → Add Vector Layer' : `${baseUrl}/api/v1/collections/${collectionId}/items`}
+            {activeTab === 'qgis' ? 'Layer → Add Vector Layer' : ogcFeaturesUrl}
           </span>
           <span className="flex-1" />
           <button
@@ -178,6 +213,7 @@ function ApiSnippet({ dataset }: { dataset: DatasetResponse }) {
 
 export function AccessTab({ dataset }: AccessTabProps) {
   const { t } = useTranslation('dataset');
+  const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
 
@@ -210,7 +246,14 @@ export function AccessTab({ dataset }: AccessTabProps) {
       </Card>
 
       {/* API access snippet */}
-      <ApiSnippet dataset={dataset} />
+      {!isRaster && !isVrt && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (
+        <ApiSnippet
+          apiBaseUrl={publicApiBaseUrl}
+          collectionId={dataset.id}
+          ogcFeaturesUrl={endpoints.ogcFeaturesUrl}
+          srid={dataset.srid ?? 4326}
+        />
+      )}
 
       {/* Export -- vector datasets only */}
       {!isRaster && !isVrt && (

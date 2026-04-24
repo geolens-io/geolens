@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { downloadExport } from '@/api/datasets';
 import { Download, Loader2 } from 'lucide-react';
+import type { RecordType } from '@/types/api';
 
 interface ExportButtonProps {
   datasetId: string;
   datasetName: string;
-  recordType?: string;
+  recordType?: RecordType;
 }
 
 const EXPORT_FORMATS = [
@@ -17,21 +18,26 @@ const EXPORT_FORMATS = [
   { value: 'csv', labelKey: 'export.csv', ext: 'csv' },
 ] as const;
 
+const CSV_ONLY = EXPORT_FORMATS.filter((f) => f.value === 'csv');
+
 export function ExportButton({ datasetId, datasetName, recordType }: ExportButtonProps) {
   const { t } = useTranslation('dataset');
-  const [format, setFormat] = useState<string>('gpkg');
+  const formats = recordType === 'table' ? CSV_ONLY : EXPORT_FORMATS;
+  const [format, setFormat] = useState<string>(formats[0]?.value ?? 'gpkg');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const formats = recordType === 'table' ? EXPORT_FORMATS.filter(f => f.value !== 'shp') : EXPORT_FORMATS;
   const selectId = `export-format-${datasetId}`;
+
+  // Derive effective format — if current selection isn't in the available list, reset
+  const effectiveFormat = formats.some((f) => f.value === format) ? format : formats[0]?.value ?? 'gpkg';
 
   const handleExport = async () => {
     setLoading(true);
     setError(null);
     try {
-      const selected = EXPORT_FORMATS.find((f) => f.value === format);
-      const filename = `${datasetName}.${selected?.ext ?? format}`;
-      await downloadExport(datasetId, format, filename);
+      const selected = EXPORT_FORMATS.find((f) => f.value === effectiveFormat);
+      const filename = `${datasetName}.${selected?.ext ?? effectiveFormat}`;
+      await downloadExport(datasetId, effectiveFormat, filename);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('export.failed'));
     } finally {
@@ -47,7 +53,7 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
         </label>
         <select
           id={selectId}
-          value={format}
+          value={effectiveFormat}
           onChange={(e) => setFormat(e.target.value)}
           className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
           disabled={loading}
