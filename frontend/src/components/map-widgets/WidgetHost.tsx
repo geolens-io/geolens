@@ -14,7 +14,7 @@ import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'top-left': 'absolute top-12 left-3 z-10 flex flex-col gap-2',
   'top-right': 'absolute top-12 right-3 z-10 flex flex-col gap-2',
-  'bottom-left': 'absolute bottom-20 left-4 z-10 flex flex-col gap-2',
+  'bottom-left': 'absolute bottom-10 left-4 z-10 flex flex-col gap-2',
   'bottom-right': 'absolute bottom-4 right-4 z-10 flex flex-col gap-2',
 };
 
