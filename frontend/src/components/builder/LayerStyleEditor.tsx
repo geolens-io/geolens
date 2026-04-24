@@ -223,232 +223,30 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
       {/* Flat color controls */}
       <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
-        {/* Polygon (fill) controls */}
         {geomType === 'fill' && (
-          <>
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium">{t('style.fill')}</div>
-              <Switch
-                checked={fillEnabled}
-                onCheckedChange={handleToggleFill}
-                aria-label={t('style.toggleFill')}
-                className="scale-75"
-              />
-            </div>
-            {fillEnabled && (
-              <>
-                {isDataDriven ? (
-                  <>
-                    <div className="text-xs text-muted-foreground italic">
-                      {t('style.styledBy', { column: layer.style_config?.column })}
-                    </div>
-                    {showAdvanced && Array.isArray(paint[getColorProperty(layer.dataset_geometry_type)]) && (
-                      <RampStopEditor
-                        expression={paint[getColorProperty(layer.dataset_geometry_type)] as unknown[]}
-                        column={layer.style_config?.column ?? ''}
-                        onChange={(expr) => handlePaintProp(getColorProperty(layer.dataset_geometry_type), expr)}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <StyleColorPicker
-                    label={t('style.color')}
-                    color={getPaintValue(paint, 'fill-color', FILL_DEFAULTS['fill-color'])}
-                    onChange={(hex) => handlePaintProp('fill-color', hex)}
-                  />
-                )}
-                <SliderRow
-                  label={t('style.opacity')}
-                  value={getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity'])}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format="percent"
-                  onChange={(val) => handlePaintProp('fill-opacity', val)}
-                />
-              </>
-            )}
-            <StrokeControls
-              paint={paint}
-              strokeEnabled={strokeEnabled}
-              onToggleStroke={handleToggleStroke}
-              colorKey="_outline-color"
-              colorDefault={FILL_DEFAULTS['_outline-color']}
-              widthKey="_outline-width"
-              widthDefault={FILL_DEFAULTS['_outline-width']}
-              onPaintProp={handlePaintProp}
-              t={t}
-            />
-            {isPolygon && numericColumns.length > 0 && (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">{t('style.heightColumn', { defaultValue: 'Height column' })}</span>
-                <Select
-                  value={currentHeightCol}
-                  onValueChange={(val) => {
-                    const newPaint = { ...layer.paint };
-                    if (val === '' || val === '__none__') {
-                      delete newPaint['_height_column'];
-                    } else {
-                      newPaint['_height_column'] = val;
-                    }
-                    onPaintChange(layer.id, newPaint);
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-xs w-36">
-                    <SelectValue placeholder={t('style.none', { defaultValue: 'None' })} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t('style.none', { defaultValue: 'None' })}</SelectItem>
-                    {numericColumns.map((col) => (
-                      <SelectItem key={col.name} value={col.name}>
-                        {col.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {isPolygon && currentHeightCol && !(layer.dataset_column_info ?? []).some((col) => col.name === currentHeightCol) && (
-              <div className="flex items-start gap-2 rounded bg-warning/15 p-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-warning-foreground mt-0.5" />
-                <span className="text-xs text-warning-foreground">
-                  Height column &ldquo;{currentHeightCol}&rdquo; was removed during re-upload. Select a new column or clear this setting.
-                </span>
-              </div>
-            )}
-          </>
+          <FillControls
+            layer={layer} paint={paint} isDataDriven={isDataDriven} showAdvanced={showAdvanced}
+            fillEnabled={fillEnabled} strokeEnabled={strokeEnabled}
+            onToggleFill={handleToggleFill} onToggleStroke={handleToggleStroke}
+            onPaintProp={handlePaintProp} onPaintChange={onPaintChange}
+            isPolygon={isPolygon} numericColumns={numericColumns} currentHeightCol={currentHeightCol}
+            t={t}
+          />
         )}
-
-        {/* Line controls */}
         {geomType === 'line' && (
-          <>
-            <div className="text-xs font-medium">{t('style.line')}</div>
-            {isDataDriven ? (
-              <>
-                <div className="text-xs text-muted-foreground italic">
-                  {layer.style_config?.target === 'width'
-                    ? t('style.widthByColumn', { column: layer.style_config?.column })
-                    : t('style.styledBy', { column: layer.style_config?.column })}
-                </div>
-                {showAdvanced && Array.isArray(paint['line-color']) && (
-                  <RampStopEditor
-                    expression={paint['line-color'] as unknown[]}
-                    column={layer.style_config?.column ?? ''}
-                    onChange={(expr) => handlePaintProp('line-color', expr)}
-                  />
-                )}
-              </>
-            ) : (
-              <StyleColorPicker
-                label={t('style.color')}
-                color={getPaintValue(paint, 'line-color', LINE_DEFAULTS['line-color'])}
-                onChange={(hex) => handlePaintProp('line-color', hex)}
-              />
-            )}
-            <SliderRow
-              label={t('style.opacity')}
-              value={getPaintValue(paint, 'line-opacity', 1)}
-              min={0}
-              max={1}
-              step={0.01}
-              format="percent"
-              onChange={(val) => handlePaintProp('line-opacity', val)}
-            />
-            <SliderRow
-              label={t('style.width')}
-              value={getPaintValue(paint, 'line-width', LINE_DEFAULTS['line-width'])}
-              min={0.5}
-              max={20}
-              step={0.25}
-              format="px"
-              onChange={(val) => handlePaintProp('line-width', val)}
-            />
-            <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
-            <div className="flex gap-1">
-              {LINE_DASH_PRESETS.map((preset, idx) => {
-                const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
-                const activeIdx = LINE_DASH_SERIALIZED.findIndex((s) => s === JSON.stringify(currentDashValue));
-                const isActive = (activeIdx === -1 ? 0 : activeIdx) === idx;
-                return (
-                  <button
-                    key={preset.key}
-                    type="button"
-                    className={cn(
-                      'flex-1 px-2 py-1 text-xs rounded border transition-colors',
-                      isActive
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
-                    )}
-                    onClick={() => {
-                      const newLayout = { ...(layer.layout ?? {}), 'line-dasharray': preset.value } as Record<string, unknown>;
-                      if (!preset.value) delete newLayout['line-dasharray'];
-                      onLayoutChange(layer.id, newLayout);
-                    }}
-                  >
-                    {t(`style.dash.${preset.key}`)}
-                  </button>
-                );
-              })}
-            </div>
-          </>
+          <LineControls
+            layer={layer} paint={paint} isDataDriven={isDataDriven} showAdvanced={showAdvanced}
+            onPaintProp={handlePaintProp} onLayoutChange={onLayoutChange}
+            t={t}
+          />
         )}
-
-        {/* Circle (point) controls — hidden when in heatmap mode */}
         {geomType === 'circle' && renderMode !== 'heatmap' && (
-          <>
-            <div className="text-xs font-medium">{t('style.point')}</div>
-            {isDataDriven ? (
-              <>
-                <div className="text-xs text-muted-foreground italic">
-                  {layer.style_config?.target === 'radius'
-                    ? t('style.radiusByColumn', { column: layer.style_config?.column })
-                    : t('style.styledBy', { column: layer.style_config?.column })}
-                </div>
-                {showAdvanced && Array.isArray(paint['circle-color']) && (
-                  <RampStopEditor
-                    expression={paint['circle-color'] as unknown[]}
-                    column={layer.style_config?.column ?? ''}
-                    onChange={(expr) => handlePaintProp('circle-color', expr)}
-                  />
-                )}
-              </>
-            ) : (
-              <StyleColorPicker
-                label={t('style.color')}
-                color={getPaintValue(paint, 'circle-color', CIRCLE_DEFAULTS['circle-color'])}
-                onChange={(hex) => handlePaintProp('circle-color', hex)}
-              />
-            )}
-            <SliderRow
-              label={t('style.opacity')}
-              value={getPaintValue(paint, 'circle-opacity', 1)}
-              min={0}
-              max={1}
-              step={0.01}
-              format="percent"
-              onChange={(val) => handlePaintProp('circle-opacity', val)}
-            />
-            <SliderRow
-              label={t('style.radius')}
-              value={getPaintValue(paint, 'circle-radius', CIRCLE_DEFAULTS['circle-radius'])}
-              min={1}
-              max={30}
-              step={1}
-              format="px"
-              onChange={(val) => handlePaintProp('circle-radius', val)}
-            />
-            <StrokeControls
-              paint={paint}
-              strokeEnabled={strokeEnabled}
-              onToggleStroke={handleToggleStroke}
-              colorKey="circle-stroke-color"
-              colorDefault={CIRCLE_DEFAULTS['circle-stroke-color']}
-              widthKey="circle-stroke-width"
-              widthDefault={CIRCLE_DEFAULTS['circle-stroke-width']}
-              onPaintProp={handlePaintProp}
-              t={t}
-            />
-          </>
+          <CircleControls
+            layer={layer} paint={paint} isDataDriven={isDataDriven} showAdvanced={showAdvanced}
+            strokeEnabled={strokeEnabled} onToggleStroke={handleToggleStroke}
+            onPaintProp={handlePaintProp}
+            t={t}
+          />
         )}
 
         {/* Master opacity - all geometry types */}
@@ -499,6 +297,235 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     </div>
   );
 });
+
+/* ---------- Geometry-specific control sub-components ---------- */
+
+interface GeomControlProps {
+  layer: MapLayerResponse;
+  paint: Record<string, unknown>;
+  isDataDriven: boolean;
+  showAdvanced?: boolean;
+  onPaintProp: (key: string, value: unknown) => void;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}
+
+interface FillControlsProps extends GeomControlProps {
+  fillEnabled: boolean;
+  strokeEnabled: boolean;
+  onToggleFill: () => void;
+  onToggleStroke: () => void;
+  onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
+  isPolygon: boolean;
+  numericColumns: { name: string; type: string }[];
+  currentHeightCol: string;
+}
+
+function FillControls({
+  layer, paint, isDataDriven, showAdvanced,
+  fillEnabled, strokeEnabled, onToggleFill, onToggleStroke,
+  onPaintProp, onPaintChange, isPolygon, numericColumns, currentHeightCol, t,
+}: FillControlsProps) {
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium">{t('style.fill')}</div>
+        <Switch
+          checked={fillEnabled}
+          onCheckedChange={onToggleFill}
+          aria-label={t('style.toggleFill')}
+          className="scale-75"
+        />
+      </div>
+      {fillEnabled && (
+        <>
+          {isDataDriven ? (
+            <>
+              <div className="text-xs text-muted-foreground italic">
+                {t('style.styledBy', { column: layer.style_config?.column })}
+              </div>
+              {showAdvanced && Array.isArray(paint[getColorProperty(layer.dataset_geometry_type)]) && (
+                <RampStopEditor
+                  expression={paint[getColorProperty(layer.dataset_geometry_type)] as unknown[]}
+                  column={layer.style_config?.column ?? ''}
+                  onChange={(expr) => onPaintProp(getColorProperty(layer.dataset_geometry_type), expr)}
+                />
+              )}
+            </>
+          ) : (
+            <StyleColorPicker
+              label={t('style.color')}
+              color={getPaintValue(paint, 'fill-color', FILL_DEFAULTS['fill-color'])}
+              onChange={(hex) => onPaintProp('fill-color', hex)}
+            />
+          )}
+          <SliderRow
+            label={t('style.opacity')}
+            value={getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity'])}
+            min={0} max={1} step={0.01} format="percent"
+            onChange={(val) => onPaintProp('fill-opacity', val)}
+          />
+        </>
+      )}
+      <StrokeControls
+        paint={paint} strokeEnabled={strokeEnabled} onToggleStroke={onToggleStroke}
+        colorKey="_outline-color" colorDefault={FILL_DEFAULTS['_outline-color']}
+        widthKey="_outline-width" widthDefault={FILL_DEFAULTS['_outline-width']}
+        onPaintProp={onPaintProp} t={t}
+      />
+      {isPolygon && numericColumns.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">{t('style.heightColumn', { defaultValue: 'Height column' })}</span>
+          <Select
+            value={currentHeightCol}
+            onValueChange={(val) => {
+              const newPaint = { ...layer.paint };
+              if (val === '' || val === '__none__') delete newPaint['_height_column'];
+              else newPaint['_height_column'] = val;
+              onPaintChange(layer.id, newPaint);
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs w-36">
+              <SelectValue placeholder={t('style.none', { defaultValue: 'None' })} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">{t('style.none', { defaultValue: 'None' })}</SelectItem>
+              {numericColumns.map((col) => (
+                <SelectItem key={col.name} value={col.name}>{col.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {isPolygon && currentHeightCol && !(layer.dataset_column_info ?? []).some((col) => col.name === currentHeightCol) && (
+        <div className="flex items-start gap-2 rounded bg-warning/15 p-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-warning-foreground mt-0.5" />
+          <span className="text-xs text-warning-foreground">
+            Height column &ldquo;{currentHeightCol}&rdquo; was removed during re-upload. Select a new column or clear this setting.
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
+interface LineControlsProps extends GeomControlProps {
+  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+}
+
+function LineControls({ layer, paint, isDataDriven, showAdvanced, onPaintProp, onLayoutChange, t }: LineControlsProps) {
+  return (
+    <>
+      <div className="text-xs font-medium">{t('style.line')}</div>
+      {isDataDriven ? (
+        <>
+          <div className="text-xs text-muted-foreground italic">
+            {layer.style_config?.target === 'width'
+              ? t('style.widthByColumn', { column: layer.style_config?.column })
+              : t('style.styledBy', { column: layer.style_config?.column })}
+          </div>
+          {showAdvanced && Array.isArray(paint['line-color']) && (
+            <RampStopEditor
+              expression={paint['line-color'] as unknown[]}
+              column={layer.style_config?.column ?? ''}
+              onChange={(expr) => onPaintProp('line-color', expr)}
+            />
+          )}
+        </>
+      ) : (
+        <StyleColorPicker
+          label={t('style.color')}
+          color={getPaintValue(paint, 'line-color', LINE_DEFAULTS['line-color'])}
+          onChange={(hex) => onPaintProp('line-color', hex)}
+        />
+      )}
+      <SliderRow
+        label={t('style.opacity')} value={getPaintValue(paint, 'line-opacity', 1)}
+        min={0} max={1} step={0.01} format="percent"
+        onChange={(val) => onPaintProp('line-opacity', val)}
+      />
+      <SliderRow
+        label={t('style.width')} value={getPaintValue(paint, 'line-width', LINE_DEFAULTS['line-width'])}
+        min={0.5} max={20} step={0.25} format="px"
+        onChange={(val) => onPaintProp('line-width', val)}
+      />
+      <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
+      <div className="flex gap-1">
+        {LINE_DASH_PRESETS.map((preset, idx) => {
+          const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
+          const activeIdx = LINE_DASH_SERIALIZED.findIndex((s) => s === JSON.stringify(currentDashValue));
+          const isActive = (activeIdx === -1 ? 0 : activeIdx) === idx;
+          return (
+            <button
+              key={preset.key} type="button"
+              className={cn(
+                'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                isActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
+              )}
+              onClick={() => {
+                const newLayout = { ...(layer.layout ?? {}), 'line-dasharray': preset.value } as Record<string, unknown>;
+                if (!preset.value) delete newLayout['line-dasharray'];
+                onLayoutChange(layer.id, newLayout);
+              }}
+            >
+              {t(`style.dash.${preset.key}`)}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+interface CircleControlsProps extends GeomControlProps {
+  strokeEnabled: boolean;
+  onToggleStroke: () => void;
+}
+
+function CircleControls({ layer, paint, isDataDriven, showAdvanced, strokeEnabled, onToggleStroke, onPaintProp, t }: CircleControlsProps) {
+  return (
+    <>
+      <div className="text-xs font-medium">{t('style.point')}</div>
+      {isDataDriven ? (
+        <>
+          <div className="text-xs text-muted-foreground italic">
+            {layer.style_config?.target === 'radius'
+              ? t('style.radiusByColumn', { column: layer.style_config?.column })
+              : t('style.styledBy', { column: layer.style_config?.column })}
+          </div>
+          {showAdvanced && Array.isArray(paint['circle-color']) && (
+            <RampStopEditor
+              expression={paint['circle-color'] as unknown[]}
+              column={layer.style_config?.column ?? ''}
+              onChange={(expr) => onPaintProp('circle-color', expr)}
+            />
+          )}
+        </>
+      ) : (
+        <StyleColorPicker
+          label={t('style.color')}
+          color={getPaintValue(paint, 'circle-color', CIRCLE_DEFAULTS['circle-color'])}
+          onChange={(hex) => onPaintProp('circle-color', hex)}
+        />
+      )}
+      <SliderRow
+        label={t('style.opacity')} value={getPaintValue(paint, 'circle-opacity', 1)}
+        min={0} max={1} step={0.01} format="percent"
+        onChange={(val) => onPaintProp('circle-opacity', val)}
+      />
+      <SliderRow
+        label={t('style.radius')} value={getPaintValue(paint, 'circle-radius', CIRCLE_DEFAULTS['circle-radius'])}
+        min={1} max={30} step={1} format="px"
+        onChange={(val) => onPaintProp('circle-radius', val)}
+      />
+      <StrokeControls
+        paint={paint} strokeEnabled={strokeEnabled} onToggleStroke={onToggleStroke}
+        colorKey="circle-stroke-color" colorDefault={CIRCLE_DEFAULTS['circle-stroke-color']}
+        widthKey="circle-stroke-width" widthDefault={CIRCLE_DEFAULTS['circle-stroke-width']}
+        onPaintProp={onPaintProp} t={t}
+      />
+    </>
+  );
+}
 
 /* ---------- Advanced JSON editor ---------- */
 

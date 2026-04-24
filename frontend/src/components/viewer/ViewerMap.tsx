@@ -176,7 +176,9 @@ export const ViewerMap = memo(function ViewerMap({
     ? toMaplibreStyle(BLANK_BASEMAP_ID)
     : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
 
-  // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07)
+  // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07).
+  // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
+  const [geojsonVersion, setGeojsonVersion] = useState(0);
   useEffect(() => {
     if (geojsonZLayers.length === 0) return;
     let cancelled = false;
@@ -196,18 +198,21 @@ export const ViewerMap = memo(function ViewerMap({
       );
       if (!cancelled) {
         geojsonDataRef.current = newMap;
-        const map = mapRef.current;
-        if (map && mapReady) {
-          // Trigger re-sync so map-sync picks up the GeoJSON data
-          map.triggerRepaint();
-        }
+        setGeojsonVersion((v) => v + 1);
       }
     }
     fetchAll().catch(() => {
       toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load 3D layer data' }), { id: 'geojson-z-error' });
     });
     return () => { cancelled = true; };
-  }, [geojsonZLayers, apiKey, embedToken, mapReady]);
+  }, [geojsonZLayers, apiKey, embedToken, t]);
+
+  // Trigger repaint when GeoJSON-Z data arrives and map is ready
+  useEffect(() => {
+    if (geojsonVersion === 0) return;
+    const map = mapRef.current;
+    if (map && mapReady) map.triggerRepaint();
+  }, [geojsonVersion, mapReady]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
