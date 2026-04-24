@@ -14,12 +14,12 @@ class TokenResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=150, description="Unique login name")
+    username: str = Field(min_length=3, max_length=150, description="Unique login name", example="jdoe")
     password: str = Field(
-        min_length=8, max_length=256, description="Plaintext password (min 8 chars)"
+        min_length=8, max_length=256, description="Plaintext password (min 8 chars)", example="securePass123"
     )
     email: EmailStr | None = Field(
-        default=None, max_length=255, description="Optional email address"
+        default=None, max_length=255, description="Optional email address", example="jdoe@example.com"
     )
 
 
@@ -49,8 +49,8 @@ class UserResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(max_length=150)
-    password: str = Field(max_length=256)
+    username: str = Field(max_length=150, example="admin")
+    password: str = Field(max_length=256, example="changeme")
 
 
 class RefreshRequest(BaseModel):

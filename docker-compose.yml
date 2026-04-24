@@ -182,13 +182,14 @@ services:
       - no-new-privileges:true
     command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
-      GDAL_CACHEMAX: "200"
-      GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
-      CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"
-      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "NETWORK_OR_LOCAL"
-      VSI_CACHE: "TRUE"
-      CPL_VSIL_CURL_CACHE_SIZE: "16777216"
-      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+      # GDAL raster I/O tuning — these control how Titiler reads COG/VRT files
+      GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)
+      GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"         # Skip directory listing on S3/HTTP — avoids slow LIST calls per tile
+      CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"  # Only fetch these extensions via /vsicurl
+      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "NETWORK_OR_LOCAL"  # Allow VRT bands to reference remote (S3) sources
+      VSI_CACHE: "TRUE"                                  # Enable /vsicurl block caching for range-request reuse
+      CPL_VSIL_CURL_CACHE_SIZE: "16777216"               # /vsicurl cache size in bytes (16 MB)
+      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"          # Merge adjacent HTTP range requests into fewer round-trips
       AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"

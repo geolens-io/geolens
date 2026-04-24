@@ -148,6 +148,13 @@ These variables configure the `backup` service (enable with `docker compose --pr
 |---|---|---|---|
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | No | JWT refresh token lifetime in days. |
 
+## Configuration Lockdown
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `ENV_ONLY_CONFIG` | `false` | No | When `true`, all admin-overridable settings are locked to their environment values. The PersistentConfig DB layer is bypassed for reads and returns 403 on writes. Use for hardened production deployments where operators want to prevent runtime configuration changes via the admin UI. |
+| `GEOLENS_EDITION` | (auto-detected) | No | Override the auto-detected edition. Options: `community`, `enterprise`. Without this variable, the edition is `enterprise` if any plugin extensions are loaded, otherwise `community`. Controls which feature flags and UI elements are available. |
+
 ## Enterprise Extensions
 
 | Variable | Default | Required | Description |
