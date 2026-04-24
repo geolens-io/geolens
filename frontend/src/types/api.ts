@@ -80,6 +80,11 @@ export interface RasterPreviewResponse {
   temporal_start: string | null;
 }
 
+export type RecordType = 'vector_dataset' | 'raster_dataset' | 'vrt_dataset' | 'table';
+export type DatasetVisibility = 'public' | 'restricted' | 'private';
+export type RecordStatus = 'draft' | 'published';
+export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
+
 export interface DatasetResponse {
   id: string;
   record_id: string;
@@ -98,14 +103,14 @@ export interface DatasetResponse {
   source_format: string | null;
   source_filename: string | null;
   original_srid: number | null;
-  visibility: string;
+  visibility: DatasetVisibility;
   created_by: string | null;
   created_by_display: string;
   created_at: string;
   updated_at: string;
   last_edited_by_display: string | null;
   last_edited_at: string | null;
-  record_status: string;
+  record_status: RecordStatus;
   lineage_summary: string | null;
   update_frequency: string | null;
   usage_constraints: string | null;
@@ -127,7 +132,7 @@ export interface DatasetResponse {
     crs_defined: number | null;
     computed_at: string | null;
   } | null;
-  record_type: string;
+  record_type: RecordType;
   raster: RasterMetadata | null;
   stac_assets?: Record<string, StacAsset> | null;
   stac_extensions?: string[];
@@ -151,7 +156,7 @@ export interface CreateDatasetRequest {
 export interface DatasetUpdateRequest {
   title?: string;
   summary?: string;
-  visibility?: string;
+  visibility?: DatasetVisibility;
   license?: string;
   source_organization?: string;
   data_vintage_start?: string;
@@ -162,7 +167,7 @@ export interface DatasetUpdateRequest {
   access_constraints?: string;
   sensitivity_classification?: string;
   theme_category?: string[];
-  record_status?: string;
+  record_status?: RecordStatus;
   owner_org?: string;
   quality_statement?: string;
   source_url?: string;
@@ -219,7 +224,7 @@ export interface KeywordListResponse {
 export interface DistributionResponse {
   id: string;
   record_id: string;
-  distribution_type: string;
+  distribution_type: DistributionType;
   format: string | null;
   url: string;
   title: string | null;

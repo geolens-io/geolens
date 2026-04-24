@@ -89,6 +89,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
     queryKey: queryKeys.cogSearch.addSource(debouncedQuery),
     queryFn: () => searchDatasets({ q: debouncedQuery, record_type: 'raster_dataset', limit: '10' }),
     enabled: debouncedQuery.length >= 2,
+    staleTime: 30_000,
   });
 
   const linkedIds = useMemo(() => new Set(sources.map((s) => s.dataset_id)), [sources]);
@@ -304,7 +305,7 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-8" />
+                <TableHead className="w-24">{t('vrt.sourceTableHealth', { defaultValue: 'Health' })}</TableHead>
                 <TableHead className="w-10">{t('vrt.sourceTablePos', { defaultValue: '#' })}</TableHead>
                 <TableHead>{t('vrt.sourceTableTitle', { defaultValue: 'Dataset' })}</TableHead>
                 <TableHead>{t('vrt.sourceTableCrs', { defaultValue: 'CRS' })}</TableHead>
@@ -326,19 +327,31 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
               ) : (
                 sources.map((s) => (
                   <TableRow key={s.dataset_id}>
-                    <TableCell className="w-8">
+                    <TableCell className="w-24">
                       {healthMap.get(s.dataset_id) === 'healthy' ? (
-                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.healthy}`} role="img" aria-label={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} title={t('vrt.healthHealthy', { defaultValue: 'Healthy' })} />
+                        <span className="inline-flex items-center gap-1.5 text-xs">
+                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.healthy}`} />
+                          {t('vrt.healthHealthyShort', { defaultValue: 'Healthy' })}
+                        </span>
                       ) : healthMap.get(s.dataset_id) === 'missing' ? (
                         <Tooltip><TooltipTrigger asChild>
-                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} role="img" aria-label={t('vrt.healthMissing', { defaultValue: 'Source dataset deleted' })} />
+                          <span className="inline-flex items-center gap-1.5 text-xs text-destructive">
+                            <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} />
+                            {t('vrt.healthMissingShort', { defaultValue: 'Missing' })}
+                          </span>
                         </TooltipTrigger><TooltipContent>{t('vrt.healthMissing', { defaultValue: 'Source dataset deleted' })}</TooltipContent></Tooltip>
                       ) : healthMap.get(s.dataset_id) === 'inaccessible' ? (
                         <Tooltip><TooltipTrigger asChild>
-                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} role="img" aria-label={t('vrt.healthInaccessible', { defaultValue: 'Source file inaccessible' })} />
+                          <span className="inline-flex items-center gap-1.5 text-xs text-destructive">
+                            <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unhealthy}`} />
+                            {t('vrt.healthInaccessibleShort', { defaultValue: 'Inaccessible' })}
+                          </span>
                         </TooltipTrigger><TooltipContent>{t('vrt.healthInaccessible', { defaultValue: 'Source file inaccessible' })}</TooltipContent></Tooltip>
                       ) : (
-                        <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unknown}`} role="img" aria-label={t('vrt.healthUnknown', { defaultValue: 'Unknown' })} />
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className={`inline-block h-2 w-2 rounded-full ${healthDotColors.unknown}`} />
+                          {t('vrt.healthUnknownShort', { defaultValue: 'Unknown' })}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">

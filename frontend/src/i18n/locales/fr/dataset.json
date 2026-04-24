@@ -10,7 +10,6 @@
     "backToSearch": "Retour à la recherche",
     "mapPreview": "Aperçu de la carte",
     "export": "Exporter",
-    "serviceUrls": "URL de services",
     "attributeData": "Données attributaires",
     "noSpatialExtent": "Aucune étendue spatiale disponible"
   },
@@ -59,8 +58,9 @@
     "copyCogUrl": "Copier l'URL COG",
     "copyXyzTileUrl": "Copier l'URL XYZ Tile",
     "copyS3Uri": "Copier l'URI S3",
-    "copyApiUrl": "Copier l'URL API",
-    "copyTileUrl": "Copier l'URL Tile",
+    "copyCsvExportUrl": "Copier l'URL d'export CSV",
+    "copyOgcFeaturesUrl": "Copier l'URL OGC Features",
+    "copyVectorTilesUrl": "Copier l'URL des tuiles vectorielles",
     "copied": "Copié : {{preview}}"
   },
   "addToMap": {
@@ -333,10 +333,6 @@
     }
   },
   "serviceUrls": {
-    "vectorTiles": "Tuiles vectorielles (MVT)",
-    "featureService": "Service d'entités (GeoJSON)",
-    "datasetApi": "API du jeu de données",
-    "authHelp": "Ces points d'accès acceptent un en-tête <1>X-Api-Key</1> ou <3>Authorization: Bearer</3>.",
     "authHelpSimple": "Ces points d'accès acceptent un en-tête X-Api-Key ou Authorization: Bearer.",
     "manageApiKeys": "Gérer les clés API"
   },

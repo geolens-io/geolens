@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useAuthStore } from '@/stores/auth-store';
 import type { DatasetResponse } from '@/types/api';
 
@@ -16,7 +17,18 @@ interface ConnectDropdownProps {
 }
 
 async function copyToClipboard(value: string, t: (key: string, opts?: Record<string, unknown>) => string) {
-  await navigator.clipboard.writeText(value);
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
   const preview = value.length > 60 ? `${value.slice(0, 60)}...` : value;
   toast.success(t('connect.copied', { preview }));
 }
@@ -25,10 +37,15 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
   const { t } = useTranslation('dataset');
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.roles?.includes('admin') ?? false;
+  const { endpoints } = useDatasetAccessEndpoints(dataset);
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
   const isTable = dataset.record_type === 'table';
+
+  const cogUrl = dataset.raster?.connect?.download_url;
+  const tileUrl = dataset.raster?.connect?.tile_url;
+  const s3Uri = dataset.raster?.connect?.s3_uri;
 
   return (
     <DropdownMenu>
@@ -39,13 +56,11 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {isRaster && dataset.raster?.connect?.download_url && (
+        {isRaster && cogUrl && (
           <DropdownMenuItem
             onClick={() =>
               copyToClipboard(
-                dataset.raster!.connect!.download_url!.startsWith('http')
-                  ? dataset.raster!.connect!.download_url!
-                  : `${window.location.origin}${dataset.raster!.connect!.download_url!}`,
+                cogUrl.startsWith('http') ? cogUrl : `${window.location.origin}${cogUrl}`,
                 t,
               )
             }
@@ -54,45 +69,42 @@ export function ConnectDropdown({ dataset }: ConnectDropdownProps) {
             {t('connect.copyCogUrl')}
           </DropdownMenuItem>
         )}
-        {(isRaster || isVrt) && dataset.raster?.connect?.tile_url && (
-          <DropdownMenuItem
-            onClick={() =>
-              copyToClipboard(dataset.raster!.connect!.tile_url, t)
-            }
-          >
+        {(isRaster || isVrt) && tileUrl && (
+          <DropdownMenuItem onClick={() => copyToClipboard(tileUrl, t)}>
             <Copy className="me-2 size-3.5" />
             {t('connect.copyXyzTileUrl')}
           </DropdownMenuItem>
         )}
-        {(isRaster || isVrt) && isAdmin && dataset.raster?.connect?.s3_uri && (
-          <DropdownMenuItem
-            onClick={() => copyToClipboard(dataset.raster!.connect!.s3_uri!, t)}
-          >
+        {(isRaster || isVrt) && isAdmin && s3Uri && (
+          <DropdownMenuItem onClick={() => copyToClipboard(s3Uri, t)}>
             <Copy className="me-2 size-3.5" />
             {t('connect.copyS3Uri')}
           </DropdownMenuItem>
         )}
         {!isRaster && !isVrt && (
           <>
-            <DropdownMenuItem
-              onClick={() =>
-                copyToClipboard(`${window.location.origin}/api/datasets/${dataset.id}`, t)
-              }
-            >
-              <Copy className="me-2 size-3.5" />
-              {t('connect.copyApiUrl')}
-            </DropdownMenuItem>
-            {!isTable && (
+            {endpoints.ogcFeaturesUrl && (
               <DropdownMenuItem
-                onClick={() =>
-                  copyToClipboard(
-                    `${window.location.origin}/tiles/data.${dataset.table_name}/{z}/{x}/{y}.pbf`,
-                    t,
-                  )
-                }
+                onClick={() => copyToClipboard(endpoints.ogcFeaturesUrl!, t)}
               >
                 <Copy className="me-2 size-3.5" />
-                {t('connect.copyTileUrl')}
+                {t('connect.copyOgcFeaturesUrl', { defaultValue: 'Copy OGC Features URL' })}
+              </DropdownMenuItem>
+            )}
+            {isTable && endpoints.csvExportUrl && (
+              <DropdownMenuItem
+                onClick={() => copyToClipboard(endpoints.csvExportUrl!, t)}
+              >
+                <Copy className="me-2 size-3.5" />
+                {t('connect.copyCsvExportUrl', { defaultValue: 'Copy CSV Export URL' })}
+              </DropdownMenuItem>
+            )}
+            {!isTable && endpoints.vectorTilesUrl && (
+              <DropdownMenuItem
+                onClick={() => copyToClipboard(endpoints.vectorTilesUrl!, t)}
+              >
+                <Copy className="me-2 size-3.5" />
+                {t('connect.copyVectorTilesUrl', { defaultValue: 'Copy Vector Tiles URL' })}
               </DropdownMenuItem>
             )}
           </>

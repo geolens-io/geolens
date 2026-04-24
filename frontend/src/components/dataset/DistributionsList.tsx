@@ -7,6 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Copy, Check } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
+import {
+  getPublicApiBaseUrl,
+  resolveDistributionUrl,
+} from '@/lib/dataset-access';
 import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
@@ -34,36 +38,6 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
   offlineAccess: 'other',
   other: 'other',
 };
-
-function getBaseUrl(publicApiUrl: string | null | undefined): string | null {
-  const configuredBase = publicApiUrl?.trim();
-  if (configuredBase) {
-    return configuredBase.replace(/\/+$/, '');
-  }
-
-  if (typeof window !== 'undefined' && window.location.origin) {
-    return window.location.origin.replace(/\/+$/, '');
-  }
-
-  return null;
-}
-
-export function resolveDistributionUrl(url: string, publicApiUrl: string | null | undefined): string {
-  if (!url) {
-    return url;
-  }
-
-  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url) || url.startsWith('//')) {
-    return url;
-  }
-
-  const baseUrl = getBaseUrl(publicApiUrl);
-  if (!baseUrl) {
-    return url;
-  }
-
-  return url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url.replace(/^\/+/, '')}`;
-}
 
 function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string | null | undefined }) {
   const { t } = useTranslation('dataset');
@@ -129,12 +103,20 @@ function groupByType(
 
 export function DistributionsList({ recordId }: DistributionsListProps) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useDistributions(recordId);
+  const { data, isLoading, error } = useDistributions(recordId);
   const { data: tileConfig } = useTileConfig();
-  const publicApiUrl = tileConfig?.public_api_url ?? tileConfig?.public_base_url;
+  const publicApiBaseUrl = getPublicApiBaseUrl(tileConfig);
 
   if (isLoading) {
     return <LoadingState className="py-6" />;
+  }
+
+  if (error) {
+    return (
+      <p className="text-sm text-destructive py-4 text-center">
+        {t('distributions.loadError', { defaultValue: 'Failed to load distributions.' })}
+      </p>
+    );
   }
 
   const distributions = data?.distributions ?? [];
@@ -180,7 +162,7 @@ export function DistributionsList({ recordId }: DistributionsListProps) {
                 {dist.description && (
                   <p className="text-xs text-muted-foreground">{dist.description}</p>
                 )}
-                <CopyableUrl url={dist.url} publicApiUrl={publicApiUrl} />
+                <CopyableUrl url={dist.url} publicApiUrl={publicApiBaseUrl} />
               </div>
             ))}
           </CardContent>

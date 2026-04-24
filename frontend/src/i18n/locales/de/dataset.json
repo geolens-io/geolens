@@ -10,7 +10,6 @@
     "backToSearch": "Zurück zur Suche",
     "mapPreview": "Kartenvorschau",
     "export": "Exportieren",
-    "serviceUrls": "Service-URLs",
     "attributeData": "Attributdaten",
     "noSpatialExtent": "Keine räumliche Ausdehnung verfügbar"
   },
@@ -59,8 +58,9 @@
     "copyCogUrl": "COG-URL kopieren",
     "copyXyzTileUrl": "XYZ-Kachel-URL kopieren",
     "copyS3Uri": "S3-URI kopieren",
-    "copyApiUrl": "API-URL kopieren",
-    "copyTileUrl": "Kachel-URL kopieren",
+    "copyCsvExportUrl": "CSV-Export-URL kopieren",
+    "copyOgcFeaturesUrl": "OGC-Features-URL kopieren",
+    "copyVectorTilesUrl": "Vektor-Kachel-URL kopieren",
     "copied": "Kopiert: {{preview}}"
   },
   "addToMap": {
@@ -333,10 +333,6 @@
     }
   },
   "serviceUrls": {
-    "vectorTiles": "Vektorkacheln (MVT)",
-    "featureService": "Feature-Service (GeoJSON)",
-    "datasetApi": "Datensatz-API",
-    "authHelp": "Diese Endpunkte akzeptieren einen <1>X-Api-Key</1>- oder <3>Authorization: Bearer</3>-Header.",
     "authHelpSimple": "Diese Endpunkte akzeptieren einen X-Api-Key- oder Authorization: Bearer-Header.",
     "manageApiKeys": "API-Schlüssel verwalten"
   },

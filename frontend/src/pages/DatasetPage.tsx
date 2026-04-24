@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Minimize2, Maximize2, Database } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Database } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -24,7 +24,6 @@ import {
   DatasetDetailHeader,
   type DatasetDetailHeaderAction,
 } from '@/components/dataset/DatasetDetailHeader';
-import { DataTab } from '@/components/dataset/tabs/DataTab';
 import { RelatedRecordsPanel } from '@/components/dataset/RelatedRecordsPanel';
 import { DetailPanel } from '@/components/dataset/panels/DetailPanel';
 import { PendingEditsBar } from '@/components/dataset/PendingEditsBar';
@@ -111,60 +110,29 @@ function scrollAndFocus(anchor: string): () => void {
   };
 }
 
-function TableHero({
-  isHeroExpanded,
-  setIsHeroExpanded,
-  datasetId,
-  isEditor,
-}: {
-  isHeroExpanded: boolean;
-  setIsHeroExpanded: React.Dispatch<React.SetStateAction<boolean>>;
-  datasetId: string;
-  isEditor: boolean;
-}) {
+function TableHero() {
   const { t } = useTranslation('dataset');
   return (
-    <div className="space-y-3">
-      <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
-        <div className="flex items-start gap-3">
-            <div className="rounded-lg border bg-background p-2 shadow-sm">
-              <Database className="h-5 w-5 text-foreground" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold">
-                  {t('page.dataFirstTitle', { defaultValue: 'Data-first table dataset' })}
-                </span>
-                <Badge variant="outline" className="text-[11px]">
-                  <EyeOff className="me-1 h-3 w-3" />
-                  {t('page.noMapPreview', { defaultValue: 'No map preview' })}
-                </Badge>
-              </div>
-              <p className="max-w-3xl text-sm text-muted-foreground">
-                {t('page.dataFirstDescription', {
-                  defaultValue: 'This record is a non-spatial table. Review rows below, inspect schema in Structure, and use Connect for downstream access.',
-                })}
-              </p>
-            </div>
+    <div className="rounded-lg border bg-muted/20 px-4 py-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg border bg-background p-2 shadow-sm">
+          <Database className="h-5 w-5 text-foreground" />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">
+              {t('page.dataFirstTitle', { defaultValue: 'Data-first table dataset' })}
+            </span>
+            <Badge variant="outline" className="text-[11px]">
+              <EyeOff className="me-1 h-3 w-3" />
+              {t('page.noMapPreview', { defaultValue: 'No map preview' })}
+            </Badge>
           </div>
-        </div>
-      <div className="rounded-lg border shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
-            {t('page.dataPreview', { defaultValue: 'Data Preview' })}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={() => setIsHeroExpanded(prev => !prev)}
-            aria-label={isHeroExpanded ? 'Collapse data grid' : 'Expand data grid'}
-          >
-            {isHeroExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          </Button>
-        </div>
-        <div className={isHeroExpanded ? 'h-[60vh]' : 'h-64'}>
-          <DataTab datasetId={datasetId} canEdit={isEditor} />
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            {t('page.dataFirstDescription', {
+              defaultValue: 'This record is a non-spatial table. Review rows below, inspect schema in Structure, and use Connect for downstream access.',
+            })}
+          </p>
         </div>
       </div>
     </div>
@@ -187,7 +155,7 @@ export function DatasetPage() {
   const [pendingNavigationAnchor, setPendingNavigationAnchor] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const { effectiveGid, setReadOnlyFeatureGid } = useFeatureGid();
-  const [isHeroExpanded, setIsHeroExpanded] = useState(true);
+
   const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
   const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -438,7 +406,9 @@ export function DatasetPage() {
             {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
             {isRaster && dataset.raster?.connect && (
-              <Button variant="default" size="sm" onClick={() => downloadCog(dataset.id)}>
+              <Button variant="default" size="sm" onClick={() => {
+                try { downloadCog(dataset.id); } catch { toast.error(t('export.failed')); }
+              }}>
                 <Download className="me-1 size-3" />
                 {t('actions.downloadCog', { defaultValue: 'Download COG' })}
               </Button>
@@ -457,14 +427,7 @@ export function DatasetPage() {
       )}
 
       {/* Hero Data Grid for table datasets (no map) */}
-      {isTable && (
-        <TableHero
-          isHeroExpanded={isHeroExpanded}
-          setIsHeroExpanded={setIsHeroExpanded}
-          datasetId={id!}
-          isEditor={canEditData}
-        />
-      )}
+      {isTable && <TableHero />}
 
       {/* Hero Map -- visible for all spatial dataset types */}
       {!isDataTabExpanded && !isTable && (

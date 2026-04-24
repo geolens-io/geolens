@@ -122,6 +122,32 @@ test.describe.serial('Non-spatial CSV', () => {
     await expect(errorToast).toHaveCount(0);
   });
 
+  test('access tab exposes working table endpoints and csv-only export', async ({ page }) => {
+    expect(datasetId).toBeTruthy();
+    await page.goto(`/datasets/${datasetId}`);
+
+    await expect(
+      page.getByRole('heading', { level: 1 }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /connect/i }).click();
+    await expect(page.getByRole('menuitem', { name: 'Copy OGC Features URL' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Copy CSV Export URL' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Copy Vector Tiles URL' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('tab', { name: 'Access' }).click();
+
+    const codeBlock = page.locator('pre').first();
+    await expect(codeBlock).toContainText(`/api/collections/${datasetId}/items?limit=10`);
+    await expect(codeBlock).not.toContainText('/api/v1/collections/');
+
+    const options = page.locator('select option');
+    await expect(options).toHaveCount(1);
+    await expect(options.first()).toHaveText('CSV');
+    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
+  });
+
   test('attribute table shows rows for non-spatial dataset', async ({
     page,
   }) => {
@@ -132,6 +158,8 @@ test.describe.serial('Non-spatial CSV', () => {
     await expect(
       page.getByRole('heading', { level: 1 }),
     ).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('tab', { name: 'Data', exact: true }).click();
 
     // Check for expected CSV row values in the attribute table
     await expect(page.getByText('Alice')).toBeVisible({ timeout: 15_000 });

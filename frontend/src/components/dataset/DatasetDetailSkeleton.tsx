@@ -29,8 +29,20 @@ export function DatasetDetailSkeleton({ isTable }: DatasetDetailSkeletonProps = 
         <Skeleton className="h-4 w-16" />
       </div>
 
-      {/* Hero map placeholder */}
-      <Skeleton className={cn('w-full rounded-lg', isTable ? 'h-[60vh]' : 'h-72 lg:h-96')} data-testid="hero-skeleton" />
+      {/* Hero placeholder — compact card for tables, tall map for spatial */}
+      {isTable ? (
+        <div className="rounded-lg border bg-muted/20 px-4 py-4">
+          <div className="flex items-start gap-3">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="space-y-2 flex-1">
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-80" />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <Skeleton className="w-full rounded-lg h-72 lg:h-96" data-testid="hero-skeleton" />
+      )}
 
       {/* Tab bar skeleton */}
       <div className="flex items-center gap-1">
