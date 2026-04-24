@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { BasemapPicker } from '../BasemapPicker';
 import type { BasemapEntry } from '@/api/settings';
@@ -23,12 +23,15 @@ vi.mock('@/assets/basemaps/bright.png', () => ({ default: '/assets/bright.png' }
 describe('BasemapPicker', () => {
   it('renders collapsed with current basemap label', () => {
     render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
-    expect(screen.getByText('Positron')).toBeInTheDocument();
+    // Header button is the only one with aria-expanded
+    const header = screen.getByRole('button', { expanded: false });
+    expect(within(header).getByText('Positron')).toBeInTheDocument();
   });
 
   it('uses static PNG for built-in basemap thumbnail', () => {
     render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
-    const img = screen.getByAltText('Positron');
+    const header = screen.getByRole('button', { expanded: false });
+    const img = within(header).getByAltText('Positron');
     expect(img).toHaveAttribute('src', '/assets/positron.png');
   });
 
@@ -36,7 +39,7 @@ describe('BasemapPicker', () => {
     const user = userEvent.setup();
     render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
 
-    await user.click(screen.getByText('Positron'));
+    await user.click(screen.getByRole('button', { expanded: false }));
     const options = screen.getAllByTestId('basemap-option');
     // 4 enabled basemaps + 1 synthetic "None" blank entry prepended
     expect(options).toHaveLength(5);
@@ -47,7 +50,7 @@ describe('BasemapPicker', () => {
     const onChange = vi.fn();
     render(<BasemapPicker value="openfreemap-positron" onChange={onChange} />);
 
-    await user.click(screen.getByText('Positron'));
+    await user.click(screen.getByRole('button', { expanded: false }));
     await user.click(screen.getByText('Dark'));
     expect(onChange).toHaveBeenCalledWith('openfreemap-dark');
     // After closing, options remain in DOM (animation wrapper) but the grid
