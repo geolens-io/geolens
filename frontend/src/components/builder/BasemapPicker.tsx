@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
-import { basemapThumbnail } from '@/lib/basemap-utils';
+import { basemapThumbnail, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { cn } from '@/lib/utils';
 
 interface BasemapPickerProps {
@@ -17,7 +17,9 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
   const { data: basemaps } = useBasemaps();
   const [open, setOpen] = useState(false);
   const enabled = (basemaps ?? []).filter((b) => b.enabled);
-  const current = enabled.find((b) => b.id === value);
+  const blankEntry = { id: BLANK_BASEMAP_ID, label: t('basemap.blank'), url: BLANK_BASEMAP_ID, enabled: true, is_preset: false };
+  const options = [blankEntry, ...enabled];
+  const current = options.find((b) => b.id === value);
 
   return (
     <div className="px-2">
@@ -47,7 +49,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
       {/* Expanded: grid of options */}
       {open && (
         <div className="grid grid-cols-4 gap-2 pt-2">
-          {enabled.map((b) => (
+          {options.map((b) => (
             <button
               key={b.id}
               data-testid="basemap-option"

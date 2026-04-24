@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
@@ -128,6 +129,15 @@ export function BuilderMap({
   // Cached queryable layer IDs — updated when layers change, read by click/mousemove handlers
   const queryLayerIdsRef = useRef<string[]>([]);
 
+  // Tracks whether measurement widget is active — avoids re-registering map handlers on every toggle
+  const measureActiveRef = useRef(false);
+
+  useEffect(() => {
+    return useWidgetStore.subscribe((state) => {
+      measureActiveRef.current = state.activeWidgets.has('measurement');
+    });
+  }, []);
+
   // Track basemap URL to detect style changes
   const prevBasemapUrlRef = useRef<string | null>(null);
 
@@ -238,6 +248,7 @@ export function BuilderMap({
     if (!map || !map.isStyleLoaded()) return;
 
     const handleClick = (e: MapMouseEvent) => {
+      if (measureActiveRef.current) return;
       const queryLayers = queryLayerIdsRef.current;
 
       if (queryLayers.length === 0) {
@@ -273,6 +284,7 @@ export function BuilderMap({
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (!map.isStyleLoaded()) return;
+        if (measureActiveRef.current) return;
         const queryLayers = queryLayerIdsRef.current;
 
         if (queryLayers.length === 0) {

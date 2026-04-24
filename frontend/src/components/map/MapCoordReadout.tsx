@@ -70,7 +70,7 @@ export function MapCoordReadout({ map }: MapCoordReadoutProps) {
   const lngDir = coords.lng >= 0 ? 'E' : 'W';
 
   return (
-    <div className="absolute bottom-1.5 right-1.5 z-10 pointer-events-none">
+    <div className="absolute top-2 right-2 z-10 pointer-events-none">
       <div className="font-mono text-2xs tracking-wide text-muted-foreground/70 bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5">
         {Math.abs(coords.lat).toFixed(2)}° {latDir}
         {' · '}
