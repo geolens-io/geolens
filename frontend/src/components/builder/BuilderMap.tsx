@@ -141,9 +141,6 @@ export const BuilderMap = memo(function BuilderMap({
     });
   }, []);
 
-  // Track basemap URL to detect style changes
-  const prevBasemapUrlRef = useRef<string | null>(null);
-
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
       const map = e.target;
@@ -202,36 +199,30 @@ export const BuilderMap = memo(function BuilderMap({
     [onMapRef, t],
   );
 
-  // Re-add data layers after basemap switch using style.load event
+  // Re-add data layers after basemap switch (persistent listener).
+  // Unlike the previous map.once() approach that re-registered per URL change,
+  // this listener survives any number of rapid style swaps — fixing the race
+  // where cleanup removed the listener before style.load fired.
   useEffect(() => {
     const map = mapRef.current;
-    const currentUrl = basemapEntry?.url ?? fallbackUrl;
-    if (!map || prevBasemapUrlRef.current === null || prevBasemapUrlRef.current === currentUrl) {
-      prevBasemapUrlRef.current = currentUrl;
-      return;
-    }
-    prevBasemapUrlRef.current = currentUrl;
+    if (!map) return;
 
     const onStyleLoad = () => {
       const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
+      lastOrderKeyRef.current = '';
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
       syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
       reorderBasemapLabels(map, sbl);
       refreshQueryLayerIds();
     };
 
-    map.once('style.load', onStyleLoad);
-    // Inline style objects (raster basemaps) load synchronously before our
-    // listener is registered. If the style is already loaded, run immediately.
-    if (map.isStyleLoaded()) {
-      map.off('style.load', onStyleLoad);
-      onStyleLoad();
-    }
+    map.on('style.load', onStyleLoad);
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [basemapEntry?.url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshQueryLayerIds is stable; [mapReady] is the only structural trigger
+  }, [mapReady]);
 
   // Helper: refresh the cached list of queryable layer IDs.
   // Called after every syncLayersToMap so the click/hover handlers
