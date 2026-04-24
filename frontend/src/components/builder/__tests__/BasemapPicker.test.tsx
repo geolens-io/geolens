@@ -38,7 +38,8 @@ describe('BasemapPicker', () => {
 
     await user.click(screen.getByText('Positron'));
     const options = screen.getAllByTestId('basemap-option');
-    expect(options).toHaveLength(4);
+    // 4 enabled basemaps + 1 synthetic "None" blank entry prepended
+    expect(options).toHaveLength(5);
   });
 
   it('calls onChange and closes on basemap selection', async () => {

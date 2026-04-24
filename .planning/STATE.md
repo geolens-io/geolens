@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-21 - Completed quick task 260421-jc7: Fix 3D height column dropdown
+Last activity: 2026-04-24 - Completed quick task 260424-k57: Map builder UI fixes (coord pill, legend, blank basemap, measurement widget)
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -113,6 +113,7 @@ None yet.
 | 260419-pi8 | clean up redundant data on dataset details page | 2026-04-19 | 8e625822 | Verified | [260419-pi8-clean-up-redundant-data-on-dataset-detai](./quick/260419-pi8-clean-up-redundant-data-on-dataset-detai/) |
 | 260421-m3b | create /map-audit command for auditing saved maps by ID | 2026-04-21 |  | Verified | [260421-m3b-review-current-commands-and-create-map-a](./quick/260421-m3b-review-current-commands-and-create-map-a/) |
 | 260421-jc7 | Fix 3D height column not in dropdown — switch to NYC Open Data buildings | 2026-04-21 | 3548d393 |  | [260421-jc7-fix-3d-height-column-dropdown](./quick/260421-jc7-fix-3d-height-column-dropdown/) |
+| 260424-k57 | Map builder UI fixes: coord pill, legend, blank basemap, measurement widget | 2026-04-24 | 99b27988 | Verified | [260424-k57-address-mapbuilder-issues-lat-long-zoom-](./quick/260424-k57-address-mapbuilder-issues-lat-long-zoom-/) |
 
 ## Session Continuity
 
