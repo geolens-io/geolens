@@ -50,7 +50,10 @@ describe('BasemapPicker', () => {
     await user.click(screen.getByText('Positron'));
     await user.click(screen.getByText('Dark'));
     expect(onChange).toHaveBeenCalledWith('openfreemap-dark');
-    expect(screen.queryAllByTestId('basemap-option')).toHaveLength(0);
+    // After closing, options remain in DOM (animation wrapper) but the grid
+    // container collapses to grid-rows-[0fr]
+    const gridWrapper = screen.getAllByTestId('basemap-option')[0].closest('[class*="grid-rows"]');
+    expect(gridWrapper).toHaveClass('grid-rows-[0fr]');
   });
 
   it('uses SVG fallback for unknown basemap IDs', () => {
