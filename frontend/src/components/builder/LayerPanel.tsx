@@ -19,21 +19,12 @@ import { Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LayerItem } from './LayerItem';
-import type { FilterSpecification } from 'maplibre-gl';
-import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapLayerResponse } from '@/types/api';
 
 interface LayerPanelProps {
   layers: MapLayerResponse[];
   expandedLayerId: string | null;
-  activeTab: 'style' | 'filter' | 'labels' | null;
   onToggleExpand: (id: string) => void;
-  onTabChange: (layerId: string, tab: 'style' | 'filter' | 'labels') => void;
-  onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
-  onOpacityChange: (layerId: string, opacity: number) => void;
-  onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
-  onLabelChange: (layerId: string, config: LabelConfig | null) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
-  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onToggleVisibility: (id: string) => void;
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
@@ -42,23 +33,13 @@ interface LayerPanelProps {
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
-  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
   onAddDataClick?: () => void;
-  inspectorMode?: boolean;
 }
 
 export const LayerPanel = memo(function LayerPanel({
   layers,
   expandedLayerId,
-  activeTab,
   onToggleExpand,
-  onTabChange,
-  onPaintChange,
-  onOpacityChange,
-  onFilterChange,
-  onLabelChange,
-  onStyleConfigChange,
-  onLayoutChange,
   onToggleVisibility,
   onMoveUp,
   onMoveDown,
@@ -67,9 +48,7 @@ export const LayerPanel = memo(function LayerPanel({
   onRemove,
   onZoomToLayer,
   onToggleLegend,
-  onRenderModeChange,
   onAddDataClick,
-  inspectorMode,
 }: LayerPanelProps) {
   const { t } = useTranslation('builder');
   const sensors = useSensors(
@@ -147,15 +126,7 @@ export const LayerPanel = memo(function LayerPanel({
                   isFirst={idx === 0}
                   isLast={idx === layers.length - 1}
                   isExpanded={expandedLayerId === layer.id}
-                  activeTab={expandedLayerId === layer.id ? activeTab : null}
                   onToggleExpand={onToggleExpand}
-                  onTabChange={onTabChange}
-                  onPaintChange={onPaintChange}
-                  onOpacityChange={onOpacityChange}
-                  onFilterChange={onFilterChange}
-                  onLabelChange={onLabelChange}
-                  onStyleConfigChange={onStyleConfigChange}
-                  onLayoutChange={onLayoutChange}
                   onToggleVisibility={onToggleVisibility}
                   onMoveUp={onMoveUp}
                   onMoveDown={onMoveDown}
@@ -163,8 +134,6 @@ export const LayerPanel = memo(function LayerPanel({
                   onRemove={onRemove}
                   onZoomToLayer={onZoomToLayer}
                   onToggleLegend={onToggleLegend}
-                  onRenderModeChange={onRenderModeChange}
-                  inspectorMode={inspectorMode}
                 />
               ))}
             </div>

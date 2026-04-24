@@ -7,6 +7,7 @@ import { getLayerType, reorderDataLayers } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
+import type { LayerActions } from '@/components/builder/ChatPanel';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
@@ -203,6 +204,7 @@ export function useBuilderLayers(
 
   const handleRemove = useCallback((layerId: string) => {
     if (!mapId) return;
+    setExpandedLayerId((prev) => prev === layerId ? null : prev);
     removeLayerMutation.mutate(
       { mapId, layerId },
       {
@@ -390,6 +392,21 @@ export function useBuilderLayers(
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
+  const chatLayerActions: LayerActions = useMemo(() => ({
+    onFilterChange: handleFilterChange,
+    onPaintChange: handlePaintChange,
+    onStyleConfigChange: handleStyleConfigChange,
+    onLabelChange: handleLabelChange,
+    onToggleVisibility: handleToggleVisibility,
+    onAddDataset: handleAddDataset,
+    onRemove: handleAiRemoveLayer,
+    onOpacityChange: handleOpacityChange,
+  }), [
+    handleFilterChange, handlePaintChange, handleStyleConfigChange,
+    handleLabelChange, handleToggleVisibility, handleAddDataset,
+    handleAiRemoveLayer, handleOpacityChange,
+  ]);
+
   return {
     localName, setLocalName,
     localDescription, setLocalDescription,
@@ -423,5 +440,6 @@ export function useBuilderLayers(
     handleToggleLegend,
     handleDismissEphemeral,
     markDirty,
+    chatLayerActions,
   };
 }
