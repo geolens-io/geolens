@@ -20,6 +20,52 @@ const MEASURE_SOURCE = '_measure-src';
 const MEASURE_LINE_LAYER = '_measure-line';
 const MEASURE_POINTS_LAYER = '_measure-points';
 
+/** Compute measurement result and build GeoJSON overlay for a set of points. */
+function rebuildMeasurement(pts: LngLat[], currentMode: MeasureMode) {
+  let result: number | null = null;
+  if (currentMode === 'distance' && pts.length >= 2) {
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const from = point([pts[i - 1].lng, pts[i - 1].lat]);
+      const to = point([pts[i].lng, pts[i].lat]);
+      total += turfDistance(from, to, { units: 'meters' });
+    }
+    result = total;
+  } else if (currentMode === 'area' && pts.length >= 3) {
+    const coords = pts.map((p) => [p.lng, p.lat]);
+    coords.push(coords[0]);
+    const poly = polygon([coords]);
+    result = turfArea(poly);
+  }
+
+  const features: GeoJSON.Feature[] = [];
+  pts.forEach((p) => {
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: {},
+    });
+  });
+  if (pts.length >= 2) {
+    const coords = pts.map((p) => [p.lng, p.lat]);
+    if (currentMode === 'area' && pts.length >= 3) {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [...coords, coords[0]] },
+        properties: {},
+      });
+    } else {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: {},
+      });
+    }
+  }
+
+  return { result, features };
+}
+
 function formatDistance(meters: number, unit: Unit): string {
   const locale = i18n.language;
   if (unit === 'imperial') {
@@ -115,56 +161,8 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
       pointsRef.current = updatedPoints;
       setPoints(updatedPoints);
 
-      // Compute result
-      let computed: number | null = null;
-      if (modeRef.current === 'distance' && updatedPoints.length >= 2) {
-        let total = 0;
-        for (let i = 1; i < updatedPoints.length; i++) {
-          const from = point([updatedPoints[i - 1].lng, updatedPoints[i - 1].lat]);
-          const to = point([updatedPoints[i].lng, updatedPoints[i].lat]);
-          total += turfDistance(from, to, { units: 'meters' });
-        }
-        computed = total;
-      } else if (modeRef.current === 'area' && updatedPoints.length >= 3) {
-        const coords = updatedPoints.map((p) => [p.lng, p.lat]);
-        coords.push(coords[0]); // close ring
-        const poly = polygon([coords]);
-        computed = turfArea(poly);
-      }
+      const { result: computed, features } = rebuildMeasurement(updatedPoints, modeRef.current);
       setResult(computed);
-
-      // Update GeoJSON source
-      const features: GeoJSON.Feature[] = [];
-
-      // Add all vertex points
-      updatedPoints.forEach((p) => {
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-          properties: {},
-        });
-      });
-
-      // Add line or polygon outline
-      if (updatedPoints.length >= 2) {
-        const coords = updatedPoints.map((p) => [p.lng, p.lat]);
-        if (modeRef.current === 'area' && updatedPoints.length >= 3) {
-          features.push({
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: [...coords, coords[0]],
-            },
-            properties: {},
-          });
-        } else {
-          features.push({
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: coords },
-            properties: {},
-          });
-        }
-      }
 
       try {
         const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
@@ -193,49 +191,10 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
   useEffect(() => {
     const pts = pointsRef.current;
     if (pts.length === 0) return;
-    let computed: number | null = null;
-    if (mode === 'distance' && pts.length >= 2) {
-      let total = 0;
-      for (let i = 1; i < pts.length; i++) {
-        const from = point([pts[i - 1].lng, pts[i - 1].lat]);
-        const to = point([pts[i].lng, pts[i].lat]);
-        total += turfDistance(from, to, { units: 'meters' });
-      }
-      computed = total;
-    } else if (mode === 'area' && pts.length >= 3) {
-      const coords = pts.map((p) => [p.lng, p.lat]);
-      coords.push(coords[0]);
-      const poly = polygon([coords]);
-      computed = turfArea(poly);
-    }
+    const { result: computed, features } = rebuildMeasurement(pts, mode);
     setResult(computed);
 
-    // Rebuild GeoJSON for mode change
     if (!map) return;
-    const features: GeoJSON.Feature[] = [];
-    pts.forEach((p) => {
-      features.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-        properties: {},
-      });
-    });
-    if (pts.length >= 2) {
-      const coords = pts.map((p) => [p.lng, p.lat]);
-      if (mode === 'area' && pts.length >= 3) {
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: [...coords, coords[0]] },
-          properties: {},
-        });
-      } else {
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: coords },
-          properties: {},
-        });
-      }
-    }
     try {
       const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features });

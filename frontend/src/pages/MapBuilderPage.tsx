@@ -213,7 +213,7 @@ export function MapBuilderPage() {
     [layers.expandedLayerId, layers.localLayers],
   );
 
-  const layerEditorHandlers = useMemo(() => ({
+  const layerEditorHandlers = {
     onTabChange: layers.handleTabChange,
     onPaintChange: layers.handlePaintChange,
     onOpacityChange: layers.handleOpacityChange,
@@ -222,11 +222,7 @@ export function MapBuilderPage() {
     onStyleConfigChange: layers.handleStyleConfigChange,
     onLayoutChange: layers.handleLayoutChange,
     onRenderModeChange: layers.handleRenderModeChange,
-  }), [
-    layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange,
-    layers.handleFilterChange, layers.handleLabelChange, layers.handleStyleConfigChange,
-    layers.handleLayoutChange, layers.handleRenderModeChange,
-  ]);
+  };
 
   const handleMarkDirty = useCallback(
     () => { layers.setHasUnsavedChanges(true); },
