@@ -84,7 +84,7 @@ function CreateMenu() {
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
+          {(canCreateDataset || canImport) && <DropdownMenuSeparator />}
           {can('edit_metadata') && (
             <DropdownMenuItem onClick={() => setCollectionOpen(true)}>
               <FolderOpen className="h-4 w-4" />
