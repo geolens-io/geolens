@@ -500,7 +500,7 @@ export const ViewerMap = memo(function ViewerMap({
     >
       <MapGL
         initialViewState={defaultView}
-        mapStyle={styleValue as string}
+        mapStyle={styleValue}
         styleDiffing={false}
         style={{ width: '100%', height: '100%' }}
         attributionControl={false}

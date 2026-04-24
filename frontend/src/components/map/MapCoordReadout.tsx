@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { memo, useEffect, useState, useRef } from 'react';
 import type { Map as MaplibreMap, MapMouseEvent } from 'maplibre-gl';
 
 interface MapCoordReadoutProps {
@@ -10,7 +10,7 @@ interface MapCoordReadoutProps {
  * Shows lat, lon, and zoom level — updates on mousemove and zoomend.
  * Uses font-mono for an instrument/cartographic feel.
  */
-export function MapCoordReadout({ map }: MapCoordReadoutProps) {
+export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordReadoutProps) {
   const [coords, setCoords] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const rafRef = useRef(0);
 
@@ -80,4 +80,4 @@ export function MapCoordReadout({ map }: MapCoordReadoutProps) {
       </div>
     </div>
   );
-}
+});
