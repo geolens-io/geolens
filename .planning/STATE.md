@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 Phase: 999.4
 Plan: Not started
 Status: Executing Phase 999.3
-Last activity: 2026-04-24 - Completed quick task 260424-n9f: Disable "Create > Dataset" option when enable_dataset_editing is false
+Last activity: 2026-04-24 - Completed quick task 260424-qh5: Review layer symbology display — geometry-aware legend swatches
 
 Progress: [████░░░░░░] 43% (3/7 phases complete in v14.0)
 
@@ -116,6 +116,7 @@ None yet.
 | 260424-k57 | Map builder UI fixes: coord pill, legend, blank basemap, measurement widget | 2026-04-24 | 99b27988 | Verified | [260424-k57-address-mapbuilder-issues-lat-long-zoom-](./quick/260424-k57-address-mapbuilder-issues-lat-long-zoom-/) |
 | 260424-lqy | Basemap selector race condition fix + UX polish | 2026-04-24 | 8353eee7 |  | [260424-lqy-in-the-map-builder-when-toggling-the-bas](./quick/260424-lqy-in-the-map-builder-when-toggling-the-bas/) |
 | 260424-n9f | Disable "Create > Dataset" option when enable_dataset_editing is false | 2026-04-24 | 7a6a29f2 | Verified | [260424-n9f-disable-create-dataset-option-in-navbar-](./quick/260424-n9f-disable-create-dataset-option-in-navbar-/) |
+| 260424-qh5 | Review layer symbology display — geometry-aware legend swatches | 2026-04-24 | 9e0cc45a | Needs Review | [260424-qh5-review-layer-symbology-display-in-map-bu](./quick/260424-qh5-review-layer-symbology-display-in-map-bu/) |
 
 ## Session Continuity
 
