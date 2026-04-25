@@ -60,11 +60,14 @@
         "maxZoom": 22
       },
       "style_config": {
-        "type": "classified",
-        "column_name": "_value",
-        "colormap": "viridis",
-        "num_classes": 6,
-        "classification_method": "quantile"
+        "mode": "graduated",
+        "column": "_value",
+        "target": "color",
+        "classCount": 5,
+        "method": "quantile",
+        "ramp": "Viridis",
+        "colors": ["#440154", "#31688e", "#35b779", "#94d840", "#fde725"],
+        "breaks": [2000, 8000, 20000, 40000]
       },
       "show_in_legend": true
     }

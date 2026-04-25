@@ -118,7 +118,8 @@ function GraduatedLegendSwitch({
   const breaks = styleConfig.breaks!;
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
-    const circleColor = (paint['circle-color'] as string | undefined) ?? MAP_COLORS.fallback;
+    const raw = paint['circle-color'];
+    const circleColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
     return (
       <GraduatedRadiusLegend
         sizes={styleConfig.sizes}
@@ -130,7 +131,8 @@ function GraduatedLegendSwitch({
   }
 
   if (styleConfig.target === 'width' && styleConfig.sizes) {
-    const lineColor = (paint['line-color'] as string | undefined) ?? MAP_COLORS.fallback;
+    const raw = paint['line-color'];
+    const lineColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
     return (
       <GraduatedWidthLegend
         sizes={styleConfig.sizes}

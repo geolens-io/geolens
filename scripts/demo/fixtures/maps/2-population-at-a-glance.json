@@ -92,11 +92,15 @@
         "maxZoom": 22
       },
       "style_config": {
-        "type": "classified",
-        "column_name": "pop_max",
+        "mode": "graduated",
+        "column": "pop_max",
         "target": "radius",
-        "num_classes": 7,
-        "classification_method": "quantile"
+        "classCount": 7,
+        "method": "quantile",
+        "ramp": "YlOrRd",
+        "colors": ["#fee08b", "#fdae61", "#f46d43", "#d73027", "#a50026", "#67001f"],
+        "breaks": [100000, 500000, 1000000, 3000000, 10000000, 20000000],
+        "sizes": [3, 5, 8, 11, 16, 22, 30]
       },
       "show_in_legend": true
     }

@@ -84,11 +84,14 @@
         "maxZoom": 22
       },
       "style_config": {
-        "type": "choropleth",
-        "n_classes": 6,
-        "value_field": "_value",
-        "color_scheme": "Reds",
-        "classification": "quantile"
+        "mode": "graduated",
+        "column": "_value",
+        "target": "color",
+        "classCount": 6,
+        "method": "quantile",
+        "ramp": "Reds",
+        "colors": ["#fee5d9", "#fcbba1", "#fc9272", "#fb6a4a", "#de2d26", "#a50f15"],
+        "breaks": [10000, 100000, 500000, 1000000, 3000000]
       },
       "show_in_legend": true
     }

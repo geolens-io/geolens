@@ -46,12 +46,14 @@
       "filter": null,
       "label_config": null,
       "style_config": {
-        "type": "classified",
-        "column_name": "height",
+        "mode": "graduated",
+        "column": "height",
         "target": "color",
-        "colormap": "plasma",
-        "num_classes": 6,
-        "classification_method": "quantile"
+        "classCount": 6,
+        "method": "quantile",
+        "ramp": "Plasma",
+        "colors": ["#2c3e50", "#2980b9", "#8e44ad", "#e74c3c", "#f39c12", "#f1c40f"],
+        "breaks": [30, 60, 100, 200, 400]
       },
       "show_in_legend": true
     }
