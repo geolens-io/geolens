@@ -41,6 +41,10 @@ class MapLayerInput(BaseModel):
     label_config: dict | None = Field(
         default=None, description="Text label configuration"
     )
+    popup_config: dict | None = Field(
+        default=None,
+        description="Popup configuration: {enabled, expression, visible_fields}",
+    )
     style_config: dict | None = Field(
         default=None, description="Data-driven style configuration"
     )
@@ -52,6 +56,33 @@ class MapLayerInput(BaseModel):
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"
     )
+
+    @field_validator("popup_config")
+    @classmethod
+    def _validate_popup_config_shape(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return None
+        if not isinstance(v, dict):
+            raise ValueError("popup_config must be an object or null")
+        enabled = v.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ValueError("popup_config.enabled must be a boolean")
+        expr = v.get("expression", None)
+        if expr is not None and not isinstance(expr, str):
+            raise ValueError("popup_config.expression must be a string or null")
+        vf = v.get("visible_fields", None)
+        if vf is not None:
+            if not isinstance(vf, list) or not all(isinstance(x, str) for x in vf):
+                raise ValueError(
+                    "popup_config.visible_fields must be a list of strings or null"
+                )
+        allowed = {"enabled", "expression", "visible_fields"}
+        extras = set(v.keys()) - allowed
+        if extras:
+            raise ValueError(
+                f"popup_config has unexpected keys: {sorted(extras)}"
+            )
+        return v
 
 
 class MapCreate(BaseModel):
@@ -147,6 +178,7 @@ class MapLayerResponse(BaseModel):
     dataset_record_type: str | None = None
     filter: list | None = None
     label_config: dict | None = None
+    popup_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
     is_3d: bool | None = None
@@ -224,6 +256,7 @@ class SharedLayerResponse(BaseModel):
     dataset_record_type: str | None = None
     filter: list | None = None
     label_config: dict | None = None
+    popup_config: dict | None = None
     style_config: dict | None = None
     show_in_legend: bool = True
     tile_url: str
