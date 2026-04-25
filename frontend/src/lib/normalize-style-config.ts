@@ -61,9 +61,6 @@ export function normalizeStyleConfig(
 ): StyleConfig | null {
   if (!raw) return null;
 
-  // Already normalized — has canonical `column` field
-  if (raw.column && raw.mode) return raw as StyleConfig;
-
   // Detect legacy schema
   const isLegacy =
     raw.type === 'classified' ||
@@ -71,20 +68,18 @@ export function normalizeStyleConfig(
     (raw.column_name && !raw.column) ||
     (raw.value_field && !raw.column);
 
-  if (!isLegacy) return raw as StyleConfig;
-
-  // Map legacy field names to canonical
-  const normalized: StyleConfig = {
-    mode: 'graduated',
-    column: (raw.column_name ?? raw.value_field ?? raw.column ?? '') as string,
-    target: (raw.target as StyleConfig['target']) ?? 'color',
-    ramp: (raw.ramp ?? raw.colormap ?? raw.color_scheme ?? 'YlOrRd') as string,
-    classCount: (raw.classCount ?? raw.num_classes ?? raw.n_classes ?? 5) as number,
-    method: (raw.method ?? raw.classification_method ?? raw.classification ?? 'quantile') as StyleConfig['method'],
-  };
-
-  // Preserve render_mode if present (e.g. heatmap)
-  if (raw.render_mode) normalized.render_mode = raw.render_mode as StyleConfig['render_mode'];
+  // Start from canonical schema or map legacy field names
+  const normalized: StyleConfig = isLegacy
+    ? {
+        mode: 'graduated',
+        column: (raw.column_name ?? raw.value_field ?? '') as string,
+        target: (raw.target as StyleConfig['target']) ?? 'color',
+        ramp: (raw.ramp ?? raw.colormap ?? raw.color_scheme ?? 'YlOrRd') as string,
+        classCount: (raw.classCount ?? raw.num_classes ?? raw.n_classes ?? 5) as number,
+        method: (raw.method ?? raw.classification_method ?? raw.classification ?? 'quantile') as StyleConfig['method'],
+        ...(raw.render_mode ? { render_mode: raw.render_mode as StyleConfig['render_mode'] } : {}),
+      }
+    : { ...(raw as StyleConfig) };
 
   // Extract colors/breaks/sizes from paint expressions if missing
   if (paint && normalized.column) {
