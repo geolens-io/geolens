@@ -96,10 +96,11 @@ export const BuilderMap = memo(function BuilderMap({
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
+  const datasetIdKey = layers.map((l) => l.dataset_id).join(',');
   const datasetIds = useMemo(
     () => layers.map((l) => l.dataset_id).filter(Boolean),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on structural identity
-    [layers.map((l) => l.dataset_id).join(',')],
+    [datasetIdKey],
   );
   const tokenQueries = useTileTokens(datasetIds);
 
@@ -239,9 +240,10 @@ export const BuilderMap = memo(function BuilderMap({
   // Click + mousemove handlers: popup and pointer cursor
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
     const handleClick = (e: MapMouseEvent) => {
+      if (!map.isStyleLoaded()) return;
       if (measureActiveRef.current) return;
       const queryLayers = queryLayerIdsRef.current;
 
@@ -382,7 +384,7 @@ export const BuilderMap = memo(function BuilderMap({
     // Only fit when layer count actually changed (add/remove/toggle)
     if (!layerCountChanged) return;
 
-    const visibleLayers = layers.filter((l) => l.visible && l.dataset_extent_bbox);
+    const visibleLayers = layers.filter((l): l is MapLayerResponse & { dataset_extent_bbox: number[] } => l.visible && !!l.dataset_extent_bbox);
     if (visibleLayers.length === 0) return;
 
     let minX = Infinity,
@@ -391,7 +393,7 @@ export const BuilderMap = memo(function BuilderMap({
       maxY = -Infinity;
 
     for (const l of visibleLayers) {
-      const bbox = l.dataset_extent_bbox!;
+      const bbox = l.dataset_extent_bbox;
       if (bbox[0] < minX) minX = bbox[0];
       if (bbox[1] < minY) minY = bbox[1];
       if (bbox[2] > maxX) maxX = bbox[2];

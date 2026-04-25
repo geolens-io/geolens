@@ -92,7 +92,7 @@ export function useLayerMapSync(
             opacity: layer.opacity ?? 1,
             visible: layer.visible,
             paint: newPaint,
-            layout: (layer.layout ?? {}) as Record<string, unknown>,
+            layout: layer.layout ?? {},
             filter: layer.filter ?? null,
             sourceId: `source-${layerId}`,
             layerId: mapLayerId,
@@ -156,7 +156,7 @@ export function useLayerMapSync(
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
           const outlineId = `layer-${layerId}-outline`;
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
+          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
 
           if (layer.layer_type === 'raster_geolens') {
             if (map.getLayer(mapLayerId)) {
@@ -164,19 +164,18 @@ export function useLayerMapSync(
             }
           } else if (adapterType === 'heatmap') {
             if (map.getLayer(mapLayerId)) {
-              const storedHeatmapOpacity = ((layer.paint as Record<string, unknown>)?.['heatmap-opacity'] as number) ?? 0.8;
+              const storedHeatmapOpacity = (layer.paint?.['heatmap-opacity'] as number) ?? 0.8;
               map.setPaintProperty(mapLayerId, 'heatmap-opacity', newOpacity * storedHeatmapOpacity);
             }
-          } else {
-            const geomType = adapterType as 'fill' | 'line' | 'circle';
+          } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
             if (map.getLayer(mapLayerId)) {
               map.setPaintProperty(
                 mapLayerId,
-                `${geomType}-opacity`,
-                getCompoundOpacity(layer.paint ?? {}, geomType, newOpacity),
+                `${adapterType}-opacity`,
+                getCompoundOpacity(layer.paint ?? {}, adapterType, newOpacity),
               );
             }
-            if (geomType === 'fill' && map.getLayer(outlineId)) {
+            if (adapterType === 'fill' && map.getLayer(outlineId)) {
               map.setPaintProperty(outlineId, 'line-opacity', newOpacity);
             }
           }

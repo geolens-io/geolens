@@ -2,6 +2,16 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import type { LabelConfig } from '@/types/api';
 import type { AddLayerObject } from 'maplibre-gl';
 
+/** Resolve symbol-placement, enforcing point-only for fill geometries (LB-04). */
+export function resolvePlacement(
+  lc: Pick<LabelConfig, 'placement'>,
+  geomType: string,
+): 'point' | 'line' | 'line-center' {
+  let placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
+  if (geomType === 'fill' && placement !== 'point') placement = 'point';
+  return placement;
+}
+
 /**
  * Build a MapLibre addLayer spec for a symbol/label layer.
  * Shared across map-sync.ts, use-builder-layers.ts, and ViewerMap.tsx
@@ -16,9 +26,7 @@ export function buildLabelLayerSpec(opts: {
   visibility?: 'visible' | 'none';
 }): AddLayerObject {
   const { labelId, sourceId, sourceLayer, lc, geomType, visibility } = opts;
-  // LB-04: fill geometries only support point placement — override if mismatched
-  let placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
-  if (geomType === 'fill' && placement !== 'point') placement = 'point';
+  const placement = resolvePlacement(lc, geomType);
 
   return {
     id: labelId,
@@ -59,9 +67,7 @@ export function syncLabelLayer(
   lc: LabelConfig,
   geomType: string,
 ) {
-  // LB-04: fill geometries only support point placement — override if mismatched
-  let placement = lc.placement ?? (geomType === 'line' ? 'line' : 'point');
-  if (geomType === 'fill' && placement !== 'point') placement = 'point';
+  const placement = resolvePlacement(lc, geomType);
   map.setLayoutProperty(labelId, 'text-field', ['get', lc.column]);
   map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
   map.setLayoutProperty(labelId, 'symbol-placement', placement);

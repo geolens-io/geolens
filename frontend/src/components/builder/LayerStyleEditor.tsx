@@ -7,9 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from './StyleColorPicker';
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
-import { RampStopEditor } from './RampStopEditor';
-import { getColorProperty } from '@/lib/color-ramps';
 import { getLayerType } from '@/components/builder/map-sync';
+import { isNumericColumn } from '@/lib/column-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -21,14 +20,7 @@ interface LayerStyleEditorProps {
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
-  showAdvanced?: boolean;
 }
-
-const NUMERIC_COLUMN_TYPES = new Set([
-  'integer', 'bigint', 'smallint', 'numeric',
-  'real', 'double precision',
-  'float4', 'float8', 'int2', 'int4', 'int8',
-]);
 
 const LINE_DASH_PRESETS = [
   { key: 'solid', value: undefined },
@@ -131,21 +123,20 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   onStyleConfigChange,
   onLayoutChange,
   onRenderModeChange,
-  showAdvanced,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
   const paint = layer.paint;
   const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
   const isDataDriven = !!layer.style_config?.column;
-  const renderMode = ((layer.style_config as Record<string, unknown> | undefined)?.render_mode as string) || 'points';
+  const renderMode: 'points' | 'heatmap' = layer.style_config?.render_mode ?? 'points';
 
   const fillEnabled = !paint['_fill-disabled'];
   const strokeEnabled = !paint['_stroke-disabled'];
 
   const isPolygon = (layer.dataset_geometry_type ?? '').toUpperCase().includes('POLYGON');
   const numericColumns = useMemo(
-    () => (layer.dataset_column_info ?? []).filter((col) => NUMERIC_COLUMN_TYPES.has(col.type.toLowerCase())),
+    () => (layer.dataset_column_info ?? []).filter((col) => isNumericColumn(col.type)),
     [layer.dataset_column_info],
   );
   const currentHeightCol = (layer.paint?.['_height_column'] as string) ?? '';
@@ -225,7 +216,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
         {geomType === 'fill' && (
           <FillControls
-            layer={layer} paint={paint} isDataDriven={isDataDriven} showAdvanced={showAdvanced}
+            layer={layer} paint={paint} isDataDriven={isDataDriven}
             fillEnabled={fillEnabled} strokeEnabled={strokeEnabled}
             onToggleFill={handleToggleFill} onToggleStroke={handleToggleStroke}
             onPaintProp={handlePaintProp} onPaintChange={onPaintChange}
@@ -235,14 +226,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         )}
         {geomType === 'line' && (
           <LineControls
-            layer={layer} paint={paint} isDataDriven={isDataDriven} showAdvanced={showAdvanced}
+            layer={layer} paint={paint} isDataDriven={isDataDriven}
             onPaintProp={handlePaintProp} onLayoutChange={onLayoutChange}
             t={t}
           />
         )}
         {geomType === 'circle' && renderMode !== 'heatmap' && (
           <CircleControls
-            layer={layer} paint={paint} isDataDriven={isDataDriven} showAdvanced={showAdvanced}
+            layer={layer} paint={paint} isDataDriven={isDataDriven}
             strokeEnabled={strokeEnabled} onToggleStroke={handleToggleStroke}
             onPaintProp={handlePaintProp}
             t={t}
@@ -283,17 +274,13 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         />
       </div>
 
-      {/* Advanced JSON editor — hidden when showAdvanced is explicitly false */}
-      {showAdvanced !== false && (
-        <AdvancedJsonEditor
-          paint={paint}
-          layout={(layer.layout as Record<string, unknown>) ?? {}}
-          onPaintChange={(p) => onPaintChange(layer.id, p)}
-          onLayoutChange={(l) => onLayoutChange(layer.id, l)}
-          defaultOpen={showAdvanced === true}
-          layerType={geomType}
-        />
-      )}
+      <AdvancedJsonEditor
+        paint={paint}
+        layout={(layer.layout as Record<string, unknown>) ?? {}}
+        onPaintChange={(p) => onPaintChange(layer.id, p)}
+        onLayoutChange={(l) => onLayoutChange(layer.id, l)}
+        layerType={geomType}
+      />
     </div>
   );
 });
@@ -304,7 +291,6 @@ interface GeomControlProps {
   layer: MapLayerResponse;
   paint: Record<string, unknown>;
   isDataDriven: boolean;
-  showAdvanced?: boolean;
   onPaintProp: (key: string, value: unknown) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
 }
@@ -321,7 +307,7 @@ interface FillControlsProps extends GeomControlProps {
 }
 
 function FillControls({
-  layer, paint, isDataDriven, showAdvanced,
+  layer, paint, isDataDriven,
   fillEnabled, strokeEnabled, onToggleFill, onToggleStroke,
   onPaintProp, onPaintChange, isPolygon, numericColumns, currentHeightCol, t,
 }: FillControlsProps) {
@@ -339,18 +325,9 @@ function FillControls({
       {fillEnabled && (
         <>
           {isDataDriven ? (
-            <>
-              <div className="text-xs text-muted-foreground italic">
-                {t('style.styledBy', { column: layer.style_config?.column })}
-              </div>
-              {showAdvanced && Array.isArray(paint[getColorProperty(layer.dataset_geometry_type)]) && (
-                <RampStopEditor
-                  expression={paint[getColorProperty(layer.dataset_geometry_type)] as unknown[]}
-                  column={layer.style_config?.column ?? ''}
-                  onChange={(expr) => onPaintProp(getColorProperty(layer.dataset_geometry_type), expr)}
-                />
-              )}
-            </>
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.styledBy', { column: layer.style_config?.column })}
+            </div>
           ) : (
             <StyleColorPicker
               label={t('style.color')}
@@ -412,25 +389,16 @@ interface LineControlsProps extends GeomControlProps {
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
 }
 
-function LineControls({ layer, paint, isDataDriven, showAdvanced, onPaintProp, onLayoutChange, t }: LineControlsProps) {
+function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange, t }: LineControlsProps) {
   return (
     <>
       <div className="text-xs font-medium">{t('style.line')}</div>
       {isDataDriven ? (
-        <>
-          <div className="text-xs text-muted-foreground italic">
-            {layer.style_config?.target === 'width'
-              ? t('style.widthByColumn', { column: layer.style_config?.column })
-              : t('style.styledBy', { column: layer.style_config?.column })}
-          </div>
-          {showAdvanced && Array.isArray(paint['line-color']) && (
-            <RampStopEditor
-              expression={paint['line-color'] as unknown[]}
-              column={layer.style_config?.column ?? ''}
-              onChange={(expr) => onPaintProp('line-color', expr)}
-            />
-          )}
-        </>
+        <div className="text-xs text-muted-foreground italic">
+          {layer.style_config?.target === 'width'
+            ? t('style.widthByColumn', { column: layer.style_config?.column })
+            : t('style.styledBy', { column: layer.style_config?.column })}
+        </div>
       ) : (
         <StyleColorPicker
           label={t('style.color')}
@@ -481,25 +449,16 @@ interface CircleControlsProps extends GeomControlProps {
   onToggleStroke: () => void;
 }
 
-function CircleControls({ layer, paint, isDataDriven, showAdvanced, strokeEnabled, onToggleStroke, onPaintProp, t }: CircleControlsProps) {
+function CircleControls({ layer, paint, isDataDriven, strokeEnabled, onToggleStroke, onPaintProp, t }: CircleControlsProps) {
   return (
     <>
       <div className="text-xs font-medium">{t('style.point')}</div>
       {isDataDriven ? (
-        <>
-          <div className="text-xs text-muted-foreground italic">
-            {layer.style_config?.target === 'radius'
-              ? t('style.radiusByColumn', { column: layer.style_config?.column })
-              : t('style.styledBy', { column: layer.style_config?.column })}
-          </div>
-          {showAdvanced && Array.isArray(paint['circle-color']) && (
-            <RampStopEditor
-              expression={paint['circle-color'] as unknown[]}
-              column={layer.style_config?.column ?? ''}
-              onChange={(expr) => onPaintProp('circle-color', expr)}
-            />
-          )}
-        </>
+        <div className="text-xs text-muted-foreground italic">
+          {layer.style_config?.target === 'radius'
+            ? t('style.radiusByColumn', { column: layer.style_config?.column })
+            : t('style.styledBy', { column: layer.style_config?.column })}
+        </div>
       ) : (
         <StyleColorPicker
           label={t('style.color')}

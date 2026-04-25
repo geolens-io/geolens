@@ -8,7 +8,7 @@ import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 
-// Import shared utilities used locally
+// Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
 // Re-export for backward compatibility with existing consumers
 export { CUSTOM_PAINT_PROPS, getLayerType, resolveAdapterType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
@@ -53,7 +53,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     opacity: layer.opacity ?? 1,
     visible: layer.visible,
     paint: layer.paint ?? {},
-    layout: (layer.layout as Record<string, unknown>) ?? {},
+    layout: layer.layout ?? {},
     filter: layer.filter,
     label_config: layer.label_config,
     style_config: layer.style_config,
@@ -76,6 +76,7 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   );
 
   for (const layer of basemapSymbolLayers) {
+    if (!map.getLayer(layer.id)) continue;
     if (show) {
       map.setLayoutProperty(layer.id, 'visibility', 'visible');
       map.moveLayer(layer.id);
@@ -297,7 +298,11 @@ export function syncLayersToMap(
     }
   }
 
-  removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
+  try {
+    removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
+  } catch (err) {
+    if (import.meta.env.DEV) console.error('[map-sync] removeStaleSourcesAndLayers failed', err);
+  }
   managedSourcesRef.current = desiredSources;
 
   // Only reorder when layer order actually changed (not on every paint/visibility sync).

@@ -300,7 +300,7 @@ export function useBuilderLayers(
       opacity: layer.opacity ?? 1,
       visible: layer.visible,
       paint: updatedPaint,
-      layout: (layer.layout as Record<string, unknown>) ?? {},
+      layout: layer.layout ?? {},
       filter: layer.filter,
       label_config: layer.label_config,
       sourceId,
@@ -309,7 +309,13 @@ export function useBuilderLayers(
       tileUrl,
     };
 
-    getAdapter(adapterType).addLayers(map, adapterInput);
+    try {
+      getAdapter(adapterType).addLayers(map, adapterInput);
+    } catch (e) {
+      toast.error('Failed to switch render mode');
+      if (import.meta.env.DEV) console.error('[builder] swapLayerOnMap failed:', e);
+      return;
+    }
 
     // Manage label layer: hide for heatmap, restore for points
     if (adapterType === 'heatmap') {
@@ -332,27 +338,21 @@ export function useBuilderLayers(
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
 
-    const currentStyleConfig = (layer.style_config ?? {}) as Record<string, unknown>;
-    let updatedPaint = { ...(layer.paint as Record<string, unknown>) };
+    const currentStyleConfig: Partial<StyleConfig> = layer.style_config ?? {};
+    let updatedPaint = { ...layer.paint };
 
     if (mode === 'heatmap') {
       const savedCirclePaint = { ...updatedPaint };
-      const savedHeatmapPaint = (currentStyleConfig['heatmapPaint'] as Record<string, unknown> | undefined) ?? {};
+      const savedHeatmapPaint = currentStyleConfig.heatmapPaint ?? {};
 
       updatedPaint = Object.keys(savedHeatmapPaint).length > 0
         ? { ...savedHeatmapPaint }
         : { ...DEFAULT_HEATMAP_PAINT };
 
-      const updatedStyleConfig: Partial<StyleConfig> = {
-        ...currentStyleConfig,
-        render_mode: 'heatmap',
-        savedCirclePaint: savedCirclePaint,
-      };
-
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as StyleConfig }
+            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...currentStyleConfig, render_mode: 'heatmap', savedCirclePaint } as StyleConfig }
             : l,
         ),
       );
@@ -360,7 +360,7 @@ export function useBuilderLayers(
       swapLayerOnMap(layer, 'heatmap', updatedPaint);
     } else {
       const savedHeatmapPaint = { ...updatedPaint };
-      const savedCirclePaint = (currentStyleConfig['savedCirclePaint'] as Record<string, unknown> | undefined) ?? {};
+      const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? {};
 
       updatedPaint = Object.keys(savedCirclePaint).length > 0 ? savedCirclePaint : {
         'circle-color': '#3b82f6',
@@ -370,16 +370,11 @@ export function useBuilderLayers(
       };
 
       const { savedCirclePaint: _dropped, ...restConfig } = currentStyleConfig;
-      const updatedStyleConfig: Partial<StyleConfig> = {
-        ...restConfig,
-        render_mode: undefined,
-        heatmapPaint: savedHeatmapPaint,
-      };
 
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: updatedStyleConfig as StyleConfig }
+            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...restConfig, render_mode: undefined, heatmapPaint: savedHeatmapPaint } as StyleConfig }
             : l,
         ),
       );

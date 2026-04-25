@@ -192,7 +192,7 @@ export function DataDrivenStyleEditor({
 
   // Effect 2: Graduated color styling
   useEffect(() => {
-    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null) return;
+    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
     if (target !== 'color' && target) return;
 
     const { breaks, effectiveClassCount } = computeBreaks(
@@ -241,7 +241,7 @@ export function DataDrivenStyleEditor({
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
-    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null) return;
+    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
     if (target === 'color' || !target) return;
 
     const { breaks, effectiveClassCount } = computeBreaks(
@@ -353,44 +353,44 @@ export function DataDrivenStyleEditor({
     setSizeRange(defaultSizeRange(newTarget));
   }
 
+  const layerPaint = layer.paint;
+
   const handleCategoryColorChange = useCallback(
     (value: string, newColor: string) => {
-      const config = layer.style_config;
-      if (!config?.categories) return;
+      if (!styleConfig?.categories) return;
 
-      const updated = config.categories.map((c) =>
+      const updated = styleConfig.categories.map((c) =>
         c.value === value ? { ...c, color: newColor } : c,
       );
-      const colorProp = getColorProperty(layer.dataset_geometry_type);
+      const colorProp = getColorProperty(geomType);
       const valueColorMap: [string, string][] = updated.map((c) => [c.value, c.color]);
       const expression = buildCategoricalExpression(
-        config.column,
+        styleConfig.column,
         valueColorMap,
         MAP_COLORS.fallback,
       );
-      const newConfig: StyleConfig = { ...config, categories: updated, ramp: 'custom' };
-      const paint = { ...layer.paint, [colorProp]: expression };
-      onStyleConfigChange(layer.id, newConfig, paint);
+      const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
+      const paint = { ...layerPaint, [colorProp]: expression };
+      onStyleConfigChange(layerId, newConfig, paint);
       setRamp('custom');
     },
-    [layer, onStyleConfigChange],
+    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange],
   );
 
   const handleGraduatedColorChange = useCallback(
     (index: number, newColor: string) => {
-      const config = layer.style_config;
-      if (!config?.colors || !config.breaks) return;
+      if (!styleConfig?.colors || !styleConfig.breaks) return;
 
-      const updatedColors = [...config.colors];
+      const updatedColors = [...styleConfig.colors];
       updatedColors[index] = newColor;
-      const colorProp = getColorProperty(layer.dataset_geometry_type);
-      const expression = buildGraduatedExpression(config.column, config.breaks, updatedColors);
-      const newConfig: StyleConfig = { ...config, colors: updatedColors, ramp: 'custom' };
-      const paint = { ...layer.paint, [colorProp]: expression };
-      onStyleConfigChange(layer.id, newConfig, paint);
+      const colorProp = getColorProperty(geomType);
+      const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
+      const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
+      const paint = { ...layerPaint, [colorProp]: expression };
+      onStyleConfigChange(layerId, newConfig, paint);
       setRamp('custom');
     },
-    [layer, onStyleConfigChange],
+    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange],
   );
 
   const hasTooManyCategories =
