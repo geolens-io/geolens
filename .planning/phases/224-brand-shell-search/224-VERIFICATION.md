@@ -1,10 +1,24 @@
 ---
 phase: 224-brand-shell-search
 verified: 2026-04-25T23:45:00Z
-re_verified: 2026-04-26T00:05:00Z
-status: gaps_found
-score: 12/13 must-haves verified, 2 human items confirmed via Playwright, 1 new gap found
+re_verified: 2026-04-26T00:30:00Z
+status: passed
+score: 13/13 must-haves verified (12 prior + 1 SHELL-05 closed); 2 prior human items confirmed via Playwright
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 12/13
+  gaps_closed:
+    - "SHELL-05-layout-collision — DocsHeader.astro back-link no longer overlaps SiteTitle in any (viewport × mode) combination"
+  gaps_remaining: []
+  regressions: []
+  scope_audit:
+    files_modified_by_closure: 3
+    expected_files_modified: 3
+    custom_css_touched: false
+    astro_config_touched: false
+    nav_astro_touched: false
+    other_phase_224_artifacts_touched: false
 human_verification:
   - test: "Open docs site in browser at localhost (npm run preview in getgeolens.com/docs/). Verify accent color is blue (hue ~250), NOT Starlight's default purple, in both light and dark modes. Confirm link text and body text pass WCAG AA contrast."
     expected: "Blue accent visible on sidebar active states, links, focus rings, and button backgrounds in both modes. No purple visible. Contrast ratios >= 4.5:1 for normal text, >= 3:1 for large text."
@@ -14,151 +28,178 @@ human_verification:
     expected: "Dialog opens on Ctrl+K/Cmd+K, returns at least one result for 'quickstart', closes on Escape."
     result: passed
     evidence: "Playwright probe: Cmd+K opened <dialog open>, focused .pagefind-ui__search-input. Typing 'quickstart' returned 2 results ('Quickstart (coming soon)', 'GeoLens Documentation'). Escape closed the dialog (dialog.open = false)."
-gaps:
-  - id: SHELL-05-layout-collision
-    severity: medium
-    plan: 224-04
-    file: getgeolens.com/docs/src/components/DocsHeader.astro
-    problem: "DocsHeader.astro renders the back-link as the first child of <header>, but Starlight's default header (rendered via the component slot) also positions itself starting at x=24 — same coordinate as the back-link. Result: 'GeoLens Docs' site title and '← getgeolens.com' back-link visually overlap in both light and dark modes."
-    evidence: "Bounding rects via Playwright: back-link {x:24, y:0, w:122.8, h:63}, site-title {x:24, y:10.5, w:167.6, h:42} — overlap=true. Visible in brand-light-mode.png and brand-dark-mode.png."
-    fix_hint: "Wrap the slot in a flex/grid container that reserves space for the back-link, OR move the back-link inside an absolutely-positioned wrapper that does not collide with the slot bounding box. Plan 04 SUMMARY mentions DocsHeader 'wraps Starlight's default Header.astro' but the wrapper does not displace the inner site-title."
+gaps: []
 ---
 
 # Phase 224: Brand, Shell & Search Verification Report
 
 **Phase Goal:** The docs site looks and feels like a GeoLens property — primary blue accent (not Starlight default purple), Inter font, dark/light parity with the marketing site — and all shell navigation (sidebar, prev/next, breadcrumbs, 404, last-updated, edit links, search, cross-site nav) works correctly before any content is written.
 
-**Verified:** 2026-04-25T23:45:00Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Initially Verified:** 2026-04-25T23:45:00Z
+**Re-verified (post-gap-closure):** 2026-04-26T00:30:00Z
+**Status:** passed
+**Re-verification:** Yes — after Plan 224-05 closed SHELL-05-layout-collision
 **Sibling repo inspected:** `/Users/ishiland/Code/getgeolens.com/`
 
-## Goal Achievement
+---
+
+## Re-Verification Summary (Plan 224-05 Closure)
+
+### Gap Closed: SHELL-05-layout-collision
+
+**Original problem:** DocsHeader.astro's back-link and Starlight's SiteTitle both rendered at x=24, causing visual overlap in both light and dark modes.
+
+**Fix shipped (3 commits in `getgeolens.com` repo, all on `main`):**
+
+| Commit | Type | Scope |
+|--------|------|-------|
+| `ee04f41` | fix | `docs/src/components/DocsHeader.astro` — added `:root { --back-link-reserved-space: 10rem }` and `:global(.header > .title-wrapper) { padding-inline-start: var(--back-link-reserved-space) }` |
+| `eea9d04` | test | `docs/scripts/verify-shell-layout.mjs` — Playwright runtime non-overlap probe (130 lines) |
+| `9e75b63` | chore | `docs/scripts/verify-build.sh` — 2 source-side grep assertions guarding the SHELL-05 reservation |
+
+**Files touched:** Exactly the 3 expected files. `custom.css`, `astro.config.mjs`, `Nav.astro`, `Breadcrumbs.astro`, `404.astro`, `docs-ci.yml`, `check-token-sync.sh`, `ec-pagefind-weight.mjs` — all untouched.
+
+### Closure Evidence (from 224-05-SUMMARY.md, captured verbatim)
+
+The mandatory runtime probe `node scripts/verify-shell-layout.mjs` against `npm run preview` produced:
+
+```
+PASS [desktop 1280x800 light]: back-link.right=146.8 ; site-title.left=180.0
+PASS [desktop 1280x800 dark]:  back-link.right=146.8 ; site-title.left=180.0
+PASS [mobile  360x800 light]:  back-link.right=138.8 ; site-title.left=172.0
+PASS [mobile  360x800 dark]:   back-link.right=138.8 ; site-title.left=172.0
+All shell-layout assertions passed.
+```
+
+**Bounding-rect proof of non-overlap:**
+
+| Viewport × Mode | back-link.right | site-title.left | Gap | Overlap |
+|---|---|---|---|---|
+| desktop 1280×800 light | 146.8 | 180.0 | 33.2px | NO |
+| desktop 1280×800 dark  | 146.8 | 180.0 | 33.2px | NO |
+| mobile  360×800  light | 138.8 | 172.0 | 33.2px | NO |
+| mobile  360×800  dark  | 138.8 | 172.0 | 33.2px | NO |
+
+Pre-fix baseline (from initial VERIFICATION): both rects shared `x=24`. Post-fix: site-title starts at `x=180` desktop / `x=172` mobile. The 33.2px gap exceeds the 8px target by ~4×. Format of the 4 PASS lines matches the script's `console.log` template at `verify-shell-layout.mjs:81` exactly (`.toFixed(1)` precision confirmed).
+
+### Locked Decisions: NEGATIVE-VERIFIED Preserved
+
+Comment-stripped grep on the post-fix `DocsHeader.astro` (using a Python regex pass that strips both `/* … */` and `//` comments) found **zero actual CSS rules or JS handlers** matching the prohibited patterns. All "FOUND" hits in raw-text grep came from rationale comments documenting what was intentionally avoided.
+
+| Decision | Pattern | Status | Evidence |
+|---|---|---|---|
+| D-25 absolute positioning | `display:\s*contents` | ✓ PRESERVED | 0 actual CSS rules; 1 mention in `//` rationale comment (line 7-8) |
+| D-25 absolute positioning | `grid-column` | ✓ PRESERVED | 0 actual CSS rules; 1 mention in `//` rationale comment (line 7-8) |
+| D-26 noopener-only | `noreferrer` | ✓ PRESERVED | 0 occurrences anywhere in the file |
+| D-26 visible domain text | `@media[^{]*\{[^}]*\.back-link-label` | ✓ PRESERVED | 0 media queries collapse the label |
+| D-29 no Cmd+K listener | `addEventListener\(['"]keydown` | ✓ PRESERVED | 0 listeners; `<script is:inline>` is documentation-only |
+| D-30 no '/' shortcut | `key\s*===\s*['"]/['"]` | ✓ PRESERVED | 0 bindings |
+| BRAND-04 token bridge | custom.css edits | ✓ PRESERVED | `git diff --name-only ee04f41~1 9e75b63` confirms custom.css NOT in changeset; `bash scripts/check-token-sync.sh` exits 0 |
+
+### Regression Spot-Checks on Prior-Verified Truths
+
+| Check | Result |
+|---|---|
+| `bash scripts/check-token-sync.sh` (BRAND-04) | ✓ "All 10 --primary-* stops in sync between marketing and docs." (exit 0) |
+| `bash scripts/verify-build.sh` (all 17 prior + 2 new SHELL-05 source greps) | ✓ "All build-artifact assertions passed." (exit 0) |
+| `npx astro check` (frontend type/schema) | ✓ "0 errors, 0 warnings, 0 hints" across 9 files |
+| `node --check scripts/verify-shell-layout.mjs` | ✓ Parse OK |
+| Playwright probe executable bit | ✓ `-rwxr-xr-x` |
+| Sibling-repo commit hashes (ee04f41, eea9d04, 9e75b63) | ✓ All present on `main` |
+
+**Conclusion:** Zero regressions across the 12 originally-verified must-haves. The single gap (SHELL-05-layout-collision) is closed with both static-source and runtime-bounding-rect evidence.
+
+---
+
+## Goal Achievement (Final, Post-Closure)
 
 ### Observable Truths
 
 | #  | Truth                                                                                             | Status       | Evidence                                                                                                         |
 |----|---------------------------------------------------------------------------------------------------|--------------|------------------------------------------------------------------------------------------------------------------|
-| 1  | Docs site accent color uses hue ~250 blue (not Starlight purple) in both modes                   | ? UNCERTAIN  | custom.css: `--primary-700: oklch(0.46 0.16 250)` (light), `--primary-400: oklch(0.70 0.16 250)` (dark). Token values confirmed. Rendered appearance and WCAG AA pass require human visual check.                   |
-| 2  | Ctrl+K / Cmd+K opens Pagefind search dialog; returns relevant results; code blocks de-ranked     | ? UNCERTAIN  | dist/pagefind/pagefind.js + pagefind-entry.json exist. EC plugin registered in astro.config.mjs. Runtime dialog behavior requires browser probe.                                                                   |
-| 3  | Every page shows "Last updated" timestamp, "Edit this page" GitHub link, and prev/next nav       | ✓ VERIFIED   | `lastUpdated: true` in astro.config.mjs; `editLink.baseUrl: 'https://github.com/geolens-io/getgeolens.com/edit/main/docs/'`; `pagination: true`. Build output: `<time datetime="2026-04-25T22:34:22.000Z">` in dist/guides/quickstart/index.html. Edit URL pattern confirmed in built HTML.          |
-| 4  | Marketing site header has "Docs" link; docs site header has "Back to getgeolens.com" link        | ✓ VERIFIED   | Nav.astro line 90: `href="https://docs.getgeolens.com"` with `rel="noopener"` (NOT noreferrer), no target=_blank, positioned after Quickstart (line 79 < line 90). DocsHeader.astro: `href="https://getgeolens.com"` with `rel="noopener"`, absolute positioning. `verify-build.sh` SHELL-05 assertion passes.  |
-| 5  | CI token-drift check fails if custom.css primary hue diverges from marketing global.css          | ✓ VERIFIED   | check-token-sync.sh: executable, STOPS=(50..900), skips 950, uses tr -s for normalization, exits 1 on drift. Wired in docs-ci.yml line 31 between npm ci (line 29) and astro check (line 34). `bash scripts/check-token-sync.sh` exits 0 against current files.                                           |
+| 1  | Docs site accent color uses hue ~250 blue (not Starlight purple) in both modes                   | ✓ VERIFIED   | Token values `--primary-700: oklch(0.46 0.16 250)` (light) / `--primary-400: oklch(0.70 0.16 250)` (dark) confirmed in custom.css. **Runtime confirmed via Playwright** (initial verification): no purple visible, AA contrast on links/text. |
+| 2  | Ctrl+K / Cmd+K opens Pagefind search dialog; returns relevant results; code blocks de-ranked     | ✓ VERIFIED   | dist/pagefind/pagefind.js + pagefind-entry.json present. EC plugin registered. **Runtime confirmed via Playwright** (initial verification): Cmd+K opened dialog, "quickstart" returned 2 results, Escape closed dialog. |
+| 3  | Every page shows "Last updated" timestamp, "Edit this page" GitHub link, and prev/next nav       | ✓ VERIFIED   | `lastUpdated: true` + `editLink.baseUrl: 'https://github.com/geolens-io/getgeolens.com/edit/main/docs/'` + `pagination: true` in astro.config.mjs. `<time datetime="2026-04-25T22:34:22.000Z">` in dist/guides/quickstart/index.html. |
+| 4  | Marketing site header has "Docs" link; docs site header has "Back to getgeolens.com" link        | ✓ VERIFIED   | Nav.astro line 90: `href="https://docs.getgeolens.com"` rel="noopener". DocsHeader.astro: `href="https://getgeolens.com"` rel="noopener". **AND back-link no longer overlaps SiteTitle (SHELL-05 closed via Plan 224-05).** |
+| 5  | CI token-drift check fails if custom.css primary hue diverges from marketing global.css          | ✓ VERIFIED   | check-token-sync.sh exits 0 against current files; wired in docs-ci.yml line 31. |
 
-**Score:** 3/5 truths fully verified; 2/5 deferred to human (color rendering, keyboard shortcut runtime behavior).
+**Score:** 5/5 truths verified (3 originally green + 2 closed via human Playwright probe + 1 visual non-overlap proven via Playwright bounding-rect math).
 
 ### Required Artifacts
 
+All 15 artifacts from initial verification remain ✓ VERIFIED. The 3 modified by Plan 224-05 (`DocsHeader.astro`, `verify-build.sh`, plus newly-created `verify-shell-layout.mjs`) re-verified:
+
 | Artifact | Status | Details |
 |----------|--------|---------|
-| `docs/src/styles/custom.css` | ✓ VERIFIED | Full token bridge: --primary-50..950 OKLCH at hue 250 (verbatim marketing mirror), Inter Variable font import, 3 --sl-color-accent-* slots in :root (light) and :root[data-theme='dark'] (dark), --sl-color-accent aliased to --primary-700 |
-| `docs/package.json` | ✓ VERIFIED | `"@fontsource-variable/inter": "^5.2.8"` confirmed |
-| `docs/scripts/check-token-sync.sh` | ✓ VERIFIED | Executable, bash -n clean, STOPS 50–900, BRAND-04 header, tr -s normalization |
-| `docs/scripts/verify-build.sh` | ✓ VERIFIED | All 6 Phase-223 assertions preserved + 11 Phase-224 assertions added. All pass against current dist/. |
-| `.github/workflows/docs-ci.yml` | ✓ VERIFIED | Both actions/checkout@v4 have fetch-depth: 0; check-token-sync step present between npm ci and wrangler guard; valid YAML |
-| `docs/plugins/ec-pagefind-weight.mjs` | ✓ VERIFIED | exports pluginPagefindWeight, uses definePlugin + postprocessRenderedBlock hook, sets 'data-pagefind-weight' = '0.1' |
-| `docs/public/llms.txt` | ✓ VERIFIED | H1 "GeoLens Documentation", blockquote description, H2 Guides with 4 canonical /guides/ URLs |
-| `docs/src/content/docs/guides/quickstart/index.mdx` | ✓ VERIFIED | title: "Quickstart (coming soon)", no pagefind: false |
-| `docs/src/content/docs/guides/user/index.mdx` | ✓ VERIFIED | title: "User Guide (coming soon)", no pagefind: false |
-| `docs/src/content/docs/guides/admin/index.mdx` | ✓ VERIFIED | title: "Admin Guide (coming soon)", no pagefind: false |
-| `docs/src/content/docs/guides/api/index.mdx` | ✓ VERIFIED | title: "API Reference (coming soon)", no pagefind: false |
-| `src/components/layout/Nav.astro` | ✓ VERIFIED | Docs link at line 90 (after Quickstart at line 79), href="https://docs.getgeolens.com", rel="noopener" only (noreferrer is on the separate GitHub icon anchor, not on the Docs link), no target=_blank |
-| `docs/src/components/Breadcrumbs.astro` | ✓ VERIFIED | PageTitle override, aria-label="breadcrumb", aria-current="page" on leaf, imports from @astrojs/starlight/components/PageTitle.astro, showBreadcrumbs gate at >=2 segments |
-| `docs/src/components/DocsHeader.astro` | ✓ VERIFIED | Header override, href="https://getgeolens.com", rel="noopener", position: absolute (NOT display:contents), imports Header.astro, no duplicate Cmd+K listener |
-| `docs/src/pages/404.astro` | ✓ VERIFIED | template:'splash', prev/next/editUrl/lastUpdated/pagefind all false, Search component, 4 category cards (/guides/quickstart/user/admin/api), footer link to getgeolens.com, --primary-700 for brand mark, no hardcoded #hex or rgb() |
-| `docs/astro.config.mjs` | ✓ VERIFIED | editLink.baseUrl with trailing slash and /docs/ segment; pagination: true; lastUpdated: true; expressiveCode.plugins: [pluginPagefindWeight()]; components: { Header, PageTitle }; all Phase-223 settings preserved |
+| `docs/src/components/DocsHeader.astro` | ✓ VERIFIED | Now contains the SHELL-05 reservation rule. All locked decisions (D-25/D-26/D-29/D-30) negative-verified preserved. |
+| `docs/scripts/verify-build.sh` | ✓ VERIFIED | Extended with 2 SHELL-05 source-side greps. Still ends with `All build-artifact assertions passed.` Exits 0. Includes BSD-grep `-e` workaround. |
+| `docs/scripts/verify-shell-layout.mjs` | ✓ VERIFIED (NEW) | Playwright runtime probe; executable; parses cleanly; covers 4 (viewport × mode) combinations. Manual local gate, intentionally not wired to CI. |
+| All 12 other Phase 224 artifacts | ✓ VERIFIED (no change) | See initial verification 2026-04-25T23:45:00Z. |
 
 ### Key Link Verification
 
-| From | To | Via | Status | Details |
-|------|----|-----|--------|---------|
-| astro.config.mjs | Breadcrumbs.astro + DocsHeader.astro | `components: { PageTitle: ..., Header: ... }` | ✓ WIRED | Both paths confirmed in astro.config.mjs lines 30–33 |
-| astro.config.mjs | ec-pagefind-weight.mjs | `import { pluginPagefindWeight }` + expressiveCode.plugins | ✓ WIRED | Import at line 5; registered at line 26 |
-| Breadcrumbs.astro | @astrojs/starlight/components/PageTitle.astro | `import Default from '...'` | ✓ WIRED | Line 5 of Breadcrumbs.astro |
-| DocsHeader.astro | @astrojs/starlight/components/Header.astro | `import Default from '...'` | ✓ WIRED | Line 13 of DocsHeader.astro |
-| 404.astro | virtual:starlight/components/Search | `import Search from 'virtual:starlight/components/Search'` | ✓ WIRED | Line 10 of 404.astro; env.d.ts resolves TS declaration |
-| docs-ci.yml | check-token-sync.sh | `bash scripts/check-token-sync.sh` step | ✓ WIRED | Line 31, between npm ci (29) and wrangler guard (32) |
-| docs-ci.yml (both jobs) | full git history | `fetch-depth: 0` | ✓ WIRED | Lines 23 and 52 |
-| marketing Nav.astro | docs.getgeolens.com | `href="https://docs.getgeolens.com"` anchor | ✓ WIRED | Lines 89–98 of Nav.astro |
-| custom.css | marketing global.css palette | verbatim OKLCH triplets 50–900 at hue 250 | ✓ WIRED | check-token-sync.sh exits 0 confirming byte-identical values for all 10 stops |
+All 9 key links from initial verification remain ✓ WIRED. Plan 224-05 added one new key link:
 
-### Data-Flow Trace (Level 4)
+| From | To | Via | Status |
+|------|----|-----|--------|
+| `DocsHeader.astro <style>` | Starlight default Header's `.title-wrapper` | `:global(.header > .title-wrapper) { padding-inline-start: var(--back-link-reserved-space) }` | ✓ WIRED |
+| `verify-build.sh` SHELL-05 reservation grep | `DocsHeader.astro` source | `grep -qF -e '--back-link-reserved-space'` | ✓ WIRED (and exits 0) |
+| `verify-shell-layout.mjs` | Locally-running Astro preview | `page.goto('http://localhost:4321/')` + `getBoundingClientRect()` | ✓ WIRED (4/4 PASS at runtime) |
 
-Not applicable — this phase delivers static site configuration, CSS tokens, and shell components. There is no dynamic data source (no API calls, no database reads). The only "data" is build-time: git commit timestamps flowing into `<time datetime>` via Starlight's lastUpdated mechanism. This is verified: `<time datetime="2026-04-25T22:34:22.000Z">` present in dist/guides/quickstart/index.html.
-
-### Behavioral Spot-Checks
+### Behavioral Spot-Checks (re-run during re-verification)
 
 | Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| Token-drift script exits 0 against current custom.css | `bash scripts/check-token-sync.sh` | "All 10 --primary-* stops in sync between marketing and docs." | ✓ PASS |
-| All 17 build-artifact assertions pass | `bash scripts/verify-build.sh` | "All build-artifact assertions passed." | ✓ PASS |
-| lastUpdated <time datetime> in built quickstart page | grep in dist/guides/quickstart/index.html | `<time datetime="2026-04-25T22:34:22.000Z">` | ✓ PASS |
-| Breadcrumb nav in built quickstart page | grep in dist/guides/quickstart/index.html | `aria-label="breadcrumb"` found | ✓ PASS |
-| Docs back-link in built homepage | grep in dist/index.html | `href="https://getgeolens.com"` found | ✓ PASS |
-| Pagefind files in dist/ | ls check | pagefind.js + pagefind-entry.json both present | ✓ PASS |
-| Cmd+K opens search dialog | browser probe | DEFERRED — requires running browser | ? SKIP |
-| Blue accent renders correctly in both modes | visual inspection | DEFERRED — requires running browser | ? SKIP |
+|---|---|---|---|
+| Token-drift gate (BRAND-04) | `bash scripts/check-token-sync.sh` | "All 10 --primary-* stops in sync between marketing and docs." | ✓ PASS |
+| All 19 build-artifact assertions (17 prior + 2 new) | `bash scripts/verify-build.sh` | "All build-artifact assertions passed." | ✓ PASS |
+| Type/schema integrity | `npx astro check` | "0 errors, 0 warnings, 0 hints" | ✓ PASS |
+| Playwright probe parses | `node --check scripts/verify-shell-layout.mjs` | exit 0 | ✓ PASS |
+| Playwright probe runtime (4 combinations) | `node scripts/verify-shell-layout.mjs` (executor-run) | 4 PASS lines + "All shell-layout assertions passed." | ✓ PASS (verbatim in 224-05-SUMMARY.md §SHELL-05 Runtime Verification) |
 
-### Requirements Coverage
+### Requirements Coverage (Final)
 
-| Requirement | Source Plan | Description | Status | Evidence |
-|-------------|------------|-------------|--------|----------|
-| BRAND-01 | 224-01, 224-02 | OKLCH primary blue accent in custom.css Starlight slots | ✓ SATISFIED | custom.css: full 11-stop palette + 3 slot mappings; verify-build.sh BRAND-01 passes |
-| BRAND-02 | 224-01, 224-02 | Inter Variable font via @fontsource-variable/inter | ✓ SATISFIED | package.json ^5.2.8; @import in custom.css; --sl-font set; no Google CDN refs in dist/ |
-| BRAND-03 | 224-01, 224-04 | Dark + light mode GeoLens blue, WCAG AA contrast | ? NEEDS HUMAN | Token values correct (hue 250 in both modes). Visual pass and contrast ratios require browser |
-| BRAND-04 | 224-02 | CI script fails on token drift between global.css and custom.css | ✓ SATISFIED | check-token-sync.sh exists, executable, asserts stops 50–900, wired in docs-ci.yml |
-| SHELL-01 | 224-03, 224-04 | Sidebar groups: Quickstart, User Guide, Admin Guide, API Reference | ✓ SATISFIED | astro.config.mjs sidebar autogenerate blocks; 4 placeholder index.mdx files; verify-build.sh SHELL-01 passes |
-| SHELL-02 | 224-04 | Prev/next, breadcrumbs, edit-this-page link per page | ✓ SATISFIED | pagination: true; Breadcrumbs.astro wired as PageTitle override; editLink.baseUrl set; all confirmed in dist/ |
-| SHELL-03 | 224-04 | Custom 404 with search + category links | ✓ SATISFIED | 404.astro exists with Search, 4 cards, footer link; dist/404.html passes all verify-build.sh assertions |
-| SHELL-04 | 224-02, 224-04 | lastUpdated: true + fetch-depth: 0 in CI | ✓ SATISFIED | lastUpdated: true in config; fetch-depth: 0 on both CI jobs; <time datetime> in dist/guides/quickstart/index.html |
-| SHELL-05 | 224-03, 224-04 | Cross-site nav: marketing "Docs" link + docs "Back to getgeolens.com" link | ✓ SATISFIED | Nav.astro Docs link confirmed; DocsHeader.astro back-link confirmed; both verified in built dist/ |
-| SEARCH-01 | 224-04 | Pagefind built in, no external service | ✓ SATISFIED | dist/pagefind/pagefind.js + pagefind-entry.json present; verify-build.sh SEARCH-01 passes |
-| SEARCH-02 | 224-03, 224-04 | Code blocks de-prioritized in Pagefind via data-pagefind-weight | ✓ SATISFIED | ec-pagefind-weight.mjs registered in expressiveCode.plugins; postprocessRenderedBlock hook sets '0.1'; smoke assertion passes |
-| SEARCH-03 | 224-04 | Keyboard shortcut opens search dialog | ? NEEDS HUMAN | Starlight 0.38.4 native Cmd+K binding confirmed by source inspection. Runtime dialog behavior requires browser probe. |
-| SEO-04 | 224-03, 224-02 | llms.txt at site root with guide navigation | ✓ SATISFIED | docs/public/llms.txt with 4 canonical /guides/ URLs; dist/llms.txt confirmed by verify-build.sh |
+All Phase 224 requirements satisfied:
+
+| Requirement | Status | Notes |
+|---|---|---|
+| BRAND-01 OKLCH primary blue | ✓ SATISFIED | Token bridge in custom.css; verify-build.sh BRAND-01 passes |
+| BRAND-02 Inter Variable font | ✓ SATISFIED | @fontsource-variable/inter ^5.2.8; bundled in dist/_astro/ |
+| BRAND-03 Dark + light WCAG AA | ✓ SATISFIED | Playwright-confirmed: hue 250 in both modes, AAA contrast on body text |
+| BRAND-04 token-drift CI gate | ✓ SATISFIED | check-token-sync.sh wired in docs-ci.yml |
+| SHELL-01 sidebar groups | ✓ SATISFIED | All 4 group labels in dist/index.html |
+| SHELL-02 prev/next + breadcrumbs + edit-link | ✓ SATISFIED | All confirmed in dist/ |
+| SHELL-03 custom 404 | ✓ SATISFIED | dist/404.html passes all assertions |
+| SHELL-04 lastUpdated + fetch-depth | ✓ SATISFIED | `<time datetime>` rendered; fetch-depth: 0 on both CI jobs |
+| SHELL-05 cross-site nav | ✓ SATISFIED | Both directions present in built HTML; **AND visual non-overlap proven via Playwright bounding-rect math (gap closed by Plan 224-05)** |
+| SEARCH-01 Pagefind built-in | ✓ SATISFIED | dist/pagefind/ present |
+| SEARCH-02 code de-prioritized | ✓ SATISFIED | EC plugin registered with `data-pagefind-weight: '0.1'` |
+| SEARCH-03 keyboard shortcut | ✓ SATISFIED | Playwright-confirmed: Cmd+K opens, Esc closes |
+| SEO-04 llms.txt | ✓ SATISFIED | All 4 canonical /guides/ URLs present |
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| docs/src/content/docs/guides/quickstart/index.mdx | body | "coming soon" placeholder | ℹ Info | Intentional per D-35; content ships in Phase 226. Not a stub — page is search-indexable. |
-| docs/src/content/docs/guides/user/index.mdx | body | "coming soon" placeholder | ℹ Info | Intentional per D-35; content ships in Phase 227. |
-| docs/src/content/docs/guides/admin/index.mdx | body | "coming soon" placeholder | ℹ Info | Intentional per D-35; content ships in Phase 227. |
-| docs/src/content/docs/guides/api/index.mdx | body | "coming soon" placeholder | ℹ Info | Intentional per D-35; content ships in Phase 225. |
-
-No blocker anti-patterns found. Placeholder pages are intentional and search-indexable. No hardcoded colors, no empty handlers, no stub components.
-
-### Human Verification Required
-
-#### 1. BRAND-03 — Blue accent visual verification and WCAG AA contrast
-
-**Test:** Run `npm run preview` in `/Users/ishiland/Code/getgeolens.com/docs/`. Open the preview URL in a browser. Navigate to any guide page. Toggle between light and dark modes using the theme switcher. Compare the accent color to the marketing site (`getgeolens.com` — open in a second tab for reference).
-
-**Expected:** Accent color is blue (~hue 250, similar to the marketing site's primary blue on buttons and links) in BOTH modes. No purple visible. Run a contrast checker (e.g. browser devtools) on link text to confirm >= 4.5:1 contrast ratio on body background.
-
-**Why human:** CSS custom properties (OKLCH) resolve at render time. Static inspection confirms the token values are correct (hue 250, --primary-700 for light mode, --primary-400 for dark mode) but rendered appearance and contrast ratios against Starlight's actual background colors can only be confirmed visually in a browser.
-
-#### 2. SEARCH-03 — Keyboard shortcut opens Pagefind search dialog
-
-**Test:** With the preview server running, navigate to any docs page. Press `Ctrl+K` (Windows/Linux) or `Cmd+K` (macOS). Verify the Pagefind search dialog opens. Type "quickstart" and verify results appear. Press `Escape` — verify the dialog closes and focus returns to the trigger.
-
-**Expected:** Dialog opens on Ctrl+K/Cmd+K; returns at least one result for "quickstart"; closes cleanly on Escape.
-
-**Why human:** Runtime JavaScript keyboard event behavior requires a running browser. Static inspection confirms Starlight 0.38.4's native binding exists at Search.astro:118-124 and that no duplicate listener was added. Whether the binding works end-to-end with our DocsHeader override in place must be verified in a real browser.
-
-### Gaps Summary
-
-No programmatically verifiable gaps found. The phase goal is substantively achieved:
-
-- The token bridge is complete with verbatim OKLCH hue-250 values mirrored from marketing
-- All shell affordances (breadcrumbs, edit links, last-updated, prev/next, 404, back-link, cross-site nav) are wired and confirmed in the built dist/
-- The BRAND-04 CI drift gate is functional and wired into the correct CI step order
-- All 17 verify-build.sh assertions pass (6 Phase-223 + 11 Phase-224)
-- check-token-sync.sh exits 0 with correct token sync
-
-The two human_needed items are runtime browser behaviors (color rendering accuracy and keyboard shortcut functionality) that cannot be verified from static file inspection alone. They do not represent implementation gaps — the code is correct — but they require a human to confirm the end-to-end browser experience before the phase is considered fully closed.
+No new anti-patterns introduced by Plan 224-05. The 4 "coming soon" placeholder pages from initial verification remain ℹ Info (intentional per D-35; content ships in Phases 225-227).
 
 ---
 
-_Verified: 2026-04-25T23:45:00Z_
+## Final Status
+
+**Status:** `passed`
+**Score:** 13/13 must-haves verified (12 prior + 1 SHELL-05 closed)
+**Human verification:** Both prior items already confirmed via Playwright probe in initial verification. No new human gates required.
+**Regressions from gap closure:** 0
+**Phase goal achieved:** YES — all 5 ROADMAP success criteria for Phase 224 are now satisfied.
+
+The docs site looks and feels like a GeoLens property:
+- Primary blue accent at hue 250 in both modes (BRAND-01/02/03/04 all green)
+- Inter Variable font self-hosted, no Google CDN
+- Dark/light parity with marketing site
+- All shell affordances wired and confirmed in dist/ AND visually correct at runtime (sidebar, prev/next, breadcrumbs, 404, last-updated, edit links, search, cross-site nav with non-overlapping back-link)
+
+Phase 224 is ready for sign-off. Downstream content phases (225-227) are unblocked.
+
+---
+
+_Initial verification: 2026-04-25T23:45:00Z_
+_Re-verified post-closure: 2026-04-26T00:30:00Z_
 _Verifier: Claude (gsd-verifier)_
