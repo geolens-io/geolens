@@ -49,17 +49,18 @@ export function usePartitionedWidgets() {
 interface WidgetHostProps {
   byAnchor: Record<string, WidgetDefinition[]>;
   ctx: WidgetContext;
+  /** Extra content rendered inside the top-left anchor (e.g., filter chips). */
+  topLeftSlot?: React.ReactNode;
 }
 
 /** Renders floating widgets anchored to map corners */
-export function WidgetHost({ byAnchor, ctx }: WidgetHostProps) {
-  const anchors = ANCHORS;
-
+export function WidgetHost({ byAnchor, ctx, topLeftSlot }: WidgetHostProps) {
   return (
     <>
-      {anchors.map((anchor) => {
+      {ANCHORS.map((anchor) => {
         const widgets = byAnchor[anchor] ?? [];
-        if (widgets.length === 0) return null;
+        const slot = anchor === 'top-left' ? topLeftSlot : null;
+        if (widgets.length === 0 && !slot) return null;
         const className = ANCHOR_POSITIONS[anchor];
         return (
           <div key={anchor} className={className}>
@@ -70,6 +71,7 @@ export function WidgetHost({ byAnchor, ctx }: WidgetHostProps) {
                 </WidgetErrorBoundary>
               </WidgetPanel>
             ))}
+            {slot}
           </div>
         );
       })}
