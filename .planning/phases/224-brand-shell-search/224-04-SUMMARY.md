@@ -130,9 +130,10 @@ None — this plan creates client-side-only Astro components and modifies static
 - [x] getgeolens.com/docs/src/env.d.ts — FOUND
 - [x] getgeolens.com/docs/astro.config.mjs — modified with all 5 additions
 - [x] getgeolens.com/docs/scripts/verify-build.sh — BRAND-01 regex fixed
-- [x] Commit 171288b — FOUND (Task 1)
-- [x] Commit 0670d98 — FOUND (Task 2)
-- [x] Commit cd497c1 — FOUND (Task 3 / Rule 3 fix)
+- [x] Commit 171288b — FOUND (Task 1 — getgeolens.com repo)
+- [x] Commit 0670d98 — FOUND (Task 2 — getgeolens.com repo)
+- [x] Commit cd497c1 — FOUND (Task 3 / Rule 3 fix — getgeolens.com repo)
+- [x] Commit 71b47878 — FOUND (SUMMARY — geolens worktree)
 - [x] npm run build — EXIT 0
 - [x] bash scripts/verify-build.sh — EXIT 0 (all 17 assertions passed)
 - [x] bash scripts/check-token-sync.sh — EXIT 0
