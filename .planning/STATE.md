@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 
 Phase: 223-bootstrap-infrastructure-lock
 Plan: 223-01
-Status: In progress — Task 1 of 3 complete
-Last activity: 2026-04-25 - Phase 223-01 Task 1 complete (scaffold docs/ subtree, getgeolens.com@35f8150)
+Status: In progress — Task 2 of 3 complete
+Last activity: 2026-04-25 - Phase 223-01 Task 2 complete (astro config + stub homepage + redirects, getgeolens.com@77b7c63)
 
 ## Performance Metrics
 
