@@ -72,3 +72,16 @@ export function geometryIcon(geomType: string | null): LucideIcon | null {
   if (upper === 'MULTIPOLYGON') return Hexagon;
   return null;
 }
+
+/** Infer geometry type from paint keys when explicit type is null (e.g. table datasets with lat/lon). */
+export function inferGeometryType(
+  paint: Record<string, unknown> | undefined | null,
+  geometryType: string | null | undefined,
+): string | null {
+  if (geometryType) return geometryType;
+  if (!paint) return null;
+  const keys = Object.keys(paint);
+  if (keys.some((k) => k.startsWith('circle-'))) return 'POINT';
+  if (keys.some((k) => k.startsWith('line-'))) return 'LINE';
+  return null;
+}

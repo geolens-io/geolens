@@ -100,7 +100,6 @@ function toAdapterInput(
     layout: (layer.layout as Record<string, unknown>) ?? {},
     filter: layer.filter ?? null,
     label_config: layer.label_config,
-    style_config: layer.style_config,
     sourceId: prefixed('source', String(layer.sort_order), VIEWER_PREFIX),
     layerId: prefixed('layer', String(layer.sort_order), VIEWER_PREFIX),
     sourceLayer: `data.${layer.table_name}`,
@@ -428,7 +427,7 @@ export const ViewerMap = memo(function ViewerMap({
       const isVisible = visibleLayers.has(layer.sort_order);
       if (wasVisible === isVisible) continue;
 
-      const type = resolveAdapterType(layer.geometry_type, layer.style_config);
+      const type = resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
       const adapter = getAdapter(type);
       const adapterInput = toAdapterInput(layer, visibleLayers);
       adapter.syncVisibility(map, adapterInput);

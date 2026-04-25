@@ -1,5 +1,6 @@
 import type { StyleConfig } from '@/types/api';
 import { getColorProperty, getSizeProperty } from './color-ramps';
+import { inferGeometryType } from './geo-utils';
 
 /**
  * Extract breaks and values from a MapLibre "step" or "interpolate" expression.
@@ -58,6 +59,12 @@ export function normalizeStyleConfig(
 ): StyleConfig | null {
   if (!raw) return null;
 
+  // Heatmap configs use a different schema (render_mode/ramp/weight_column)
+  // that doesn't fit the graduated/classified pattern — preserve as-is.
+  if (raw.render_mode === 'heatmap') {
+    return { mode: 'graduated', column: '', ramp: (raw.ramp ?? 'YlOrRd') as string, render_mode: 'heatmap' } as StyleConfig;
+  }
+
   // Detect legacy schema
   const isLegacy =
     raw.type === 'classified' ||
@@ -76,7 +83,10 @@ export function normalizeStyleConfig(
         method: (raw.method ?? raw.classification_method ?? raw.classification ?? 'quantile') as StyleConfig['method'],
         ...(raw.render_mode ? { render_mode: raw.render_mode as StyleConfig['render_mode'] } : {}),
       }
-    : { ...(raw as StyleConfig) };
+    : (typeof raw.mode === 'string' && typeof raw.column === 'string'
+        ? { ...(raw as StyleConfig) }
+        : null);
+  if (!normalized) return null;
 
   // Coerce JSON nulls to undefined for optional array fields
   if (normalized.breaks === null) normalized.breaks = undefined;
@@ -92,8 +102,9 @@ export function normalizeStyleConfig(
 
   // Extract colors/breaks/sizes from paint expressions if missing
   if (paint && normalized.column) {
-    const colorProp = getColorProperty(geometryType);
-    const sizeProp = getSizeProperty(geometryType, normalized.target ?? 'color');
+    const effectiveGeom = inferGeometryType(paint, geometryType);
+    const colorProp = getColorProperty(effectiveGeom);
+    const sizeProp = getSizeProperty(effectiveGeom, normalized.target ?? 'color');
 
     const isSizeTarget = normalized.target === 'radius' || normalized.target === 'width';
 

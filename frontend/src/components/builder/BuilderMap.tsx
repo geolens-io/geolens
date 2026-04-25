@@ -187,9 +187,9 @@ export const BuilderMap = memo(function BuilderMap({
         }
         // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
-        if (status && status >= 500) {
+        if (!status || status >= 500) {
           toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
-            id: `builder-map-error-${Date.now()}`,
+            id: 'builder-map-error',
           });
         }
       };

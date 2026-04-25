@@ -47,8 +47,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       layer.layout ?? {},
       layer.dataset_geometry_type,
       layer.opacity,
+      layer.style_config,
     ),
-    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity],
+    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
 
   return (

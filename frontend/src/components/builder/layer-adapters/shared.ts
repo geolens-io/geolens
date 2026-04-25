@@ -111,20 +111,34 @@ export function finalizeLayer(
   }
 }
 
-/** Resolve the adapter type based on geometry type and optional style_config.
- *  If style_config.render_mode === 'heatmap' and the layer is a point layer,
- *  returns 'heatmap'. Otherwise falls back to getLayerType(). */
+/** Infer adapter type from paint property key prefixes (fallback for null geometry). */
+function inferTypeFromPaint(paint?: Record<string, unknown>): string | null {
+  if (!paint) return null;
+  const keys = Object.keys(paint);
+  if (keys.some(k => k.startsWith('heatmap-'))) return 'heatmap';
+  if (keys.some(k => k.startsWith('circle-'))) return 'circle';
+  if (keys.some(k => k.startsWith('line-'))) return 'line';
+  if (keys.some(k => k.startsWith('fill-'))) return 'fill';
+  return null;
+}
+
+/** Resolve the adapter type based on geometry type, style_config, and paint.
+ *  Priority: explicit render_mode > geometry type > paint key inference > 'fill'. */
 export function resolveAdapterType(
   geometryType: string | null,
   styleConfig?: { render_mode?: string } | null,
+  paint?: Record<string, unknown>,
 ): string {
-  if (
-    styleConfig?.render_mode === 'heatmap' &&
-    getLayerType(geometryType) === 'circle'
-  ) {
+  // Explicit render_mode always wins
+  if (styleConfig?.render_mode === 'heatmap') {
     return 'heatmap';
   }
-  return getLayerType(geometryType);
+  // Use geometry type when available
+  if (geometryType) {
+    return getLayerType(geometryType);
+  }
+  // Fallback: infer from paint property prefixes
+  return inferTypeFromPaint(paint) ?? getLayerType(geometryType);
 }
 
 /** Sync visibility for a single layer (used by circle, line, heatmap adapters). */

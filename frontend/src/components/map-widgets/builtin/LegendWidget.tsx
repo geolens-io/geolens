@@ -12,6 +12,7 @@ import type { SwatchStyle } from '@/components/map/LegendEntries';
 import type { StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
+import { inferGeometryType } from '@/lib/geo-utils';
 import type { WidgetContext } from '../types';
 
 /** Extract swatch style properties from layer paint based on geometry type. */
@@ -20,7 +21,7 @@ function getSwatchStyleFromPaint(
   geometryType: string | null | undefined,
   masterOpacity: number,
 ): SwatchStyle {
-  const gt = (geometryType ?? '').toUpperCase();
+  const gt = (inferGeometryType(paint, geometryType) ?? '').toUpperCase();
   const strokeDisabled = !!paint?.['_stroke-disabled'];
 
   const outlineColor = gt.includes('POINT')
@@ -68,7 +69,8 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
     <div className="space-y-0 min-w-44">
       {legendLayers.map((layer, idx) => {
         const opacity = layer.opacity ?? 1;
-        const swatchStyle = getSwatchStyleFromPaint(layer.paint, layer.dataset_geometry_type, opacity);
+        const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
+        const swatchStyle = getSwatchStyleFromPaint(layer.paint, effectiveGeom, opacity);
         const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
 
         return (
@@ -93,7 +95,7 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                   {layer.style_config.mode === 'categorical' && layer.style_config.categories && (
                     <CategoricalLegend
                       categories={layer.style_config.categories}
-                      geometryType={layer.dataset_geometry_type}
+                      geometryType={effectiveGeom}
                       style={swatchStyle}
                     />
                   )}
@@ -104,16 +106,16 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                         styleConfig={layer.style_config}
                         paint={layer.paint ?? {}}
                         style={swatchStyle}
-                        geometryType={layer.dataset_geometry_type}
+                        geometryType={effectiveGeom}
                       />
                     )}
                 </>
               ) : (
                 <div className="flex items-center gap-1.5">
                   <ColorizedGeometryIcon
-                    geometryType={layer.dataset_geometry_type ?? null}
+                    geometryType={effectiveGeom}
                     colors={getLayerColors({
-                      dataset_geometry_type: layer.dataset_geometry_type ?? null,
+                      dataset_geometry_type: effectiveGeom,
                       paint: layer.paint ?? {},
                       style_config: layer.style_config,
                     })}
@@ -122,8 +124,9 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
                     styleHints={extractStyleHints(
                       layer.paint ?? {},
                       layer.layout ?? {},
-                      layer.dataset_geometry_type ?? null,
+                      effectiveGeom,
                       opacity,
+                      layer.style_config,
                     )}
                   />
                   <span className="font-medium text-foreground truncate">
@@ -154,18 +157,14 @@ function GraduatedLegendSwitch({
 }) {
   const breaks = styleConfig.breaks ?? [];
 
+  // Parse circle-color expression unconditionally (Rules of Hooks)
+  const rawCircleColor = paint['circle-color'];
+  const parsedCircleColor = useMemo(() => parsePaintColors(rawCircleColor), [rawCircleColor]);
+
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
-    const raw = paint['circle-color'];
-    const circleColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
-    // Extract colors + breaks from paint expression so legend matches
-    // the actual map rendering (styleConfig may lack colors when the
-    // DataDrivenStyleEditor saves radius-targeted graduated configs)
-    const parsed = useMemo(() => parsePaintColors(raw), [raw]);
-    const colors = styleConfig.colors ?? parsed?.colors;
-    // Use paint-expression breaks when available — they match the actual
-    // map rendering. Falls back to styleConfig.breaks for flat-color layers.
-    const effectiveBreaks = parsed?.breaks ?? breaks;
-    // Cap entries to color count to avoid duplicate "≥ max" rows
+    const circleColor = (typeof rawCircleColor === 'string' ? rawCircleColor : undefined) ?? MAP_COLORS.fallback;
+    const colors = styleConfig.colors ?? parsedCircleColor?.colors;
+    const effectiveBreaks = parsedCircleColor?.breaks ?? breaks;
     const entryCount = colors ? Math.min(styleConfig.sizes.length, colors.length) : styleConfig.sizes.length;
     const cappedSizes = styleConfig.sizes.slice(0, entryCount);
     return (
