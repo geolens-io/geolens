@@ -8,7 +8,7 @@
 ## Phases
 
 - [x] **Phase 223: Bootstrap & Infrastructure Lock** — Starlight scaffold, CF Pages multi-project, deploy pipeline, URL structure, token bridge, redirects stub, version pin, CI scaffolding (completed 2026-04-25)
-- [ ] **Phase 224: Brand, Shell & Search** — Full OKLCH token bridge, Inter font, dark/light parity, sidebar groups, shell components (prev/next, edit-this-page, 404, last-updated), Pagefind config, cross-site nav links, OG image pipeline, llms.txt
+- [x] **Phase 224: Brand, Shell & Search** — Full OKLCH token bridge, Inter font, dark/light parity, sidebar groups, shell components (prev/next, edit-this-page, 404, last-updated), Pagefind config, cross-site nav links, OG image pipeline, llms.txt (completed 2026-04-25)
 - [ ] **Phase 225: API Reference** — openapi.json snapshot script, starlight-openapi plugin, API auth and OGC hand-authored sections, snapshot freshness README
 - [ ] **Phase 226: Quickstart & Install Guide** — Migrate and expand backend/docs/install.md, topology diagram, screenshots, expected outcomes, legacy stub replacement
 - [ ] **Phase 227: User Guide & Admin Guide** — All USER-* and ADMIN-* pages, migrate backend/docs/admin.md, legacy stub replacement, repo README/CONTRIBUTING update
@@ -40,11 +40,11 @@
   3. Every page shows "Last updated" timestamp, an "Edit this page" GitHub link, and prev/next navigation
   4. The marketing site header contains a "Docs" link and the docs site header contains a "Back to getgeolens.com" link — cross-site navigation is complete
   5. A CI token-drift check script fails if the primary hue value in `custom.css` diverges from `global.css`
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 - [x] 224-01-PLAN.md — Brand foundation: expand custom.css to full --primary-50..950 OKLCH bridge + Inter Variable font (BRAND-01, BRAND-02, BRAND-03)
 - [x] 224-02-PLAN.md — CI gates: check-token-sync.sh drift detection + verify-build.sh Phase-224 assertions + docs-ci.yml fetch-depth: 0 + token-sync wiring (BRAND-04, BRAND-01/02 verify, SHELL-01/02/03/04/05 verify, SEARCH-01/02 verify, SEO-04 verify)
 - [x] 224-03-PLAN.md — Static assets + cross-site nav: llms.txt stub, EC plugin module, 4 placeholder index.mdx, marketing Nav.astro Docs link (SEO-04, SEARCH-02, SHELL-05 marketing-side, SHELL-01 placeholders)
-- [ ] 224-04-PLAN.md — Shell components + astro.config wiring: Breadcrumbs/DocsHeader/404 + editLink/pagination/lastUpdated/EC plugin/components override + integration build (SHELL-01..05, SEARCH-01..03)
+- [x] 224-04-PLAN.md — Shell components + astro.config wiring: Breadcrumbs/DocsHeader/404 + editLink/pagination/lastUpdated/EC plugin/components override + integration build (SHELL-01..05, SEARCH-01..03)
 **UI hint**: yes
 
 ### Phase 225: API Reference
@@ -101,7 +101,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 223. Bootstrap & Infrastructure Lock | 2/2 | Complete    | 2026-04-25 |
-| 224. Brand, Shell & Search | 3/4 | In Progress|  |
+| 224. Brand, Shell & Search | 4/4 | Complete   | 2026-04-25 |
 | 225. API Reference | 0/? | Not started | - |
 | 226. Quickstart & Install Guide | 0/? | Not started | - |
 | 227. User Guide & Admin Guide | 0/? | Not started | - |
