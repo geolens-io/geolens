@@ -11,6 +11,7 @@ interface SwatchStyle {
   strokeDisabled?: boolean;
   opacity?: number;
   fillOpacity?: number;
+  strokeWidth?: number;
 }
 
 function swatchStyle(color: string, s?: SwatchStyle): React.CSSProperties {
@@ -48,7 +49,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
           fill={color}
           fillOpacity={s?.fillOpacity}
           stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
-          strokeWidth={s?.strokeDisabled ? 0 : 1}
+          strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
         />
       </svg>
     );
@@ -143,7 +144,7 @@ export function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, styl
               r={Math.min(size, 12)}
               fill={colors?.[Math.min(i, colors.length - 1)] ?? circleColor} fillOpacity={s?.fillOpacity ?? 1}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
-              strokeWidth={s?.strokeDisabled ? 0 : 1}
+              strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
             />
           </svg>
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>

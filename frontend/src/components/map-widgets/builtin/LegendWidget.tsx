@@ -28,18 +28,25 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   return (
     <div className="space-y-0 min-w-44">
       {legendLayers.map((layer, idx) => {
-        const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
         const strokeDisabled = !!layer.paint?.['_stroke-disabled'];
         const opacity = layer.opacity ?? 1;
-        // Read paint-level opacity per geometry type
         const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
+        // Read stroke color/width per geometry type
+        const outlineColor = gt.includes('POINT')
+          ? (typeof layer.paint?.['circle-stroke-color'] === 'string' ? layer.paint['circle-stroke-color'] as string : undefined)
+          : (layer.paint?.['_outline-color'] as string | undefined);
+        const rawStrokeW = gt.includes('POINT')
+          ? layer.paint?.['circle-stroke-width']
+          : layer.paint?.['_outline-width'];
+        const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
+        // Read paint-level opacity per geometry type
         const rawFillOp = gt.includes('POINT')
           ? layer.paint?.['circle-opacity']
           : gt.includes('LINE')
             ? layer.paint?.['line-opacity']
             : layer.paint?.['fill-opacity'];
         const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
-        const swatchStyle = { outlineColor, strokeDisabled, opacity, fillOpacity };
+        const swatchStyle = { outlineColor, strokeDisabled, opacity, fillOpacity, strokeWidth };
         const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
 
         return (
