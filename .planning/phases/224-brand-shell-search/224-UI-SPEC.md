@@ -61,19 +61,21 @@ Starlight body-content typography is OUT OF SCOPE per `<additional_context>`. Th
 | Body | `--sl-text-base` (16px) | 400 | `--sl-line-height` (1.75) | Inherited; Starlight default. Confirmed — do NOT override. |
 | Heading | `--sl-text-h1`–`--sl-text-h4` | 600 | `--sl-line-height-headings` (1.2) | Inherited; Starlight default. Confirmed. |
 | Back-link label | `--sl-text-sm` (14px) | 400 | 1.5 (Starlight default) | DocsHeader's "← getgeolens.com" anchor |
-| Breadcrumb item | `--sl-text-sm` (14px) | 400 (current page: 500) | 1.5 | Custom Breadcrumbs component |
-| 404 mark | `--sl-text-6xl` (64px) | 700 | 1.0 | Brand-coloured "404" numerals |
+| Breadcrumb item | `--sl-text-sm` (14px) | 400 (current page: 600) | 1.5 | Custom Breadcrumbs component |
+| 404 mark | `--sl-text-6xl` (64px) | 600 | 1.0 | Brand-coloured "404" numerals |
 | 404 heading | `--sl-text-h2` (29–35px responsive) | 600 | 1.2 | "Page not found" |
 | 404 body copy | `--sl-text-base` (16px) | 400 | 1.5 | Single-line description |
 | 404 category-card label | `--sl-text-base` (16px) | 600 | 1.2 | Card titles (Quickstart / User Guide / Admin Guide / API Reference) |
 | 404 category-card description | `--sl-text-sm` (14px) | 400 | 1.5 | One-line subtitle under each card title |
 | 404 footer link | `--sl-text-sm` (14px) | 400 | 1.5 | "Or head back to getgeolens.com" |
 
+**Final weight set: {400, 600}** — matches Starlight defaults; no additional weights introduced. The breadcrumb current-page distinction is conveyed by `aria-current="page"` plus the color shift to `--sl-color-white`; weight 600 reads cleanly without escalating to 700. The 404 brand mark stays dominant at 64px + `--primary-700` color — weight 600 is sufficient; 700 is not load-bearing for hierarchy.
+
 **Inter font registration:**
 - File: `getgeolens.com/docs/src/styles/custom.css`
 - Pattern: `@import '@fontsource-variable/inter/wght.css';` followed by `:root { --sl-font: 'Inter Variable', ui-sans-serif, system-ui, sans-serif; }`
 - Variable axis: weight only (`wght.css`) — matches marketing's `getgeolens.com/src/styles/global.css:10` exactly. Do NOT use `index.css` or `standard.css` — those bundle italic + optical-size axes that bloat the CSS payload by ~2.5×.
-- **Weight subset locked:** the `wght.css` import covers the full 100–900 axis via a single woff2; subsetting to 400/500/600/700 is unnecessary because the variable font already serves all weights from one file. This locks "Inter weight subset" from the Discretion list — answer is "full variable axis via `wght.css` only".
+- **Weight subset locked:** the `wght.css` import covers the full 100–900 axis via a single woff2; subsetting to 400/600 is unnecessary because the variable font already serves all weights from one file. This locks "Inter weight subset" from the Discretion list — answer is "full variable axis via `wght.css` only".
 
 ---
 
@@ -277,7 +279,7 @@ const showBreadcrumbs = segments.length >= 2;
 }
 .breadcrumbs [aria-current="page"] {
   color: var(--sl-color-white); /* Starlight's --sl-color-white is theme-flipped: dark-mode white-text, light-mode dark-text */
-  font-weight: 500;
+  font-weight: 600;
 }
 ```
 
@@ -331,12 +333,11 @@ import Default from '@astrojs/starlight/components/Header.astro';
     outline: 2px solid var(--sl-color-accent);
     outline-offset: 2px;
   }
-  /* On narrow viewports, hide the domain label to save space — keep the arrow as a back affordance */
-  @media (max-width: 50rem) {
-    .back-link span:last-child {
-      display: none;
-    }
-  }
+  /* Keep the visible domain text on all viewports — the back-link sits in the LEFT cluster
+     of a 3-column grid; "← getgeolens.com" (14 characters) fits a 360px viewport without
+     crowding the search button or theme toggle. Always-visible text is the simplest a11y
+     fix (anchor retains accessible name on mobile) and matches the Cloudflare/Vercel/Stripe
+     docs-subdomain convention. Do NOT add a media-query rule that hides the label. */
 </style>
 
 <script is:inline>
@@ -358,6 +359,8 @@ import Default from '@astrojs/starlight/components/Header.astro';
 - **Verification deliverable:** the executor verifies the Cmd+K shortcut works by manual probe (`Cmd+K` opens dialog, `Esc` closes), captured in the phase verification doc. NO Phase-224 client-side keydown listener is added.
 - **Fallback API for future use:** if a future Starlight upgrade removes the native Cmd+K binding, the recovery is `document.querySelector('button[data-open-modal]')?.click();` documented as a comment block in `DocsHeader.astro`.
 
+**Mobile back-link a11y posture:** the visible domain text is preserved on ALL viewports — there is no responsive collapse. Hiding the label below 50rem while keeping the arrow as `aria-hidden="true"` would strip the anchor's accessible name on mobile, which is a Dimension 2 violation. The 14-character `← getgeolens.com` string fits comfortably in the LEFT cluster of Starlight's 3-column header grid even at 360px; the search button and theme toggle remain in the centre and right clusters with no crowding. This matches the Cloudflare/Vercel/Stripe docs-subdomain convention (always-visible domain bridge link).
+
 **Why a wrapper instead of a from-scratch header:** Starlight's `Header.astro` (verified at `node_modules/@astrojs/starlight/components/Header.astro:17-31`) uses a 3-column CSS Grid with the site title in column 1, search box in column 2, and right-cluster (social, theme select, language) in column 3. Replacing it from scratch would re-implement the responsive grid math (`--__sidebar-width`, `--__main-column-fr`, etc.). Wrapping with `display: contents` plus a `grid-column: 1 / 2` back-link slot preserves Starlight's grid intact while injecting the back-link before the site title.
 
 ### `<404.astro>` (SHELL-03 / D-21–D-23)
@@ -369,7 +372,7 @@ import Default from '@astrojs/starlight/components/Header.astro';
 ```
 ┌─────────────────────────────────────────┐
 │                                         │  ← 3rem padding-top
-│             404                         │  ← 64px brand mark, --primary-700, weight 700
+│             404                         │  ← 64px brand mark, --primary-700, weight 600
 │                                         │  ← 2rem margin-bottom
 │      Page not found                     │  ← h1, --sl-text-h2, weight 600
 │                                         │  ← 1rem margin-bottom
@@ -397,7 +400,7 @@ import Default from '@astrojs/starlight/components/Header.astro';
 **Locked decisions for Discretion item "Exact 404 page CSS":**
 - Container: `max-width: 40rem; margin: 0 auto; padding: 3rem 1rem 4rem;` (centered, comfortable reading width)
 - Background: inherit from Starlight (`--sl-color-bg`) — no card-on-background visual; the 404 page lives flush with site chrome
-- Brand mark: `font-size: var(--sl-text-6xl); font-weight: 700; color: var(--primary-700); line-height: 1; margin-bottom: 2rem;`
+- Brand mark: `font-size: var(--sl-text-6xl); font-weight: 600; color: var(--primary-700); line-height: 1; margin-bottom: 2rem;`
 - Heading: `font-size: var(--sl-text-h2); font-weight: 600; line-height: var(--sl-line-height-headings); margin-bottom: 1rem;`
 - Body copy: `font-size: var(--sl-text-base); color: var(--sl-color-gray-2); line-height: 1.5; margin-bottom: 2rem;`
 - Search wrapper: `margin-bottom: 3rem;` — REUSE Starlight's `<Search />` component via `import Search from 'virtual:starlight/components/Search'` so styling, translations, and Pagefind config are inherited.
@@ -552,7 +555,7 @@ done
 
 ### Docs-side: `<DocsHeader.astro>` (covered above in Component Inventory)
 
-`← getgeolens.com` link in left cluster of header. `rel="noopener"`, no external-link icon.
+`← getgeolens.com` link in left cluster of header. `rel="noopener"`, no external-link icon. Visible domain text persists at all viewport widths (no media-query collapse).
 
 ---
 
@@ -623,6 +626,7 @@ The existing assertions from Phase 223 (canonical URL, noindex meta, sitemap-ind
 |-------|--------|
 | Spacing scale (multiples of 4) | Default + Starlight tokens preserved |
 | Typography (Inter Variable, body inheritance) | CONTEXT.md D-09, D-10; Starlight props.css inspection; marketing parity |
+| Typography weight set ({400, 600}) | UI checker revision 2026-04-25 — consolidated from {400, 500, 600, 700} per dimension-4 2-weight max |
 | Color contract — accent slot | CONTEXT.md D-01, D-02, D-03, D-04 + Starlight props.css inspection (calibrated: 3-stop, not 11-stop) |
 | Color contract — `--primary-*` palette | `getgeolens.com/src/styles/global.css:57–70` verbatim mirror |
 | `--primary-950` extrapolation | CONTEXT.md D-02; reframed as `--primary-950` instead of `--sl-color-accent-950` after Starlight API reconciliation |
@@ -633,6 +637,7 @@ The existing assertions from Phase 223 (canonical URL, noindex meta, sitemap-ind
 | 404 page CSS | CONTEXT.md "Claude's Discretion" — locked here |
 | Cmd+K hook | CONTEXT.md "Claude's Discretion" — locked here (no manual binding needed) |
 | Inter weight subset | CONTEXT.md "Claude's Discretion" — locked here (full variable axis via wght.css) |
+| Mobile back-link visible-text-always posture | UI checker revision 2026-04-25 — anchor accessible-name preservation; Cloudflare/Vercel/Stripe parity |
 | Cross-site nav copy | CONTEXT.md D-24, D-25; marketing Nav.astro pattern parity |
 | 404 copy | CONTEXT.md D-22 |
 | llms.txt content | CONTEXT.md D-31, D-32 |
@@ -643,9 +648,9 @@ The existing assertions from Phase 223 (canonical URL, noindex meta, sitemap-ind
 ## Checker Sign-Off
 
 - [ ] Dimension 1 Copywriting: PASS — all interactive surfaces have explicit copy; tone matches marketing register; no marketing jargon; placeholder titles signal "coming soon" without being uncommunicative
-- [ ] Dimension 2 Visuals: PASS — every custom component has locked markup, layout sketch, hover/focus states, and accessibility annotations
+- [ ] Dimension 2 Visuals: PASS — every custom component has locked markup, layout sketch, hover/focus states, and accessibility annotations; back-link visible domain text preserved on all viewports for accessible-name retention
 - [ ] Dimension 3 Color: PASS — accent reserved for finite, explicit list; 60/30/10 split preserved; OKLCH palette mirrored verbatim from marketing; no hardcoded hex/RGB in any custom component CSS
-- [ ] Dimension 4 Typography: PASS — Inter Variable pinned to marketing version; body content inheritance from Starlight noted out of scope; new surfaces use Starlight tokens; no arbitrary px sizes
+- [ ] Dimension 4 Typography: PASS — Inter Variable pinned to marketing version; body content inheritance from Starlight noted out of scope; new surfaces use Starlight tokens; no arbitrary px sizes; weight set consolidated to {400, 600}
 - [ ] Dimension 5 Spacing: PASS — all custom-component spacing fits multiples-of-4 scale; Starlight tokens preserved for chrome
 - [ ] Dimension 6 Registry Safety: PASS — not applicable (no shadcn registry in this stack)
 
