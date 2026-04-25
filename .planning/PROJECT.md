@@ -12,7 +12,24 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Last Milestone: v14.0 getgeolens.com Marketing Site (shipped 2026-04-13)
 
-**Delivered:** 14 phases (212-222, 999.1-999.4), 33 plans — Astro 6 marketing site with homepage, SEO, OG images, product previews, demo collections, accessibility audit. Backend: CommitRequest refactor, sample_values fix, PersistentConfig validation, 3D support (terrain, extrusions, metadata), GeoJSON-Z, shared staging pipeline. Known gap: Phase 216 (Features & Quickstart pages) deferred.
+**Delivered:** 14 phases (212-222, 999.1-999.4), 33 plans — Astro 6 marketing site with homepage, SEO, OG images, product previews, demo collections, accessibility audit. Backend: CommitRequest refactor, sample_values fix, PersistentConfig validation, 3D support (terrain, extrusions, metadata), GeoJSON-Z, shared staging pipeline. Known gap: Phase 216 (Features & Quickstart pages) deferred — split into v15.0 (Quickstart → docs site) and v15.0 marketing Features page.
+
+## Current Milestone: v15.0 Documentation Site (docs.getgeolens.com)
+
+**Goal:** Ship a documentation site at `docs.getgeolens.com` covering install/quickstart, user guide, admin guide, and auto-generated API reference — built on Astro Starlight in the existing getgeolens-com repo, deployed via Cloudflare Pages.
+
+**Target features:**
+- Astro Starlight bootstrapped in the getgeolens-com repo with shared OKLCH design tokens and brand identity
+- Subdomain routing: separate Cloudflare Pages project from the same repo, mapped to `docs.getgeolens.com`
+- Quickstart & Install guide (migrates and expands `docs/install.md`, satisfies deferred QUICK-01/02/03)
+- User guide covering search, dataset detail, map builder, collections, exports, AI chat
+- Admin guide covering RBAC, OAuth, settings, backups, infrastructure dashboard (migrates `docs/admin.md`)
+- Auto-generated API reference rendered from FastAPI `openapi.json` at build time
+- Pagefind static search out-of-the-box; no external search service
+- WCAG 2.1 AA parity with marketing site, SEO meta/OG/sitemap per page
+- New Features page on `getgeolens.com` (the marketing-site half of deferred Phase 216) with cross-links into docs
+
+**Single "latest" version** — no versioning machinery in v15.0.
 
 ## Core Value
 
@@ -523,4 +540,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 207 Branding Toggle complete*
+*Last updated: 2026-04-25 — milestone v15.0 Documentation Site started*
