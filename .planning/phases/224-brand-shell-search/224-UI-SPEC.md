@@ -1,10 +1,11 @@
 ---
 phase: 224
 slug: brand-shell-search
-status: draft
+status: approved
 shadcn_initialized: false
 preset: not-applicable
 created: 2026-04-25
+reviewed_at: 2026-04-25
 ---
 
 # Phase 224 — UI Design Contract
@@ -647,11 +648,11 @@ The existing assertions from Phase 223 (canonical URL, noindex meta, sitemap-ind
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS — all interactive surfaces have explicit copy; tone matches marketing register; no marketing jargon; placeholder titles signal "coming soon" without being uncommunicative
-- [ ] Dimension 2 Visuals: PASS — every custom component has locked markup, layout sketch, hover/focus states, and accessibility annotations; back-link visible domain text preserved on all viewports for accessible-name retention
-- [ ] Dimension 3 Color: PASS — accent reserved for finite, explicit list; 60/30/10 split preserved; OKLCH palette mirrored verbatim from marketing; no hardcoded hex/RGB in any custom component CSS
-- [ ] Dimension 4 Typography: PASS — Inter Variable pinned to marketing version; body content inheritance from Starlight noted out of scope; new surfaces use Starlight tokens; no arbitrary px sizes; weight set consolidated to {400, 600}
-- [ ] Dimension 5 Spacing: PASS — all custom-component spacing fits multiples-of-4 scale; Starlight tokens preserved for chrome
-- [ ] Dimension 6 Registry Safety: PASS — not applicable (no shadcn registry in this stack)
+- [x] Dimension 1 Copywriting: PASS — all interactive surfaces have explicit copy; tone matches marketing register; no marketing jargon; placeholder titles signal "coming soon" without being uncommunicative
+- [x] Dimension 2 Visuals: PASS — every custom component has locked markup, layout sketch, hover/focus states, and accessibility annotations; back-link visible domain text preserved on all viewports for accessible-name retention
+- [x] Dimension 3 Color: PASS — accent reserved for finite, explicit list; 60/30/10 split preserved; OKLCH palette mirrored verbatim from marketing; no hardcoded hex/RGB in any custom component CSS
+- [x] Dimension 4 Typography: PASS — Inter Variable pinned to marketing version; body content inheritance from Starlight noted out of scope; new surfaces use Starlight tokens; no arbitrary px sizes; weight set consolidated to {400, 600}
+- [x] Dimension 5 Spacing: PASS — all custom-component spacing fits multiples-of-4 scale; Starlight tokens preserved for chrome
+- [x] Dimension 6 Registry Safety: PASS — not applicable (no shadcn registry in this stack)
 
-**Approval:** pending
+**Approval:** approved 2026-04-25
