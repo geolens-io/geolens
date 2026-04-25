@@ -98,8 +98,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 224 UI-SPEC approved
+Last session: 2026-04-25T21:17:43.154Z
+Stopped at: Session resumed — Phase 224 UI-SPEC approved, ready to plan
 Resume file: --resume-file
 
 **Planned Phase:** 223 (Bootstrap & Infrastructure Lock) — 2 plans — 2026-04-25T17:13:13.520Z
