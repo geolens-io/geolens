@@ -124,11 +124,14 @@
       ],
       "label_config": null,
       "style_config": {
-        "type": "classified",
-        "column_name": "best",
+        "mode": "graduated",
+        "column": "best",
         "target": "radius",
-        "num_classes": 4,
-        "classification_method": "quantile"
+        "classCount": 4,
+        "method": "quantile",
+        "ramp": "YlOrRd",
+        "sizes": [2, 3, 5, 8],
+        "breaks": [5, 25, 100]
       },
       "show_in_legend": true
     }

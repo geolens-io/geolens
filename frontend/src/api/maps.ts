@@ -21,6 +21,7 @@ import type {
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
 import { useAuthStore } from '@/stores/auth-store';
+import { normalizeStyleConfig } from '@/lib/normalize-style-config';
 
 export async function listMaps(
   params: {
@@ -44,7 +45,13 @@ export async function listMaps(
 }
 
 export async function getMap(id: string): Promise<MapResponse> {
-  return apiFetch<MapResponse>(`/maps/${id}`);
+  const resp = await apiFetch<MapResponse>(`/maps/${id}`);
+  if (resp.layers) {
+    for (const l of resp.layers) {
+      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.dataset_geometry_type) ?? undefined;
+    }
+  }
+  return resp;
 }
 
 export async function createMap(data: MapCreateRequest): Promise<MapResponse> {
@@ -100,7 +107,13 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   if (apiKey) {
     extraHeaders['X-Api-Key'] = apiKey;
   }
-  return apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
+  const resp = await apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
+  if (resp.layers) {
+    for (const l of resp.layers) {
+      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.geometry_type) ?? undefined;
+    }
+  }
+  return resp;
 }
 
 export async function checkMapVisibility(mapId: string): Promise<VisibilityCheckResponse> {
