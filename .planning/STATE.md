@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v15.0
-milestone_name: Documentation Site
-status: roadmap_created
-stopped_at: ""
-last_updated: "2026-04-25T00:00:00.000Z"
-last_activity: 2026-04-25
+milestone_name: milestone
+status: Roadmap created
+stopped_at: Phase 223 context gathered
+last_updated: "2026-04-25T16:27:41.630Z"
+last_activity: 2026-04-25 — Roadmap created for v15.0 (Phases 223–228)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 0
 ---
 
 # Project State
@@ -80,6 +79,6 @@ None — all blockers resolved during requirements definition.
 
 ## Session Continuity
 
-Last session: 2026-04-25T00:00:00.000Z
-Stopped at: Roadmap created for v15.0 (Phases 223–228)
-Resume file: —
+Last session: --stopped-at
+Stopped at: Phase 223 context gathered
+Resume file: --resume-file
