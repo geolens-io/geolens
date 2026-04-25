@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid as uuid_mod
 from dataclasses import dataclass
@@ -11,7 +12,6 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 if TYPE_CHECKING:
     from app.platform.storage.provider import StorageProvider
 
-from geoalchemy2.shape import to_shape
 from sqlalchemy import (
     String as SAString,
     case,
@@ -998,6 +998,7 @@ def dataset_to_ogc_record(
     *,
     stac_asset_rows: list[dict] | None = None,
     raster_meta: dict | None = None,
+    spatial_extent_geojson: str | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict."""
     record = dataset.record
@@ -1009,10 +1010,19 @@ def dataset_to_ogc_record(
         updated_user=updated_user,
     )
 
-    # Convert spatial_extent geometry to GeoJSON (6 decimal places ≈ 0.11m)
+    # Convert spatial_extent geometry to GeoJSON. When the caller pre-computes
+    # ST_AsGeoJSON in the query (PostGIS-side, fast), that string is parsed
+    # directly. Otherwise fall back to Python-side WKB deserialization.
     geometry = None
-    if record.spatial_extent is not None:
+    if spatial_extent_geojson is not None:
         try:
+            geometry = json.loads(spatial_extent_geojson)
+        except Exception:
+            geometry = None
+    elif record.spatial_extent is not None:
+        try:
+            from geoalchemy2.shape import to_shape
+
             shape = to_shape(record.spatial_extent)
             geometry = {
                 "type": shape.geom_type,

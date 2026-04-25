@@ -454,12 +454,28 @@ async def _handle_search(
                 if str(row.dataset_id) in raster_meta:
                     raster_meta[str(row.dataset_id)]["source_count"] = row.source_count
 
+    # Bulk-fetch ST_AsGeoJSON for spatial extents — one query for the page
+    # instead of per-row Python WKB deserialization via to_shape().
+    extent_geojson_map: dict[str, str | None] = {}
+    if all_dataset_ids:
+        geojson_stmt = (
+            select(
+                Dataset.id,
+                func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
+            )
+            .join(Record, Dataset.record_id == Record.id)
+            .where(Dataset.id.in_(all_dataset_ids))
+        )
+        for _row in (await db.execute(geojson_stmt)).all():
+            extent_geojson_map[str(_row.id)] = _row.geojson
+
     features = [
         dataset_to_ogc_record(
             d,
             public_api_url,
             stac_asset_rows=stac_assets_by_dataset.get(str(d.id)),
             raster_meta=raster_meta.get(str(d.id)),
+            spatial_extent_geojson=extent_geojson_map.get(str(d.id)),
         )
         for d in datasets
     ]
@@ -735,11 +751,6 @@ _COLLECTION_META_TTL = 60  # seconds
 _COLLECTION_META_MAX_SIZE = 200
 
 
-def _invalidate_collection_meta_cache() -> None:
-    """Clear the collection metadata cache (useful after writes)."""
-    _COLLECTION_META_CACHE.clear()
-
-
 async def _distinct_aggregate(
     db: AsyncSession,
     column: Any,
@@ -970,7 +981,7 @@ async def list_collections(
         0, ge=0, description="Pagination offset for per-dataset collections"
     ),
     limit: int = Query(
-        200, ge=1, le=1000, description="Max per-dataset collections to return"
+        50, ge=1, le=200, description="Max per-dataset collections to return"
     ),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
