@@ -279,6 +279,7 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
     visible: l.visible,
     filter: l.filter ?? null,
     label_config: l.label_config ?? null,
+    popup_config: l.popup_config ?? null,
     style_config: l.style_config ?? null,
     paint: l.paint ?? null,
     dataset_title: l.dataset_name,
