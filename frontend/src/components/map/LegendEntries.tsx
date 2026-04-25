@@ -137,7 +137,7 @@ export function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, styl
             <circle
               cx="12" cy="12"
               r={Math.min(size, 12)}
-              fill={colors?.[i] ?? circleColor} fillOpacity={0.8}
+              fill={colors?.[Math.min(i, colors.length - 1)] ?? circleColor} fillOpacity={0.8}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
               strokeWidth={s?.strokeDisabled ? 0 : 1}
             />
