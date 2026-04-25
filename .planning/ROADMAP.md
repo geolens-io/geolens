@@ -7,19 +7,19 @@
 
 ## Phases
 
-- [ ] **Phase 223: Bootstrap & Infrastructure Lock** — Starlight scaffold, CF Pages multi-project, deploy pipeline, URL structure, token bridge, redirects stub, GA4, version pin, CI scaffolding
+- [ ] **Phase 223: Bootstrap & Infrastructure Lock** — Starlight scaffold, CF Pages multi-project, deploy pipeline, URL structure, token bridge, redirects stub, version pin, CI scaffolding
 - [ ] **Phase 224: Brand, Shell & Search** — Full OKLCH token bridge, Inter font, dark/light parity, sidebar groups, shell components (prev/next, edit-this-page, 404, last-updated), Pagefind config, cross-site nav links, OG image pipeline, llms.txt
 - [ ] **Phase 225: API Reference** — openapi.json snapshot script, starlight-openapi plugin, API auth and OGC hand-authored sections, snapshot freshness README
 - [ ] **Phase 226: Quickstart & Install Guide** — Migrate and expand backend/docs/install.md, topology diagram, screenshots, expected outcomes, legacy stub replacement
 - [ ] **Phase 227: User Guide & Admin Guide** — All USER-* and ADMIN-* pages, migrate backend/docs/admin.md, legacy stub replacement, repo README/CONTRIBUTING update
-- [ ] **Phase 228: SEO, A11Y, Marketing Features Page & Launch** — Per-page OG images, sitemap submission, llms.txt completion, A11Y audit, Lighthouse CI, marketing /features page, post-launch GSC submission
+- [ ] **Phase 228: SEO, A11Y, Marketing Features Page & Launch** — Per-page OG images, sitemap submission, llms.txt completion, A11Y audit, Lighthouse CI, marketing /features page, GA4 install on both sites, post-launch GSC submission
 
 ## Phase Details
 
 ### Phase 223: Bootstrap & Infrastructure Lock
 **Goal**: A deployable Starlight skeleton is live at a `*.pages.dev` URL with locked URL structure, CF Pages isolation, token bridge foundation, and all infrastructure decisions hard-set — so no content phase can inherit a wrong canonical URL, a flat URL, or a cross-contaminating build.
 **Depends on**: Nothing (first phase of milestone)
-**Requirements**: BOOT-01, BOOT-02, BOOT-03, BOOT-04, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, MIG-02, SEO-05, SEO-06, CI-02
+**Requirements**: BOOT-01, BOOT-02, BOOT-03, BOOT-04, DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, MIG-02, SEO-05, CI-02
 **Success Criteria** (what must be TRUE):
   1. Navigating to the Cloudflare Pages preview URL returns a Starlight homepage — the docs site is deployed and accessible
   2. Pushing a marketing-only change to `main` does not trigger a docs rebuild, and pushing a docs-only change does not trigger a marketing rebuild
@@ -80,7 +80,7 @@
 ### Phase 228: SEO, A11Y, Marketing Features Page & Launch
 **Goal**: The docs site is fully indexed, accessible, and cross-linked from the marketing site — with the `/features` page live on `getgeolens.com` — so the documentation launch drives discoverability and the deferred Phase 216 marketing obligation is fully resolved.
 **Depends on**: Phase 227
-**Requirements**: SEO-01, SEO-02, SEO-03, A11Y-05, A11Y-06, A11Y-07, FEAT-01, FEAT-02, FEAT-03, CI-03
+**Requirements**: SEO-01, SEO-02, SEO-03, SEO-06, A11Y-05, A11Y-06, A11Y-07, FEAT-01, FEAT-02, FEAT-03, CI-03
 **Success Criteria** (what must be TRUE):
   1. Every docs page has a unique `<title>`, meta description, and an OG image (non-black, hex/RGB colors) visible when shared on social platforms
   2. An Axe accessibility scan of the docs site passes with zero critical or serious violations; code block copy buttons are keyboard-operable with screen-reader status announcements

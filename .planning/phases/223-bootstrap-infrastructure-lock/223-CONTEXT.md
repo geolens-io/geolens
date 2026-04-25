@@ -43,10 +43,11 @@ Deliver a deployable Starlight skeleton at a `*.pages.dev` URL **and** at the cu
 ### Scope Bounds (in this phase)
 - **D-17**: `astro.config.mjs` sets `site: 'https://docs.getgeolens.com'` (BOOT-04) — required for canonical URL resolution.
 - **D-18**: `@astrojs/sitemap` integration installed and configured. Auto-generates `sitemap-index.xml`. Submission to Google Search Console deferred to Phase 228.
-- **D-19**: GA4 same-Measurement-ID strategy (SEO-06): GA4 snippet injected via Starlight `head` config in `astro.config.mjs`, using the same Measurement ID as marketing site. Lookup the marketing site's actual ID during planning (not hardcoded here).
+- **D-19**: ~~GA4 same-Measurement-ID strategy (SEO-06)~~ — **DEFERRED to Phase 228 (2026-04-25)**. Research confirmed marketing site has NO GA4 installed today (zero `gtag`/`G-`/`googletagmanager` hits in `getgeolens.com`). SEO-06 has no ID to mirror, and shipping analytics on a noindexed shell adds no value. ROADMAP.md updated: SEO-06 moved from Phase 223 to Phase 228 requirements (clusters with SEO-03 sitemap submission, robots.txt flip, noindex removal, and a marketing-side GA4 install).
 - **D-20**: `npx astro check` runs in `docs-ci.yml` (CI-02). Astro version pinned to ^6.1.x in `docs/package.json` (BOOT-02), matching marketing's `^6.1.3` pin.
 
 ### Out of Scope for Phase 223 (deferred to later phases or out entirely)
+- **GA4 Measurement ID injection (SEO-06)** → Phase 228. Deferred 2026-04-25 because the marketing site has no GA4 installed today; SEO-06 will be installed on BOTH sites in Phase 228 alongside the noindex flip and sitemap submission. ROADMAP.md updated.
 - Full OKLCH 50–950 token mapping → Phase 224 (BRAND-01)
 - Inter font installation → Phase 224 (BRAND-02)
 - CI token-drift check between `global.css` ↔ `custom.css` → Phase 224 (BRAND-04)
