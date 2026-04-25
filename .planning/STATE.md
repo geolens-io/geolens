@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: Documentation Site
-status: defining_requirements
+status: roadmap_created
 stopped_at: ""
 last_updated: "2026-04-25T00:00:00.000Z"
 last_activity: 2026-04-25
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-25)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v15.0 Documentation Site — defining requirements
+**Current focus:** v15.0 Documentation Site — roadmap created, ready to plan Phase 223
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap created)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-25 — Milestone v15.0 started
+Status: Roadmap created
+Last activity: 2026-04-25 — Roadmap created for v15.0 (Phases 223–228)
 
 ## Performance Metrics
 
@@ -62,10 +62,13 @@ Last activity: 2026-04-25 — Milestone v15.0 started
 - [v15.0 Scope]: Pagefind static search (Starlight default) — no Algolia DocSearch dependency
 - [v15.0 Scope]: Phase 216 split — Quickstart/Install moves to docs site; Features page is built on marketing site as part of this milestone
 - [v15.0 Scope]: Map builder polish is being handled in a parallel workstream — explicitly excluded from this milestone
+- [v15.0 Roadmap]: Phase 223 is load-bearing — URL structure, CF Pages multi-project config, token-drift check, `_redirects` stub, GA4, canonical site URL, openapi snapshot strategy, version pin gate all locked here before content begins
+- [v15.0 Roadmap]: MIG-01 split across Phase 226 (install stub) and Phase 227 (admin stub) — each stub replaced atomically with the phase that writes its canonical content
 
 ### Roadmap Evolution
 
 - 2026-04-25: Milestone v15.0 initiated — documentation site scope confirmed
+- 2026-04-25: Roadmap created — 6 phases (223–228), 61 requirements mapped, 100% coverage
 
 ### Pending Todos
 
@@ -73,11 +76,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Auto-generated API reference depends on a stable `openapi.json` snapshot — decide whether to commit a snapshot to the docs repo or fetch live at build time
-- Migrating `docs/install.md` and `docs/admin.md` from the geolens monorepo will create canonical-vs-source ambiguity until those files are removed/redirected
+None — all blockers resolved during requirements definition.
 
 ## Session Continuity
 
 Last session: 2026-04-25T00:00:00.000Z
-Stopped at: Defining v15.0 requirements
+Stopped at: Roadmap created for v15.0 (Phases 223–228)
 Resume file: —

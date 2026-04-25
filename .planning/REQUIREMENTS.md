@@ -137,4 +137,67 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 
 ## Traceability
 
-(Filled by `/gsd-roadmapper` during roadmap creation — REQ-IDs map to phases here.)
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| BOOT-01 | Phase 223 | Pending |
+| BOOT-02 | Phase 223 | Pending |
+| BOOT-03 | Phase 223 | Pending |
+| BOOT-04 | Phase 223 | Pending |
+| DEPLOY-01 | Phase 223 | Pending |
+| DEPLOY-02 | Phase 223 | Pending |
+| DEPLOY-03 | Phase 223 | Pending |
+| DEPLOY-04 | Phase 223 | Pending |
+| MIG-02 | Phase 223 | Pending |
+| SEO-05 | Phase 223 | Pending |
+| SEO-06 | Phase 223 | Pending |
+| CI-02 | Phase 223 | Pending |
+| BRAND-01 | Phase 224 | Pending |
+| BRAND-02 | Phase 224 | Pending |
+| BRAND-03 | Phase 224 | Pending |
+| BRAND-04 | Phase 224 | Pending |
+| SHELL-01 | Phase 224 | Pending |
+| SHELL-02 | Phase 224 | Pending |
+| SHELL-03 | Phase 224 | Pending |
+| SHELL-04 | Phase 224 | Pending |
+| SHELL-05 | Phase 224 | Pending |
+| SEARCH-01 | Phase 224 | Pending |
+| SEARCH-02 | Phase 224 | Pending |
+| SEARCH-03 | Phase 224 | Pending |
+| SEO-04 | Phase 224 | Pending |
+| API-01 | Phase 225 | Pending |
+| API-02 | Phase 225 | Pending |
+| API-03 | Phase 225 | Pending |
+| API-04 | Phase 225 | Pending |
+| API-05 | Phase 225 | Pending |
+| CI-01 | Phase 225 | Pending |
+| QUICK-01 | Phase 226 | Pending |
+| QUICK-02 | Phase 226 | Pending |
+| QUICK-03 | Phase 226 | Pending |
+| QUICK-04 | Phase 226 | Pending |
+| MIG-01 (install) | Phase 226 | Pending |
+| USER-01 | Phase 227 | Pending |
+| USER-02 | Phase 227 | Pending |
+| USER-03 | Phase 227 | Pending |
+| USER-04 | Phase 227 | Pending |
+| USER-05 | Phase 227 | Pending |
+| USER-06 | Phase 227 | Pending |
+| USER-07 | Phase 227 | Pending |
+| ADMIN-01 | Phase 227 | Pending |
+| ADMIN-02 | Phase 227 | Pending |
+| ADMIN-03 | Phase 227 | Pending |
+| ADMIN-04 | Phase 227 | Pending |
+| ADMIN-05 | Phase 227 | Pending |
+| ADMIN-06 | Phase 227 | Pending |
+| ADMIN-07 | Phase 227 | Pending |
+| MIG-01 (admin) | Phase 227 | Pending |
+| MIG-03 | Phase 227 | Pending |
+| SEO-01 | Phase 228 | Pending |
+| SEO-02 | Phase 228 | Pending |
+| SEO-03 | Phase 228 | Pending |
+| A11Y-05 | Phase 228 | Pending |
+| A11Y-06 | Phase 228 | Pending |
+| A11Y-07 | Phase 228 | Pending |
+| FEAT-01 | Phase 228 | Pending |
+| FEAT-02 | Phase 228 | Pending |
+| FEAT-03 | Phase 228 | Pending |
+| CI-03 | Phase 228 | Pending |
