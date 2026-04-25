@@ -1,0 +1,310 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  arrayMove,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical, X, Plus } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
+import type { PopupConfig } from '@/types/api';
+
+interface PopupConfigEditorProps {
+  columns: { name: string; type: string }[];
+  popupConfig: PopupConfig | null;
+  onPopupChange: (config: PopupConfig | null) => void;
+}
+
+const DEBOUNCE_MS = 250;
+
+function SortableField({
+  name,
+  onRemove,
+  removeLabel,
+}: {
+  name: string;
+  onRemove: () => void;
+  removeLabel: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: name,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-1.5 px-2 py-1 rounded bg-background border text-xs"
+    >
+      <button
+        type="button"
+        className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+      >
+        <GripVertical className="h-3 w-3" />
+      </button>
+      <span className="flex-1 font-mono text-[11px] truncate">{name}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-muted-foreground hover:text-destructive"
+        aria-label={removeLabel}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: PopupConfigEditorProps) {
+  const { t } = useTranslation('builder');
+  const isOn = popupConfig?.enabled ?? false;
+  const expression = popupConfig?.expression ?? '';
+  const visibleFields = popupConfig?.visible_fields ?? null;
+
+  // Local state for the expression so debounced validation re-renders smoothly
+  const [localExpr, setLocalExpr] = useState(expression);
+  // Debounced expression — drives the validation result (red border + helper text)
+  const [debouncedExpr, setDebouncedExpr] = useState(expression);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync local state from prop when the parent resets the config (e.g. switching layers)
+  useEffect(() => {
+    setLocalExpr(expression);
+    setDebouncedExpr(expression);
+  }, [expression]);
+
+  // Cleanup pending debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  // Last-known config so toggling off and back on restores user values
+  const lastEnabledConfigRef = useRef<PopupConfig | null>(popupConfig);
+  if (popupConfig && popupConfig.enabled) lastEnabledConfigRef.current = popupConfig;
+
+  const columnNames = useMemo(() => columns.map((c) => c.name), [columns]);
+
+  const placeholders = useMemo(() => extractPlaceholders(debouncedExpr), [debouncedExpr]);
+  const validation = useMemo(
+    () => validatePlaceholders(placeholders, columnNames),
+    [placeholders, columnNames],
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const mode: 'all' | 'custom' = visibleFields === null ? 'all' : 'custom';
+  const usedFields = useMemo(() => new Set(visibleFields ?? []), [visibleFields]);
+  const availableFields = useMemo(
+    () => columnNames.filter((name) => !usedFields.has(name)),
+    [columnNames, usedFields],
+  );
+
+  function handleToggle(checked: boolean) {
+    if (checked) {
+      // Restore last known config or create defaults
+      if (lastEnabledConfigRef.current) {
+        onPopupChange({ ...lastEnabledConfigRef.current, enabled: true });
+      } else {
+        onPopupChange({ enabled: true, expression: '', visible_fields: null });
+      }
+    } else {
+      onPopupChange({
+        enabled: false,
+        expression: popupConfig?.expression ?? null,
+        visible_fields: popupConfig?.visible_fields ?? null,
+      });
+    }
+  }
+
+  function update(partial: Partial<PopupConfig>) {
+    if (!popupConfig) return;
+    onPopupChange({ ...popupConfig, ...partial });
+  }
+
+  function handleExpressionChange(next: string) {
+    setLocalExpr(next);
+    // Persist immediately so parent state stays in sync; debounce only the
+    // validation render so the editor feels responsive while typing.
+    update({ expression: next });
+    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedExpr(next);
+    }, DEBOUNCE_MS);
+  }
+
+  function handleModeChange(nextMode: 'all' | 'custom') {
+    if (nextMode === 'all') {
+      update({ visible_fields: null });
+    } else {
+      update({ visible_fields: [] });
+    }
+  }
+
+  function handleAddField(name: string) {
+    if (!visibleFields) return;
+    if (visibleFields.includes(name)) return;
+    update({ visible_fields: [...visibleFields, name] });
+  }
+
+  function handleRemoveField(name: string) {
+    if (!visibleFields) return;
+    update({ visible_fields: visibleFields.filter((f) => f !== name) });
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !visibleFields) return;
+    const oldIndex = visibleFields.indexOf(String(active.id));
+    const newIndex = visibleFields.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    update({ visible_fields: arrayMove(visibleFields, oldIndex, newIndex) });
+  }
+
+  return (
+    <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-medium">{t('popup.enable')}</Label>
+        <Switch checked={isOn} onCheckedChange={handleToggle} />
+      </div>
+
+      {isOn && popupConfig && (
+        <>
+          {/* Expression / template */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground" htmlFor="popup-expression">
+              {t('popup.expression')}
+            </Label>
+            <Input
+              id="popup-expression"
+              type="text"
+              className={cn(
+                'h-8 text-xs font-mono',
+                !validation.ok && 'border-destructive focus-visible:ring-destructive/40',
+              )}
+              placeholder={t('popup.expressionPlaceholder')}
+              value={localExpr}
+              onChange={(e) => handleExpressionChange(e.target.value)}
+              aria-invalid={!validation.ok}
+              aria-describedby="popup-expression-help"
+            />
+            <p id="popup-expression-help" className="text-[11px] text-muted-foreground">
+              {validation.ok
+                ? t('popup.expressionHelp')
+                : t('popup.unknownPlaceholders', { list: validation.unknown.join(', ') })}
+            </p>
+          </div>
+
+          {/* Visible fields mode toggle */}
+          <div className="space-y-1.5 pt-2 border-t">
+            <Label className="text-xs font-medium">{t('popup.visibleFields')}</Label>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                className={cn(
+                  'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                  mode === 'all'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
+                )}
+                onClick={() => handleModeChange('all')}
+              >
+                {t('popup.visibleFieldsAll')}
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                  mode === 'custom'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
+                )}
+                onClick={() => handleModeChange('custom')}
+              >
+                {t('popup.visibleFieldsCustom')}
+              </button>
+            </div>
+          </div>
+
+          {/* Custom mode: ordered list + add picker */}
+          {mode === 'custom' && visibleFields !== null && (
+            <div className="space-y-2">
+              {visibleFields.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground italic">
+                  {t('popup.noFieldsSelected')}
+                </p>
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext items={visibleFields} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-1">
+                      {visibleFields.map((name) => (
+                        <SortableField
+                          key={name}
+                          name={name}
+                          onRemove={() => handleRemoveField(name)}
+                          removeLabel={t('popup.removeField', { defaultValue: 'Remove field' })}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              )}
+
+              {availableFields.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">{t('popup.addField')}</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {availableFields.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => handleAddField(name)}
+                        className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

@@ -219,10 +219,11 @@ export function MapBuilderPage() {
     onOpacityChange: layers.handleOpacityChange,
     onFilterChange: layers.handleFilterChange,
     onLabelChange: layers.handleLabelChange,
+    onPopupChange: layers.handlePopupChange,
     onStyleConfigChange: layers.handleStyleConfigChange,
     onLayoutChange: layers.handleLayoutChange,
     onRenderModeChange: layers.handleRenderModeChange,
-  }), [layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange, layers.handleFilterChange, layers.handleLabelChange, layers.handleStyleConfigChange, layers.handleLayoutChange, layers.handleRenderModeChange]);
+  }), [layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange, layers.handleFilterChange, layers.handleLabelChange, layers.handlePopupChange, layers.handleStyleConfigChange, layers.handleLayoutChange, layers.handleRenderModeChange]);
 
   const handleMarkDirty = useCallback(
     () => { layers.setHasUnsavedChanges(true); },

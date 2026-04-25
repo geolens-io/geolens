@@ -37,6 +37,8 @@
     "zoomToLayer": "Zoom a la capa",
     "filterTab": "Filtro",
     "labelsTab": "Etiquetas",
+    "popupTab": "Popup",
+    "popupTitle": "Popup",
     "styleTab": "Estilo",
     "collapseOptions": "Contraer opciones",
     "moreActions": "Más acciones",
@@ -141,6 +143,19 @@
     "zoomRange": "Rango de zoom",
     "minZoom": "Zoom mínimo",
     "maxZoom": "Zoom máximo"
+  },
+  "popup": {
+    "enable": "Activar popup para esta capa",
+    "expression": "Plantilla del título",
+    "expressionHelp": "Use marcadores {column_name}. Ejemplo: {city}, {state}",
+    "expressionPlaceholder": "{city}, {state}",
+    "unknownPlaceholders": "Marcadores desconocidos: {{list}}",
+    "visibleFields": "Campos visibles",
+    "visibleFieldsAll": "Mostrar todos los campos (predeterminado)",
+    "visibleFieldsCustom": "Selección personalizada",
+    "addField": "Añadir campo",
+    "removeField": "Quitar campo",
+    "noFieldsSelected": "Ningún campo seleccionado (solo se mostrará el título)"
   },
   "dataDriven": {
     "title": "Estilo basado en datos",
@@ -332,7 +347,8 @@
     "revokeFailed": "Error al revocar el enlace compartido",
     "mapDuplicated": "Mapa duplicado exitosamente",
     "mapDuplicateFailed": "Error al duplicar el mapa",
-    "mapForkedExcluded": "¡Mapa bifurcado! {{count}} capa(s) excluida(s) -- no tiene acceso a esos conjuntos de datos"
+    "mapForkedExcluded": "¡Mapa bifurcado! {{count}} capa(s) excluida(s) -- no tiene acceso a esos conjuntos de datos",
+    "popupConfigInvalid": "No se puede guardar: una o más capas tienen expresiones de popup inválidas"
   },
   "mapCreate": {
     "title": "Crear mapa",

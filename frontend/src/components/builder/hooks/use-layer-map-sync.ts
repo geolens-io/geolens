@@ -4,7 +4,7 @@ import { getLayerType, resolveAdapterType, getCompoundOpacity, CUSTOM_PAINT_PROP
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
-import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
@@ -322,6 +322,14 @@ export function useLayerMapSync(
     [applyLayerUpdate],
   );
 
+  const handlePopupChange = useCallback(
+    (layerId: string, config: PopupConfig | null) => {
+      // No map side-effect: popup is a React component, not a MapLibre layer.
+      applyLayerUpdate(layerId, (l) => ({ ...l, popup_config: config }));
+    },
+    [applyLayerUpdate],
+  );
+
   return {
     handleToggleVisibility,
     handlePaintChange,
@@ -330,5 +338,6 @@ export function useLayerMapSync(
     handleLayoutChange,
     handleFilterChange,
     handleLabelChange,
+    handlePopupChange,
   };
 }

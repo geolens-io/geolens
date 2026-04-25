@@ -33,7 +33,7 @@ export function useBuilderLayers(
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
-  const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | null>(null);
+  const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
@@ -62,6 +62,7 @@ export function useBuilderLayers(
     handleLayoutChange,
     handleFilterChange,
     handleLabelChange,
+    handlePopupChange,
   } = useLayerMapSync(localLayers, setLocalLayers, setHasUnsavedChanges, mapInstanceRef);
 
   // Initialize local state from API data (once)
@@ -174,7 +175,7 @@ export function useBuilderLayers(
     });
   }, []);
 
-  const handleTabChange = useCallback((_layerId: string, tab: 'style' | 'filter' | 'labels') => {
+  const handleTabChange = useCallback((_layerId: string, tab: 'style' | 'filter' | 'labels' | 'popup') => {
     setActiveEditorTab((prev) => (prev === tab ? null : tab));
   }, []);
 
@@ -422,6 +423,7 @@ export function useBuilderLayers(
     handleTabChange,
     handleFilterChange,
     handleLabelChange,
+    handlePopupChange,
     handleStyleConfigChange,
     handlePaintChange,
     handleOpacityChange,

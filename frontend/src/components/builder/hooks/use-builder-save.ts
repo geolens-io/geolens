@@ -9,6 +9,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceId } from '@/components/builder/map-sync';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
+import { isPopupConfigValid } from '@/lib/popup-template';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 
@@ -140,6 +141,18 @@ export function useBuilderSave(state: SaveState) {
   function handleSave() {
     const { mapId: id, mapInstanceRef, localName, localDescription, dockNotes, localBasemap, localLayers, showBasemapLabels } = state;
     if (!id) return;
+
+    // Block save if any layer's popup expression references unknown columns.
+    // Server-side validation is shape-only (per CONTEXT.md / RESEARCH §4),
+    // so the frontend is the primary UX gate for placeholder correctness.
+    const invalidLayer = localLayers.find(
+      (l) => !isPopupConfigValid(l.popup_config ?? null, (l.dataset_column_info ?? []).map((c) => c.name)),
+    );
+    if (invalidLayer) {
+      toast.error(t('toasts.popupConfigInvalid'));
+      return;
+    }
+
     const map = mapInstanceRef.current;
     const center = map?.getCenter();
     const zoom = map?.getZoom();
@@ -171,6 +184,7 @@ export function useBuilderSave(state: SaveState) {
             display_name: l.display_name ?? null,
             filter: l.filter ?? null,
             label_config: l.label_config ?? null,
+            popup_config: l.popup_config ?? null,
             style_config: l.style_config ?? null,
             layer_type: l.layer_type ?? null,
             show_in_legend: l.show_in_legend ?? true,

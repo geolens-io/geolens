@@ -37,6 +37,8 @@
     "columns": "Columns",
     "filterTab": "Filter",
     "labelsTab": "Labels",
+    "popupTab": "Popup",
+    "popupTitle": "Popup",
     "styleTab": "Style",
     "collapseOptions": "Collapse options",
     "moreActions": "More actions",
@@ -141,6 +143,19 @@
     "zoomRange": "Zoom Range",
     "minZoom": "Min zoom",
     "maxZoom": "Max zoom"
+  },
+  "popup": {
+    "enable": "Enable popup for this layer",
+    "expression": "Title template",
+    "expressionHelp": "Use {column_name} placeholders. Example: {city}, {state}",
+    "expressionPlaceholder": "{city}, {state}",
+    "unknownPlaceholders": "Unknown placeholders: {{list}}",
+    "visibleFields": "Visible fields",
+    "visibleFieldsAll": "Show all fields (default)",
+    "visibleFieldsCustom": "Custom selection",
+    "addField": "Add field",
+    "removeField": "Remove field",
+    "noFieldsSelected": "No fields selected (only the title will show)"
   },
   "dataDriven": {
     "title": "Data-Driven Style",
@@ -332,7 +347,8 @@
     "revokeFailed": "Failed to revoke share link",
     "mapDuplicated": "Map duplicated successfully",
     "mapDuplicateFailed": "Failed to duplicate map",
-    "mapForkedExcluded": "Map forked! {{count}} layer(s) excluded -- you don't have access to those datasets"
+    "mapForkedExcluded": "Map forked! {{count}} layer(s) excluded -- you don't have access to those datasets",
+    "popupConfigInvalid": "Cannot save: one or more layers have invalid popup expressions"
   },
   "mapCreate": {
     "title": "Create Map",
