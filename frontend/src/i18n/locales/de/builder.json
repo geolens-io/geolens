@@ -291,7 +291,10 @@
     "booleanTrue": "Ja",
     "booleanFalse": "Nein",
     "clickToCopy": "Klicken zum Kopieren",
-    "copyFailed": "Kopieren fehlgeschlagen"
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "prev": "Vorheriges Objekt",
+    "next": "Nächstes Objekt",
+    "close": "Popup schließen"
   },
   "descriptionPlaceholder": "Beschreibung hinzufügen...",
   "visibility": {

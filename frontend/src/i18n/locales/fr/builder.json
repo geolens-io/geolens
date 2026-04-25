@@ -291,7 +291,10 @@
     "booleanTrue": "Oui",
     "booleanFalse": "Non",
     "clickToCopy": "Cliquer pour copier",
-    "copyFailed": "Échec de la copie"
+    "copyFailed": "Échec de la copie",
+    "prev": "Entité précédente",
+    "next": "Entité suivante",
+    "close": "Fermer la popup"
   },
   "descriptionPlaceholder": "Ajouter une description...",
   "visibility": {
