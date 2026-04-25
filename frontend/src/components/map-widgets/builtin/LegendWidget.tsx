@@ -103,25 +103,30 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   );
 }
 
-/** Extract color strings from a MapLibre step/match/interpolate expression. */
-function extractColorsFromExpression(expr: unknown): string[] | null {
+/** Extract colors and breaks from a MapLibre step/interpolate expression. */
+function parseColorExpression(expr: unknown): { colors: string[]; breaks: number[] } | null {
   if (!Array.isArray(expr) || expr.length < 4) return null;
   if (expr[0] === 'step') {
-    // ["step", input, initial, stop1, val1, ...] — values at even positions starting from [2]
+    // ["step", input, initial, stop1, val1, ...]
     const colors: string[] = [];
+    const breaks: number[] = [];
     if (typeof expr[2] === 'string') colors.push(expr[2]);
-    for (let i = 4; i < expr.length; i += 2) {
-      if (typeof expr[i] === 'string') colors.push(expr[i]);
+    for (let i = 3; i < expr.length; i += 2) {
+      if (typeof expr[i] === 'number') breaks.push(expr[i]);
+      if (i + 1 < expr.length && typeof expr[i + 1] === 'string') colors.push(expr[i + 1]);
     }
-    return colors.length > 0 ? colors : null;
+    return colors.length > 0 ? { colors, breaks } : null;
   }
   if (expr[0] === 'interpolate') {
     // ["interpolate", interp, input, stop0, val0, stop1, val1, ...]
     const colors: string[] = [];
-    for (let i = 4; i < expr.length; i += 2) {
-      if (typeof expr[i] === 'string') colors.push(expr[i]);
+    const breaks: number[] = [];
+    for (let i = 3; i < expr.length; i += 2) {
+      if (typeof expr[i] === 'number') breaks.push(expr[i]);
+      if (i + 1 < expr.length && typeof expr[i + 1] === 'string') colors.push(expr[i + 1]);
     }
-    return colors.length > 0 ? colors : null;
+    // Convert to step-style breaks (drop first — it's the "< X" bucket)
+    return colors.length > 0 ? { colors, breaks: breaks.slice(1) } : null;
   }
   return null;
 }
@@ -143,13 +148,18 @@ function GraduatedLegendSwitch({
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     const raw = paint['circle-color'];
     const circleColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
-    // Extract per-class colors from paint expression (styleConfig.colors may be
-    // absent when DataDrivenStyleEditor saves radius-targeted graduated configs)
-    const colors = styleConfig.colors ?? extractColorsFromExpression(raw);
+    // Extract colors + breaks from paint expression so legend matches
+    // the actual map rendering (styleConfig may have editor-recalculated
+    // breaks that differ from the paint expression's breaks)
+    const parsed = typeof raw !== 'string' ? parseColorExpression(raw) : null;
+    const colors = styleConfig.colors ?? parsed?.colors;
+    // Always use paint-expression breaks when the color is an expression —
+    // they match the actual map rendering, not the editor-recalculated size breaks
+    const effectiveBreaks = parsed?.breaks ?? breaks;
     return (
       <GraduatedRadiusLegend
         sizes={styleConfig.sizes}
-        breaks={breaks}
+        breaks={effectiveBreaks}
         circleColor={circleColor}
         colors={colors ?? undefined}
         style={style}

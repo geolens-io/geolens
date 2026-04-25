@@ -12,7 +12,8 @@ function formatBreakValue(v: number): string {
 
 /** Build a human-readable label for a graduated break range. */
 export function breakLabel(i: number, breaks: number[]): string {
-  if (i === 0) return `< ${formatBreakValue(breaks[0])}`;
-  if (i === breaks.length) return `\u2265 ${formatBreakValue(breaks[breaks.length - 1])}`;
+  if (!breaks.length) return '';
+  if (i <= 0) return `< ${formatBreakValue(breaks[0])}`;
+  if (i >= breaks.length) return `\u2265 ${formatBreakValue(breaks[breaks.length - 1])}`;
   return `${formatBreakValue(breaks[i - 1])} \u2013 ${formatBreakValue(breaks[i])}`;
 }
