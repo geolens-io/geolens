@@ -68,13 +68,26 @@ class MapLayerInput(BaseModel):
         if not isinstance(enabled, bool):
             raise ValueError("popup_config.enabled must be a boolean")
         expr = v.get("expression", None)
-        if expr is not None and not isinstance(expr, str):
-            raise ValueError("popup_config.expression must be a string or null")
+        if expr is not None:
+            if not isinstance(expr, str):
+                raise ValueError("popup_config.expression must be a string or null")
+            if len(expr) > 500:
+                raise ValueError(
+                    "popup_config.expression must be 500 characters or fewer"
+                )
         vf = v.get("visible_fields", None)
         if vf is not None:
             if not isinstance(vf, list) or not all(isinstance(x, str) for x in vf):
                 raise ValueError(
                     "popup_config.visible_fields must be a list of strings or null"
+                )
+            if len(vf) > 100:
+                raise ValueError(
+                    "popup_config.visible_fields supports at most 100 entries"
+                )
+            if any(len(x) > 128 for x in vf):
+                raise ValueError(
+                    "popup_config.visible_fields entries must be 128 characters or fewer"
                 )
         allowed = {"enabled", "expression", "visible_fields"}
         extras = set(v.keys()) - allowed

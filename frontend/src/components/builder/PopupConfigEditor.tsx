@@ -92,12 +92,6 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
   const [debouncedExpr, setDebouncedExpr] = useState(expression);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync local state from prop when the parent resets the config (e.g. switching layers)
-  useEffect(() => {
-    setLocalExpr(expression);
-    setDebouncedExpr(expression);
-  }, [expression]);
-
   // Cleanup pending debounce on unmount
   useEffect(() => {
     return () => {
@@ -105,9 +99,15 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
     };
   }, []);
 
-  // Last-known config so toggling off and back on restores user values
-  const lastEnabledConfigRef = useRef<PopupConfig | null>(popupConfig);
-  if (popupConfig && popupConfig.enabled) lastEnabledConfigRef.current = popupConfig;
+  // Last-known config so toggling off and back on restores user values.
+  // Component is keyed by layer.id (see LayerEditorPanel), so this ref starts
+  // fresh per layer — no cross-layer leakage.
+  const lastEnabledConfigRef = useRef<PopupConfig | null>(
+    popupConfig?.enabled ? popupConfig : null,
+  );
+  useEffect(() => {
+    if (popupConfig?.enabled) lastEnabledConfigRef.current = popupConfig;
+  }, [popupConfig]);
 
   const columnNames = useMemo(() => columns.map((c) => c.name), [columns]);
 

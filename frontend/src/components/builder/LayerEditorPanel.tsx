@@ -160,6 +160,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             {activeTab === 'popup' && (
               <div role="tabpanel" id={`tabpanel-${layer.id}-popup`} aria-labelledby={`tab-${layer.id}-popup`}>
                 <PopupConfigEditor
+                  key={layer.id}
                   columns={columns}
                   popupConfig={layer.popup_config ?? null}
                   onPopupChange={(config) => handlers.onPopupChange(layer.id, config)}

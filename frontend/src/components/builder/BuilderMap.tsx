@@ -314,7 +314,14 @@ export const BuilderMap = memo(function BuilderMap({
         }
 
         const features = map.queryRenderedFeatures(e.point, { layers: queryLayers });
-        map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
+        // Mirror handleClick's per-feature filter so the cursor only signals
+        // interactivity when at least one hit is on a popup-enabled layer.
+        const interactive = features.some((f) => {
+          const layerId = f.layer.id.replace(/^layer-/, '');
+          const matched = layersRef.current.find((l) => l.id === layerId);
+          return matched?.popup_config?.enabled !== false;
+        });
+        map.getCanvas().style.cursor = interactive ? 'pointer' : '';
       });
     };
 
