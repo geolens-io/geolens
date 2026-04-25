@@ -33,7 +33,7 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 Phase: 224
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-04-25
+Last activity: 2026-04-25 - Completed quick task 260425-lbc: Fix map overlay positioning conflicts
 
 ## Performance Metrics
 
@@ -99,6 +99,7 @@ None yet.
 | # | Description | Date | Commit | Status | Directory |
 |---|-------------|------|--------|--------|-----------|
 | 260425-h8k | Review map builder labeling with Playwright | 2026-04-25 | pending | Verified | [260425-h8k-review-map-builder-labeling-with-playwri](./quick/260425-h8k-review-map-builder-labeling-with-playwri/) |
+| 260425-lbc | Fix map overlay positioning conflicts (filter chips vs measure widget, bottom-left stacking) | 2026-04-25 | cd2e5a3f | Needs Review | [260425-lbc-in-the-map-builder-review-the-map-overla](./quick/260425-lbc-in-the-map-builder-review-the-map-overla/) |
 
 ## Session Continuity
 
