@@ -82,7 +82,9 @@ function SortableField({
 
 export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: PopupConfigEditorProps) {
   const { t } = useTranslation('builder');
-  const isOn = popupConfig?.enabled ?? false;
+  // Popups are enabled by default — null/undefined config behaves as enabled.
+  // Click handler in BuilderMap mirrors this with `enabled !== false`.
+  const isOn = popupConfig?.enabled ?? true;
   const expression = popupConfig?.expression ?? '';
   const visibleFields = popupConfig?.visible_fields ?? null;
 
@@ -147,8 +149,14 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
   }
 
   function update(partial: Partial<PopupConfig>) {
-    if (!popupConfig) return;
-    onPopupChange({ ...popupConfig, ...partial });
+    // When popupConfig is null (default-on case), seed with enabled defaults
+    // so the user's first edit creates a real config rather than being dropped.
+    const base: PopupConfig = popupConfig ?? {
+      enabled: true,
+      expression: null,
+      visible_fields: null,
+    };
+    onPopupChange({ ...base, ...partial });
   }
 
   function handleExpressionChange(next: string) {
@@ -197,7 +205,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
         <Switch checked={isOn} onCheckedChange={handleToggle} />
       </div>
 
-      {isOn && popupConfig && (
+      {isOn && (
         <>
           {/* Expression / template */}
           <div className="space-y-1">

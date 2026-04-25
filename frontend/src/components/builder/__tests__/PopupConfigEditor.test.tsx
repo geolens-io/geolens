@@ -19,7 +19,7 @@ const COLUMNS = [
 ];
 
 describe('PopupConfigEditor', () => {
-  it('renders disabled state when popupConfig is null and toggling on emits defaults', async () => {
+  it('renders ENABLED state when popupConfig is null (default-on) and toggling off emits enabled:false', async () => {
     const onPopupChange = vi.fn();
     const user = userEvent.setup();
 
@@ -27,13 +27,18 @@ describe('PopupConfigEditor', () => {
       <PopupConfigEditor columns={COLUMNS} popupConfig={null} onPopupChange={onPopupChange} />,
     );
 
+    // Popups are enabled by default — null config behaves as enabled.
     const sw = screen.getByRole('switch');
-    expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(sw).toHaveAttribute('aria-checked', 'true');
 
+    // The expression input is visible (editor renders even when popupConfig is null)
+    expect(screen.getByPlaceholderText(/\{city\}, \{state\}/i)).toBeInTheDocument();
+
+    // Toggling off emits an explicit disabled config
     await user.click(sw);
     expect(onPopupChange).toHaveBeenCalledWith({
-      enabled: true,
-      expression: '',
+      enabled: false,
+      expression: null,
       visible_fields: null,
     });
   });

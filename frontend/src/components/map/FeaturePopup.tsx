@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n/i18n';
 import { Popup } from '@vis.gl/react-maplibre';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Check, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
@@ -106,57 +107,78 @@ export function FeaturePopup({
   const handlePrev = () => setActiveIndex((i) => Math.max(0, i - 1));
   const handleNext = () => setActiveIndex((i) => Math.min(features.length - 1, i + 1));
 
+  const isMulti = features.length > 1;
+
   return (
     <Popup
       longitude={longitude}
       latitude={latitude}
       onClose={onClose}
+      closeButton={false}
       closeOnClick={false}
       maxWidth="360px"
     >
       <div className="text-xs">
+        {/* Header: layer name (left) + pager + close (right) */}
+        <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border">
+          <span className="font-semibold font-mono text-xs uppercase tracking-wide text-muted-foreground truncate">
+            {layerName || '\u00A0'}
+          </span>
+          <div className="flex items-center gap-0.5 shrink-0">
+            {isMulti && (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handlePrev}
+                  disabled={activeIndex === 0}
+                  aria-label={t('featurePopup.prev')}
+                >
+                  <ChevronLeft className="rtl-mirror" />
+                </Button>
+                <span className="text-xs text-muted-foreground tabular-nums px-1">
+                  {activeIndex + 1}/{features.length}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleNext}
+                  disabled={activeIndex === features.length - 1}
+                  aria-label={t('featurePopup.next')}
+                >
+                  <ChevronRight className="rtl-mirror" />
+                </Button>
+                <span className="w-px h-4 bg-border mx-1" aria-hidden="true" />
+              </>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={onClose}
+              aria-label={t('featurePopup.close')}
+            >
+              <X />
+            </Button>
+          </div>
+        </div>
+
+        {/* Title (custom expression output) */}
         {title && (
           <div
-            className="font-semibold text-sm mb-1 break-words"
+            className="font-semibold text-sm text-foreground mb-2 break-words"
             style={{ whiteSpace: 'pre-wrap' }}
           >
             {title}
           </div>
         )}
-        {/* Header: layer name + feature counter */}
-        <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b">
-          {layerName && (
-            <span className="font-medium font-mono text-[11px] uppercase tracking-wider text-muted-foreground truncate">
-              {layerName}
-            </span>
-          )}
-          {features.length > 1 && (
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                onClick={handlePrev}
-                disabled={activeIndex === 0}
-                className="p-0.5 rounded hover:bg-muted disabled:opacity-30"
-              >
-                <ChevronLeft className="h-3 w-3 rtl-mirror" />
-              </button>
-              <span className="text-muted-foreground tabular-nums text-[10px]">
-                {activeIndex + 1}/{features.length}
-              </span>
-              <button
-                onClick={handleNext}
-                disabled={activeIndex === features.length - 1}
-                className="p-0.5 rounded hover:bg-muted disabled:opacity-30"
-              >
-                <ChevronRight className="h-3 w-3 rtl-mirror" />
-              </button>
-            </div>
-          )}
-        </div>
 
-        {/* Attribute table */}
-        <div className="max-h-64 overflow-y-auto">
+        {/* Properties */}
+        <div className="max-h-48 overflow-y-auto">
           {visibleEntries.length === 0 ? (
-            <p className="text-muted-foreground py-1">{t('featurePopup.noAttributes')}</p>
+            <p className="text-xs text-muted-foreground py-1">{t('featurePopup.noAttributes')}</p>
           ) : (
             <table className="w-full">
               <tbody>
@@ -165,7 +187,7 @@ export function FeaturePopup({
                     key={key}
                     role="button"
                     tabIndex={0}
-                    className="group cursor-pointer hover:bg-muted/50 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className="group cursor-pointer hover:bg-accent/50 rounded transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() => handleCopy(key, value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -175,10 +197,10 @@ export function FeaturePopup({
                     }}
                     title={t('featurePopup.clickToCopy')}
                   >
-                    <td className="pe-2 py-0.5 font-medium font-mono text-[10px] text-muted-foreground whitespace-nowrap align-top">
+                    <td className="pe-3 py-1 font-medium font-mono text-xs text-muted-foreground whitespace-nowrap align-top">
                       {humanizeKey(key)}
                     </td>
-                    <td className="py-0.5 text-foreground">
+                    <td className="py-1 text-xs text-foreground">
                       <span className="flex items-start gap-1">
                         <ValueDisplay value={value} formatValue={formatValue} />
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
