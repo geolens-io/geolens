@@ -653,6 +653,13 @@ async def add_layer(
     paint: dict | None = None,
     layout: dict | None = None,
     layer_type: str | None = None,
+    *,
+    display_name: str | None = None,
+    filter: list | None = None,
+    label_config: dict | None = None,
+    popup_config: dict | None = None,
+    style_config: dict | None = None,
+    show_in_legend: bool = True,
 ) -> MapLayer:
     """Add a layer to a map. Applies default style if paint/layout is None.
 
@@ -691,6 +698,12 @@ async def add_layer(
         paint=paint,
         layout=layout,
         layer_type=resolved_layer_type,
+        display_name=display_name,
+        filter=filter,
+        label_config=label_config,
+        popup_config=popup_config,
+        style_config=style_config,
+        show_in_legend=show_in_legend,
     )
     session.add(layer)
     await session.flush()

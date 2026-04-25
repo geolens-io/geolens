@@ -784,6 +784,12 @@ async def add_layer_endpoint(
         body.paint,
         body.layout,
         body.layer_type,
+        display_name=body.display_name,
+        filter=body.filter,
+        label_config=body.label_config,
+        popup_config=body.popup_config,
+        style_config=body.style_config,
+        show_in_legend=body.show_in_legend,
     )
 
     await log_action(
