@@ -156,9 +156,13 @@ function GraduatedLegendSwitch({
     // Always use paint-expression breaks when the color is an expression —
     // they match the actual map rendering, not the editor-recalculated size breaks
     const effectiveBreaks = parsed?.breaks ?? breaks;
+    // Cap entries to color count to avoid duplicate "≥ max" rows when the
+    // editor recalculated more size classes than the color expression has
+    const entryCount = colors ? Math.min(styleConfig.sizes.length, colors.length) : styleConfig.sizes.length;
+    const cappedSizes = styleConfig.sizes.slice(0, entryCount);
     return (
       <GraduatedRadiusLegend
-        sizes={styleConfig.sizes}
+        sizes={cappedSizes}
         breaks={effectiveBreaks}
         circleColor={circleColor}
         colors={colors ?? undefined}
