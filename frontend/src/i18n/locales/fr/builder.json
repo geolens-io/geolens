@@ -38,7 +38,6 @@
     "filterTab": "Filtre",
     "labelsTab": "Étiquettes",
     "popupTab": "Popup",
-    "popupTitle": "Popup",
     "styleTab": "Style",
     "collapseOptions": "Réduire les options",
     "moreActions": "Plus d'actions",
@@ -146,7 +145,7 @@
   },
   "popup": {
     "enable": "Activer la popup pour cette couche",
-    "expression": "Modèle du titre",
+    "titleTemplate": "Modèle du titre",
     "expressionHelp": "Utilisez les espaces réservés {column_name}. Exemple : {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
     "unknownPlaceholders": "Espaces réservés inconnus : {{list}}",
@@ -155,7 +154,8 @@
     "visibleFieldsCustom": "Sélection personnalisée",
     "addField": "Ajouter un champ",
     "removeField": "Retirer le champ",
-    "noFieldsSelected": "Aucun champ sélectionné (seul le titre s'affichera)"
+    "noFieldsSelected": "Aucun champ sélectionné (seul le titre s'affichera)",
+    "noColumns": "Cette couche n'a pas de colonnes inspectables."
   },
   "dataDriven": {
     "title": "Style base sur les donnees",

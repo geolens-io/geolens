@@ -32,6 +32,7 @@ interface PopupConfigEditorProps {
 }
 
 const DEBOUNCE_MS = 250;
+const MAX_EXPRESSION_LENGTH = 500;
 
 function SortableField({
   name,
@@ -88,28 +89,17 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
   const expression = popupConfig?.expression ?? '';
   const visibleFields = popupConfig?.visible_fields ?? null;
 
-  // Local state for the expression so debounced validation re-renders smoothly
-  const [localExpr, setLocalExpr] = useState(expression);
-  // Debounced expression — drives the validation result (red border + helper text)
+  // Debounced expression — drives validation rendering (red border + helper text).
+  // The parent already gets `expression` synchronously via `update()`, so we don't
+  // need a second mirror of the input value — `expression` itself is the controlled value.
   const [debouncedExpr, setDebouncedExpr] = useState(expression);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cleanup pending debounce on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current !== null) clearTimeout(debounceRef.current);
     };
   }, []);
-
-  // Last-known config so toggling off and back on restores user values.
-  // Component is keyed by layer.id (see LayerEditorPanel), so this ref starts
-  // fresh per layer — no cross-layer leakage.
-  const lastEnabledConfigRef = useRef<PopupConfig | null>(
-    popupConfig?.enabled ? popupConfig : null,
-  );
-  useEffect(() => {
-    if (popupConfig?.enabled) lastEnabledConfigRef.current = popupConfig;
-  }, [popupConfig]);
 
   const columnNames = useMemo(() => columns.map((c) => c.name), [columns]);
 
@@ -131,26 +121,10 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
     [columnNames, usedFields],
   );
 
-  function handleToggle(checked: boolean) {
-    if (checked) {
-      // Restore last known config or create defaults
-      if (lastEnabledConfigRef.current) {
-        onPopupChange({ ...lastEnabledConfigRef.current, enabled: true });
-      } else {
-        onPopupChange({ enabled: true, expression: '', visible_fields: null });
-      }
-    } else {
-      onPopupChange({
-        enabled: false,
-        expression: popupConfig?.expression ?? null,
-        visible_fields: popupConfig?.visible_fields ?? null,
-      });
-    }
-  }
-
+  // Single canonical update path. Toggling off→on preserves the user's
+  // last expression / visible_fields — the storage shape is the source of truth
+  // and the keyed remount on layer.id (LayerEditorPanel) prevents cross-layer leakage.
   function update(partial: Partial<PopupConfig>) {
-    // When popupConfig is null (default-on case), seed with enabled defaults
-    // so the user's first edit creates a real config rather than being dropped.
     const base: PopupConfig = popupConfig ?? {
       enabled: true,
       expression: null,
@@ -159,11 +133,13 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
     onPopupChange({ ...base, ...partial });
   }
 
+  function handleToggle(checked: boolean) {
+    update({ enabled: checked });
+  }
+
   function handleExpressionChange(next: string) {
-    setLocalExpr(next);
-    // Persist immediately so parent state stays in sync; debounce only the
-    // validation render so the editor feels responsive while typing.
-    update({ expression: next });
+    // Empty input stores as null to match the rest of the schema's null-empty convention.
+    update({ expression: next === '' ? null : next });
     if (debounceRef.current !== null) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setDebouncedExpr(next);
@@ -171,11 +147,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
   }
 
   function handleModeChange(nextMode: 'all' | 'custom') {
-    if (nextMode === 'all') {
-      update({ visible_fields: null });
-    } else {
-      update({ visible_fields: [] });
-    }
+    update({ visible_fields: nextMode === 'all' ? null : [] });
   }
 
   function handleAddField(name: string) {
@@ -210,17 +182,18 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
           {/* Expression / template */}
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground" htmlFor="popup-expression">
-              {t('popup.expression')}
+              {t('popup.titleTemplate')}
             </Label>
             <Input
               id="popup-expression"
               type="text"
+              maxLength={MAX_EXPRESSION_LENGTH}
               className={cn(
                 'h-8 text-xs font-mono',
                 !validation.ok && 'border-destructive focus-visible:ring-destructive/40',
               )}
               placeholder={t('popup.expressionPlaceholder')}
-              value={localExpr}
+              value={expression}
               onChange={(e) => handleExpressionChange(e.target.value)}
               aria-invalid={!validation.ok}
               aria-describedby="popup-expression-help"
@@ -266,7 +239,11 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
           {/* Custom mode: ordered list + add picker */}
           {mode === 'custom' && visibleFields !== null && (
             <div className="space-y-2">
-              {visibleFields.length === 0 ? (
+              {columnNames.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground italic">
+                  {t('popup.noColumns')}
+                </p>
+              ) : visibleFields.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground italic">
                   {t('popup.noFieldsSelected')}
                 </p>
@@ -283,7 +260,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
                           key={name}
                           name={name}
                           onRemove={() => handleRemoveField(name)}
-                          removeLabel={t('popup.removeField', { defaultValue: 'Remove field' })}
+                          removeLabel={t('popup.removeField')}
                         />
                       ))}
                     </div>

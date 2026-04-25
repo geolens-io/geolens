@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n/i18n';
 import { Popup } from '@vis.gl/react-maplibre';
@@ -52,45 +52,64 @@ export function FeaturePopup({
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
+  // Clamp activeIndex if features shrinks while popup is open (e.g. layer toggle race).
+  useEffect(() => {
+    if (activeIndex >= features.length) setActiveIndex(0);
+  }, [features.length, activeIndex]);
+
   const feature = features[activeIndex] ?? features[0];
-  if (!feature) return null;
 
-  const { properties, layerName, columnInfo, title, visibleFields } = feature;
+  const formatValue = useCallback(
+    (value: unknown): string => {
+      if (value === null || value === undefined) return '--';
+      if (typeof value === 'boolean')
+        return value ? t('featurePopup.booleanTrue') : t('featurePopup.booleanFalse');
+      if (typeof value === 'number') {
+        return Number.isInteger(value)
+          ? value.toLocaleString(i18n.language)
+          : value.toLocaleString(i18n.language, { maximumFractionDigits: 4 });
+      }
+      return String(value);
+    },
+    [t],
+  );
 
-  function formatValue(value: unknown): string {
-    if (value === null || value === undefined) return '--';
-    if (typeof value === 'boolean') return value ? t('featurePopup.booleanTrue') : t('featurePopup.booleanFalse');
-    if (typeof value === 'number') {
-      return Number.isInteger(value)
-        ? value.toLocaleString(i18n.language)
-        : value.toLocaleString(i18n.language, { maximumFractionDigits: 4 });
-    }
-    return String(value);
-  }
+  const properties = feature?.properties;
+  const columnInfo = feature?.columnInfo;
+  const visibleFields = feature?.visibleFields;
 
-  // Filter entries: exclude internal keys and geometry fields
-  const baseEntries = Object.entries(properties).filter(([key]) => {
-    if (key.startsWith('_')) return false;
-    if (EXCLUDED_KEYS.has(key)) return false;
-    return true;
-  });
+  // Filter entries: exclude internal keys and geometry fields.
+  // Memoized so paging / copy-toast state doesn't re-derive for 100-attribute features.
+  const baseEntries = useMemo(() => {
+    if (!properties) return [] as [string, unknown][];
+    return Object.entries(properties).filter(([key]) => {
+      if (key.startsWith('_')) return false;
+      if (EXCLUDED_KEYS.has(key)) return false;
+      return true;
+    });
+  }, [properties]);
 
   // Visible-fields resolution:
   //   visibleFields is an ordered allowlist when defined → preserve user order
   //   null/undefined → fall back to legacy columnInfo allowlist
   //   [] → render zero rows (intentional "title only" mode)
-  let visibleEntries: [string, unknown][];
-  if (visibleFields !== undefined && visibleFields !== null) {
-    const propMap = new Map(baseEntries);
-    visibleEntries = visibleFields
-      .filter((k) => propMap.has(k))
-      .map((k) => [k, propMap.get(k)] as [string, unknown]);
-  } else if (columnInfo) {
-    const columnNames = new Set(columnInfo.map((c) => c.name));
-    visibleEntries = baseEntries.filter(([key]) => columnNames.has(key));
-  } else {
-    visibleEntries = baseEntries;
-  }
+  const visibleEntries = useMemo<[string, unknown][]>(() => {
+    if (visibleFields !== undefined && visibleFields !== null) {
+      const propMap = new Map(baseEntries);
+      return visibleFields
+        .filter((k) => propMap.has(k))
+        .map((k) => [k, propMap.get(k)] as [string, unknown]);
+    }
+    if (columnInfo) {
+      const columnNames = new Set(columnInfo.map((c) => c.name));
+      return baseEntries.filter(([key]) => columnNames.has(key));
+    }
+    return baseEntries;
+  }, [visibleFields, columnInfo, baseEntries]);
+
+  if (!feature) return null;
+
+  const { layerName, title } = feature;
 
   const handleCopy = async (key: string, value: unknown) => {
     const text = formatValue(value);

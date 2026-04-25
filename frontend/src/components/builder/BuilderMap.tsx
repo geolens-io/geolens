@@ -10,7 +10,7 @@ import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
-import { FeaturePopup } from '@/components/map/FeaturePopup';
+import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import type { VectorTileSource } from 'maplibre-gl';
@@ -81,13 +81,7 @@ export const BuilderMap = memo(function BuilderMap({
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
-    features: {
-      properties: Record<string, unknown>;
-      layerName: string;
-      columnInfo: { name: string; type: string }[] | null;
-      title: string | null;
-      visibleFields: string[] | null;
-    }[];
+    features: FeatureInfo[];
   } | null>(null);
 
   const { data: basemaps } = useBasemaps();
@@ -246,10 +240,33 @@ export const BuilderMap = memo(function BuilderMap({
       .filter((id) => map.getLayer(id));
   }, [layers]);
 
+  // O(1) lookup map: feature.layer.id (with `layer-` prefix) → MapLayerResponse.
+  // Rebuilt only when the layers ref content changes; kept in a ref so the
+  // effect below doesn't re-register on every layers change.
+  const layerByMapIdRef = useRef<Map<string, MapLayerResponse>>(new Map());
+  useEffect(() => {
+    const m = new Map<string, MapLayerResponse>();
+    for (const l of layers) m.set(getLayerId(l.id), l);
+    layerByMapIdRef.current = m;
+  }, [layers]);
+
+  // Resolve a queryRenderedFeatures hit to its layer config, or null when
+  // the layer is unknown or popups are explicitly disabled. Verifies the
+  // `layer-` prefix matched before slicing — guards against any non-managed
+  // layer that slipped past the queryLayerIds filter.
+  const lookupHitLayer = useCallback((featureLayerId: string): MapLayerResponse | null => {
+    const layer = layerByMapIdRef.current.get(featureLayerId);
+    if (!layer) return null;
+    if (layer.popup_config?.enabled === false) return null;
+    return layer;
+  }, []);
+
   // Click + mousemove handlers: popup and pointer cursor
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    const fallbackName = t('common:viewer.featureFallback');
 
     const handleClick = (e: MapMouseEvent) => {
       if (!map.isStyleLoaded()) return;
@@ -262,38 +279,28 @@ export const BuilderMap = memo(function BuilderMap({
       }
 
       const hits = map.queryRenderedFeatures(e.point, { layers: queryLayers });
-
-      // Drop hits whose source layer has popups explicitly disabled.
-      // null/undefined popup_config → enabled by default; only false suppresses.
-      const filteredHits = hits.filter((feature) => {
-        const layerId = feature.layer.id.replace(/^layer-/, '');
-        const matched = layersRef.current.find((l) => l.id === layerId);
-        return matched?.popup_config?.enabled !== false;
-      });
-
-      if (filteredHits.length > 0) {
-        const mappedFeatures = filteredHits.map((feature) => {
-          const layerId = feature.layer.id.replace(/^layer-/, '');
-          const matchedLayer = layersRef.current.find((l) => l.id === layerId);
-          const cfg = matchedLayer?.popup_config;
-          const props = (feature.properties ?? {}) as Record<string, unknown>;
-          const title = cfg?.expression
-            ? substitutePopupTemplate(cfg.expression, props)
-            : null;
-          return {
-            properties: props,
-            layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('common:viewer.featureFallback'),
-            columnInfo: matchedLayer?.dataset_column_info ?? null,
-            title,
-            visibleFields: cfg?.visible_fields ?? null,
-          };
+      const mapped: FeatureInfo[] = [];
+      for (const feature of hits) {
+        const layer = lookupHitLayer(feature.layer.id);
+        if (!layer) continue;
+        const cfg = layer.popup_config;
+        const props = (feature.properties ?? {}) as Record<string, unknown>;
+        mapped.push({
+          properties: props,
+          layerName: layer.display_name || layer.dataset_name || fallbackName,
+          columnInfo: layer.dataset_column_info ?? null,
+          title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
+          visibleFields: cfg?.visible_fields ?? null,
         });
+      }
+
+      if (mapped.length > 0) {
         setPopupInfo({
           longitude: e.lngLat.lng,
           latitude: e.lngLat.lat,
-          features: mappedFeatures,
+          features: mapped,
         });
-        onFeatureSelect?.(mappedFeatures[0]);
+        onFeatureSelect?.(mapped[0]);
       } else {
         setPopupInfo(null);
         onFeatureSelect?.(null);
@@ -308,20 +315,24 @@ export const BuilderMap = memo(function BuilderMap({
         if (measureActiveRef.current) return;
         const queryLayers = queryLayerIdsRef.current;
 
+        let canvas;
+        try {
+          canvas = map.getCanvas();
+        } catch {
+          return;
+        }
+        if (!canvas) return;
+
         if (queryLayers.length === 0) {
-          map.getCanvas().style.cursor = '';
+          canvas.style.cursor = '';
           return;
         }
 
         const features = map.queryRenderedFeatures(e.point, { layers: queryLayers });
         // Mirror handleClick's per-feature filter so the cursor only signals
         // interactivity when at least one hit is on a popup-enabled layer.
-        const interactive = features.some((f) => {
-          const layerId = f.layer.id.replace(/^layer-/, '');
-          const matched = layersRef.current.find((l) => l.id === layerId);
-          return matched?.popup_config?.enabled !== false;
-        });
-        map.getCanvas().style.cursor = interactive ? 'pointer' : '';
+        const interactive = features.some((f) => lookupHitLayer(f.layer.id) !== null);
+        canvas.style.cursor = interactive ? 'pointer' : '';
       });
     };
 
@@ -331,9 +342,14 @@ export const BuilderMap = memo(function BuilderMap({
       map.off('click', handleClick);
       cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
-      if (map.getCanvas()) map.getCanvas().style.cursor = '';
+      try {
+        const canvas = map.getCanvas();
+        if (canvas) canvas.style.cursor = '';
+      } catch {
+        // Map already torn down — nothing to reset.
+      }
     };
-  }, [mapReady, t]);
+  }, [mapReady, t, lookupHitLayer]);
 
   // Structural key: only changes when layers are added/removed/reordered/toggled —
   // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).
@@ -490,7 +506,6 @@ export const BuilderMap = memo(function BuilderMap({
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         {popupInfo && (
           <FeaturePopup
-            key={`${popupInfo.longitude}-${popupInfo.latitude}`}
             longitude={popupInfo.longitude}
             latitude={popupInfo.latitude}
             features={popupInfo.features}

@@ -758,9 +758,9 @@ export interface MapLayerResponse {
   paint: Record<string, unknown>;
   layout: Record<string, unknown>;
   filter: FilterSpecification | null;
-  label_config?: LabelConfig | null;
-  popup_config?: PopupConfig | null;
-  style_config?: StyleConfig | null;
+  label_config: LabelConfig | null;
+  popup_config: PopupConfig | null;
+  style_config: StyleConfig | null;
   layer_type?: MapLayerType | null;
   dataset_record_type?: RecordType | null;
   show_in_legend?: boolean;
@@ -878,9 +878,9 @@ export interface SharedLayerResponse {
   paint: Record<string, unknown>;
   layout: Record<string, unknown>;
   filter: FilterSpecification | null;
-  label_config?: LabelConfig | null;
-  popup_config?: PopupConfig | null;
-  style_config?: StyleConfig | null;
+  label_config: LabelConfig | null;
+  popup_config: PopupConfig | null;
+  style_config: StyleConfig | null;
   show_in_legend?: boolean;
   layer_type?: MapLayerType;
   dataset_record_type?: RecordType;
