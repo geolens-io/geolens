@@ -26,7 +26,9 @@
   3. Every page URL served by the docs site uses the `/guides/` prefix — no flat `/install` or `/admin` paths exist
   4. `npx astro check` passes in CI with zero type errors on the skeleton scaffold
   5. `site: 'https://docs.getgeolens.com'` is set in `astro.config.mjs` and canonical `<link rel="canonical">` resolves to `docs.getgeolens.com` in the built output
-**Plans**: TBD
+**Plans:** 2 plans
+- [ ] 223-01-PLAN.md — Docs subtree scaffold: package.json, astro.config.mjs (site, sidebar /guides/ groups, noindex meta), stub homepage, custom.css placeholder, robots.txt (Disallow: /), _redirects (3 rules per legacy path), tsconfig, wrangler.toml, .nvmrc, verify-build.sh
+- [ ] 223-02-PLAN.md — Deploy & production cutover: docs-ci.yml workflow (check → build → verify-build.sh → cloudflare/pages-action@v1), marketing ci.yml paths-ignore patch, CF Pages dashboard project creation, custom domain attachment with TLS verification (manual checkpoint)
 
 ### Phase 224: Brand, Shell & Search
 **Goal**: The docs site looks and feels like a GeoLens property — primary blue accent (not Starlight default purple), Inter font, dark/light parity with the marketing site — and all shell navigation (sidebar, prev/next, breadcrumbs, 404, last-updated, edit links, search, cross-site nav) works correctly before any content is written.
@@ -94,7 +96,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 223. Bootstrap & Infrastructure Lock | 0/? | Not started | - |
+| 223. Bootstrap & Infrastructure Lock | 0/2 | Not started | - |
 | 224. Brand, Shell & Search | 0/? | Not started | - |
 | 225. API Reference | 0/? | Not started | - |
 | 226. Quickstart & Install Guide | 0/? | Not started | - |
