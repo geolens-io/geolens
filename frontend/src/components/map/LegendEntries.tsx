@@ -10,6 +10,7 @@ interface SwatchStyle {
   outlineColor?: string;
   strokeDisabled?: boolean;
   opacity?: number;
+  fillOpacity?: number;
 }
 
 function swatchStyle(color: string, s?: SwatchStyle): React.CSSProperties {
@@ -17,6 +18,7 @@ function swatchStyle(color: string, s?: SwatchStyle): React.CSSProperties {
     backgroundColor: color,
     ...(!s?.strokeDisabled ? { borderColor: s?.outlineColor ?? MAP_COLORS.legendOutline } : {}),
     ...(s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : {}),
+    ...(s?.fillOpacity !== undefined && s.fillOpacity < 1 ? { opacity: (s?.opacity ?? 1) * s.fillOpacity } : {}),
   };
 }
 
@@ -44,6 +46,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <circle
           cx="7" cy="7" r="5"
           fill={color}
+          fillOpacity={s?.fillOpacity}
           stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
           strokeWidth={s?.strokeDisabled ? 0 : 1}
         />
@@ -58,6 +61,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <line
           x1="1" y1="7" x2="13" y2="7"
           stroke={color}
+          strokeOpacity={s?.fillOpacity}
           strokeWidth={2.5}
           strokeLinecap="round"
         />
@@ -137,7 +141,7 @@ export function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, styl
             <circle
               cx="12" cy="12"
               r={Math.min(size, 12)}
-              fill={colors?.[Math.min(i, colors.length - 1)] ?? circleColor} fillOpacity={0.8}
+              fill={colors?.[Math.min(i, colors.length - 1)] ?? circleColor} fillOpacity={s?.fillOpacity ?? 1}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
               strokeWidth={s?.strokeDisabled ? 0 : 1}
             />
@@ -164,7 +168,7 @@ export function GraduatedWidthLegend({ sizes, breaks, lineColor, style: s }: Gra
       {sizes.map((size, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <svg width="24" height="16" className="shrink-0" style={s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : undefined}>
-            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
+            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
           </svg>
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
         </li>
