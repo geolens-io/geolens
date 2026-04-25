@@ -40,7 +40,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const columns = layer.dataset_column_info ?? [];
   const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
   const isRaster = caps.kind !== 'vector';
-  const isHeatmap = (layer.style_config as Record<string, unknown> | undefined)?.render_mode === 'heatmap';
+  const isHeatmap = layer.style_config?.render_mode === 'heatmap';
   const layerColors = useMemo(() => getLayerColors(layer), [layer]);
   const styleHints = useMemo(
     () => extractStyleHints(
