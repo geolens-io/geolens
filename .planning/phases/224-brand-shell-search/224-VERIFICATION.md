@@ -1,16 +1,27 @@
 ---
 phase: 224-brand-shell-search
 verified: 2026-04-25T23:45:00Z
-status: human_needed
-score: 12/13 must-haves verified
+re_verified: 2026-04-26T00:05:00Z
+status: gaps_found
+score: 12/13 must-haves verified, 2 human items confirmed via Playwright, 1 new gap found
 overrides_applied: 0
 human_verification:
   - test: "Open docs site in browser at localhost (npm run preview in getgeolens.com/docs/). Verify accent color is blue (hue ~250), NOT Starlight's default purple, in both light and dark modes. Confirm link text and body text pass WCAG AA contrast."
     expected: "Blue accent visible on sidebar active states, links, focus rings, and button backgrounds in both modes. No purple visible. Contrast ratios >= 4.5:1 for normal text, >= 3:1 for large text."
-    why_human: "WCAG AA contrast and accurate color perception require visual browser inspection. CSS variables resolve at render time — static file inspection confirms the token values but not the rendered appearance or contrast ratio against actual Starlight background colors."
+    result: passed
+    evidence: "Playwright probe (light + dark): --sl-color-accent = oklch(.46 .16 250) light / oklch(.7 .16 250) dark; active sidebar bg = oklch(0.46 0.16 250), text = white (~5.83:1 ratio, AA pass). Body text contrast 11.71:1 (AAA). Hue 250 throughout — no purple. Inter Variable loaded (7 weights). Screenshots: brand-light-mode.png, brand-dark-mode.png."
   - test: "Open docs site in browser. Press Ctrl+K (or Cmd+K on macOS). Verify Pagefind search dialog opens. Type a word that appears in the placeholder pages (e.g. 'quickstart'). Verify results are returned. Press Escape — verify dialog closes."
     expected: "Dialog opens on Ctrl+K/Cmd+K, returns at least one result for 'quickstart', closes on Escape."
-    why_human: "Pagefind dialog is JavaScript-driven at runtime. The pagefind.js and pagefind-entry.json files exist in dist/ (verified), but whether the keyboard binding actually works requires a running browser. SEARCH-03 is explicitly a browser probe per Plan 04."
+    result: passed
+    evidence: "Playwright probe: Cmd+K opened <dialog open>, focused .pagefind-ui__search-input. Typing 'quickstart' returned 2 results ('Quickstart (coming soon)', 'GeoLens Documentation'). Escape closed the dialog (dialog.open = false)."
+gaps:
+  - id: SHELL-05-layout-collision
+    severity: medium
+    plan: 224-04
+    file: getgeolens.com/docs/src/components/DocsHeader.astro
+    problem: "DocsHeader.astro renders the back-link as the first child of <header>, but Starlight's default header (rendered via the component slot) also positions itself starting at x=24 — same coordinate as the back-link. Result: 'GeoLens Docs' site title and '← getgeolens.com' back-link visually overlap in both light and dark modes."
+    evidence: "Bounding rects via Playwright: back-link {x:24, y:0, w:122.8, h:63}, site-title {x:24, y:10.5, w:167.6, h:42} — overlap=true. Visible in brand-light-mode.png and brand-dark-mode.png."
+    fix_hint: "Wrap the slot in a flex/grid container that reserves space for the back-link, OR move the back-link inside an absolutely-positioned wrapper that does not collide with the slot bounding box. Plan 04 SUMMARY mentions DocsHeader 'wraps Starlight's default Header.astro' but the wrapper does not displace the inner site-title."
 ---
 
 # Phase 224: Brand, Shell & Search Verification Report
