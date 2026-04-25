@@ -80,6 +80,107 @@ export function extractStyleHints(
   return hints;
 }
 
+interface IconSubProps {
+  colors: string[];
+  layerId: string;
+  opacityStyle?: React.CSSProperties;
+  styleHints?: StyleHints;
+}
+
+function HeatmapIcon({ colors, layerId, opacityStyle }: IconSubProps) {
+  const gradientId = `layer-heat-${layerId}`;
+  return (
+    <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
+      <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
+        <defs>
+          <radialGradient id={gradientId}>
+            {colors.map((c, i) => (
+              <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+            ))}
+          </radialGradient>
+        </defs>
+        <circle cx="7" cy="7" r="6.5" fill={`url(#${gradientId})`} />
+      </svg>
+    </span>
+  );
+}
+
+function LineIcon({ colors, layerId, opacityStyle, styleHints }: IconSubProps) {
+  const rawSW = styleHints?.strokeWidth;
+  const svgStrokeWidth = rawSW !== undefined ? (rawSW <= 1.5 ? 2 : rawSW > 4 ? 4.5 : 3) : 3;
+  const color = colors[0] ?? '#6366f1';
+  const hasGradient = colors.length > 1;
+  const gradientId = `layer-grad-${layerId}`;
+  const dashArray = styleHints?.dashPattern
+    ? styleHints.dashPattern.map((v) => v * 1.5).join(' ')
+    : undefined;
+  const strokeColor = hasGradient ? `url(#${gradientId})` : color;
+
+  return (
+    <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
+      <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
+        {hasGradient && (
+          <defs>
+            <linearGradient id={gradientId}>
+              {colors.map((c, i) => (
+                <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+              ))}
+            </linearGradient>
+          </defs>
+        )}
+        <line x1="1" y1="7" x2="13" y2="7" stroke={strokeColor} strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} />
+      </svg>
+    </span>
+  );
+}
+
+function ShapeIcon({ colors, layerId, opacityStyle, styleHints, isPoint }: IconSubProps & { isPoint: boolean }) {
+  let sizeClass = 'h-3.5 w-3.5';
+  if (isPoint && styleHints?.radius !== undefined) {
+    sizeClass = styleHints.radius <= 3 ? 'h-2.5 w-2.5' : styleHints.radius > 7 ? 'h-4.5 w-4.5' : 'h-3.5 w-3.5';
+  }
+  const Icon = isPoint ? Circle : Pentagon;
+  const showOutline = !styleHints?.strokeDisabled;
+
+  if (colors.length <= 1) {
+    const color = colors[0] ?? '#6366f1';
+    const stroke = isPoint
+      ? (styleHints?.strokeColor ? { stroke: styleHints.strokeColor, strokeWidth: 2 } : { strokeWidth: 0 })
+      : showOutline
+        ? { stroke: styleHints?.strokeColor ?? darkenColor(color), strokeWidth: 2.5 }
+        : { strokeWidth: 0 };
+    return (
+      <span style={opacityStyle} className="inline-flex">
+        <Icon className={sizeClass} fill={color} {...stroke} />
+      </span>
+    );
+  }
+
+  const gradientId = `layer-grad-${layerId}`;
+  const stroke = !isPoint && showOutline
+    ? { stroke: styleHints?.strokeColor ?? '#666666', strokeWidth: 2.5 }
+    : styleHints?.strokeColor
+      ? { stroke: styleHints.strokeColor, strokeWidth: 1.5 }
+      : { strokeWidth: 0 };
+
+  return (
+    <span className="relative inline-flex" style={opacityStyle}>
+      <span className={`relative inline-flex ${sizeClass}`}>
+        <svg width="0" height="0" className="absolute">
+          <defs>
+            <linearGradient id={gradientId}>
+              {colors.map((c, i) => (
+                <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+              ))}
+            </linearGradient>
+          </defs>
+        </svg>
+        <Icon className={sizeClass} fill={`url(#${gradientId})`} {...stroke} />
+      </span>
+    </span>
+  );
+}
+
 export function ColorizedGeometryIcon({
   geometryType,
   colors,
@@ -93,171 +194,17 @@ export function ColorizedGeometryIcon({
   layerType?: string;
   styleHints?: StyleHints;
 }) {
-  // Raster/VRT layers use muted gray icons — no color tinting
-  if (layerType === 'vrt') {
-    return <Layers className="h-3.5 w-3.5 text-muted-foreground" />;
-  }
-  if (layerType === 'raster') {
-    return <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />;
-  }
+  if (layerType === 'vrt') return <Layers className="h-3.5 w-3.5 text-muted-foreground" />;
+  if (layerType === 'raster') return <Grid3x3 className="h-3.5 w-3.5 text-muted-foreground" />;
 
   const gt = (geometryType ?? '').toUpperCase();
-  const isLine = gt.includes('LINE');
-  const isPoint = gt.includes('POINT');
-  const isHeatmap = styleHints?.isHeatmap;
-
-  // Combine master opacity and paint-level opacity for the icon
   const compoundOpacity = (styleHints?.opacity ?? 1) * (styleHints?.fillOpacity ?? 1);
-  const opacityStyle: React.CSSProperties | undefined =
-    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const opacityStyle: React.CSSProperties | undefined = compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const sub: IconSubProps = { colors, layerId, opacityStyle, styleHints };
 
-  // --- Heatmap rendering: radial gradient blob ---
-  if (isHeatmap && colors.length > 1) {
-    const gradientId = `layer-heat-${layerId}`;
-    return (
-      <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
-        <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
-          <defs>
-            <radialGradient id={gradientId}>
-              {colors.map((c, i) => (
-                <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
-              ))}
-            </radialGradient>
-          </defs>
-          <circle cx="7" cy="7" r="6.5" fill={`url(#${gradientId})`} />
-        </svg>
-      </span>
-    );
-  }
-
-  // --- Line rendering ---
-  if (isLine) {
-    // Map strokeWidth to 3 tiers
-    const rawSW = styleHints?.strokeWidth;
-    const svgStrokeWidth = rawSW !== undefined
-      ? (rawSW <= 1.5 ? 2 : rawSW > 4 ? 4.5 : 3)
-      : 3;
-
-    const color = colors[0] ?? '#6366f1';
-    const hasGradient = colors.length > 1;
-    const gradientId = `layer-grad-${layerId}`;
-
-    // Scale dash values for the 14px icon
-    const dashArray = styleHints?.dashPattern
-      ? styleHints.dashPattern.map((v) => v * 1.5).join(' ')
-      : undefined;
-
-    const strokeColor = hasGradient ? `url(#${gradientId})` : color;
-
-    return (
-      <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
-        <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
-          {hasGradient && (
-            <defs>
-              <linearGradient id={gradientId}>
-                {colors.map((c, i) => (
-                  <stop
-                    key={i}
-                    offset={`${(i / (colors.length - 1)) * 100}%`}
-                    stopColor={c}
-                  />
-                ))}
-              </linearGradient>
-            </defs>
-          )}
-          <line
-            x1="1"
-            y1="7"
-            x2="13"
-            y2="7"
-            stroke={strokeColor}
-            strokeWidth={svgStrokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={dashArray}
-          />
-        </svg>
-      </span>
-    );
-  }
-
-  // --- Circle radius → icon size ---
-  let sizeClass = 'h-3.5 w-3.5';
-  if (isPoint && styleHints?.radius !== undefined) {
-    sizeClass = styleHints.radius <= 3
-      ? 'h-2.5 w-2.5'
-      : styleHints.radius > 7
-        ? 'h-4.5 w-4.5'
-        : 'h-3.5 w-3.5';
-  }
-
-  const Icon = isPoint ? Circle : Pentagon;
-
-  // Single color
-  if (colors.length <= 1) {
-    const color = colors[0] ?? '#6366f1';
-
-    if (isPoint && styleHints?.strokeColor) {
-      return (
-        <span style={opacityStyle} className="inline-flex">
-          <Icon className={sizeClass} fill={color} stroke={styleHints.strokeColor} strokeWidth={2} />
-        </span>
-      );
-    }
-
-    // Polygon — show outline unless stroke is disabled
-    if (!isPoint) {
-      if (styleHints?.strokeDisabled) {
-        return (
-          <span style={opacityStyle} className="inline-flex">
-            <Icon className={sizeClass} fill={color} strokeWidth={0} />
-          </span>
-        );
-      }
-      const outlineColor = styleHints?.strokeColor ?? darkenColor(color);
-      return (
-        <span style={opacityStyle} className="inline-flex">
-          <Icon className={sizeClass} fill={color} stroke={outlineColor} strokeWidth={2.5} />
-        </span>
-      );
-    }
-
-    return (
-      <span style={opacityStyle} className="inline-flex">
-        <Icon className={sizeClass} fill={color} strokeWidth={0} />
-      </span>
-    );
-  }
-
-  // Multi-color gradient
-  const gradientId = `layer-grad-${layerId}`;
-  return (
-    <span className="relative inline-flex" style={opacityStyle}>
-      <span className={`relative inline-flex ${sizeClass}`}>
-        <svg width="0" height="0" className="absolute">
-          <defs>
-            <linearGradient id={gradientId}>
-              {colors.map((c, i) => (
-                <stop
-                  key={i}
-                  offset={`${(i / (colors.length - 1)) * 100}%`}
-                  stopColor={c}
-                />
-              ))}
-            </linearGradient>
-          </defs>
-        </svg>
-        {!isPoint && !styleHints?.strokeDisabled ? (
-          <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints?.strokeColor ?? '#666666'} strokeWidth={2.5} />
-        ) : !isPoint && styleHints?.strokeDisabled ? (
-          <Icon className={sizeClass} fill={`url(#${gradientId})`} strokeWidth={0} />
-        ) : styleHints?.strokeColor ? (
-          <Icon className={sizeClass} fill={`url(#${gradientId})`} stroke={styleHints.strokeColor} strokeWidth={1.5} />
-        ) : (
-          <Icon className={sizeClass} fill={`url(#${gradientId})`} strokeWidth={0} />
-        )}
-      </span>
-    </span>
-  );
+  if (styleHints?.isHeatmap && colors.length > 1) return <HeatmapIcon {...sub} />;
+  if (gt.includes('LINE')) return <LineIcon {...sub} />;
+  return <ShapeIcon {...sub} isPoint={gt.includes('POINT')} />;
 }
 
 export function getLayerColors(layer: Pick<MapLayerResponse, 'dataset_geometry_type' | 'paint' | 'style_config'>): string[] {

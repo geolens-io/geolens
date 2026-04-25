@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from './StyleColorPicker';
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
+import { LazyLoadErrorBoundary } from '@/components/error';
 import { getLayerType } from '@/components/builder/map-sync';
 import { isNumericColumn } from '@/lib/column-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
@@ -204,12 +205,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
       {/* Data-driven style editor — hidden when in heatmap mode */}
       {renderMode !== 'heatmap' && (
-        <Suspense fallback={null}>
-          <DataDrivenStyleEditor
-            layer={layer}
-            onStyleConfigChange={onStyleConfigChange}
-          />
-        </Suspense>
+        <LazyLoadErrorBoundary>
+          <Suspense fallback={null}>
+            <DataDrivenStyleEditor
+              layer={layer}
+              onStyleConfigChange={onStyleConfigChange}
+            />
+          </Suspense>
+        </LazyLoadErrorBoundary>
       )}
 
       {/* Flat color controls */}
