@@ -229,7 +229,7 @@ class SearchQueryParams(_BaseModel):
     )
     sort_desc: bool | None = Query(None, description="Sort direction override")
     offset: int = Query(0, ge=0, description="Pagination offset")
-    limit: int = Query(10, ge=1, le=1000, description="Page size")
+    limit: int = Query(10, ge=1, le=200, description="Page size")
     cql2_filter: str | None = Query(
         None,
         max_length=10000,
@@ -732,6 +732,7 @@ collections_router = APIRouter(prefix="/collections", tags=["OGC Features"])
 
 _COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
 _COLLECTION_META_TTL = 60  # seconds
+_COLLECTION_META_MAX_SIZE = 200
 
 
 def _invalidate_collection_meta_cache() -> None:
@@ -911,8 +912,11 @@ async def _build_collection_metadata(
     if summaries:
         collection["summaries"] = summaries
 
-    # Store in cache
+    # Store in cache — evict oldest entries if over max size
     _COLLECTION_META_CACHE[cache_key] = (time.monotonic(), collection)
+    if len(_COLLECTION_META_CACHE) > _COLLECTION_META_MAX_SIZE:
+        oldest_key = min(_COLLECTION_META_CACHE, key=lambda k: _COLLECTION_META_CACHE[k][0])
+        _COLLECTION_META_CACHE.pop(oldest_key, None)
 
     return collection
 
