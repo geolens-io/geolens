@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
-import { MAP_COLORS } from '@/lib/map-colors';
 import { breakLabel } from '@/lib/legend-utils';
+import { getLayerColors } from '@/components/map/layer-icons';
 import { GeometrySwatch, HeatmapLegend } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 
@@ -12,21 +12,6 @@ interface LayerLegendProps {
   onToggleVisibility: (sortOrder: number) => void;
   isOpen: boolean;
   onToggle: () => void;
-}
-
-function getSwatchColor(layer: SharedLayerResponse): string {
-  const paint = layer.paint as Record<string, unknown>;
-  if (!paint) return MAP_COLORS.default.fill;
-
-  const gt = (layer.geometry_type ?? '').toUpperCase();
-  let colorVal: unknown;
-  if (gt.includes('POINT')) colorVal = paint['circle-color'];
-  else if (gt.includes('LINE')) colorVal = paint['line-color'];
-  else colorVal = paint['fill-color'];
-
-  // If data-driven (expression array or object), return fallback
-  if (typeof colorVal !== 'string') return MAP_COLORS.default.fill;
-  return colorVal;
 }
 
 /** Accessible swatch + label used inside a <dl> */
@@ -106,9 +91,14 @@ export function LayerLegend({
             const isVisible = visibleLayers.has(layer.sort_order);
             const sc = layer.style_config;
             const isHeatmap = sc?.render_mode === 'heatmap';
-            const color = isHeatmap ? null : getSwatchColor(layer);
+            const color = isHeatmap ? null : getLayerColors({
+              dataset_geometry_type: layer.geometry_type ?? null,
+              paint: layer.paint ?? {},
+              style_config: sc,
+            })[0];
             const layerName = layer.display_name || layer.dataset_name;
-            const outlineColor = (layer.paint as Record<string, unknown>)?.['_outline-color'] as string | undefined;
+            const rawOutline = layer.paint?.['_outline-color'];
+            const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
             return (
               <li key={layer.sort_order} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
@@ -136,7 +126,7 @@ export function LayerLegend({
                     <div className="mt-1.5 ms-6">
                       <HeatmapLegend
                         name=""
-                        rampName={((layer.paint as Record<string, unknown>)?.['_heatmap-ramp'] as string) ?? sc.ramp ?? 'YlOrRd'}
+                        rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? sc.ramp ?? 'YlOrRd'}
                         opacity={layer.opacity ?? 1}
                         lowLabel={t('viewer.heatmapLow')}
                         highLabel={t('viewer.heatmapHigh')}
@@ -147,9 +137,12 @@ export function LayerLegend({
                       {sc.mode === 'categorical' && sc.categories?.map((cat, i) => (
                         <LegendSwatch key={i} color={cat.color} label={cat.value} geometryType={layer.geometry_type} outlineColor={outlineColor} />
                       ))}
-                      {sc.mode === 'graduated' && sc.breaks && sc.colors?.map((clr, i) => (
-                        <LegendSwatch key={i} color={clr} label={breakLabel(i, sc.breaks!)} geometryType={layer.geometry_type} outlineColor={outlineColor} />
-                      ))}
+                      {sc.mode === 'graduated' && sc.colors?.map((clr, i) => {
+                        const breaks = sc.breaks ?? [];
+                        return (
+                          <LegendSwatch key={i} color={clr} label={breakLabel(i, breaks)} geometryType={layer.geometry_type} outlineColor={outlineColor} />
+                        );
+                      })}
                     </dl>
                   )
                 )}
