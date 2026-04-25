@@ -2,21 +2,16 @@
 gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 223 file tasks complete (Plans 01 + 02); Plan 02 Task 3 (CF Pages dashboard + custom domain + TLS + probe PRs) DEFERRED — operator developing docs locally; live deploy to be run before Phase 228 ships
-last_updated: "2026-04-25T19:14:18Z"
-last_activity: "2026-04-25 - Phase 223-02 finalized — file tasks complete (getgeolens.com@8726935 + 836076d); deploy verification deferred (see 223-02-SUMMARY.md Deferred Verification section)"
+status: planning
+stopped_at: Phase 224 UI-SPEC approved
+last_updated: "2026-04-25T21:17:43.154Z"
+last_activity: "2026-04-25 - Completed quick task 260425-lbc: Fix map overlay positioning conflicts"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
-  percent: 17
-  deferred_items:
-    - "DEPLOY-01: CF Pages getgeolens-docs project creation (deferred to operator — see 223-02-SUMMARY.md Step 1-2)"
-    - "DEPLOY-02: Build-isolation probe PRs live validation (deferred — see 223-02-SUMMARY.md Step 6)"
-    - "DEPLOY-03: docs.getgeolens.com custom domain + TLS (deferred — see 223-02-SUMMARY.md Step 4-5)"
-    - "DEPLOY-04: PR preview *.pages.dev bot comment (deferred — see 223-02-SUMMARY.md Step 7)"
+  percent: 100
 ---
 
 # Project State
@@ -103,8 +98,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-25T19:14:18Z
-Stopped at: Phase 223 file tasks complete (Plans 01 + 02); Plan 02 Task 3 deferred to operator. Ready for Phase 224 (Brand, Shell & Search) or operator-led deploy resume (.planning/phases/223-bootstrap-infrastructure-lock/223-02-SUMMARY.md "Deferred Verification" section).
-Resume file: .planning/phases/223-bootstrap-infrastructure-lock/223-02-SUMMARY.md
+Last session: --stopped-at
+Stopped at: Phase 224 UI-SPEC approved
+Resume file: --resume-file
 
 **Planned Phase:** 223 (Bootstrap & Infrastructure Lock) — 2 plans — 2026-04-25T17:13:13.520Z
