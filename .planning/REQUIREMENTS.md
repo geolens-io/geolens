@@ -22,10 +22,10 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 
 ### Deploy & Hosting
 
-- [ ] **DEPLOY-01**: Second Cloudflare Pages project (e.g. `geolens-docs`) created from the same `getgeolens-com` repo, with `rootDirectory: docs` and `Build Watch Paths` configured so docs and marketing builds do not cross-trigger
-- [ ] **DEPLOY-02**: GitHub Actions workflow `deploy-docs.yml` filters on `paths: ['docs/**']` so only docs changes trigger docs deploys; existing marketing-site workflow gets a corresponding `paths-ignore` for `docs/**`
-- [ ] **DEPLOY-03**: Custom domain `docs.getgeolens.com` mapped via Cloudflare Pages with TLS auto-provisioning verified in production
-- [ ] **DEPLOY-04**: PR preview deploys work for docs PRs at `*.pages.dev`, mirroring the existing marketing-site workflow
+- [ ] **DEPLOY-01**: Second Cloudflare Pages project (e.g. `geolens-docs`) created from the same `getgeolens-com` repo, with `rootDirectory: docs` and `Build Watch Paths` configured so docs and marketing builds do not cross-trigger — *infrastructure ready (phase 223); operator dashboard work deferred, see 223-HUMAN-UAT.md*
+- [ ] **DEPLOY-02**: GitHub Actions workflow `deploy-docs.yml` filters on `paths: ['docs/**']` so only docs changes trigger docs deploys; existing marketing-site workflow gets a corresponding `paths-ignore` for `docs/**` — *YAMLs shipped (phase 223); live PR probes deferred, see 223-HUMAN-UAT.md*
+- [ ] **DEPLOY-03**: Custom domain `docs.getgeolens.com` mapped via Cloudflare Pages with TLS auto-provisioning verified in production — *deferred to operator, see 223-HUMAN-UAT.md*
+- [ ] **DEPLOY-04**: PR preview deploys work for docs PRs at `*.pages.dev`, mirroring the existing marketing-site workflow — *workflow has `permissions.pull-requests: write`; live PR probe deferred, see 223-HUMAN-UAT.md*
 
 ### Brand & Theming
 
@@ -146,16 +146,16 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BOOT-01 | Phase 223 | Pending |
-| BOOT-02 | Phase 223 | Pending |
-| BOOT-03 | Phase 223 | Pending |
-| BOOT-04 | Phase 223 | Pending |
+| BOOT-01 | Phase 223 | Complete |
+| BOOT-02 | Phase 223 | Complete |
+| BOOT-03 | Phase 223 | Complete |
+| BOOT-04 | Phase 223 | Complete |
 | DEPLOY-01 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
 | DEPLOY-02 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
 | DEPLOY-03 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
 | DEPLOY-04 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
-| MIG-02 | Phase 223 | Pending |
-| SEO-05 | Phase 223 | Pending |
+| MIG-02 | Phase 223 | Complete |
+| SEO-05 | Phase 223 | Complete |
 | SEO-06 | Phase 223 | Pending |
 | CI-02 | Phase 223 | Complete — `npx astro check` step in docs-ci.yml (getgeolens.com@8726935) |
 | BRAND-01 | Phase 224 | Pending |

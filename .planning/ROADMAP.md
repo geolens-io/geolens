@@ -7,7 +7,7 @@
 
 ## Phases
 
-- [ ] **Phase 223: Bootstrap & Infrastructure Lock** — Starlight scaffold, CF Pages multi-project, deploy pipeline, URL structure, token bridge, redirects stub, version pin, CI scaffolding
+- [x] **Phase 223: Bootstrap & Infrastructure Lock** — Starlight scaffold, CF Pages multi-project, deploy pipeline, URL structure, token bridge, redirects stub, version pin, CI scaffolding (completed 2026-04-25)
 - [ ] **Phase 224: Brand, Shell & Search** — Full OKLCH token bridge, Inter font, dark/light parity, sidebar groups, shell components (prev/next, edit-this-page, 404, last-updated), Pagefind config, cross-site nav links, OG image pipeline, llms.txt
 - [ ] **Phase 225: API Reference** — openapi.json snapshot script, starlight-openapi plugin, API auth and OGC hand-authored sections, snapshot freshness README
 - [ ] **Phase 226: Quickstart & Install Guide** — Migrate and expand backend/docs/install.md, topology diagram, screenshots, expected outcomes, legacy stub replacement
@@ -26,7 +26,7 @@
   3. Every page URL served by the docs site uses the `/guides/` prefix — no flat `/install` or `/admin` paths exist
   4. `npx astro check` passes in CI with zero type errors on the skeleton scaffold
   5. `site: 'https://docs.getgeolens.com'` is set in `astro.config.mjs` and canonical `<link rel="canonical">` resolves to `docs.getgeolens.com` in the built output
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 - [x] 223-01-PLAN.md — Docs subtree scaffold: package.json, astro.config.mjs (site, sidebar /guides/ groups, noindex meta), stub homepage, custom.css placeholder, robots.txt (Disallow: /), _redirects (3 rules per legacy path), tsconfig, wrangler.toml, .nvmrc, verify-build.sh ✓ shipped 2026-04-25 (getgeolens.com@77b7c63)
 - [~] 223-02-PLAN.md — Deploy & production cutover: docs-ci.yml + marketing ci.yml paths-ignore patch shipped 2026-04-25 (getgeolens.com@8726935 + 836076d). **CF Pages dashboard / custom domain / TLS / probe PRs DEFERRED** — operator developing docs locally; resume steps preserved in 223-02-SUMMARY.md "Deferred Verification" section. Phase 228 must close this loop before launch.
 
@@ -96,7 +96,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 223. Bootstrap & Infrastructure Lock | 2/2 (file tasks) | Files complete; deploy verification deferred | 2026-04-25 (file tasks) |
+| 223. Bootstrap & Infrastructure Lock | 2/2 | Complete    | 2026-04-25 |
 | 224. Brand, Shell & Search | 0/? | Not started | - |
 | 225. API Reference | 0/? | Not started | - |
 | 226. Quickstart & Install Guide | 0/? | Not started | - |
