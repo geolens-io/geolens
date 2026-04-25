@@ -14,6 +14,12 @@ export interface SwatchStyle {
   strokeWidth?: number;
 }
 
+/** Compute compound opacity style from swatch style. */
+function swatchOpacityStyle(s?: SwatchStyle): React.CSSProperties | undefined {
+  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
+  return compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+}
+
 /* ── Geometry-aware swatch ─────────────────────────── */
 
 interface GeometrySwatchProps {
@@ -24,9 +30,7 @@ interface GeometrySwatchProps {
 
 export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatchProps) {
   const gt = (geometryType ?? '').toUpperCase();
-  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
-  const opacityStyle: React.CSSProperties | undefined =
-    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const opacityStyle = swatchOpacityStyle(s);
 
   // Point: filled circle
   if (gt.includes('POINT')) {
@@ -62,7 +66,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
     backgroundColor: color,
     ...(borderColor ? { borderColor } : {}),
     ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
-    ...(compoundOpacity < 1 ? { opacity: compoundOpacity } : {}),
+    ...opacityStyle,
   };
   return (
     <div
@@ -128,9 +132,7 @@ interface GraduatedRadiusLegendProps {
 
 export const GraduatedRadiusLegend = memo(function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, style: s }: GraduatedRadiusLegendProps) {
   const safeColors = colors?.length ? colors : undefined;
-  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
-  const opacityStyle: React.CSSProperties | undefined =
-    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const opacityStyle = swatchOpacityStyle(s);
   return (
     <ul className="space-y-0.5">
       {sizes.map((size, i) => (
@@ -161,9 +163,7 @@ interface GraduatedWidthLegendProps {
 }
 
 export const GraduatedWidthLegend = memo(function GraduatedWidthLegend({ sizes, breaks, lineColor, style: s }: GraduatedWidthLegendProps) {
-  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
-  const opacityStyle: React.CSSProperties | undefined =
-    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+  const opacityStyle = swatchOpacityStyle(s);
   return (
     <ul className="space-y-0.5">
       {sizes.map((size, i) => (

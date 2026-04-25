@@ -143,7 +143,7 @@ function syncVectorLayer(
   adapterInput.tileUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
   desiredSources.add(sourceId);
 
-  const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
+  const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
   const adapter = getAdapter(type);
 
   // GeoJSON-Z branch: 3D small datasets use GeoJSON source instead of MVT

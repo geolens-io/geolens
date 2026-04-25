@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
-import { breakLabel } from '@/lib/legend-utils';
 import { getLayerColors } from '@/components/map/layer-icons';
-import { GeometrySwatch, HeatmapLegend } from '@/components/map/LegendEntries';
+import { CategoricalLegend, GeometrySwatch, GraduatedColorLegend, HeatmapLegend } from '@/components/map/LegendEntries';
+import type { SwatchStyle } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 
 interface LayerLegendProps {
@@ -14,19 +14,18 @@ interface LayerLegendProps {
   onToggle: () => void;
 }
 
-/** Accessible swatch + label used inside a <dl> */
-function LegendSwatch({ color, label, geometryType, outlineColor }: {
-  color: string; label: string; geometryType?: string | null; outlineColor?: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <dt className="sr-only">{label}</dt>
-      <dd className="flex items-center gap-1.5">
-        <GeometrySwatch geometryType={geometryType} color={color} style={{ outlineColor }} />
-        <span className="text-[11px] text-muted-foreground truncate">{label}</span>
-      </dd>
-    </div>
-  );
+/** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
+function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
+  const rawOutline = layer.paint?.['_outline-color'];
+  const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
+  const rawStrokeW = layer.paint?.['circle-stroke-width'] ?? layer.paint?.['_outline-width'];
+  const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
+  const gt = (layer.geometry_type ?? '').toUpperCase();
+  const rawFillOp = gt.includes('POINT')
+    ? layer.paint?.['circle-opacity']
+    : gt.includes('LINE') ? layer.paint?.['line-opacity'] : layer.paint?.['fill-opacity'];
+  const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
+  return { outlineColor, opacity: layer.opacity ?? 1, fillOpacity, strokeWidth };
 }
 
 export function LayerLegend({
@@ -97,8 +96,6 @@ export function LayerLegend({
               style_config: sc,
             })[0];
             const layerName = layer.display_name || layer.dataset_name;
-            const rawOutline = layer.paint?.['_outline-color'];
-            const outlineColor = typeof rawOutline === 'string' ? rawOutline : undefined;
             return (
               <li key={layer.sort_order} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
@@ -133,17 +130,14 @@ export function LayerLegend({
                       />
                     </div>
                   ) : (
-                    <dl className="mt-1.5 ms-6 space-y-0.5">
-                      {sc.mode === 'categorical' && sc.categories?.map((cat, i) => (
-                        <LegendSwatch key={i} color={cat.color} label={cat.value} geometryType={layer.geometry_type} outlineColor={outlineColor} />
-                      ))}
-                      {sc.mode === 'graduated' && sc.colors?.map((clr, i) => {
-                        const breaks = sc.breaks ?? [];
-                        return (
-                          <LegendSwatch key={i} color={clr} label={breakLabel(i, breaks)} geometryType={layer.geometry_type} outlineColor={outlineColor} />
-                        );
-                      })}
-                    </dl>
+                    <div className="mt-1.5 ms-6">
+                      {sc.mode === 'categorical' && sc.categories && (
+                        <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
+                      )}
+                      {sc.mode === 'graduated' && sc.colors && (
+                        <GraduatedColorLegend colors={sc.colors} breaks={sc.breaks ?? []} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
+                      )}
+                    </div>
                   )
                 )}
               </li>

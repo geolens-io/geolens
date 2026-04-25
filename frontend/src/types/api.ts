@@ -8,7 +8,7 @@ export type GeometryTypeName =
   | 'GeometryCollection';
 
 /** Layer type discriminator for map layers. */
-export type MapLayerType = 'vector_geolens' | 'raster_geolens';
+export type MapLayerType = 'vector_geolens' | 'raster_geolens' | 'geojson';
 
 export interface TokenResponse {
   access_token: string;
@@ -951,6 +951,7 @@ export interface ChatMapLayer {
   label_config: LabelConfig | null;
   style_config: StyleConfig | null;
   paint: Record<string, unknown> | null;
+  layer_type?: MapLayerType | null;
   dataset_title?: string | null;
   feature_count?: number | null;
   sample_values?: Record<string, unknown[]> | null;

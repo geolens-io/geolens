@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   getAdapter,
+  resolveAdapterType,
   circleAdapter,
   lineAdapter,
   fillAdapter,
   rasterAdapter,
+  heatmapAdapter,
 } from '@/components/builder/layer-adapters';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 
@@ -79,8 +81,63 @@ describe('getAdapter', () => {
     expect(getAdapter('raster')).toBe(rasterAdapter);
   });
 
+  it('returns heatmapAdapter for "heatmap"', () => {
+    expect(getAdapter('heatmap')).toBe(heatmapAdapter);
+  });
+
   it('falls back to circleAdapter for unknown type', () => {
     expect(getAdapter('unknown')).toBe(circleAdapter);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+describe('resolveAdapterType', () => {
+  it('returns heatmap when render_mode is heatmap (overrides geometry)', () => {
+    expect(resolveAdapterType('POINT', { render_mode: 'heatmap' })).toBe('heatmap');
+  });
+
+  it('returns heatmap when render_mode is heatmap and geometry is null', () => {
+    expect(resolveAdapterType(null, { render_mode: 'heatmap' })).toBe('heatmap');
+  });
+
+  it('returns circle for POINT geometry without render_mode', () => {
+    expect(resolveAdapterType('POINT', null)).toBe('circle');
+  });
+
+  it('returns line for LINESTRING geometry', () => {
+    expect(resolveAdapterType('LINESTRING', null)).toBe('line');
+  });
+
+  it('returns fill for POLYGON geometry', () => {
+    expect(resolveAdapterType('POLYGON', null)).toBe('fill');
+  });
+
+  it('infers heatmap from paint keys when geometry is null', () => {
+    expect(resolveAdapterType(null, null, { 'heatmap-radius': 30, 'heatmap-color': 'red' })).toBe('heatmap');
+  });
+
+  it('infers circle from paint keys when geometry is null', () => {
+    expect(resolveAdapterType(null, null, { 'circle-color': '#f00', 'circle-radius': 5 })).toBe('circle');
+  });
+
+  it('infers line from paint keys when geometry is null', () => {
+    expect(resolveAdapterType(null, null, { 'line-color': '#00f', 'line-width': 2 })).toBe('line');
+  });
+
+  it('infers fill from paint keys when geometry is null', () => {
+    expect(resolveAdapterType(null, null, { 'fill-color': '#0f0' })).toBe('fill');
+  });
+
+  it('falls back to fill when geometry is null and paint is empty', () => {
+    expect(resolveAdapterType(null, null, {})).toBe('fill');
+  });
+
+  it('falls back to fill when geometry is null and paint is undefined', () => {
+    expect(resolveAdapterType(null, null, undefined)).toBe('fill');
+  });
+
+  it('geometry type takes priority over paint inference', () => {
+    expect(resolveAdapterType('MULTIPOLYGON', null, { 'circle-color': '#f00' })).toBe('fill');
   });
 });
 

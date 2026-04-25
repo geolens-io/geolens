@@ -82,7 +82,7 @@ export function useLayerMapSync(
         (l) => ({ ...l, paint: newPaint }),
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
+          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, newPaint);
           const adapter = getAdapter(adapterType);
 
           const input: AdapterLayerInput = {
@@ -156,7 +156,7 @@ export function useLayerMapSync(
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
           const outlineId = `layer-${layerId}-outline`;
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config);
+          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
 
           if (layer.layer_type === 'raster_geolens') {
             if (map.getLayer(mapLayerId)) {

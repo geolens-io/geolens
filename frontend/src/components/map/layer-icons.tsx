@@ -1,5 +1,5 @@
 import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
-import { getColorProperty } from '@/lib/color-ramps';
+import { getColorProperty, getRampColors } from '@/lib/color-ramps';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Darken a hex color by reducing each channel by ~30% for outline contrast */
@@ -18,6 +18,7 @@ export interface StyleHints {
   fillOpacity?: number;      // paint-level opacity (circle-opacity, fill-opacity, line-opacity)
   strokeWidth?: number;      // line-width raw value — map to SVG strokeWidth
   radius?: number;           // circle-radius raw value — map to SVG size hint
+  isHeatmap?: boolean;       // render_mode === 'heatmap' — triggers radial gradient icon
 }
 
 /**
@@ -29,9 +30,14 @@ export function extractStyleHints(
   layout: Record<string, unknown>,
   geometryType: string | null,
   opacity?: number,
+  styleConfig?: { render_mode?: string } | null,
 ): StyleHints {
   const gt = (geometryType ?? '').toUpperCase();
   const hints: StyleHints = {};
+
+  if (styleConfig?.render_mode === 'heatmap') {
+    hints.isHeatmap = true;
+  }
 
   if (opacity !== undefined && opacity < 1) {
     hints.opacity = opacity;
@@ -98,11 +104,31 @@ export function ColorizedGeometryIcon({
   const gt = (geometryType ?? '').toUpperCase();
   const isLine = gt.includes('LINE');
   const isPoint = gt.includes('POINT');
+  const isHeatmap = styleHints?.isHeatmap;
 
   // Combine master opacity and paint-level opacity for the icon
   const compoundOpacity = (styleHints?.opacity ?? 1) * (styleHints?.fillOpacity ?? 1);
   const opacityStyle: React.CSSProperties | undefined =
     compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
+
+  // --- Heatmap rendering: radial gradient blob ---
+  if (isHeatmap && colors.length > 1) {
+    const gradientId = `layer-heat-${layerId}`;
+    return (
+      <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
+        <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
+          <defs>
+            <radialGradient id={gradientId}>
+              {colors.map((c, i) => (
+                <stop key={i} offset={`${(i / (colors.length - 1)) * 100}%`} stopColor={c} />
+              ))}
+            </radialGradient>
+          </defs>
+          <circle cx="7" cy="7" r="6.5" fill={`url(#${gradientId})`} />
+        </svg>
+      </span>
+    );
+  }
 
   // --- Line rendering ---
   if (isLine) {
@@ -235,6 +261,11 @@ export function ColorizedGeometryIcon({
 }
 
 export function getLayerColors(layer: Pick<MapLayerResponse, 'dataset_geometry_type' | 'paint' | 'style_config'>): string[] {
+  // Heatmap: extract from ramp name
+  if (layer.style_config?.render_mode === 'heatmap') {
+    const rampName = (layer.paint?.['_heatmap-ramp'] as string) ?? layer.style_config.ramp ?? 'YlOrRd';
+    return getRampColors(rampName, 5);
+  }
   const colorKey = getColorProperty(layer.dataset_geometry_type);
   const value = layer.paint?.[colorKey];
   if (typeof value === 'string') return [value];

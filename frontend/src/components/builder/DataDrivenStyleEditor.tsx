@@ -67,7 +67,10 @@ function computeBreaks(
   } else {
     breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
   }
-  const effectiveClassCount = method === 'quantile' ? breaks.length + 1 : classCount;
+  // Deduplicate: MapLibre step expressions require strictly ascending breaks.
+  // Quantile methods can produce duplicate boundaries when data is heavily clustered.
+  breaks = [...new Set(breaks)];
+  const effectiveClassCount = breaks.length + 1;
   return { breaks, effectiveClassCount };
 }
 
@@ -225,7 +228,7 @@ export function DataDrivenStyleEditor({
       mode: 'graduated',
       column,
       ramp: effectiveRamp,
-      classCount: effectiveClassCount,
+      classCount,
       method,
       breaks,
       colors,
@@ -247,13 +250,15 @@ export function DataDrivenStyleEditor({
       classCount,
     );
 
-    // Guard: skip if existing config already matches
+    // Guard: skip if existing config already matches — use classCount (local
+    // state) consistently in both the guard and the written config to prevent
+    // infinite effect loops when effectiveClassCount differs from classCount.
     const ec = styleConfig;
     if (
       ec?.target === target &&
       ec.column === column &&
       ec.method === method &&
-      ec.classCount === effectiveClassCount &&
+      ec.classCount === classCount &&
       ec.sizes &&
       ec.sizeRange &&
       ec.sizeRange[0] === sizeRange[0] &&
@@ -272,7 +277,7 @@ export function DataDrivenStyleEditor({
       mode: 'graduated',
       column,
       ramp,
-      classCount: effectiveClassCount,
+      classCount,
       method,
       breaks,
       target,

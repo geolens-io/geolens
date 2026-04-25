@@ -135,8 +135,9 @@ export const LayerItem = memo(function LayerItem({
       layer.layout ?? {},
       layer.dataset_geometry_type,
       layer.opacity,
+      layer.style_config,
     ),
-    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity],
+    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
   const hasActiveFilter = layer.filter && Array.isArray(layer.filter) && layer.filter.length > 0;
   const styleSummary = useMemo(() => getStyleSummary(layer, t), [layer, t]);
