@@ -125,6 +125,7 @@ function GraduatedLegendSwitch({
         sizes={styleConfig.sizes}
         breaks={breaks}
         circleColor={circleColor}
+        colors={styleConfig.colors}
         style={style}
       />
     );
