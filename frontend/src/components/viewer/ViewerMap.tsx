@@ -223,16 +223,18 @@ export const ViewerMap = memo(function ViewerMap({
       // surface anything else as a deduped toast so users know the map
       // has a real problem (RES-3). Previously suppressed entirely in prod.
       map.on('error', (e: { error: { message?: string; status?: number } }) => {
-        const msg = e.error?.message ?? '';
-        // Expected: 404 tiles outside extent, or our managed source errors
-        if (msg.includes('source-') || e.error?.status === 404) {
+        const status = e.error?.status;
+        // Suppress expected no-data tiles (404) and other client errors
+        if (status && status >= 400 && status < 500) {
           return;
         }
+        // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[ViewerMap] Map error:', e.error);
-        // Deduped toast (stable ID replaces prior error instead of stacking)
-        toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
-          id: 'viewer-map-error',
-        });
+        if (!status || status >= 500) {
+          toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
+            id: 'viewer-map-error',
+          });
+        }
       });
 
       // `idle` fires when no tiles are loading, no transitions are in

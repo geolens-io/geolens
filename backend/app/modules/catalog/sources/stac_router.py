@@ -46,7 +46,7 @@ async def _fetch_cog_info(url: str) -> dict | None:
     min/max per band for rescaling), or None on failure.
     """
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
             # Fetch structural info
             info_resp = await client.get(
                 "http://titiler:8000/cog/info",

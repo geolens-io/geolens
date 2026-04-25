@@ -560,7 +560,7 @@ async def get_tile_tokens_batch(
     return TileTokenBatchResponse(tokens=tokens)
 
 
-@router.get("/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf")
+@router.get("/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf", response_class=Response)
 @limiter.exempt
 async def tile_endpoint(
     request: Request,
