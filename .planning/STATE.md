@@ -4,8 +4,8 @@ milestone: v15.0
 milestone_name: milestone
 status: executing
 stopped_at: Session resumed — Phase 224 UI-SPEC approved, ready to plan
-last_updated: "2026-04-25T22:31:34.538Z"
-last_activity: 2026-04-25 -- Phase 224 execution started
+last_updated: "2026-04-25T22:55:00.000Z"
+last_activity: "2026-04-25 - Completed quick task 260425-oxh: layer popup config (enable/disable + custom expression with validation)"
 progress:
   total_phases: 6
   completed_phases: 1
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 Phase: 224 (brand-shell-search) — EXECUTING
 Plan: 1 of 4
 Status: Executing Phase 224
-Last activity: 2026-04-25 -- Phase 224 execution started
+Last activity: 2026-04-25 — Completed quick task 260425-oxh: layer popup config
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ None yet.
 |---|-------------|------|--------|--------|-----------|
 | 260425-h8k | Review map builder labeling with Playwright | 2026-04-25 | pending | Verified | [260425-h8k-review-map-builder-labeling-with-playwri](./quick/260425-h8k-review-map-builder-labeling-with-playwri/) |
 | 260425-lbc | Fix map overlay positioning conflicts (filter chips vs measure widget, bottom-left stacking) | 2026-04-25 | cd2e5a3f | Needs Review | [260425-lbc-in-the-map-builder-review-the-map-overla](./quick/260425-lbc-in-the-map-builder-review-the-map-overla/) |
+| 260425-oxh | Layer popup config: enable/disable + custom expression with validation | 2026-04-25 | 8ca90a9f | Verified | [260425-oxh-layer-popup-config-enable-disable-custom](./quick/260425-oxh-layer-popup-config-enable-disable-custom/) |
 
 ## Session Continuity
 
