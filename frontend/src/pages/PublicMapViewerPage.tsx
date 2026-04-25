@@ -34,6 +34,7 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     layout: layer.layout,
     filter: layer.filter,
     label_config: layer.label_config,
+    popup_config: layer.popup_config,
     style_config: layer.style_config,
     show_in_legend: layer.show_in_legend,
     layer_type: layer.layer_type ?? undefined,

@@ -19,6 +19,7 @@ import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
+import { substitutePopupTemplate } from '@/lib/popup-template';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
@@ -144,7 +145,13 @@ export const ViewerMap = memo(function ViewerMap({
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
-    features: { properties: Record<string, unknown>; layerName: string; columnInfo: { name: string; type: string }[] | null }[];
+    features: {
+      properties: Record<string, unknown>;
+      layerName: string;
+      columnInfo: { name: string; type: string }[] | null;
+      title?: string | null;
+      visibleFields?: string[] | null;
+    }[];
   } | null>(null);
 
   const { resolvedTheme } = useTheme();
@@ -291,17 +298,32 @@ export const ViewerMap = memo(function ViewerMap({
         return;
       }
 
-      if (hits.length > 0) {
+      // Drop hits whose source layer has popups explicitly disabled.
+      // null/undefined popup_config → enabled by default; only false suppresses.
+      const filteredHits = hits.filter((feature) => {
+        const sortOrder = parseInt(feature.layer.id.replace(/^viewer-layer-/, ''), 10);
+        const matched = layersRef.current.find((l) => l.sort_order === sortOrder);
+        return matched?.popup_config?.enabled !== false;
+      });
+
+      if (filteredHits.length > 0) {
         setPopupInfo({
           longitude: e.lngLat.lng,
           latitude: e.lngLat.lat,
-          features: hits.map((feature) => {
+          features: filteredHits.map((feature) => {
             const sortOrder = parseInt(feature.layer.id.replace(/^viewer-layer-/, ''), 10);
             const matchedLayer = layersRef.current.find((l) => l.sort_order === sortOrder);
+            const cfg = matchedLayer?.popup_config;
+            const props = (feature.properties ?? {}) as Record<string, unknown>;
+            const title = cfg?.expression
+              ? substitutePopupTemplate(cfg.expression, props)
+              : null;
             return {
-              properties: (feature.properties ?? {}) as Record<string, unknown>,
+              properties: props,
               layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('viewer.featureFallback'),
               columnInfo: matchedLayer?.column_info ?? null,
+              title,
+              visibleFields: cfg?.visible_fields ?? null,
             };
           }),
         });
@@ -331,7 +353,14 @@ export const ViewerMap = memo(function ViewerMap({
           map.getCanvas().style.cursor = '';
           return;
         }
-        map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
+        // Mirror handleClick's per-feature filter: cursor goes pointer only
+        // when at least one hit is on a popup-enabled layer.
+        const interactive = features.some((f) => {
+          const sortOrder = parseInt(f.layer.id.replace(/^viewer-layer-/, ''), 10);
+          const matched = layersRef.current.find((l) => l.sort_order === sortOrder);
+          return matched?.popup_config?.enabled !== false;
+        });
+        map.getCanvas().style.cursor = interactive ? 'pointer' : '';
       });
     };
 
