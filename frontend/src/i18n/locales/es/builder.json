@@ -38,7 +38,6 @@
     "filterTab": "Filtro",
     "labelsTab": "Etiquetas",
     "popupTab": "Popup",
-    "popupTitle": "Popup",
     "styleTab": "Estilo",
     "collapseOptions": "Contraer opciones",
     "moreActions": "Más acciones",
@@ -146,7 +145,7 @@
   },
   "popup": {
     "enable": "Activar popup para esta capa",
-    "expression": "Plantilla del título",
+    "titleTemplate": "Plantilla del título",
     "expressionHelp": "Use marcadores {column_name}. Ejemplo: {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
     "unknownPlaceholders": "Marcadores desconocidos: {{list}}",
@@ -155,7 +154,8 @@
     "visibleFieldsCustom": "Selección personalizada",
     "addField": "Añadir campo",
     "removeField": "Quitar campo",
-    "noFieldsSelected": "Ningún campo seleccionado (solo se mostrará el título)"
+    "noFieldsSelected": "Ningún campo seleccionado (solo se mostrará el título)",
+    "noColumns": "Esta capa no tiene columnas inspeccionables."
   },
   "dataDriven": {
     "title": "Estilo basado en datos",

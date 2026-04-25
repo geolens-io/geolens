@@ -40,8 +40,9 @@ export function validatePlaceholders(
  */
 export function substitutePopupTemplate(
   template: string,
-  properties: Record<string, unknown>,
+  properties: Record<string, unknown> | null | undefined,
 ): string {
+  if (!properties) return template.replace(PLACEHOLDER_RE, () => '');
   return template.replace(PLACEHOLDER_RE, (_match, key: string) => {
     const v = properties[key];
     if (v === null || v === undefined) return '';

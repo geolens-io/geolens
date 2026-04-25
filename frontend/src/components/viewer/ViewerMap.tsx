@@ -17,7 +17,7 @@ import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
-import { FeaturePopup } from '@/components/map/FeaturePopup';
+import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
@@ -75,8 +75,8 @@ function toViewerSyncInput(
     dataset_geometry_type: layer.geometry_type,
     opacity: layer.opacity ?? 1,
     visible: visibleLayers.has(layer.sort_order),
-    paint: (layer.paint as Record<string, unknown>) ?? {},
-    layout: (layer.layout as Record<string, unknown>) ?? {},
+    paint: layer.paint ?? {},
+    layout: layer.layout ?? {},
     filter: layer.filter ?? null,
     label_config: layer.label_config,
     style_config: layer.style_config,
@@ -97,8 +97,8 @@ function toAdapterInput(
     dataset_geometry_type: layer.geometry_type,
     opacity: layer.opacity ?? 1,
     visible: visibleLayers.has(layer.sort_order),
-    paint: (layer.paint as Record<string, unknown>) ?? {},
-    layout: (layer.layout as Record<string, unknown>) ?? {},
+    paint: layer.paint ?? {},
+    layout: layer.layout ?? {},
     filter: layer.filter ?? null,
     label_config: layer.label_config,
     sourceId: prefixed('source', String(layer.sort_order), VIEWER_PREFIX),
@@ -145,13 +145,7 @@ export const ViewerMap = memo(function ViewerMap({
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
-    features: {
-      properties: Record<string, unknown>;
-      layerName: string;
-      columnInfo: { name: string; type: string }[] | null;
-      title?: string | null;
-      visibleFields?: string[] | null;
-    }[];
+    features: FeatureInfo[];
   } | null>(null);
 
   const { resolvedTheme } = useTheme();
@@ -286,10 +280,31 @@ export const ViewerMap = memo(function ViewerMap({
     [],
   );
 
+  // O(1) lookup: feature.layer.id (with `viewer-layer-` prefix) → SharedLayerResponse.
+  const layerByMapIdRef = useRef<Map<string, SharedLayerResponse>>(new Map());
+  useEffect(() => {
+    const m = new Map<string, SharedLayerResponse>();
+    for (const l of layers) {
+      m.set(prefixed('layer', String(l.sort_order), VIEWER_PREFIX), l);
+    }
+    layerByMapIdRef.current = m;
+  }, [layers]);
+
+  // Resolve a hit to its layer config; returns null when the layer is unknown
+  // (verifies the prefix matched) or popups are explicitly disabled.
+  const lookupHitLayer = useCallback((featureLayerId: string): SharedLayerResponse | null => {
+    const layer = layerByMapIdRef.current.get(featureLayerId);
+    if (!layer) return null;
+    if (layer.popup_config?.enabled === false) return null;
+    return layer;
+  }, []);
+
   // Click handler: show popup with feature attributes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
+
+    const fallbackName = t('viewer.featureFallback');
 
     const handleClick = (e: MapMouseEvent) => {
       const hits = queryInteractiveFeatures(map, e.point);
@@ -298,34 +313,26 @@ export const ViewerMap = memo(function ViewerMap({
         return;
       }
 
-      // Drop hits whose source layer has popups explicitly disabled.
-      // null/undefined popup_config → enabled by default; only false suppresses.
-      const filteredHits = hits.filter((feature) => {
-        const sortOrder = parseInt(feature.layer.id.replace(/^viewer-layer-/, ''), 10);
-        const matched = layersRef.current.find((l) => l.sort_order === sortOrder);
-        return matched?.popup_config?.enabled !== false;
-      });
+      const mapped: FeatureInfo[] = [];
+      for (const feature of hits) {
+        const layer = lookupHitLayer(feature.layer.id);
+        if (!layer) continue;
+        const cfg = layer.popup_config;
+        const props = (feature.properties ?? {}) as Record<string, unknown>;
+        mapped.push({
+          properties: props,
+          layerName: layer.display_name || layer.dataset_name || fallbackName,
+          columnInfo: layer.column_info ?? null,
+          title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
+          visibleFields: cfg?.visible_fields ?? null,
+        });
+      }
 
-      if (filteredHits.length > 0) {
+      if (mapped.length > 0) {
         setPopupInfo({
           longitude: e.lngLat.lng,
           latitude: e.lngLat.lat,
-          features: filteredHits.map((feature) => {
-            const sortOrder = parseInt(feature.layer.id.replace(/^viewer-layer-/, ''), 10);
-            const matchedLayer = layersRef.current.find((l) => l.sort_order === sortOrder);
-            const cfg = matchedLayer?.popup_config;
-            const props = (feature.properties ?? {}) as Record<string, unknown>;
-            const title = cfg?.expression
-              ? substitutePopupTemplate(cfg.expression, props)
-              : null;
-            return {
-              properties: props,
-              layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('viewer.featureFallback'),
-              columnInfo: matchedLayer?.column_info ?? null,
-              title,
-              visibleFields: cfg?.visible_fields ?? null,
-            };
-          }),
+          features: mapped,
         });
       } else {
         setPopupInfo(null);
@@ -336,7 +343,7 @@ export const ViewerMap = memo(function ViewerMap({
     return () => {
       map.off('click', handleClick);
     };
-  }, [mapReady, t, queryInteractiveFeatures]);
+  }, [mapReady, t, queryInteractiveFeatures, lookupHitLayer]);
 
   // Mousemove: pointer cursor on interactive features
   useEffect(() => {
@@ -347,20 +354,22 @@ export const ViewerMap = memo(function ViewerMap({
     const handleMouseMove = (e: MapMouseEvent) => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        if (!map.getCanvas()) return;
+        let canvas;
+        try {
+          canvas = map.getCanvas();
+        } catch {
+          return;
+        }
+        if (!canvas) return;
         const features = queryInteractiveFeatures(map, e.point);
         if (features === null) {
-          map.getCanvas().style.cursor = '';
+          canvas.style.cursor = '';
           return;
         }
         // Mirror handleClick's per-feature filter: cursor goes pointer only
         // when at least one hit is on a popup-enabled layer.
-        const interactive = features.some((f) => {
-          const sortOrder = parseInt(f.layer.id.replace(/^viewer-layer-/, ''), 10);
-          const matched = layersRef.current.find((l) => l.sort_order === sortOrder);
-          return matched?.popup_config?.enabled !== false;
-        });
-        map.getCanvas().style.cursor = interactive ? 'pointer' : '';
+        const interactive = features.some((f) => lookupHitLayer(f.layer.id) !== null);
+        canvas.style.cursor = interactive ? 'pointer' : '';
       });
     };
 
@@ -368,9 +377,14 @@ export const ViewerMap = memo(function ViewerMap({
     return () => {
       cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
-      if (map.getCanvas()) map.getCanvas().style.cursor = '';
+      try {
+        const canvas = map.getCanvas();
+        if (canvas) canvas.style.cursor = '';
+      } catch {
+        // Map already torn down — nothing to reset.
+      }
     };
-  }, [mapReady, queryInteractiveFeatures]);
+  }, [mapReady, queryInteractiveFeatures, lookupHitLayer]);
 
   // Clear popup when layer visibility changes
   useEffect(() => {
@@ -538,7 +552,6 @@ export const ViewerMap = memo(function ViewerMap({
         <AttributionControl position="bottom-right" compact={true} />
         {popupInfo && (
           <FeaturePopup
-            key={`${popupInfo.longitude}-${popupInfo.latitude}`}
             longitude={popupInfo.longitude}
             latitude={popupInfo.latitude}
             features={popupInfo.features}

@@ -38,7 +38,6 @@
     "filterTab": "Filter",
     "labelsTab": "Labels",
     "popupTab": "Popup",
-    "popupTitle": "Popup",
     "styleTab": "Style",
     "collapseOptions": "Collapse options",
     "moreActions": "More actions",
@@ -146,7 +145,7 @@
   },
   "popup": {
     "enable": "Enable popup for this layer",
-    "expression": "Title template",
+    "titleTemplate": "Title template",
     "expressionHelp": "Use {column_name} placeholders. Example: {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
     "unknownPlaceholders": "Unknown placeholders: {{list}}",
@@ -155,7 +154,8 @@
     "visibleFieldsCustom": "Custom selection",
     "addField": "Add field",
     "removeField": "Remove field",
-    "noFieldsSelected": "No fields selected (only the title will show)"
+    "noFieldsSelected": "No fields selected (only the title will show)",
+    "noColumns": "This layer has no inspectable columns."
   },
   "dataDriven": {
     "title": "Data-Driven Style",

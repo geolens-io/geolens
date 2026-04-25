@@ -64,7 +64,12 @@ export function useUpdateMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to save map'); },
+    onError: (err: unknown) => {
+      // Surface backend validator messages (e.g. popup_config: "expression
+      // must be 500 characters or fewer") so the user sees the specific cause.
+      const detail = err instanceof Error ? err.message : null;
+      toast.error(detail ? `Failed to save map: ${detail}` : 'Failed to save map');
+    },
   });
 }
 

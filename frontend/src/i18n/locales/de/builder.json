@@ -38,7 +38,6 @@
     "filterTab": "Filter",
     "labelsTab": "Beschriftungen",
     "popupTab": "Popup",
-    "popupTitle": "Popup",
     "styleTab": "Stil",
     "collapseOptions": "Optionen einklappen",
     "moreActions": "Weitere Aktionen",
@@ -146,7 +145,7 @@
   },
   "popup": {
     "enable": "Popup für diesen Layer aktivieren",
-    "expression": "Titelvorlage",
+    "titleTemplate": "Titelvorlage",
     "expressionHelp": "Verwenden Sie {column_name} Platzhalter. Beispiel: {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
     "unknownPlaceholders": "Unbekannte Platzhalter: {{list}}",
@@ -155,7 +154,8 @@
     "visibleFieldsCustom": "Benutzerdefinierte Auswahl",
     "addField": "Feld hinzufügen",
     "removeField": "Feld entfernen",
-    "noFieldsSelected": "Keine Felder ausgewählt (nur der Titel wird angezeigt)"
+    "noFieldsSelected": "Keine Felder ausgewählt (nur der Titel wird angezeigt)",
+    "noColumns": "Dieser Layer hat keine prüfbaren Spalten."
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",
