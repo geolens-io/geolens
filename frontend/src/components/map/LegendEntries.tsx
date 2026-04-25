@@ -124,10 +124,11 @@ interface GraduatedRadiusLegendProps {
   sizes: number[];
   breaks: number[];
   circleColor: string;
+  colors?: string[];
   style?: SwatchStyle;
 }
 
-export function GraduatedRadiusLegend({ sizes, breaks, circleColor, style: s }: GraduatedRadiusLegendProps) {
+export function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, style: s }: GraduatedRadiusLegendProps) {
   return (
     <ul className="space-y-0.5">
       {sizes.map((size, i) => (
@@ -136,7 +137,7 @@ export function GraduatedRadiusLegend({ sizes, breaks, circleColor, style: s }: 
             <circle
               cx="12" cy="12"
               r={Math.min(size, 12)}
-              fill={circleColor} fillOpacity={0.8}
+              fill={colors?.[i] ?? circleColor} fillOpacity={0.8}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
               strokeWidth={s?.strokeDisabled ? 0 : 1}
             />
