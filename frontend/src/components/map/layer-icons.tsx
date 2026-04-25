@@ -15,6 +15,7 @@ export interface StyleHints {
   strokeDisabled?: boolean;  // _stroke-disabled — suppresses outline rendering
   dashPattern?: number[];    // line-dasharray from layout (e.g., [4,2])
   opacity?: number;          // layer opacity (0-1)
+  fillOpacity?: number;      // paint-level opacity (circle-opacity, fill-opacity, line-opacity)
   strokeWidth?: number;      // line-width raw value — map to SVG strokeWidth
   radius?: number;           // circle-radius raw value — map to SVG size hint
 }
@@ -48,11 +49,15 @@ export function extractStyleHints(
     if (Array.isArray(dash) && dash.length > 0) {
       hints.dashPattern = dash as number[];
     }
+    const lo = paint['line-opacity'];
+    if (typeof lo === 'number' && lo < 1) hints.fillOpacity = lo;
   } else if (gt.includes('POLYGON')) {
     if (!paint['_stroke-disabled']) {
       const oc = paint['_outline-color'];
       if (typeof oc === 'string') hints.strokeColor = oc;
     }
+    const fo = paint['fill-opacity'];
+    if (typeof fo === 'number' && fo < 1) hints.fillOpacity = fo;
   }
 
   if (gt.includes('POINT')) {
@@ -62,6 +67,8 @@ export function extractStyleHints(
     }
     const cr = paint['circle-radius'];
     if (typeof cr === 'number') hints.radius = cr;
+    const co = paint['circle-opacity'];
+    if (typeof co === 'number' && co < 1) hints.fillOpacity = co;
   }
 
   return hints;
@@ -92,10 +99,10 @@ export function ColorizedGeometryIcon({
   const isLine = gt.includes('LINE');
   const isPoint = gt.includes('POINT');
 
+  // Combine master opacity and paint-level opacity for the icon
+  const compoundOpacity = (styleHints?.opacity ?? 1) * (styleHints?.fillOpacity ?? 1);
   const opacityStyle: React.CSSProperties | undefined =
-    styleHints?.opacity !== undefined && styleHints.opacity < 1
-      ? { opacity: styleHints.opacity }
-      : undefined;
+    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
 
   // --- Line rendering ---
   if (isLine) {

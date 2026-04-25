@@ -31,7 +31,15 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
         const outlineColor = layer.paint?.['_outline-color'] as string | undefined;
         const strokeDisabled = !!layer.paint?.['_stroke-disabled'];
         const opacity = layer.opacity ?? 1;
-        const swatchStyle = { outlineColor, strokeDisabled, opacity };
+        // Read paint-level opacity per geometry type
+        const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
+        const rawFillOp = gt.includes('POINT')
+          ? layer.paint?.['circle-opacity']
+          : gt.includes('LINE')
+            ? layer.paint?.['line-opacity']
+            : layer.paint?.['fill-opacity'];
+        const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
+        const swatchStyle = { outlineColor, strokeDisabled, opacity, fillOpacity };
         const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
 
         return (
