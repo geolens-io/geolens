@@ -1,10 +1,11 @@
 ---
 phase: 223
 slug: bootstrap-infrastructure-lock
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-04-25
+approved: 2026-04-25
 ---
 
 # Phase 223 — Validation Strategy
@@ -82,12 +83,12 @@ created: 2026-04-25
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies (`scripts/verify-build.sh`)
-- [ ] Sampling continuity: build runs after every plan wave; no 3 consecutive tasks without `astro check`
-- [ ] Wave 0 covers all MISSING references (entire docs/ scaffold + verify-build.sh)
-- [ ] No watch-mode flags (`astro check` and `astro build` both run once-and-exit)
-- [ ] Feedback latency < 90s (full build)
-- [ ] Manual verifications captured with screenshots / curl output in 223-SUMMARY.md
-- [ ] `nyquist_compliant: true` set in frontmatter after sign-off
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (`scripts/verify-build.sh`)
+- [x] Sampling continuity: build runs after every plan wave; no 3 consecutive tasks without `astro check`
+- [x] Wave 0 covers all MISSING references (entire docs/ scaffold + verify-build.sh)
+- [x] No watch-mode flags (`astro check` and `astro build` both run once-and-exit)
+- [x] Feedback latency < 90s (full build)
+- [ ] Manual verifications captured with screenshots / curl output in 223-SUMMARY.md *(post-execution gate)*
+- [x] `nyquist_compliant: true` set in frontmatter after sign-off
 
-**Approval:** pending
+**Approval:** approved 2026-04-25 (gsd-plan-checker — VERIFICATION PASSED)

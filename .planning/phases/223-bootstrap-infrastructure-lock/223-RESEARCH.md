@@ -865,9 +865,11 @@ This script is the load-bearing gate for "no flat URLs ever ship" and "canonical
 
 ---
 
-## 8. Open Questions
+## 8. Open Questions (RESOLVED)
 
-### Open Question #1 — GA4 Measurement ID
+> All three open questions were resolved before plan generation on 2026-04-25. Resolution markers are inlined below.
+
+### Open Question #1 — GA4 Measurement ID — **RESOLVED: Path 1 (defer to Phase 228)**
 
 **The question:** SEO-06 specifies "GA4 same-Measurement-ID strategy enabled on docs site for cross-subdomain conversion tracking parity with marketing site." Verification (§3.12, §5) confirms the marketing site has **no GA4 installed**. There is no ID to mirror.
 
@@ -883,13 +885,13 @@ This script is the load-bearing gate for "no flat URLs ever ship" and "canonical
 
 **Action for planner:** Before generating PLAN.md, confirm with user: "GA4 deferred to Phase 228? (Y/n)". Default Y.
 
-### Open Question #2 — `compatibility_date` value for `docs/wrangler.toml`
+### Open Question #2 — `compatibility_date` value for `docs/wrangler.toml` — **RESOLVED: 2025-01-01**
 
 **The question:** Marketing uses `compatibility_date = "2024-01-01"`. Should docs match (consistency) or use `2025-01-01` (current best practice)?
 
 **Recommendation:** Use `2025-01-01` for docs. Rationale: (a) `compatibility_date` only affects Workers runtime, not Pages static-site builds, so it has no functional impact on either project. (b) New project = new date; mirroring an old date for "consistency" is cargo-culting. Low-stakes; either works.
 
-### Open Question #3 — Optional `docs/src/content/openapi/.gitkeep` for Phase 225 readiness
+### Open Question #3 — Optional `docs/src/content/openapi/.gitkeep` for Phase 225 readiness — **RESOLVED: skipped**
 
 **The question:** CONTEXT.md `<discretion>` mentions optionally committing a placeholder. Worth doing?
 
