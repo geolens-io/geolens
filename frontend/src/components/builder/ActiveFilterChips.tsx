@@ -118,7 +118,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
   if (chips.length === 0) return null;
 
   return (
-    <div className="absolute top-24 left-3 right-3 z-[8] flex flex-wrap gap-1.5 pointer-events-none">
+    <div className="flex flex-wrap gap-1.5 pointer-events-none">
       {chips.map((chip) => (
         <span
           key={chip.layerId}

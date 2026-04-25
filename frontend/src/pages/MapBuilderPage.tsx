@@ -429,11 +429,16 @@ export function MapBuilderPage() {
         {/* Centered toolbar */}
         <MapToolbar />
 
-        <ActiveFilterChips
-          layers={layers.localLayers}
-          onClearFilter={handleClearFilter}
+        <WidgetHost
+          byAnchor={byAnchor}
+          ctx={widgetCtx}
+          topLeftSlot={
+            <ActiveFilterChips
+              layers={layers.localLayers}
+              onClearFilter={handleClearFilter}
+            />
+          }
         />
-        <WidgetHost byAnchor={byAnchor} ctx={widgetCtx} />
       </div>
 
       {/* Right rail + panel */}
