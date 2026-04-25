@@ -4,14 +4,14 @@ milestone: v15.0
 milestone_name: milestone
 status: executing
 stopped_at: Session resumed — Phase 224 UI-SPEC approved, ready to plan
-last_updated: "2026-04-25T23:21:53.096Z"
-last_activity: 2026-04-25 -- Phase 224 planning complete
+last_updated: "2026-04-25T23:35:22.321Z"
+last_activity: 2026-04-25
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 ## Current Position
 
 Phase: 224 (brand-shell-search) — EXECUTING
-Plan: 1 of 4
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-04-25 -- Phase 224 planning complete
+Last activity: 2026-04-25
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Last activity: 2026-04-25 -- Phase 224 planning complete
 
 *Updated after each plan completion*
 | Phase 223 P01 | 5 | 3 tasks | 15 files |
+| Phase 224 P05 | 12min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Last activity: 2026-04-25 -- Phase 224 planning complete
 - [223-02]: Reuse existing CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID GitHub secrets (D-05) — no new secrets minted; narrowed secret-leak surface
 - [223-02]: Symmetric path filtering — docs-ci.yml `paths: ['docs/**', '.github/workflows/docs-ci.yml']` + ci.yml `paths-ignore: ['docs/**']`. Neither workflow references the other's path; self-edits to either workflow still trigger that workflow as a sanity check (RESEARCH §3.5 + §7.1)
 - [223-02]: CF Pages dashboard + custom domain + TLS + probe PRs DEFERRED at operator's request — file infrastructure ready; resume steps preserved in 223-02-SUMMARY.md "Deferred Verification" section. Phase 228 must close this before launch.
+- [Phase 224]: [224-05]: Sized --back-link-reserved-space at 10rem (160px) — clears back-link.right (~146.8px) with ~13.2px headroom; 9rem would re-introduce ~2.8px overlap
+- [Phase 224]: [224-05]: Source-side grep in verify-build.sh (not dist-side) — Vite minification unstable across upgrades, same lesson as Plan 04 BRAND-01
+- [Phase 224]: [224-05]: Playwright shell-layout probe is runtime-only, not wired into docs-ci.yml — preview-server lifecycle complicates CI; build-time grep guards against deletion
 
 ### Roadmap Evolution
 
@@ -99,8 +103,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-25T21:17:43.154Z
+Last session: 2026-04-25T23:34:47.461Z
 Stopped at: Session resumed — Phase 224 UI-SPEC approved, ready to plan
-Resume file: --resume-file
+Resume file: None
 
 **Planned Phase:** 223 (Bootstrap & Infrastructure Lock) — 2 plans — 2026-04-25T17:13:13.520Z

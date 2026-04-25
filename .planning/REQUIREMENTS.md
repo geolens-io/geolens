@@ -40,7 +40,7 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 - [ ] **SHELL-02**: Each page has prev/next page navigation, breadcrumbs, and an "Edit this page" link pointing to GitHub
 - [ ] **SHELL-03**: Custom 404 page with search box and links to top-level categories
 - [ ] **SHELL-04**: `lastUpdated: true` enabled so every page shows last-modified timestamp from git history
-- [ ] **SHELL-05**: Marketing site (`getgeolens.com`) header gains a "Docs" link routing to `docs.getgeolens.com`; docs site header has a "Back to getgeolens.com" link
+- [x] **SHELL-05**: Marketing site (`getgeolens.com`) header gains a "Docs" link routing to `docs.getgeolens.com`; docs site header has a "Back to getgeolens.com" link
 
 ### Search
 
@@ -166,7 +166,7 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 | SHELL-02 | Phase 224 | Pending |
 | SHELL-03 | Phase 224 | Pending |
 | SHELL-04 | Phase 224 | Pending |
-| SHELL-05 | Phase 224 | Pending |
+| SHELL-05 | Phase 224 | Complete |
 | SEARCH-01 | Phase 224 | Pending |
 | SEARCH-02 | Phase 224 | Pending |
 | SEARCH-03 | Phase 224 | Pending |

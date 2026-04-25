@@ -40,7 +40,7 @@
   3. Every page shows "Last updated" timestamp, an "Edit this page" GitHub link, and prev/next navigation
   4. The marketing site header contains a "Docs" link and the docs site header contains a "Back to getgeolens.com" link — cross-site navigation is complete
   5. A CI token-drift check script fails if the primary hue value in `custom.css` diverges from `global.css`
-**Plans:** 4/4 plans complete
+**Plans:** 5/5 plans complete
 - [x] 224-01-PLAN.md — Brand foundation: expand custom.css to full --primary-50..950 OKLCH bridge + Inter Variable font (BRAND-01, BRAND-02, BRAND-03)
 - [x] 224-02-PLAN.md — CI gates: check-token-sync.sh drift detection + verify-build.sh Phase-224 assertions + docs-ci.yml fetch-depth: 0 + token-sync wiring (BRAND-04, BRAND-01/02 verify, SHELL-01/02/03/04/05 verify, SEARCH-01/02 verify, SEO-04 verify)
 - [x] 224-03-PLAN.md — Static assets + cross-site nav: llms.txt stub, EC plugin module, 4 placeholder index.mdx, marketing Nav.astro Docs link (SEO-04, SEARCH-02, SHELL-05 marketing-side, SHELL-01 placeholders)
@@ -101,7 +101,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 223. Bootstrap & Infrastructure Lock | 2/2 | Complete    | 2026-04-25 |
-| 224. Brand, Shell & Search | 4/4 | Complete   | 2026-04-25 |
+| 224. Brand, Shell & Search | 5/5 | Complete   | 2026-04-25 |
 | 225. API Reference | 0/? | Not started | - |
 | 226. Quickstart & Install Guide | 0/? | Not started | - |
 | 227. User Guide & Admin Guide | 0/? | Not started | - |
