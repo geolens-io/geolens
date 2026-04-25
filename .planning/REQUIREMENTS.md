@@ -150,14 +150,14 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 | BOOT-02 | Phase 223 | Pending |
 | BOOT-03 | Phase 223 | Pending |
 | BOOT-04 | Phase 223 | Pending |
-| DEPLOY-01 | Phase 223 | Pending |
-| DEPLOY-02 | Phase 223 | Pending |
-| DEPLOY-03 | Phase 223 | Pending |
-| DEPLOY-04 | Phase 223 | Pending |
+| DEPLOY-01 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
+| DEPLOY-02 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
+| DEPLOY-03 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
+| DEPLOY-04 | Phase 223 | Partial — infrastructure ready, live deploy deferred (see 223-02-SUMMARY.md Deferred Verification) |
 | MIG-02 | Phase 223 | Pending |
 | SEO-05 | Phase 223 | Pending |
 | SEO-06 | Phase 223 | Pending |
-| CI-02 | Phase 223 | Pending |
+| CI-02 | Phase 223 | Complete — `npx astro check` step in docs-ci.yml (getgeolens.com@8726935) |
 | BRAND-01 | Phase 224 | Pending |
 | BRAND-02 | Phase 224 | Pending |
 | BRAND-03 | Phase 224 | Pending |
