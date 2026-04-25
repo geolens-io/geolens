@@ -27,7 +27,7 @@
   4. `npx astro check` passes in CI with zero type errors on the skeleton scaffold
   5. `site: 'https://docs.getgeolens.com'` is set in `astro.config.mjs` and canonical `<link rel="canonical">` resolves to `docs.getgeolens.com` in the built output
 **Plans:** 2 plans
-- [ ] 223-01-PLAN.md — Docs subtree scaffold: package.json, astro.config.mjs (site, sidebar /guides/ groups, noindex meta), stub homepage, custom.css placeholder, robots.txt (Disallow: /), _redirects (3 rules per legacy path), tsconfig, wrangler.toml, .nvmrc, verify-build.sh
+- [x] 223-01-PLAN.md — Docs subtree scaffold: package.json, astro.config.mjs (site, sidebar /guides/ groups, noindex meta), stub homepage, custom.css placeholder, robots.txt (Disallow: /), _redirects (3 rules per legacy path), tsconfig, wrangler.toml, .nvmrc, verify-build.sh ✓ shipped 2026-04-25 (getgeolens.com@77b7c63)
 - [ ] 223-02-PLAN.md — Deploy & production cutover: docs-ci.yml workflow (check → build → verify-build.sh → cloudflare/pages-action@v1), marketing ci.yml paths-ignore patch, CF Pages dashboard project creation, custom domain attachment with TLS verification (manual checkpoint)
 
 ### Phase 224: Brand, Shell & Search

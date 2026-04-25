@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: milestone
-status: Roadmap created
-stopped_at: Phase 223 context gathered
-last_updated: "2026-04-25T17:13:13.525Z"
-last_activity: "2026-04-25 - Completed quick task 260425-h8k: Review map builder labeling with Playwright"
+status: executing
+stopped_at: Plan 223-01 complete; Plan 223-02 ready (CI workflow + CF Pages dashboard)
+last_updated: "2026-04-25T18:10:06.764Z"
+last_activity: 2026-04-25 - Phase 223-01 Task 3 complete (build green, verify-build.sh exit 0, all threat mitigations validated)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -49,6 +49,7 @@ Last activity: 2026-04-25 - Phase 223-01 Task 3 complete (build green, verify-bu
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 223 P01 | 5 | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,11 @@ Last activity: 2026-04-25 - Phase 223-01 Task 3 complete (build green, verify-bu
 - [v15.0 Scope]: Map builder polish is being handled in a parallel workstream — explicitly excluded from this milestone
 - [v15.0 Roadmap]: Phase 223 is load-bearing — URL structure, CF Pages multi-project config, token-drift check, `_redirects` stub, GA4, canonical site URL, openapi snapshot strategy, version pin gate all locked here before content begins
 - [v15.0 Roadmap]: MIG-01 split across Phase 226 (install stub) and Phase 227 (admin stub) — each stub replaced atomically with the phase that writes its canonical content
+- [223-01]: Mirror marketing astro@^6.1.3 pin exactly (D-20); Starlight 0.38.4 peerDeps require Astro 6
+- [223-01]: Empty /guides/ sidebar groups declared upfront via autogenerate so Phase 224 cannot regress to flat URLs (D-11)
+- [223-01]: Belt-and-suspenders noindex (robots.txt Disallow + meta tag) — both flip together in Phase 228 (D-07/D-08)
+- [223-01]: /quickstart explicitly excluded from docs _redirects (owned by marketing per D-14); 9 redirect rules total (3 paths × 3 variants)
+- [223-01]: verify-build.sh has NO GA4 grep — SEO-06 deferred to Phase 228 per D-19
 
 ### Roadmap Evolution
 
@@ -86,8 +92,8 @@ None — all blockers resolved during requirements definition.
 
 ## Session Continuity
 
-Last session: --stopped-at
-Stopped at: Phase 223 context gathered
-Resume file: --resume-file
+Last session: 2026-04-25T18:09:56.585Z
+Stopped at: Plan 223-01 complete; Plan 223-02 ready (CI workflow + CF Pages dashboard)
+Resume file: None
 
 **Planned Phase:** 223 (Bootstrap & Infrastructure Lock) — 2 plans — 2026-04-25T17:13:13.520Z

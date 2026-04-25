@@ -11,10 +11,14 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 
 ### Bootstrap & Infrastructure
 
-- [ ] **BOOT-01**: Astro Starlight 0.38.4 site bootstrapped in `docs/` subdirectory of the existing `getgeolens-com` repo with its own `package.json`, `astro.config.mjs`, `tsconfig.json`, and `wrangler.toml` — no npm/pnpm workspace
-- [ ] **BOOT-02**: Astro version pinned to a Starlight 0.38.x-compatible major (Astro 6.x) with `npx astro check` running in CI to catch upgrade drift
-- [ ] **BOOT-03**: URL structure uses a `/guides/` prefix (e.g. `/guides/install`, not `/install`) so future versioning can be added without breaking external links
-- [ ] **BOOT-04**: `astro.config.mjs` sets `site: 'https://docs.getgeolens.com'` so canonical URLs and sitemap entries resolve correctly from day one
+- [x] **BOOT-01
+**: Astro Starlight 0.38.4 site bootstrapped in `docs/` subdirectory of the existing `getgeolens-com` repo with its own `package.json`, `astro.config.mjs`, `tsconfig.json`, and `wrangler.toml` — no npm/pnpm workspace
+- [x] **BOOT-02
+**: Astro version pinned to a Starlight 0.38.x-compatible major (Astro 6.x) with `npx astro check` running in CI to catch upgrade drift
+- [x] **BOOT-03
+**: URL structure uses a `/guides/` prefix (e.g. `/guides/install`, not `/install`) so future versioning can be added without breaking external links
+- [x] **BOOT-04
+**: `astro.config.mjs` sets `site: 'https://docs.getgeolens.com'` so canonical URLs and sitemap entries resolve correctly from day one
 
 ### Deploy & Hosting
 
@@ -85,7 +89,8 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 - [ ] **SEO-02**: OG images generated per page at build time using hex/RGB color values (Satori does not support OKLCH); pattern reuses v14.0 marketing-site Satori pipeline
 - [ ] **SEO-03**: `sitemap.xml` generated automatically by Astro and `robots.txt` allows crawl; sitemap submitted to Google Search Console after launch
 - [ ] **SEO-04**: `llms.txt` published at site root with high-level navigation for AI-assisted developer tooling
-- [ ] **SEO-05**: Canonical URLs in `<head>` resolve to `docs.getgeolens.com` so duplicate indexing of the legacy `backend/docs/*.md` is suppressed
+- [x] **SEO-05
+**: Canonical URLs in `<head>` resolve to `docs.getgeolens.com` so duplicate indexing of the legacy `backend/docs/*.md` is suppressed
 - [ ] **SEO-06**: GA4 same-Measurement-ID strategy enabled on docs site for cross-subdomain conversion tracking parity with marketing site
 
 ### Accessibility (continues v14.0 A11Y track)
@@ -103,13 +108,15 @@ This milestone also delivers the marketing-side half of deferred Phase 216 — a
 ### Migration & Legacy Cleanup
 
 - [ ] **MIG-01**: `backend/docs/install.md` and `backend/docs/admin.md` in the geolens monorepo are replaced with one-line stubs pointing to `docs.getgeolens.com/guides/install` and `/guides/admin` immediately on launch
-- [ ] **MIG-02**: A `_redirects` file in `docs/public/` covers any legacy URL patterns that may have been linked from external sites (e.g. `/install` → `/guides/install`)
+- [x] **MIG-02
+**: A `_redirects` file in `docs/public/` covers any legacy URL patterns that may have been linked from external sites (e.g. `/install` → `/guides/install`)
 - [ ] **MIG-03**: Repo README and `CONTRIBUTING.md` reference `docs.getgeolens.com` as the canonical home for user-facing documentation; raw markdown sources retained only for the bootstrap path
 
 ### CI & Quality Gates
 
 - [ ] **CI-01**: `starlight-links-validator` (or equivalent) runs in CI to catch broken internal links before merge
-- [ ] **CI-02**: `npx astro check` runs in docs CI to catch type errors and Starlight schema violations
+- [x] **CI-02
+**: `npx astro check` runs in docs CI to catch type errors and Starlight schema violations
 - [ ] **CI-03**: Lighthouse CI (or equivalent) checks Performance ≥ 90 and Accessibility = 100 on the homepage and one representative guide page
 
 ## Future Requirements (Deferred from v15.0)
