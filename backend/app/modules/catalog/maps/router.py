@@ -99,6 +99,7 @@ def _build_layer_response(
         dataset_record_type=meta.get("record_type"),
         filter=layer.filter,
         label_config=layer.label_config,
+        popup_config=layer.popup_config,
         style_config=layer.style_config,
         show_in_legend=layer.show_in_legend,
         is_3d=meta.get("is_3d"),

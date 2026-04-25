@@ -110,6 +110,7 @@ class MapLayer(Base):
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     filter: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     label_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    popup_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     style_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     show_in_legend: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"

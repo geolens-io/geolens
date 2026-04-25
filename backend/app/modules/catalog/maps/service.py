@@ -449,6 +449,7 @@ async def _replace_layers(
             display_name=display_name,
             filter=layer_data.get("filter"),
             label_config=layer_data.get("label_config"),
+            popup_config=layer_data.get("popup_config"),
             style_config=layer_data.get("style_config"),
             show_in_legend=layer_data.get("show_in_legend", True),
         )
@@ -623,6 +624,7 @@ async def duplicate_map(
             display_name=layer.display_name,
             filter=layer.filter,
             label_config=layer.label_config,
+            popup_config=layer.popup_config,
             style_config=layer.style_config,
             show_in_legend=layer.show_in_legend,
         )
@@ -872,6 +874,7 @@ def _build_shared_layer_dict(
         "dataset_record_type": ds_record_type,
         "filter": layer.filter,
         "label_config": layer.label_config,
+        "popup_config": layer.popup_config,
         "style_config": layer.style_config,
         "show_in_legend": layer.show_in_legend,
         "tile_url": tile_url,
