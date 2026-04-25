@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Request
@@ -162,7 +163,18 @@ def get_env_public_api_url(request: Request | None = None) -> str:
     )
 
 
+_PUBLIC_URL_CACHE: tuple[float, dict[str, str | None]] | None = None
+_PUBLIC_URL_CACHE_TTL = 60  # seconds
+
+
 async def _load_public_url_overrides(db: AsyncSession) -> dict[str, str | None]:
+    global _PUBLIC_URL_CACHE
+    now = time.monotonic()
+    if _PUBLIC_URL_CACHE is not None:
+        ts, cached = _PUBLIC_URL_CACHE
+        if now - ts < _PUBLIC_URL_CACHE_TTL:
+            return cached
+
     result = await db.execute(
         select(AppSetting.key, AppSetting.value).where(
             AppSetting.key.in_(
@@ -180,6 +192,7 @@ async def _load_public_url_overrides(db: AsyncSession) -> dict[str, str | None]:
             overrides[key] = value["v"]
         else:
             overrides[key] = value
+    _PUBLIC_URL_CACHE = (now, overrides)
     return overrides
 
 
