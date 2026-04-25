@@ -6,25 +6,12 @@ import { MAP_COLORS } from '@/lib/map-colors';
 
 /* ── Shared swatch rendering ─────────────────────── */
 
-interface SwatchStyle {
+export interface SwatchStyle {
   outlineColor?: string;
   strokeDisabled?: boolean;
   opacity?: number;
   fillOpacity?: number;
   strokeWidth?: number;
-}
-
-function swatchStyle(color: string, s?: SwatchStyle): React.CSSProperties {
-  return {
-    backgroundColor: color,
-    ...(!s?.strokeDisabled ? { borderColor: s?.outlineColor ?? MAP_COLORS.legendOutline } : {}),
-    ...(s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : {}),
-    ...(s?.fillOpacity !== undefined && s.fillOpacity < 1 ? { opacity: (s?.opacity ?? 1) * s.fillOpacity } : {}),
-  };
-}
-
-function swatchClass(s?: SwatchStyle) {
-  return cn('w-3.5 h-3.5 rounded-sm shrink-0', !s?.strokeDisabled && 'border');
 }
 
 /* ── Geometry-aware swatch ─────────────────────────── */
@@ -37,8 +24,9 @@ interface GeometrySwatchProps {
 
 export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatchProps) {
   const gt = (geometryType ?? '').toUpperCase();
+  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
   const opacityStyle: React.CSSProperties | undefined =
-    s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : undefined;
+    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
 
   // Point: filled circle
   if (gt.includes('POINT')) {
@@ -47,7 +35,6 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <circle
           cx="7" cy="7" r="5"
           fill={color}
-          fillOpacity={s?.fillOpacity}
           stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
           strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
         />
@@ -62,7 +49,6 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         <line
           x1="1" y1="7" x2="13" y2="7"
           stroke={color}
-          strokeOpacity={s?.fillOpacity}
           strokeWidth={2.5}
           strokeLinecap="round"
         />
@@ -70,11 +56,18 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
     );
   }
 
-  // Polygon / default: filled rectangle (existing div-based swatch)
+  // Polygon / default: filled rectangle
+  const borderColor = !s?.strokeDisabled ? (s?.outlineColor ?? MAP_COLORS.legendOutline) : undefined;
+  const style: React.CSSProperties = {
+    backgroundColor: color,
+    ...(borderColor ? { borderColor } : {}),
+    ...(s?.strokeWidth ? { borderWidth: s.strokeWidth } : {}),
+    ...(compoundOpacity < 1 ? { opacity: compoundOpacity } : {}),
+  };
   return (
     <div
-      className={swatchClass(s)}
-      style={swatchStyle(color, s)}
+      className={cn('w-3.5 h-3.5 rounded-sm shrink-0', !s?.strokeDisabled && 'border')}
+      style={style}
       aria-hidden="true"
     />
   );
@@ -88,7 +81,7 @@ interface CategoricalLegendProps {
   style?: SwatchStyle;
 }
 
-export function CategoricalLegend({ categories, geometryType, style: s }: CategoricalLegendProps) {
+export const CategoricalLegend = memo(function CategoricalLegend({ categories, geometryType, style: s }: CategoricalLegendProps) {
   return (
     <ul className="space-y-0.5">
       {categories.map((cat, i) => (
@@ -99,7 +92,7 @@ export function CategoricalLegend({ categories, geometryType, style: s }: Catego
       ))}
     </ul>
   );
-}
+});
 
 /* ── Graduated color legend ──────────────────────── */
 
@@ -110,7 +103,7 @@ interface GraduatedColorLegendProps {
   style?: SwatchStyle;
 }
 
-export function GraduatedColorLegend({ colors, breaks, geometryType, style: s }: GraduatedColorLegendProps) {
+export const GraduatedColorLegend = memo(function GraduatedColorLegend({ colors, breaks, geometryType, style: s }: GraduatedColorLegendProps) {
   return (
     <ul className="space-y-0.5">
       {colors.map((color, i) => (
@@ -121,7 +114,7 @@ export function GraduatedColorLegend({ colors, breaks, geometryType, style: s }:
       ))}
     </ul>
   );
-}
+});
 
 /* ── Graduated radius legend (SVG circles) ───────── */
 
@@ -133,16 +126,20 @@ interface GraduatedRadiusLegendProps {
   style?: SwatchStyle;
 }
 
-export function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, style: s }: GraduatedRadiusLegendProps) {
+export const GraduatedRadiusLegend = memo(function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, style: s }: GraduatedRadiusLegendProps) {
+  const safeColors = colors?.length ? colors : undefined;
+  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
+  const opacityStyle: React.CSSProperties | undefined =
+    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
   return (
     <ul className="space-y-0.5">
       {sizes.map((size, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <svg viewBox="0 0 24 24" width="24" height="24" className="shrink-0" style={s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : undefined}>
+          <svg viewBox="0 0 24 24" width="24" height="24" className="shrink-0" style={opacityStyle}>
             <circle
               cx="12" cy="12"
               r={Math.min(size, 12)}
-              fill={colors?.[Math.min(i, colors.length - 1)] ?? circleColor} fillOpacity={s?.fillOpacity ?? 1}
+              fill={safeColors?.[Math.min(i, safeColors.length - 1)] ?? circleColor}
               stroke={s?.outlineColor ?? MAP_COLORS.legendOutline}
               strokeWidth={s?.strokeDisabled ? 0 : (s?.strokeWidth ?? 1)}
             />
@@ -152,7 +149,7 @@ export function GraduatedRadiusLegend({ sizes, breaks, circleColor, colors, styl
       ))}
     </ul>
   );
-}
+});
 
 /* ── Graduated width legend (SVG lines) ──────────── */
 
@@ -163,20 +160,23 @@ interface GraduatedWidthLegendProps {
   style?: SwatchStyle;
 }
 
-export function GraduatedWidthLegend({ sizes, breaks, lineColor, style: s }: GraduatedWidthLegendProps) {
+export const GraduatedWidthLegend = memo(function GraduatedWidthLegend({ sizes, breaks, lineColor, style: s }: GraduatedWidthLegendProps) {
+  const compoundOpacity = (s?.opacity ?? 1) * (s?.fillOpacity ?? 1);
+  const opacityStyle: React.CSSProperties | undefined =
+    compoundOpacity < 1 ? { opacity: compoundOpacity } : undefined;
   return (
     <ul className="space-y-0.5">
       {sizes.map((size, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <svg width="24" height="16" className="shrink-0" style={s?.opacity !== undefined && s.opacity < 1 ? { opacity: s.opacity } : undefined}>
-            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
+          <svg width="24" height="16" className="shrink-0" style={opacityStyle}>
+            <line x1="0" y1="8" x2="24" y2="8" stroke={lineColor} strokeWidth={Math.min(size, 8)} strokeLinecap="round" />
           </svg>
           <span className="text-muted-foreground truncate">{breakLabel(i, breaks)}</span>
         </li>
       ))}
     </ul>
   );
-}
+});
 
 /* ── Heatmap gradient legend ─────────────────────── */
 

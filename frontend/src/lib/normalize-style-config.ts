@@ -11,7 +11,7 @@ import { getColorProperty, getSizeProperty } from './color-ramps';
  *   For step: breaks separate the value ranges (N values, N-1 breaks)
  *   For interpolate: all stops become breaks, all values returned
  */
-function parseStepOrInterpolate(expr: unknown): { values: unknown[]; breaks: number[] } | null {
+export function parseStepOrInterpolate(expr: unknown): { values: unknown[]; breaks: number[] } | null {
   if (!Array.isArray(expr) || expr.length < 4) return null;
 
   if (expr[0] === 'step') {
@@ -19,7 +19,8 @@ function parseStepOrInterpolate(expr: unknown): { values: unknown[]; breaks: num
     const values: unknown[] = [initial];
     const breaks: number[] = [];
     for (let i = 3; i < expr.length; i += 2) {
-      breaks.push(expr[i] as number);
+      if (typeof expr[i] === 'number') breaks.push(expr[i]);
+      else break; // malformed — stop positions must be numbers
       if (i + 1 < expr.length) values.push(expr[i + 1]);
     }
     return { values, breaks };
@@ -30,7 +31,8 @@ function parseStepOrInterpolate(expr: unknown): { values: unknown[]; breaks: num
     const values: unknown[] = [];
     const allStops: number[] = [];
     for (let i = 3; i < expr.length; i += 2) {
-      allStops.push(expr[i] as number);
+      if (typeof expr[i] === 'number') allStops.push(expr[i]);
+      else break;
       if (i + 1 < expr.length) values.push(expr[i + 1]);
     }
     // Convert to step-style breaks: drop the first stop (it's the "< X" bucket)
@@ -45,14 +47,9 @@ function parseStepOrInterpolate(expr: unknown): { values: unknown[]; breaks: num
  * Normalize a style_config that may use legacy field names (from demo fixtures,
  * AI-generated maps, or older API versions) into the canonical frontend schema.
  *
- * Legacy schemas seen in the wild:
- *   { type: "classified", column_name, num_classes, classification_method, colormap, target }
- *   { type: "choropleth", value_field, n_classes, classification, color_scheme }
- *
- * Canonical schema (frontend StyleConfig):
- *   { mode, column, classCount, method, ramp, target, colors, breaks, sizes }
- *
- * If colors/breaks/sizes are missing, extracts them from paint step expressions.
+ * Also fills in missing colors/breaks/sizes from paint step expressions,
+ * even for canonical configs (the DataDrivenStyleEditor omits `colors`
+ * when target is radius/width).
  */
 export function normalizeStyleConfig(
   raw: Record<string, unknown> | null | undefined,
@@ -80,6 +77,18 @@ export function normalizeStyleConfig(
         ...(raw.render_mode ? { render_mode: raw.render_mode as StyleConfig['render_mode'] } : {}),
       }
     : { ...(raw as StyleConfig) };
+
+  // Coerce JSON nulls to undefined for optional array fields
+  if (normalized.breaks === null) normalized.breaks = undefined;
+  if (normalized.colors === null) normalized.colors = undefined;
+  if (normalized.sizes === null) normalized.sizes = undefined;
+
+  // Early exit if all fields are already populated — no paint extraction needed
+  if (normalized.colors && normalized.breaks) {
+    if (normalized.target === 'color' || (normalized.sizes && normalized.sizes.length > 0)) {
+      return normalized;
+    }
+  }
 
   // Extract colors/breaks/sizes from paint expressions if missing
   if (paint && normalized.column) {

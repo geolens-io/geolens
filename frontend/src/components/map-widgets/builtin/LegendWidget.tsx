@@ -8,8 +8,47 @@ import {
   GraduatedWidthLegend,
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
+import type { SwatchStyle } from '@/components/map/LegendEntries';
+import type { StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import type { WidgetContext } from '../types';
+
+/** Extract swatch style properties from layer paint based on geometry type. */
+function getSwatchStyleFromPaint(
+  paint: Record<string, unknown> | undefined,
+  geometryType: string | null | undefined,
+  masterOpacity: number,
+): SwatchStyle {
+  const gt = (geometryType ?? '').toUpperCase();
+  const strokeDisabled = !!paint?.['_stroke-disabled'];
+
+  const outlineColor = gt.includes('POINT')
+    ? (typeof paint?.['circle-stroke-color'] === 'string' ? paint['circle-stroke-color'] as string : undefined)
+    : (typeof paint?.['_outline-color'] === 'string' ? paint['_outline-color'] as string : undefined);
+
+  const rawStrokeW = gt.includes('POINT') ? paint?.['circle-stroke-width'] : paint?.['_outline-width'];
+  const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
+
+  const rawFillOp = gt.includes('POINT')
+    ? paint?.['circle-opacity']
+    : gt.includes('LINE')
+      ? paint?.['line-opacity']
+      : paint?.['fill-opacity'];
+  const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
+
+  return { outlineColor, strokeDisabled, opacity: masterOpacity, fillOpacity, strokeWidth };
+}
+
+/** Extract colors and breaks from a paint color expression for the legend. */
+function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {
+  if (typeof paintColorValue === 'string' || !paintColorValue) return null;
+  const parsed = parseStepOrInterpolate(paintColorValue);
+  if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
+  const colors = parsed.values as string[];
+  // For interpolate, breaks already has the first stop dropped by parseStepOrInterpolate
+  return { colors, breaks: parsed.breaks };
+}
 
 export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   const { t } = useTranslation('builder');
@@ -28,25 +67,8 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   return (
     <div className="space-y-0 min-w-44">
       {legendLayers.map((layer, idx) => {
-        const strokeDisabled = !!layer.paint?.['_stroke-disabled'];
         const opacity = layer.opacity ?? 1;
-        const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
-        // Read stroke color/width per geometry type
-        const outlineColor = gt.includes('POINT')
-          ? (typeof layer.paint?.['circle-stroke-color'] === 'string' ? layer.paint['circle-stroke-color'] as string : undefined)
-          : (layer.paint?.['_outline-color'] as string | undefined);
-        const rawStrokeW = gt.includes('POINT')
-          ? layer.paint?.['circle-stroke-width']
-          : layer.paint?.['_outline-width'];
-        const strokeWidth = typeof rawStrokeW === 'number' ? rawStrokeW : undefined;
-        // Read paint-level opacity per geometry type
-        const rawFillOp = gt.includes('POINT')
-          ? layer.paint?.['circle-opacity']
-          : gt.includes('LINE')
-            ? layer.paint?.['line-opacity']
-            : layer.paint?.['fill-opacity'];
-        const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
-        const swatchStyle = { outlineColor, strokeDisabled, opacity, fillOpacity, strokeWidth };
+        const swatchStyle = getSwatchStyleFromPaint(layer.paint, layer.dataset_geometry_type, opacity);
         const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
 
         return (
@@ -118,34 +140,6 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   );
 }
 
-/** Extract colors and breaks from a MapLibre step/interpolate expression. */
-function parseColorExpression(expr: unknown): { colors: string[]; breaks: number[] } | null {
-  if (!Array.isArray(expr) || expr.length < 4) return null;
-  if (expr[0] === 'step') {
-    // ["step", input, initial, stop1, val1, ...]
-    const colors: string[] = [];
-    const breaks: number[] = [];
-    if (typeof expr[2] === 'string') colors.push(expr[2]);
-    for (let i = 3; i < expr.length; i += 2) {
-      if (typeof expr[i] === 'number') breaks.push(expr[i]);
-      if (i + 1 < expr.length && typeof expr[i + 1] === 'string') colors.push(expr[i + 1]);
-    }
-    return colors.length > 0 ? { colors, breaks } : null;
-  }
-  if (expr[0] === 'interpolate') {
-    // ["interpolate", interp, input, stop0, val0, stop1, val1, ...]
-    const colors: string[] = [];
-    const breaks: number[] = [];
-    for (let i = 3; i < expr.length; i += 2) {
-      if (typeof expr[i] === 'number') breaks.push(expr[i]);
-      if (i + 1 < expr.length && typeof expr[i + 1] === 'string') colors.push(expr[i + 1]);
-    }
-    // Convert to step-style breaks (drop first — it's the "< X" bucket)
-    return colors.length > 0 ? { colors, breaks: breaks.slice(1) } : null;
-  }
-  return null;
-}
-
 /** Picks the right graduated sub-legend based on target (color/radius/width). */
 function GraduatedLegendSwitch({
   styleConfig,
@@ -153,26 +147,25 @@ function GraduatedLegendSwitch({
   style,
   geometryType,
 }: {
-  styleConfig: { breaks?: number[]; target?: string; sizes?: number[]; colors?: string[] };
+  styleConfig: StyleConfig;
   paint: Record<string, unknown>;
-  style: { outlineColor?: string; strokeDisabled: boolean; opacity: number };
+  style: SwatchStyle;
   geometryType?: string | null;
 }) {
-  const breaks = styleConfig.breaks!;
+  const breaks = styleConfig.breaks ?? [];
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     const raw = paint['circle-color'];
     const circleColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
     // Extract colors + breaks from paint expression so legend matches
-    // the actual map rendering (styleConfig may have editor-recalculated
-    // breaks that differ from the paint expression's breaks)
-    const parsed = typeof raw !== 'string' ? parseColorExpression(raw) : null;
+    // the actual map rendering (styleConfig may lack colors when the
+    // DataDrivenStyleEditor saves radius-targeted graduated configs)
+    const parsed = useMemo(() => parsePaintColors(raw), [raw]);
     const colors = styleConfig.colors ?? parsed?.colors;
-    // Always use paint-expression breaks when the color is an expression —
-    // they match the actual map rendering, not the editor-recalculated size breaks
+    // Use paint-expression breaks when available — they match the actual
+    // map rendering. Falls back to styleConfig.breaks for flat-color layers.
     const effectiveBreaks = parsed?.breaks ?? breaks;
-    // Cap entries to color count to avoid duplicate "≥ max" rows when the
-    // editor recalculated more size classes than the color expression has
+    // Cap entries to color count to avoid duplicate "≥ max" rows
     const entryCount = colors ? Math.min(styleConfig.sizes.length, colors.length) : styleConfig.sizes.length;
     const cappedSizes = styleConfig.sizes.slice(0, entryCount);
     return (
@@ -209,4 +202,3 @@ function GraduatedLegendSwitch({
     />
   );
 }
-
