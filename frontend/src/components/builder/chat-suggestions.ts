@@ -13,8 +13,7 @@ function mentionName(layer: MapLayerResponse): string {
 
 // Accept a TFunction bound to any namespace; the caller provides its own
 // scoped instance (e.g. from useTranslation('builder')).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyTFunction = TFunction<any, undefined>;
+type AnyTFunction = TFunction<string, undefined>;
 
 export function getSmartSuggestions(layers: MapLayerResponse[], t: AnyTFunction): string[] {
   const suggestions: string[] = [];

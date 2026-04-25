@@ -862,8 +862,9 @@ async def _build_collection_metadata(
     if temporal_extent is not None:
         extent["temporal"] = temporal_extent
 
-    # Summaries: geometry_types, srids, and organizations in a single query
-    # (replaces 3 sequential _distinct_aggregate round-trips)
+    # Summaries + keywords in a single query: outer-join RecordKeyword so all
+    # four array_agg expressions run in one pass instead of two round-trips.
+    # DISTINCT inside each array_agg handles fan-out from the keyword join.
     summary_stmt = (
         select(
             func.array_agg(func.distinct(Dataset.geometry_type))
@@ -878,9 +879,13 @@ async def _build_collection_metadata(
                 Record.source_organization != "",
             )
             .label("organizations"),
+            func.array_agg(func.distinct(RecordKeyword.keyword))
+            .filter(RecordKeyword.keyword.isnot(None))
+            .label("keywords"),
         )
         .select_from(Dataset)
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RecordKeyword, RecordKeyword.record_id == Record.id)
     )
     summary_stmt = apply_visibility_filter(
         summary_stmt, user, user_roles, Record, DatasetGrant
@@ -889,15 +894,7 @@ async def _build_collection_metadata(
     geometry_types = sorted(summary_row.geometry_types or [])
     srids = sorted(summary_row.srids or [])
     organizations = sorted(summary_row.organizations or [])
-
-    # Keywords need a separate join to RecordKeyword
-    keywords_list = await _distinct_aggregate(
-        db,
-        RecordKeyword.keyword,
-        user,
-        user_roles,
-        extra_joins=[(RecordKeyword, RecordKeyword.record_id == Record.id)],
-    )
+    keywords_list = sorted(summary_row.keywords or [])
 
     # Build summaries
     summaries = {}

@@ -33,7 +33,7 @@ export function usePartitionedWidgets() {
       (w) => activeWidgets.has(w.id) && (enabledSet === null || enabledSet.has(w.id)),
     );
 
-    const byAnchor: Record<string, WidgetDefinition[]> = {};
+    const byAnchor: Partial<Record<WidgetAnchor, WidgetDefinition[]>> = {};
 
     for (const w of definitions) {
       if (w.placement.mode === 'floating') {
@@ -47,7 +47,7 @@ export function usePartitionedWidgets() {
 }
 
 interface WidgetHostProps {
-  byAnchor: Record<string, WidgetDefinition[]>;
+  byAnchor: Partial<Record<WidgetAnchor, WidgetDefinition[]>>;
   ctx: WidgetContext;
   /** Extra content rendered inside the top-left anchor (e.g., filter chips). */
   topLeftSlot?: React.ReactNode;

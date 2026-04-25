@@ -908,14 +908,10 @@ async def get_shared_map(
     if isinstance(token_obj, str):
         return token_obj  # "expired"
 
-    # Load the map
-    map_obj = await get_map(session, token_obj.map_id)
-    if map_obj is None or map_obj.visibility != "public":
-        return None
-
-    # Load layers with dataset info, applying visibility filter
+    # Single query: Map metadata + visible layers in one round trip.
     stmt = (
         select(
+            Map,
             MapLayer,
             Record.title,
             Dataset.geometry_type,
@@ -927,19 +923,41 @@ async def get_shared_map(
             Dataset.feature_count,
             RasterAsset.is_dem,
         )
+        .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
-        .where(MapLayer.map_id == map_obj.id)
+        .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
         .order_by(MapLayer.sort_order)
     )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)
     layer_rows = layer_result.all()
 
+    if not layer_rows:
+        # Map doesn't exist, is not public, or has no visible layers.
+        # Fall back to map-only check to distinguish "not found" from "empty".
+        map_obj = await get_map(session, token_obj.map_id)
+        if map_obj is None or map_obj.visibility != "public":
+            return None
+        map_data = {
+            "name": map_obj.name,
+            "description": map_obj.description,
+            "center_lng": map_obj.center_lng or 0.0,
+            "center_lat": map_obj.center_lat or 0.0,
+            "zoom": map_obj.zoom or 2.0,
+            "bearing": map_obj.bearing,
+            "pitch": map_obj.pitch,
+            "basemap_style": map_obj.basemap_style,
+            "show_basemap_labels": map_obj.show_basemap_labels,
+            "has_non_public_layers": False,
+        }
+        return map_data, []
+
     has_non_public = False
     layers = []
     for (
+        _map_obj,
         layer,
         ds_name,
         ds_geom_type,
@@ -967,16 +985,17 @@ async def get_shared_map(
             has_non_public = True
         layers.append(layer_dict)
 
+    map_row = layer_rows[0][0]  # Map ORM object — same for every row
     map_data = {
-        "name": map_obj.name,
-        "description": map_obj.description,
-        "center_lng": map_obj.center_lng or 0.0,
-        "center_lat": map_obj.center_lat or 0.0,
-        "zoom": map_obj.zoom or 2.0,
-        "bearing": map_obj.bearing,
-        "pitch": map_obj.pitch,
-        "basemap_style": map_obj.basemap_style,
-        "show_basemap_labels": map_obj.show_basemap_labels,
+        "name": map_row.name,
+        "description": map_row.description,
+        "center_lng": map_row.center_lng or 0.0,
+        "center_lat": map_row.center_lat or 0.0,
+        "zoom": map_row.zoom or 2.0,
+        "bearing": map_row.bearing,
+        "pitch": map_row.pitch,
+        "basemap_style": map_row.basemap_style,
+        "show_basemap_labels": map_row.show_basemap_labels,
         "has_non_public_layers": has_non_public,
     }
 

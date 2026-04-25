@@ -300,10 +300,11 @@ export function syncLayersToMap(
 
   try {
     removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
+    managedSourcesRef.current = desiredSources;
   } catch (err) {
-    if (import.meta.env.DEV) console.error('[map-sync] removeStaleSourcesAndLayers failed', err);
+    // On failure, keep managedSourcesRef at pre-removal value so next sync retries cleanup
+    console.warn('[map-sync] removeStaleSourcesAndLayers failed', err);
   }
-  managedSourcesRef.current = desiredSources;
 
   // Only reorder when layer order actually changed (not on every paint/visibility sync).
   // Include total style layer count so basemap switches invalidate the key.
@@ -323,7 +324,7 @@ export function syncLayersToMap(
 
 /** Move data geometry layers (fill/line/circle + outlines) to the top of the stack.
  *  Reverse iterate so first-in-array (index 0) ends up topmost. */
-export function reorderDataGeometry(
+function reorderDataGeometry(
   map: MaplibreMap,
   layers: Pick<SyncLayerInput, 'id'>[],
   idPrefix?: string,
@@ -337,7 +338,7 @@ export function reorderDataGeometry(
 }
 
 /** Move data label layers to the top of the stack (above everything else). */
-export function reorderDataLabels(
+function reorderDataLabels(
   map: MaplibreMap,
   layers: Pick<SyncLayerInput, 'id'>[],
   idPrefix?: string,
