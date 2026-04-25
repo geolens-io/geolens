@@ -103,6 +103,29 @@ export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   );
 }
 
+/** Extract color strings from a MapLibre step/match/interpolate expression. */
+function extractColorsFromExpression(expr: unknown): string[] | null {
+  if (!Array.isArray(expr) || expr.length < 4) return null;
+  if (expr[0] === 'step') {
+    // ["step", input, initial, stop1, val1, ...] — values at even positions starting from [2]
+    const colors: string[] = [];
+    if (typeof expr[2] === 'string') colors.push(expr[2]);
+    for (let i = 4; i < expr.length; i += 2) {
+      if (typeof expr[i] === 'string') colors.push(expr[i]);
+    }
+    return colors.length > 0 ? colors : null;
+  }
+  if (expr[0] === 'interpolate') {
+    // ["interpolate", interp, input, stop0, val0, stop1, val1, ...]
+    const colors: string[] = [];
+    for (let i = 4; i < expr.length; i += 2) {
+      if (typeof expr[i] === 'string') colors.push(expr[i]);
+    }
+    return colors.length > 0 ? colors : null;
+  }
+  return null;
+}
+
 /** Picks the right graduated sub-legend based on target (color/radius/width). */
 function GraduatedLegendSwitch({
   styleConfig,
@@ -120,12 +143,15 @@ function GraduatedLegendSwitch({
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     const raw = paint['circle-color'];
     const circleColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
+    // Extract per-class colors from paint expression (styleConfig.colors may be
+    // absent when DataDrivenStyleEditor saves radius-targeted graduated configs)
+    const colors = styleConfig.colors ?? extractColorsFromExpression(raw);
     return (
       <GraduatedRadiusLegend
         sizes={styleConfig.sizes}
         breaks={breaks}
         circleColor={circleColor}
-        colors={styleConfig.colors}
+        colors={colors ?? undefined}
         style={style}
       />
     );
