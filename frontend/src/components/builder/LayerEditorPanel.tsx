@@ -4,20 +4,22 @@ import { ChevronLeft } from 'lucide-react';
 import { LayerStyleEditor } from './LayerStyleEditor';
 import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
+import { PopupConfigEditor } from './PopupConfigEditor';
 import { RasterLayerControls } from './RasterLayerControls';
 import { ColumnsReference } from './ColumnsReference';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
-import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 
 export interface LayerEditorHandlers {
-  onTabChange: (layerId: string, tab: 'style' | 'filter' | 'labels') => void;
+  onTabChange: (layerId: string, tab: 'style' | 'filter' | 'labels' | 'popup') => void;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
   onLabelChange: (layerId: string, config: LabelConfig | null) => void;
+  onPopupChange: (layerId: string, config: PopupConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
@@ -25,7 +27,7 @@ export interface LayerEditorHandlers {
 
 interface LayerEditorPanelProps {
   layer: MapLayerResponse;
-  activeTab: 'style' | 'filter' | 'labels' | null;
+  activeTab: 'style' | 'filter' | 'labels' | 'popup' | null;
   handlers: LayerEditorHandlers;
   onBack?: () => void;
 }
@@ -93,10 +95,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       {!isRaster && (
         <>
           <div className="flex gap-1 px-3.5 border-b shrink-0" role="tablist">
-            {(['style', 'filter', 'labels'] as const)
+            {(['style', 'filter', 'labels', 'popup'] as const)
               .filter((tab) => {
                 if (tab === 'filter') return caps.supportsFilterEditor;
                 if (tab === 'labels') return caps.supportsLabelEditor && !isHeatmap;
+                if (tab === 'popup') return caps.supportsFilterEditor || caps.supportsLabelEditor;
                 return true;
               })
               .map((tab) => (
@@ -151,6 +154,15 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   labelConfig={layer.label_config ?? null}
                   onLabelChange={(config) => handlers.onLabelChange(layer.id, config)}
                   geometryType={layer.dataset_geometry_type}
+                />
+              </div>
+            )}
+            {activeTab === 'popup' && (
+              <div role="tabpanel" id={`tabpanel-${layer.id}-popup`} aria-labelledby={`tab-${layer.id}-popup`}>
+                <PopupConfigEditor
+                  columns={columns}
+                  popupConfig={layer.popup_config ?? null}
+                  onPopupChange={(config) => handlers.onPopupChange(layer.id, config)}
                 />
               </div>
             )}

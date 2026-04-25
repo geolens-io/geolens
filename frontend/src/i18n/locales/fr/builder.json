@@ -37,6 +37,8 @@
     "zoomToLayer": "Zoomer sur la couche",
     "filterTab": "Filtre",
     "labelsTab": "Étiquettes",
+    "popupTab": "Popup",
+    "popupTitle": "Popup",
     "styleTab": "Style",
     "collapseOptions": "Réduire les options",
     "moreActions": "Plus d'actions",
@@ -141,6 +143,19 @@
     "zoomRange": "Plage de zoom",
     "minZoom": "Zoom min",
     "maxZoom": "Zoom max"
+  },
+  "popup": {
+    "enable": "Activer la popup pour cette couche",
+    "expression": "Modèle du titre",
+    "expressionHelp": "Utilisez les espaces réservés {column_name}. Exemple : {city}, {state}",
+    "expressionPlaceholder": "{city}, {state}",
+    "unknownPlaceholders": "Espaces réservés inconnus : {{list}}",
+    "visibleFields": "Champs visibles",
+    "visibleFieldsAll": "Afficher tous les champs (par défaut)",
+    "visibleFieldsCustom": "Sélection personnalisée",
+    "addField": "Ajouter un champ",
+    "removeField": "Retirer le champ",
+    "noFieldsSelected": "Aucun champ sélectionné (seul le titre s'affichera)"
   },
   "dataDriven": {
     "title": "Style base sur les donnees",
@@ -332,7 +347,8 @@
     "revokeFailed": "Échec de la révocation du lien de partage",
     "mapDuplicated": "Carte dupliquée avec succès",
     "mapDuplicateFailed": "Échec de la duplication de la carte",
-    "mapForkedExcluded": "Carte dérivée ! {{count}} couche(s) exclue(s) -- vous n'avez pas accès à ces jeux de données"
+    "mapForkedExcluded": "Carte dérivée ! {{count}} couche(s) exclue(s) -- vous n'avez pas accès à ces jeux de données",
+    "popupConfigInvalid": "Impossible d'enregistrer : une ou plusieurs couches ont des expressions de popup invalides"
   },
   "mapCreate": {
     "title": "Créer une carte",

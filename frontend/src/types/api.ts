@@ -694,6 +694,13 @@ export interface LabelConfig {
   allowOverlap?: boolean;
 }
 
+// Popups
+export interface PopupConfig {
+  enabled: boolean;
+  expression: string | null;
+  visible_fields: string[] | null;
+}
+
 // Data-driven styling
 export interface StyleConfig {
   mode: 'categorical' | 'graduated';
@@ -752,6 +759,7 @@ export interface MapLayerResponse {
   layout: Record<string, unknown>;
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
+  popup_config?: PopupConfig | null;
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
   dataset_record_type?: RecordType | null;
@@ -845,6 +853,7 @@ export interface MapLayerInput {
   display_name?: string | null;
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
+  popup_config?: PopupConfig | null;
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
   show_in_legend?: boolean;
@@ -870,6 +879,7 @@ export interface SharedLayerResponse {
   layout: Record<string, unknown>;
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
+  popup_config?: PopupConfig | null;
   style_config?: StyleConfig | null;
   show_in_legend?: boolean;
   layer_type?: MapLayerType;
@@ -949,6 +959,7 @@ export interface ChatMapLayer {
   visible: boolean;
   filter: FilterSpecification | null;
   label_config: LabelConfig | null;
+  popup_config?: PopupConfig | null;
   style_config: StyleConfig | null;
   paint: Record<string, unknown> | null;
   layer_type?: MapLayerType | null;
