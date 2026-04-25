@@ -300,23 +300,25 @@ export function syncLayersToMap(
   removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
   managedSourcesRef.current = desiredSources;
 
-  // Only reorder when layer order actually changed (not on every paint/visibility sync)
+  // Only reorder when layer order actually changed (not on every paint/visibility sync).
+  // Include total style layer count so basemap switches invalidate the key.
   const orderKey = layers.map((l) => l.id).join(',')
-    + (options?.showBasemapLabels !== undefined ? `|${String(options.showBasemapLabels)}` : '');
+    + (options?.showBasemapLabels !== undefined ? `|${String(options.showBasemapLabels)}` : '')
+    + `|${map.getStyle()?.layers?.length ?? 0}`;
   if (orderKey !== lastOrderKeyRef.current) {
     lastOrderKeyRef.current = orderKey;
-    reorderDataLayers(map, layers, prefix);
+    // Target z-order: data geometries → basemap labels → data labels
+    reorderDataGeometry(map, layers, prefix);
     if (options?.showBasemapLabels !== undefined) {
       reorderBasemapLabels(map, options.showBasemapLabels, sourcePrefix);
     }
+    reorderDataLabels(map, layers, prefix);
   }
 }
 
-/** Reorder MapLibre layers so first in array renders on top (matches UI list).
- *  Reverse iterate: moveLayer() without beforeId moves to top of stack,
- *  so last-processed (index 0) ends up on top.
- *  Labels are moved above all data layers so they are never obscured. */
-export function reorderDataLayers(
+/** Move data geometry layers (fill/line/circle + outlines) to the top of the stack.
+ *  Reverse iterate so first-in-array (index 0) ends up topmost. */
+export function reorderDataGeometry(
   map: MaplibreMap,
   layers: Pick<SyncLayerInput, 'id'>[],
   idPrefix?: string,
@@ -327,8 +329,26 @@ export function reorderDataLayers(
     if (map.getLayer(lid)) map.moveLayer(lid);
     if (map.getLayer(oid)) map.moveLayer(oid);
   }
+}
+
+/** Move data label layers to the top of the stack (above everything else). */
+export function reorderDataLabels(
+  map: MaplibreMap,
+  layers: Pick<SyncLayerInput, 'id'>[],
+  idPrefix?: string,
+) {
   for (let i = layers.length - 1; i >= 0; i--) {
     const labelId = prefixed('label',layers[i].id, idPrefix);
     if (map.getLayer(labelId)) map.moveLayer(labelId);
   }
+}
+
+/** Convenience: reorder both geometry and labels in one call (no basemap interleave). */
+export function reorderDataLayers(
+  map: MaplibreMap,
+  layers: Pick<SyncLayerInput, 'id'>[],
+  idPrefix?: string,
+) {
+  reorderDataGeometry(map, layers, idPrefix);
+  reorderDataLabels(map, layers, idPrefix);
 }

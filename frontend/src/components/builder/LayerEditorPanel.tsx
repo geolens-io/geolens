@@ -40,6 +40,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const columns = layer.dataset_column_info ?? [];
   const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
   const isRaster = caps.kind !== 'vector';
+  const isHeatmap = (layer.style_config as Record<string, unknown> | undefined)?.render_mode === 'heatmap';
   const layerColors = useMemo(() => getLayerColors(layer), [layer]);
   const styleHints = useMemo(
     () => extractStyleHints(
@@ -95,7 +96,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             {(['style', 'filter', 'labels'] as const)
               .filter((tab) => {
                 if (tab === 'filter') return caps.supportsFilterEditor;
-                if (tab === 'labels') return caps.supportsLabelEditor;
+                if (tab === 'labels') return caps.supportsLabelEditor && !isHeatmap;
                 return true;
               })
               .map((tab) => (

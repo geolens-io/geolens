@@ -32,7 +32,7 @@ export function buildLabelLayerSpec(opts: {
       'text-size': lc.fontSize ?? 12,
       'symbol-placement': placement,
       'text-allow-overlap': lc.allowOverlap ?? false,
-      'text-font': ['Noto Sans Regular', 'Open Sans Regular', 'Arial Unicode MS Regular'],
+      'text-font': ['Noto Sans Regular'],
       'text-max-width': 10,
       ...(geomType === 'fill' ? { 'symbol-avoid-edges': true } : {}),
       ...(visibility ? { visibility } : {}),
@@ -66,7 +66,7 @@ export function syncLabelLayer(
   map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
   map.setLayoutProperty(labelId, 'symbol-placement', placement);
   map.setLayoutProperty(labelId, 'text-allow-overlap', lc.allowOverlap ?? false);
-  map.setLayoutProperty(labelId, 'text-font', ['Noto Sans Regular', 'Open Sans Regular', 'Arial Unicode MS Regular']);
+  map.setLayoutProperty(labelId, 'text-font', ['Noto Sans Regular']);
   map.setLayoutProperty(labelId, 'text-max-width', 10);
   if (placement === 'point') {
     map.setLayoutProperty(labelId, 'text-anchor', lc.textAnchor ?? 'center');

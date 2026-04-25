@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import type { VectorTileSource } from 'maplibre-gl';
-import { syncLayersToMap, toSyncInput, reorderBasemapLabels, getSourceId, getLayerId } from './map-sync';
+import { syncLayersToMap, toSyncInput, reorderBasemapLabels, reorderDataLayers, getSourceId, getLayerId } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
@@ -213,8 +213,7 @@ export const BuilderMap = memo(function BuilderMap({
       managedSourcesRef.current = new Set();
       lastOrderKeyRef.current = '';
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
-      reorderBasemapLabels(map, sbl);
+      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels: sbl });
       refreshQueryLayerIds();
     };
 
@@ -328,16 +327,18 @@ export const BuilderMap = memo(function BuilderMap({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-    syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef);
+    syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels });
     refreshQueryLayerIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tokenMap handled by separate token-refresh effect (P-05)
   }, [structuralKey, mapReady, tileConfig?.cdn_base_url]);
 
-  // Reorder basemap labels — only when showBasemapLabels actually changes
+  // Reorder basemap labels — only when showBasemapLabels actually changes.
+  // Data labels must be re-stacked above basemap labels after toggling.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     reorderBasemapLabels(map, showBasemapLabels);
+    reorderDataLayers(map, layersRef.current.map((l) => ({ id: l.id })));
   }, [showBasemapLabels, mapReady]);
 
   // Update tile URLs in-place when tokens refresh (vector only)
