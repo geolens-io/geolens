@@ -9,12 +9,12 @@ import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
 // Anchor offsets account for map overlay controls:
 // top-left: below MapToolbar (h-8 + top-3 = ~44px ≈ top-12)
 // top-right: below MapToolbar row
-// bottom-left: above ScaleControl
+// bottom-left: above ScaleControl (~24px) + EphemeralBadge (~32px)
 // bottom-right: above NavigationControl
 const ANCHOR_POSITIONS: Record<WidgetAnchor, string> = {
   'top-left': 'absolute top-12 left-3 z-10 flex flex-col gap-2',
   'top-right': 'absolute top-12 right-3 z-10 flex flex-col gap-2',
-  'bottom-left': 'absolute bottom-10 left-4 z-10 flex flex-col gap-2',
+  'bottom-left': 'absolute bottom-14 left-4 z-10 flex flex-col gap-2',
   'bottom-right': 'absolute bottom-4 right-4 z-10 flex flex-col gap-2',
 };
 
