@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
 import { FeaturePopup } from '@/components/map/FeaturePopup';
+import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import type { VectorTileSource } from 'maplibre-gl';
 import { syncLayersToMap, toSyncInput, reorderBasemapLabels, reorderDataLayers, getSourceId, getLayerId } from './map-sync';
@@ -36,6 +37,8 @@ interface SelectedFeature {
   properties: Record<string, unknown>;
   layerName: string;
   columnInfo: { name: string; type: string }[] | null;
+  title?: string | null;
+  visibleFields?: string[] | null;
 }
 
 interface BuilderMapProps {
@@ -78,7 +81,13 @@ export const BuilderMap = memo(function BuilderMap({
   const [popupInfo, setPopupInfo] = useState<{
     longitude: number;
     latitude: number;
-    features: { properties: Record<string, unknown>; layerName: string; columnInfo: { name: string; type: string }[] | null }[];
+    features: {
+      properties: Record<string, unknown>;
+      layerName: string;
+      columnInfo: { name: string; type: string }[] | null;
+      title: string | null;
+      visibleFields: string[] | null;
+    }[];
   } | null>(null);
 
   const { data: basemaps } = useBasemaps();
@@ -253,14 +262,30 @@ export const BuilderMap = memo(function BuilderMap({
       }
 
       const hits = map.queryRenderedFeatures(e.point, { layers: queryLayers });
-      if (hits.length > 0) {
-        const mappedFeatures = hits.map((feature) => {
+
+      // Drop hits whose source layer has popups explicitly disabled.
+      // null/undefined popup_config → enabled by default; only false suppresses.
+      const filteredHits = hits.filter((feature) => {
+        const layerId = feature.layer.id.replace(/^layer-/, '');
+        const matched = layersRef.current.find((l) => l.id === layerId);
+        return matched?.popup_config?.enabled !== false;
+      });
+
+      if (filteredHits.length > 0) {
+        const mappedFeatures = filteredHits.map((feature) => {
           const layerId = feature.layer.id.replace(/^layer-/, '');
           const matchedLayer = layersRef.current.find((l) => l.id === layerId);
+          const cfg = matchedLayer?.popup_config;
+          const props = (feature.properties ?? {}) as Record<string, unknown>;
+          const title = cfg?.expression
+            ? substitutePopupTemplate(cfg.expression, props)
+            : null;
           return {
-            properties: (feature.properties ?? {}) as Record<string, unknown>,
+            properties: props,
             layerName: matchedLayer?.display_name || matchedLayer?.dataset_name || t('common:viewer.featureFallback'),
             columnInfo: matchedLayer?.dataset_column_info ?? null,
+            title,
+            visibleFields: cfg?.visible_fields ?? null,
           };
         });
         setPopupInfo({

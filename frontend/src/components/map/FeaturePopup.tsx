@@ -9,6 +9,12 @@ export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
   columnInfo?: { name: string; type: string }[] | null;
+  /** Already-substituted popup expression output. Rendered as a heading
+   *  above the property table when present. */
+  title?: string | null;
+  /** Ordered allowlist of property keys to display; null/undefined → fall
+   *  back to columnInfo legacy default; [] → render zero rows. */
+  visibleFields?: string[] | null;
 }
 
 export interface FeaturePopupProps {
@@ -48,7 +54,7 @@ export function FeaturePopup({
   const feature = features[activeIndex] ?? features[0];
   if (!feature) return null;
 
-  const { properties, layerName, columnInfo } = feature;
+  const { properties, layerName, columnInfo, title, visibleFields } = feature;
 
   function formatValue(value: unknown): string {
     if (value === null || value === undefined) return '--';
@@ -62,20 +68,28 @@ export function FeaturePopup({
   }
 
   // Filter entries: exclude internal keys and geometry fields
-  const entries = Object.entries(properties).filter(([key]) => {
+  const baseEntries = Object.entries(properties).filter(([key]) => {
     if (key.startsWith('_')) return false;
     if (EXCLUDED_KEYS.has(key)) return false;
     return true;
   });
 
-  // When columnInfo is available, further filter to only show keys present in it
-  const columnNames = columnInfo
-    ? new Set(columnInfo.map((c) => c.name))
-    : null;
-
-  const visibleEntries = columnNames
-    ? entries.filter(([key]) => columnNames.has(key))
-    : entries;
+  // Visible-fields resolution:
+  //   visibleFields is an ordered allowlist when defined → preserve user order
+  //   null/undefined → fall back to legacy columnInfo allowlist
+  //   [] → render zero rows (intentional "title only" mode)
+  let visibleEntries: [string, unknown][];
+  if (visibleFields !== undefined && visibleFields !== null) {
+    const propMap = new Map(baseEntries);
+    visibleEntries = visibleFields
+      .filter((k) => propMap.has(k))
+      .map((k) => [k, propMap.get(k)] as [string, unknown]);
+  } else if (columnInfo) {
+    const columnNames = new Set(columnInfo.map((c) => c.name));
+    visibleEntries = baseEntries.filter(([key]) => columnNames.has(key));
+  } else {
+    visibleEntries = baseEntries;
+  }
 
   const handleCopy = async (key: string, value: unknown) => {
     const text = formatValue(value);
@@ -101,6 +115,14 @@ export function FeaturePopup({
       maxWidth="360px"
     >
       <div className="text-xs">
+        {title && (
+          <div
+            className="font-semibold text-sm mb-1 break-words"
+            style={{ whiteSpace: 'pre-wrap' }}
+          >
+            {title}
+          </div>
+        )}
         {/* Header: layer name + feature counter */}
         <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b">
           {layerName && (
