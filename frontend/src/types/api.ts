@@ -1,5 +1,5 @@
 import type { Geometry } from 'geojson';
-import type { FilterSpecification } from 'maplibre-gl';
+import type { FilterSpecification, HeatmapLayerSpecification, CircleLayerSpecification } from 'maplibre-gl';
 
 /** OGC/PostGIS geometry type values returned by the API. */
 export type GeometryTypeName =
@@ -339,7 +339,7 @@ export interface OGCRecordProperties {
     computed_at: string | null;
   } | null;
   record_status?: string | null;
-  record_type?: string;
+  record_type?: RecordType;
   has_quicklook?: boolean;
   band_count?: number | null;
   epsg?: number | null;
@@ -713,9 +713,9 @@ export interface StyleConfig {
   /** Render mode override — when 'heatmap', the layer renders as a heatmap instead of styled points */
   render_mode?: 'heatmap';
   /** Heatmap paint config */
-  heatmapPaint?: Record<string, unknown>;
+  heatmapPaint?: HeatmapLayerSpecification['paint'];
   /** Saved circle paint config from before switching to heatmap mode */
-  savedCirclePaint?: Record<string, unknown>;
+  savedCirclePaint?: CircleLayerSpecification['paint'];
 }
 
 export interface ColumnValuesResponse {
@@ -754,7 +754,7 @@ export interface MapLayerResponse {
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
-  dataset_record_type?: string | null;
+  dataset_record_type?: RecordType | null;
   show_in_legend?: boolean;
   is_3d?: boolean | null;
 }
@@ -873,7 +873,7 @@ export interface SharedLayerResponse {
   style_config?: StyleConfig | null;
   show_in_legend?: boolean;
   layer_type?: MapLayerType;
-  dataset_record_type?: string;
+  dataset_record_type?: RecordType;
   is_dem?: boolean;
   is_3d?: boolean | null;
   tile_url: string;
