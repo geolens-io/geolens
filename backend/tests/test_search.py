@@ -11,9 +11,10 @@ Requirements:
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from httpx import AsyncClient
 from sqlalchemy import func, update
 
@@ -400,10 +401,18 @@ async def test_search_filter_by_date_range(
 ):
     """Filter by date_from/date_to narrows to datasets created in that range.
 
-    Since all test datasets have server_default NOW() for created_at,
-    use a broad range around today to verify filtering works.
+    Computes today/yesterday/tomorrow inside a freeze_time context so they are
+    derived from a single instant — kills the midnight-UTC boundary race the
+    audit observed (see audit 20260425 cluster 5). Postgres NOW() is unaffected
+    (server-side), so created_at timestamps match real wall-clock; yesterday
+    and tomorrow now bracket the freeze instant deterministically.
+
+    The freeze is only used for the date arithmetic — HTTP calls execute outside
+    the context to avoid freezegun patching breaking Pydantic schema
+    introspection on `datetime.date | None` query params.
     """
-    today = date.today()
+    with freeze_time(datetime.now(timezone.utc)):
+        today = date.today()
     yesterday = today - timedelta(days=1)
     tomorrow = today + timedelta(days=1)
 
