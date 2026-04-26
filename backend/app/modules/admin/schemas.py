@@ -2,12 +2,16 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.modules.auth.schemas import UserResponse
 
 VALID_ROLES = {"admin", "editor", "viewer"}
+
+# Mirror the CHECK constraint on IngestJob.status — see jobs/models.py
+JobStatus = Literal["pending", "running", "complete", "failed", "cancelled"]
 
 
 class AdminUserCreate(BaseModel):
@@ -90,8 +94,8 @@ class UserListResponse(BaseModel):
 
 class AdminJobResponse(BaseModel):
     id: uuid.UUID = Field(description="Unique ingestion job identifier.")
-    status: str = Field(
-        description="Current job status: 'pending', 'running', 'completed', or 'failed'."
+    status: JobStatus = Field(
+        description="Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'."
     )
     source_filename: str | None = Field(
         description="Original filename of the uploaded file, if applicable."
