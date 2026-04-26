@@ -149,8 +149,14 @@ async def _dataset_to_stac_item(
     stac_asset_rows: list[dict] | None = None,
     raster_meta: dict | None = None,
     collection_id: str | None = None,
+    spatial_extent_geojson: str | None = None,
 ) -> dict:
-    """Convert a Dataset ORM object to a STAC Item dict with presigned URLs."""
+    """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
+
+    ``spatial_extent_geojson`` (PERF-5) lets bulk callers (e.g. STAC items
+    page) skip per-dataset Python-side WKB deserialization in
+    ``dataset_to_ogc_record`` by precomputing ST_AsGeoJSON in one query.
+    """
     record = dataset.record
 
     # Build OGC record (base representation)
@@ -159,6 +165,7 @@ async def _dataset_to_stac_item(
         public_api_url,
         stac_asset_rows=stac_asset_rows,
         raster_meta=raster_meta,
+        spatial_extent_geojson=spatial_extent_geojson,
     )
 
     # Re-build assets with storage_provider for presigned URLs
@@ -567,7 +574,9 @@ async def get_collection_items(
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
 
-    # Bulk-fetch assets and raster metadata concurrently (separate sessions)
+    # Bulk-fetch assets, raster metadata, and spatial-extent GeoJSON concurrently.
+    # Bulk ST_AsGeoJSON in PostGIS is faster than per-dataset Python-side
+    # to_shape() WKB deserialization in dataset_to_ogc_record (PERF-5).
     ds_ids = [d.id for d in datasets]
 
     async def _assets():
@@ -578,7 +587,25 @@ async def get_collection_items(
         async with _db_module.async_session() as s:
             return await _fetch_raster_meta(s, ds_ids)
 
-    asset_rows_map, raster_meta_map = await asyncio.gather(_assets(), _raster())
+    async def _extents() -> dict[str, str | None]:
+        if not ds_ids:
+            return {}
+        async with _db_module.async_session() as s:
+            stmt = (
+                select(
+                    Dataset.id,
+                    func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
+                )
+                .join(Record, Dataset.record_id == Record.id)
+                .where(Dataset.id.in_(ds_ids))
+            )
+            return {
+                str(row.id): row.geojson for row in (await s.execute(stmt)).all()
+            }
+
+    asset_rows_map, raster_meta_map, extent_geojson_map = await asyncio.gather(
+        _assets(), _raster(), _extents()
+    )
 
     features = []
     coll_id_str = str(collection_id)
@@ -591,6 +618,7 @@ async def get_collection_items(
             stac_asset_rows=asset_rows_map.get(str(dataset.id)),
             raster_meta=raster_meta_map.get(str(dataset.id)),
             collection_id=coll_id_str,
+            spatial_extent_geojson=extent_geojson_map.get(str(dataset.id)),
         )
         features.append(item)
 
