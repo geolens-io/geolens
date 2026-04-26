@@ -113,13 +113,23 @@ class TestStacDatetime:
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
         assert result["properties"]["datetime"] == "2024-06-15T00:00:00Z"
 
-    async def test_datetime_null_when_no_temporal(self, client, test_db_session):
-        """Record with no temporal_start has properties.datetime = null."""
+    async def test_datetime_falls_back_to_created_at_when_no_temporal(
+        self, client, test_db_session
+    ):
+        """Record with no temporal_start/end falls back to created_at as STAC datetime.
+
+        See audit 20260425 cluster 1: the serializer at
+        backend/app/modules/catalog/search/service.py:1051-1057 deliberately falls
+        back to created_at so the item always passes STAC validation. The previous
+        expectation of `None` was a misread of STAC 1.0.0 (which permits null but
+        we choose defensive validation).
+        """
         admin_id = await _get_admin_id(test_db_session)
         dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
 
         result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
-        assert result["properties"]["datetime"] is None
+        expected = dataset.record.created_at.isoformat().replace("+00:00", "Z")
+        assert result["properties"]["datetime"] == expected
 
     async def test_datetime_range_with_start_and_end(self, client, test_db_session):
         """Record with both temporal bounds has start_datetime and end_datetime."""

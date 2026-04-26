@@ -1216,12 +1216,6 @@ def dataset_to_ogc_record(
         if raster_meta.get("band_count"):
             ogc_record["properties"]["band_count"] = raster_meta["band_count"]
 
-        # Declare STAC extensions used by this item
-        if has_proj:
-            ogc_record.setdefault("stac_extensions", []).append(
-                "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
-            )
-
         # Build bands array from band_info
         bands = []
         band_info = raster_meta.get("band_info")
