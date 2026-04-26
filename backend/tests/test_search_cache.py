@@ -203,3 +203,101 @@ async def test_authed_search_bypasses_cache(
     assert (
         second_matched == first_matched + 1
     ), "authed second request should reflect DB mutation (cache bypass)"
+
+
+# ---------------------------------------------------------------------------
+# /search/facets/ — PERF-7
+# ---------------------------------------------------------------------------
+
+
+def _record_type_total(payload: dict) -> int:
+    """Sum the record_type facet bucket counts in a FacetCountResponse."""
+    record_type = payload.get("record_type") or {}
+    return sum(int(v) for v in record_type.values())
+
+
+@pytest.mark.anyio
+async def test_anon_facets_caches_response(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Anon GET /search/facets/ returns the cached payload on the second call.
+
+    Mutating the DB between two anon calls must NOT change the second response —
+    proving the second request is served from cache.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    slug = f"facettest_{uuid.uuid4().hex[:8]}"
+
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"{slug} initial",
+        description=f"{slug} facet dataset one",
+    )
+
+    first = await client.get("/search/facets/", params={"q": slug})
+    assert first.status_code == 200
+    first_total = _record_type_total(first.json())
+    assert first_total >= 1, "expected the seeded dataset to be counted"
+
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"{slug} second",
+        description=f"{slug} facet dataset two",
+    )
+
+    second = await client.get("/search/facets/", params={"q": slug})
+    assert second.status_code == 200
+    second_total = _record_type_total(second.json())
+
+    assert (
+        second_total == first_total
+    ), "anon second request should return cached (stale) facet totals"
+
+
+@pytest.mark.anyio
+async def test_authed_facets_bypasses_cache(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Authenticated GET /search/facets/ must bypass the cache.
+
+    Mutating the DB between two authenticated calls MUST change the second
+    response — proving authed requests run live.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    slug = f"facettest_{uuid.uuid4().hex[:8]}"
+
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"{slug} initial",
+        description=f"{slug} authed facet dataset one",
+    )
+
+    first = await client.get(
+        "/search/facets/", params={"q": slug}, headers=admin_auth_header
+    )
+    assert first.status_code == 200
+    first_total = _record_type_total(first.json())
+    assert first_total >= 1
+
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"{slug} second",
+        description=f"{slug} authed facet dataset two",
+    )
+
+    second = await client.get(
+        "/search/facets/", params={"q": slug}, headers=admin_auth_header
+    )
+    assert second.status_code == 200
+    second_total = _record_type_total(second.json())
+
+    assert (
+        second_total == first_total + 1
+    ), "authed second request should reflect DB mutation (cache bypass)"
