@@ -1,9 +1,12 @@
 """Integration tests for record output fields.
 
 Verifies:
-  - properties.datetime follows STAC 1.0.0 rules
+  - properties.datetime follows STAC 1.0.0 rules with a defensive fallback to
+    created_at when the record carries no temporal info (audit 20260425
+    cluster 1 — defensive validation chosen over strict null compliance)
   - STAC-specific keys (stac_version, stac_extensions, stac_assets) are NOT
-    present in OGC Records responses
+    present in OGC Records responses (the projection extension URI is added
+    by the STAC router, not the OGC record builder — see audit cluster 2)
   - _build_stac_assets helper produces correct structure
   - Raster records include proj:* properties
 
