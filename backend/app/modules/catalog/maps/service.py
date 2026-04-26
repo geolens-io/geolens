@@ -14,6 +14,7 @@ import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.modules.auth.models import User, UserRole
 from app.modules.auth.visibility import apply_visibility_filter, get_user_roles
@@ -187,22 +188,25 @@ async def _fetch_layer_rows_ordered(
 async def _resolve_forked_and_owner(
     session: AsyncSession, map_obj: Map
 ) -> tuple[str | None, str | None]:
-    """Resolve forked_from_name + owner_username from a Map. Both nullable."""
-    forked_name: str | None = None
-    if map_obj.forked_from is not None:
-        forked_name = (
-            await session.execute(
-                select(Map.name).where(Map.id == map_obj.forked_from)
-            )
-        ).scalar_one_or_none()
-    owner_username: str | None = None
-    if map_obj.created_by is not None:
-        owner_username = (
-            await session.execute(
-                select(User.username).where(User.id == map_obj.created_by)
-            )
-        ).scalar_one_or_none()
-    return forked_name, owner_username
+    """Resolve forked_from_name + owner_username via a single LEFT JOIN.
+
+    One atomic query (matches the pre-PERF-6 get_map_with_layers semantics
+    under READ COMMITTED). Used by update_map / duplicate_map where map_obj
+    is already in-session — get_map_with_layers issues its own combined
+    query inline to keep the read path at 2 queries total.
+    """
+    ForkedMap = aliased(Map)
+    stmt = (
+        select(ForkedMap.name, User.username)
+        .select_from(Map)
+        .outerjoin(ForkedMap, Map.forked_from == ForkedMap.id)
+        .outerjoin(User, Map.created_by == User.id)
+        .where(Map.id == map_obj.id)
+    )
+    row = (await session.execute(stmt)).one_or_none()
+    if row is None:
+        return None, None
+    return row[0], row[1]
 
 
 async def get_map_with_layers(
@@ -213,14 +217,28 @@ async def get_map_with_layers(
 
     Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, is_3d), ...], forked_from_name, owner_username)
     or (None, [], None, None).
+
+    Read path uses a single combined Map+ForkedMap+User LEFT JOIN to keep
+    the public GET /maps/{id} hot path at 2 queries total (matches
+    pre-PERF-6 behavior; the helper-based pattern is reserved for the
+    save path where map_obj is already in-session).
     """
-    map_obj = await get_map(session, map_id)
-    if map_obj is None:
-        return None, [], None, None
-    layer_rows = await _fetch_layer_rows_ordered(session, map_id)
-    forked_from_name, owner_username = await _resolve_forked_and_owner(
-        session, map_obj
+    ForkedMap = aliased(Map)
+    map_stmt = (
+        select(
+            Map,
+            ForkedMap.name.label("forked_from_name"),
+            User.username.label("owner_username"),
+        )
+        .outerjoin(ForkedMap, Map.forked_from == ForkedMap.id)
+        .outerjoin(User, Map.created_by == User.id)
+        .where(Map.id == map_id)
     )
+    map_row = (await session.execute(map_stmt)).one_or_none()
+    if map_row is None:
+        return None, [], None, None
+    map_obj, forked_from_name, owner_username = map_row
+    layer_rows = await _fetch_layer_rows_ordered(session, map_id)
     return map_obj, layer_rows, forked_from_name, owner_username
 
 
