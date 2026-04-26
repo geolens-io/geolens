@@ -1120,44 +1120,27 @@ async def search_post(
 def _apply_datetime_filter(stmt, datetime_str: str):
     """Apply OGC datetime interval filter to a query.
 
-    Supports:
-      - Single instant: "2024-01-15T00:00:00Z"
-      - Open start: "../2024-12-31T00:00:00Z"
-      - Open end: "2024-01-01T00:00:00Z/.."
-      - Closed range: "2024-01-01T00:00:00Z/2024-12-31T00:00:00Z"
+    Delegates parsing to the canonical ``parse_ogc_datetime`` helper in
+    search/service.py so STAC and OGC Records share one implementation.
+    Malformed inputs raise ValueError (was silently ignored before — that
+    masked client mistakes).
     """
-    from datetime import datetime as dt
+    from app.modules.catalog.search.service import parse_ogc_datetime
+
+    start, end = parse_ogc_datetime(datetime_str.strip())
 
     if "/" in datetime_str:
-        parts = datetime_str.split("/", 1)
-        start_str, end_str = parts[0].strip(), parts[1].strip()
-
-        if start_str != ".." and start_str:
-            try:
-                start_dt = dt.fromisoformat(start_str.replace("Z", "+00:00"))
-                stmt = stmt.where(
-                    (Record.temporal_end >= start_dt.date())
-                    | (Record.temporal_start >= start_dt.date())
-                )
-            except ValueError:
-                pass
-
-        if end_str != ".." and end_str:
-            try:
-                end_dt = dt.fromisoformat(end_str.replace("Z", "+00:00"))
-                stmt = stmt.where(Record.temporal_start <= end_dt.date())
-            except ValueError:
-                pass
-    else:
-        # Single instant -- match records containing that date
-        try:
-            instant = dt.fromisoformat(datetime_str.strip().replace("Z", "+00:00"))
-            stmt = stmt.where(Record.temporal_start <= instant.date())
+        if start is not None:
             stmt = stmt.where(
-                (Record.temporal_end >= instant.date())
-                | (Record.temporal_end.is_(None))
+                (Record.temporal_end >= start) | (Record.temporal_start >= start)
             )
-        except ValueError:
-            pass
-
+        if end is not None:
+            stmt = stmt.where(Record.temporal_start <= end)
+    else:
+        # Single instant — match records whose temporal range contains it.
+        if start is not None:
+            stmt = stmt.where(Record.temporal_start <= start)
+            stmt = stmt.where(
+                (Record.temporal_end >= start) | (Record.temporal_end.is_(None))
+            )
     return stmt

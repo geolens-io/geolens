@@ -180,40 +180,14 @@ async def generate_map_endpoint(
 
     user_roles = await get_user_roles(db, user)
 
-    try:
-        result = await generate_map_from_prompt(
+    result = await _call_llm_endpoint(
+        generate_map_from_prompt(
             db, user, user_roles, body.prompt, language=body.language
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(e),
-        )
-    except ToolLoopExhaustedError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Map generation required too many steps. Try a simpler prompt.",
-        )
-    except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
-        logger.warning("LLM connection error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not connect to LLM provider",
-        )
-    except (anthropic.APIError, openai.APIError) as e:
-        logger.warning("LLM API error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM provider returned an error",
-        )
-    except (
-        Exception
-    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("AI map generation failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI map generation failed unexpectedly",
-        )
+        ),
+        error_prefix="AI map generation",
+        tool_loop_message="Map generation required too many steps. Try a simpler prompt.",
+        unexpected_message="AI map generation failed unexpectedly",
+    )
 
     await db.commit()
     return MapGenerateResponse(**result)
@@ -297,8 +271,8 @@ async def chat_endpoint(
     )
     user_roles = await get_user_roles(db, user)
 
-    try:
-        return await chat_edit_map(
+    return await _call_llm_endpoint(
+        chat_edit_map(
             db,
             user,
             user_roles,
@@ -307,37 +281,11 @@ async def chat_endpoint(
             language=body.language,
             history=body.history or None,
             basemap_style=basemap_style,
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(e),
-        )
-    except ToolLoopExhaustedError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Request required too many steps. Try a simpler instruction.",
-        )
-    except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
-        logger.warning("Chat LLM connection error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not connect to LLM provider",
-        )
-    except (anthropic.APIError, openai.APIError) as e:
-        logger.warning("Chat LLM API error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM provider returned an error",
-        )
-    except (
-        Exception
-    ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("Chat map editing failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Chat map editing failed unexpectedly",
-        )
+        ),
+        error_prefix="Chat map editing",
+        tool_loop_message="Request required too many steps. Try a simpler instruction.",
+        unexpected_message="Chat map editing failed unexpectedly",
+    )
 
 
 @router.post(
@@ -417,11 +365,24 @@ async def chat_stream_endpoint(
 # ---------------------------------------------------------------------------
 
 
-async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
-    """Shared error handler for metadata AI endpoints.
+async def _call_llm_endpoint(
+    coro: Awaitable[_T],
+    *,
+    error_prefix: str,
+    tool_loop_message: str | None = None,
+    unexpected_message: str = "AI metadata generation failed unexpectedly",
+) -> _T:
+    """Shared error handler for AI endpoints (chat, generate-map, metadata).
 
-    Wraps the coroutine with the standard LLM error handling: ValueError,
-    connection errors, API errors, and unexpected exceptions.
+    Maps the standard LLM exception taxonomy to HTTP errors:
+      - ValueError                      → 422 (caller-supplied detail)
+      - ToolLoopExhaustedError          → 422 (when tool_loop_message is set)
+      - APIConnectionError (provider)   → 502 "Could not connect to LLM provider"
+      - APIError (provider)             → 502 "LLM provider returned an error"
+      - Anything else                   → 500 with caller-supplied message
+
+    Pass ``tool_loop_message`` for endpoints that run multi-step tool loops
+    (chat, generate-map). Metadata endpoints don't tool-loop, so leave it None.
     """
     try:
         return await coro
@@ -430,14 +391,25 @@ async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
+    except ToolLoopExhaustedError:
+        if tool_loop_message is None:
+            # Should not happen for metadata endpoints, but degrade gracefully.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Request required too many steps. Try a simpler instruction.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=tool_loop_message,
+        )
     except (anthropic.APIConnectionError, openai.APIConnectionError) as e:
-        logger.warning("AI metadata connection error", error=str(e))
+        logger.warning(f"{error_prefix} connection error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not connect to LLM provider",
         )
     except (anthropic.APIError, openai.APIError) as e:
-        logger.warning("AI metadata API error", error=str(e))
+        logger.warning(f"{error_prefix} API error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM provider returned an error",
@@ -445,11 +417,16 @@ async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
     except (
         Exception
     ):  # broad: LLM service can throw arbitrary errors beyond APIError subtypes
-        logger.exception("ai_metadata_failed", error_prefix=error_prefix)
+        logger.exception(f"{error_prefix.lower().replace(' ', '_')}_failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI metadata generation failed unexpectedly",
+            detail=unexpected_message,
         )
+
+
+# Backward-compat alias — older callers import _call_metadata_ai by name.
+async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
+    return await _call_llm_endpoint(coro, error_prefix=error_prefix)
 
 
 @router.post("/metadata/summary/", response_model=SummaryDraftResponse)
