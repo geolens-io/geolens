@@ -145,22 +145,33 @@ async def test_collections_includes_dataset_collections(
     client: AsyncClient, public_dataset: Dataset
 ):
     """GET /collections includes per-dataset feature collections alongside 'datasets' catalog."""
-    resp = await client.get("/collections", params={"limit": 200})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "collections" in data
+    # Test DB persists across the session and accumulates >200 datasets in a
+    # full run, so page through to find the freshly-created public_dataset.
+    page_size = 200
+    offset = 0
+    all_ids: list[str] = []
+    target_entry: dict | None = None
+    while True:
+        resp = await client.get(
+            "/collections", params={"limit": page_size, "offset": offset}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "collections" in data
+        for entry in data["collections"]:
+            all_ids.append(entry["id"])
+            if entry["id"] == str(public_dataset.id):
+                target_entry = entry
+        if len(data["collections"]) < page_size:
+            break
+        offset += page_size
 
-    ids = [c["id"] for c in data["collections"]]
-
-    # The catalog collection should still be present
-    assert "datasets" in ids
+    # The catalog collection should still be present (always on first page)
+    assert "datasets" in all_ids
 
     # The per-dataset feature collection should be listed
-    assert str(public_dataset.id) in ids
-
-    # The per-dataset collection should have itemType=feature
-    ds_coll = next(c for c in data["collections"] if c["id"] == str(public_dataset.id))
-    assert ds_coll["itemType"] == "feature"
+    assert target_entry is not None, f"Expected per-dataset entry for {public_dataset.id}"
+    assert target_entry["itemType"] == "feature"
 
 
 # ---------------------------------------------------------------------------

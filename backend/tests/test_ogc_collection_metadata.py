@@ -31,6 +31,29 @@ def _clear_collection_cache():
     _COLLECTION_META_CACHE.clear()
 
 
+async def _find_collection_entry(client: AsyncClient, ds_id: str) -> dict | None:
+    """Page through /collections to find a per-dataset entry by id.
+
+    The test DB persists across the session and accumulates >200 datasets in a
+    full run, so a single page (max limit=200) cannot guarantee the entry is
+    visible. Pages until the entry appears or the response is short.
+    """
+    page_size = 200
+    offset = 0
+    while True:
+        resp = await client.get(
+            "/collections", params={"limit": page_size, "offset": offset}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        for entry in data["collections"]:
+            if entry["id"] == ds_id:
+                return entry
+        if len(data["collections"]) < page_size:
+            return None
+        offset += page_size
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -380,13 +403,8 @@ async def test_per_dataset_collection_has_extent_in_list(
         data_vintage_end=date(2022, 6, 30),
     )
 
-    resp = await client.get("/collections", params={"limit": 200})
-    assert resp.status_code == 200
-    data = resp.json()
-    # Find the per-dataset entry
-    per_ds = [c for c in data["collections"] if c["id"] == str(ds.id)]
-    assert len(per_ds) == 1, f"Expected per-dataset entry for {ds.id}"
-    entry = per_ds[0]
+    entry = await _find_collection_entry(client, str(ds.id))
+    assert entry is not None, f"Expected per-dataset entry for {ds.id}"
 
     # Spatial extent
     assert "extent" in entry
@@ -415,12 +433,8 @@ async def test_per_dataset_collection_has_root_link_in_list(
         name="PerDS Root Link",
     )
 
-    resp = await client.get("/collections", params={"limit": 200})
-    assert resp.status_code == 200
-    data = resp.json()
-    per_ds = [c for c in data["collections"] if c["id"] == str(ds.id)]
-    assert len(per_ds) == 1
-    entry = per_ds[0]
+    entry = await _find_collection_entry(client, str(ds.id))
+    assert entry is not None, f"Expected per-dataset entry for {ds.id}"
 
     rels = {link["rel"] for link in entry["links"]}
     assert "root" in rels, "Per-dataset collection entry missing root link"
