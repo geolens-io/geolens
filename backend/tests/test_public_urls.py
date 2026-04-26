@@ -6,6 +6,19 @@ import pytest
 from app.core import public_urls
 
 
+@pytest.fixture(autouse=True)
+def _reset_public_url_cache():
+    """Reset the module-global URL cache around every test in this file.
+
+    The cache short-circuits past AsyncMock dbs when populated by a prior test
+    (audit 20260425 cluster 6), and conversely poisons later tests if this file
+    leaves mock data behind. Reset both before and after to keep tests hermetic.
+    """
+    public_urls._PUBLIC_URL_CACHE = None
+    yield
+    public_urls._PUBLIC_URL_CACHE = None
+
+
 def _make_request(
     *,
     headers: dict[str, str] | None = None,
@@ -210,7 +223,6 @@ def test_get_env_public_api_url_uses_current_settings(
 
 @pytest.mark.anyio
 async def test_load_public_url_overrides_unwraps_json_values() -> None:
-    public_urls._PUBLIC_URL_CACHE = None
     db = AsyncMock()
     db.execute.return_value = SimpleNamespace(
         all=lambda: [
