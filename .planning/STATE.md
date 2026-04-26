@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v15.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 999.5 context gathered
-last_updated: "2026-04-26T14:17:07.739Z"
+stopped_at: Completed Phase 999.5 Plan 02 (logo SVG creation, cross-repo)
+last_updated: "2026-04-26T14:17:36.022Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 6
@@ -53,6 +53,7 @@ Last activity: 2026-04-26
 | Phase 223 P01 | 5 | 3 tasks | 15 files |
 | Phase 224 P05 | 12min | 3 tasks | 3 files |
 | Phase 999.5 P01 | 6min | 3 tasks | 4 files |
+| Phase 999.5 P02 | 1min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Last activity: 2026-04-26
 - [Phase 224]: [224-05]: Playwright shell-layout probe is runtime-only, not wired into docs-ci.yml — preview-server lifecycle complicates CI; build-time grep guards against deletion
 - [Phase 999.5-01]: @fontsource/inter devDep was unused (audit Case A); src/lib/og.ts loads inter-700.ttf locally from src/assets/fonts/, not from node_modules — safe to remove the package without script edits
 - [Phase 999.5-01]: OG image script font swap (RESEARCH.md Pitfall 6) deferred — Plan 01 is package-manifest-only; the local inter-700.ttf TTF file is unaffected and remains a candidate for a future task
+- [Phase ?]: [Phase 999.5-02]: Canonical logo SVG canonicalized on existing favicon geometry (viewBox 0 0 64 64, r=22, cx/cy 27) — NOT a JSX-to-SVG extraction of GeoLensLogo.tsx (different proportions r=18 cx/cy 26)
+- [Phase ?]: [Phase 999.5-02]: Two byte-identical SVG copies (public/logo.svg + docs/src/assets/logo.svg) to satisfy Astro/Vite cross-project-root asset import constraint (RESEARCH Pitfall 3)
+- [Phase ?]: [Phase 999.5-02]: stroke=currentColor only on logo.svg — favicon.svg keeps hardcoded #334155 because browser favicon contexts cannot resolve currentColor
 
 ### Roadmap Evolution
 
@@ -107,8 +111,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-26T14:13:05.556Z
-Stopped at: Phase 999.5 context gathered
+Last session: 2026-04-26T14:17:22.570Z
+Stopped at: Completed Phase 999.5 Plan 02 (logo SVG creation, cross-repo)
 Resume file: None
 
 **Planned Phase:** 223 (Bootstrap & Infrastructure Lock) — 2 plans — 2026-04-25T17:13:13.520Z
