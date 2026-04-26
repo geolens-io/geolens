@@ -210,8 +210,20 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                     "Missing CRS: raster has no coordinate reference system."
                 )
 
-            # 6. Check/convert to COG
+            # 6. Check/convert to COG. Verify disk space first — COG conversion
+            # can produce output up to ~3× source size (decompressed + tiled +
+            # overviews); a stretched disk crashes here with opaque IOError and
+            # may leave concurrent ingests in a half-converted state.
             tmp_dir = tempfile.mkdtemp()
+            source_bytes = os.path.getsize(file_path)
+            free_bytes = shutil.disk_usage(tmp_dir).free
+            min_free = source_bytes * 3
+            if free_bytes < min_free:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise ValueError(
+                    f"Insufficient disk space for COG conversion: need ~{min_free // (1024 * 1024)} MB, "
+                    f"have {free_bytes // (1024 * 1024)} MB free at staging directory."
+                )
             local_cog_path, cog_status = await asyncio.to_thread(
                 check_and_prepare_cog,
                 file_path,
