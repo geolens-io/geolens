@@ -433,7 +433,9 @@ class UploadConfigResponse(BaseModel):
 
 class VrtCreateRequest(BaseModel):
     source_dataset_ids: list[uuid.UUID] = Field(
-        description="Source raster dataset IDs to include in the VRT mosaic or band stack."
+        min_length=1,
+        max_length=500,
+        description="Source raster dataset IDs to include in the VRT mosaic or band stack (1-500).",
     )
     vrt_type: Literal["mosaic", "band_stack"] = Field(
         description="Type of VRT to create. 'mosaic' tiles sources spatially; 'band_stack' aligns same-extent sources as multi-band output."

@@ -182,8 +182,19 @@ async def lifespan(app: FastAPI):
             raise RuntimeError(f"S3 health check failed: {exc}") from exc
 
     if settings.aws_marketplace_product_code:
+        # boto3.register_usage is sync and retries 3x with ~60s timeouts —
+        # without an outer cap, an unreachable AWS Marketplace API blocks
+        # container startup for ~3 minutes and risks orchestrator restart loops.
         try:
-            register_marketplace_usage(settings, logger)
+            await asyncio.wait_for(
+                asyncio.to_thread(register_marketplace_usage, settings, logger),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "AWS Marketplace metering timed out after 10s -- continuing without metering",
+                product_code=settings.aws_marketplace_product_code,
+            )
         except Exception as exc:
             logger.warning(
                 "AWS Marketplace metering failed -- continuing without metering",

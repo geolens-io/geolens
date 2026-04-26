@@ -123,7 +123,7 @@ class SearchFilters:
 # ---------------------------------------------------------------------------
 
 
-def _build_text_filter(q: str, *, use_alias: bool = False):
+def _build_text_filter(q: str):
     """Build the full-text OR clause for a query string.
 
     Returns a SQLAlchemy ``or_()`` clause combining:
@@ -132,9 +132,6 @@ def _build_text_filter(q: str, *, use_alias: bool = False):
       - ILIKE on Record.summary
       - FTS + ILIKE on RecordKeyword
       - FTS + ILIKE on RecordContact (name + organization)
-
-    When *use_alias* is True the keyword/contact sub-selects use aliased
-    models so they don't auto-correlate with an outer join on RecordKeyword.
     """
     query_text = q.strip()
     query_like = f"%{query_text.lower()}%"
@@ -152,50 +149,44 @@ def _build_text_filter(q: str, *, use_alias: bool = False):
         unaccented_like
     )
 
-    # Choose model references for sub-selects
-    RK = aliased(RecordKeyword) if use_alias else RecordKeyword
-    RC = aliased(RecordContact) if use_alias else RecordContact
-
-    kw_fts_sel = select(RK.id).where(
-        RK.record_id == Record.id,
+    kw_fts_sel = select(RecordKeyword.id).where(
+        RecordKeyword.record_id == Record.id,
         (
-            func.to_tsvector("english", RK.keyword).bool_op("||")(
-                func.to_tsvector("simple", RK.keyword)
+            func.to_tsvector("english", RecordKeyword.keyword).bool_op("||")(
+                func.to_tsvector("simple", RecordKeyword.keyword)
             )
         ).bool_op("@@")(ts_query),
     )
-    kw_like_sel = select(RK.id).where(
-        RK.record_id == Record.id,
-        func.lower(RK.keyword).like(query_like),
+    kw_like_sel = select(RecordKeyword.id).where(
+        RecordKeyword.record_id == Record.id,
+        func.lower(RecordKeyword.keyword).like(query_like),
     )
-    ct_fts_sel = select(RC.id).where(
-        RC.record_id == Record.id,
+    ct_fts_sel = select(RecordContact.id).where(
+        RecordContact.record_id == Record.id,
         (
             func.to_tsvector(
                 "english",
-                func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+                func.coalesce(RecordContact.name, "")
+                + " "
+                + func.coalesce(RecordContact.organization, ""),
             ).bool_op("||")(
                 func.to_tsvector(
                     "simple",
-                    func.coalesce(RC.name, "")
+                    func.coalesce(RecordContact.name, "")
                     + " "
-                    + func.coalesce(RC.organization, ""),
+                    + func.coalesce(RecordContact.organization, ""),
                 )
             )
         ).bool_op("@@")(ts_query),
     )
-    ct_like_sel = select(RC.id).where(
-        RC.record_id == Record.id,
+    ct_like_sel = select(RecordContact.id).where(
+        RecordContact.record_id == Record.id,
         func.lower(
-            func.coalesce(RC.name, "") + " " + func.coalesce(RC.organization, ""),
+            func.coalesce(RecordContact.name, "")
+            + " "
+            + func.coalesce(RecordContact.organization, ""),
         ).like(query_like),
     )
-
-    if use_alias:
-        kw_fts_sel = kw_fts_sel.correlate(Record)
-        kw_like_sel = kw_like_sel.correlate(Record)
-        ct_fts_sel = ct_fts_sel.correlate(Record)
-        ct_like_sel = ct_like_sel.correlate(Record)
 
     keyword_exists = exists(kw_fts_sel)
     keyword_partial_exists = exists(kw_like_sel)

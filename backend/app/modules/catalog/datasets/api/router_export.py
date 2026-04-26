@@ -58,15 +58,17 @@ async def get_dcat_catalog(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """DCAT 3 JSON-LD catalog feed. Respects dataset visibility."""
-    from sqlalchemy.orm import joinedload as _jl
+    from sqlalchemy.orm import joinedload as _jl, selectinload as _sl
 
     stmt = (
         select(DatasetModel)
         .join(Record, DatasetModel.record_id == Record.id)
         .options(
-            _jl(DatasetModel.record).joinedload(Record.keywords),
-            _jl(DatasetModel.record).joinedload(Record.contacts),
-            _jl(DatasetModel.record).joinedload(Record.distributions),
+            _jl(DatasetModel.record).options(
+                _sl(Record.keywords),
+                _sl(Record.contacts),
+                _sl(Record.distributions),
+            ),
         )
     )
 
@@ -110,14 +112,16 @@ async def get_dcat_record(
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # Ensure relationships are loaded
-    from sqlalchemy.orm import joinedload as _jl
+    from sqlalchemy.orm import joinedload as _jl, selectinload as _sl
 
     result = await db.execute(
         select(DatasetModel)
         .options(
-            _jl(DatasetModel.record).joinedload(Record.keywords),
-            _jl(DatasetModel.record).joinedload(Record.contacts),
-            _jl(DatasetModel.record).joinedload(Record.distributions),
+            _jl(DatasetModel.record).options(
+                _sl(Record.keywords),
+                _sl(Record.contacts),
+                _sl(Record.distributions),
+            ),
         )
         .where(DatasetModel.id == dataset_id)
     )

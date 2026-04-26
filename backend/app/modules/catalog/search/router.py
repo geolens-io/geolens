@@ -751,38 +751,6 @@ _COLLECTION_META_TTL = 60  # seconds
 _COLLECTION_META_MAX_SIZE = 200
 
 
-async def _distinct_aggregate(
-    db: AsyncSession,
-    column: Any,
-    user: User | None,
-    user_roles: set[str],
-    *,
-    from_dataset: bool = True,
-    extra_joins: list | None = None,
-    extra_filters: list | None = None,
-) -> list[Any]:
-    """Run a distinct aggregate query with visibility filtering.
-
-    Args:
-        column: The column to select distinct values from.
-        from_dataset: When True, start from Dataset joined to Record (default).
-        extra_joins: Additional (target, onclause) join pairs.
-        extra_filters: Additional WHERE clauses.
-
-    Returns a sorted list of distinct non-null values.
-    """
-    stmt = select(func.distinct(column))
-    if from_dataset:
-        stmt = stmt.select_from(Dataset).join(Record, Dataset.record_id == Record.id)
-    for target, onclause in extra_joins or []:
-        stmt = stmt.join(target, onclause)
-    for filt in extra_filters or []:
-        stmt = stmt.where(filt)
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    result = await db.execute(stmt)
-    return sorted([r[0] for r in result.all()])
-
-
 async def _build_collection_metadata(
     db: AsyncSession,
     user: User | None,
@@ -1208,14 +1176,16 @@ async def _lookup_by_external_id(
                 "description": f"Invalid externalId: {external_id}",
             },
         )
-    from sqlalchemy.orm import joinedload as _jl_ext
+    from sqlalchemy.orm import joinedload as _jl_ext, selectinload as _sl_ext
 
     ext_result = await db.execute(
         select(Dataset)
         .options(
-            _jl_ext(Dataset.record).joinedload(Record.keywords),
-            _jl_ext(Dataset.record).joinedload(Record.contacts),
-            _jl_ext(Dataset.record).joinedload(Record.distributions),
+            _jl_ext(Dataset.record).options(
+                _sl_ext(Record.keywords),
+                _sl_ext(Record.contacts),
+                _sl_ext(Record.distributions),
+            ),
         )
         .where(Dataset.id == record_uuid)
     )
@@ -1341,14 +1311,16 @@ async def get_collection_item(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Get a single dataset as an OGC Record Feature."""
-    from sqlalchemy.orm import joinedload as _jl2
+    from sqlalchemy.orm import joinedload as _jl2, selectinload as _sl2
 
     result = await db.execute(
         select(Dataset)
         .options(
-            _jl2(Dataset.record).joinedload(Record.keywords),
-            _jl2(Dataset.record).joinedload(Record.contacts),
-            _jl2(Dataset.record).joinedload(Record.distributions),
+            _jl2(Dataset.record).options(
+                _sl2(Record.keywords),
+                _sl2(Record.contacts),
+                _sl2(Record.distributions),
+            ),
         )
         .where(Dataset.id == record_id)
     )

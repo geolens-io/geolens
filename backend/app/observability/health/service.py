@@ -88,7 +88,12 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
         from app.modules.auth.oauth import service as oauth_service
 
         providers = await oauth_service.list_providers(db, enabled_only=True)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Failed to enumerate OAuth providers for health probe",
+            error=str(exc),
+            exc_info=True,
+        )
         return {}
 
     if not providers:
