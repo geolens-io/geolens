@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from datetime import date, datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlencode
 
 import structlog
@@ -375,7 +375,7 @@ async def _handle_search(
         raster_meta.update(await fetch_raster_meta_bulk(db, raster_ids))
 
         # Fetch source_count for VRT datasets from VrtGeneration table
-        from app.processing.raster.models import VrtGeneration
+        from app.processing.raster.models import RasterAsset, VrtGeneration
 
         vrt_dataset_ids = [
             did

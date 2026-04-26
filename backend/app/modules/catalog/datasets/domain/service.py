@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from app.modules.catalog.datasets.domain.models import DatasetRelationship
     from app.modules.catalog.datasets.domain.schemas import (
         CreateEmptyDatasetRequest,
         DatasetMeta,
+        DatasetRelationshipCreate,
         DatasetResponse,
     )
 
@@ -1138,7 +1140,6 @@ async def create_relationship(
 ) -> "DatasetRelationship":
     """Create FK relationship from source dataset to target dataset."""
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
-    from app.modules.catalog.datasets.domain.schemas import DatasetRelationshipCreate  # noqa: F401
 
     obj = DatasetRelationship(
         source_dataset_id=dataset_id,

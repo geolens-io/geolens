@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.processing.ingest.schemas import Visibility
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 from app.modules.audit.service import log_action
 from app.modules.auth.dependencies import require_permission
@@ -91,8 +92,6 @@ async def _fetch_cog_info(url: str) -> dict | None:
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))
         return None
 
-
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
     prefix="/services/stac", tags=["STAC Import"], responses=ERROR_RESPONSES_WRITE
