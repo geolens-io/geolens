@@ -4,7 +4,7 @@ milestone: v15.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed Phase 999.5 Plan 05 (Starlight logo wiring, cross-repo D-11)
-last_updated: "2026-04-26T14:43:37.128Z"
+last_updated: "2026-04-26T14:52:51.584Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 6
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 ## Current Position
 
 Phase: 999.5 (style-system-alignment) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-04-26
 
@@ -58,6 +58,7 @@ Last activity: 2026-04-26
 | Phase 999.5 P04 | 2min | 1 tasks | 1 files |
 | Phase 999.5 P05 | 1min | 1 tasks tasks | 1 files files |
 | Phase 999.5 P06 | 1min | 1 tasks | 1 files |
+| Phase 999.5 P07 | 3min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,7 @@ Last activity: 2026-04-26
 - [Phase 999.5-04]: Sidebar tint --sl-color-bg-sidebar: oklch(0.99 0.003 85) declared only in light :root per RESEARCH Pitfall 5; dark sidebar stays at Starlight default --sl-color-gray-6.
 - [Phase ?]: [Phase 999.5-05]: Starlight logo block (logo: { src: './src/assets/logo.svg', alt: 'GeoLens', replacesTitle: false }) added to docs/astro.config.mjs additively after the title key. astro check + npm run build both green; rendered HTML confirms logomark + title text co-render in nav. Implementation commit 6fc8ab1 in getgeolens.com (branch gsd/phase-225-api-reference) per D-11; SUMMARY commits to geolens main.
 - [Phase 999.5-06]: check-token-sync.sh extended verbatim from RESEARCH.md File 3 with Option-1 fail-OPEN guard (test -f $APP_CSS) for the cross-repo app leg; existing 10-stop primary-palette assertion (Phase 224 BRAND-04) preserved byte-identical. Implementation commit fca068e in getgeolens.com (branch gsd/phase-225-api-reference) per D-11; SUMMARY commits to geolens main.
+- [Phase 999.5-07]: Cross-surface DESIGN-GUIDE.md authored at getgeolens.com root references geolens/docs/DESIGN-GUIDE.md upstream rather than duplicating tokens (D-07, D-09); 4-section structure (Shared / Marketing-Specific / Docs-Specific / Drift CI Contract) per D-08; quotes the verbatim D-06 light-only rationale comment from global.css; provenance tail names CONTEXT/RESEARCH/HANDOFF in geolens/.planning/. Implementation commit 86a4dab in getgeolens.com (branch gsd/phase-225-api-reference) per D-11; SUMMARY commits to geolens main.
 
 ### Roadmap Evolution
 
@@ -122,7 +124,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-26T14:42:19.022Z
+Last session: 2026-04-26T14:49:51.391Z
 Stopped at: Completed Phase 999.5 Plan 05 (Starlight logo wiring, cross-repo D-11)
 Resume file: None
 
