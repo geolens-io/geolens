@@ -1,10 +1,11 @@
 ---
 phase: 225-api-reference
 verified: 2026-04-25T00:00:00Z
-status: human_needed
-score: 5/5 must-haves verified
+re_verified: 2026-04-26T12:42:00Z
+status: complete
+score: 5/5 must-haves verified + 3/3 human probes passed
 overrides_applied: 0
-re_verification: false
+re_verification: true
 human_verification:
   - test: "Navigate to /guides/api/ in a browser and confirm the spec version and endpoint count are surfaced in the Aside tip block"
     expected: "Aside reads e.g. 'built from geolens.json v1.0.0 (174 endpoints across 18 tags)' — dynamic values rendered from the imported JSON, not hardcoded"
@@ -129,13 +130,31 @@ No blockers or warnings found.
 
 ---
 
-## Deviations (Known, Not Verification Failures)
+## Deviations (Closed)
 
-| # | Deviation | Impact | Notes |
-|---|-----------|--------|-------|
-| D-1 | **"Endpoints by Tag" Card has no href link.** Plan 06 originally included 3 Cards including a link to `/guides/api/operations/tags/`. Plan 08's `starlight-links-validator` flagged that route as unregistered. Card was retained for context but href removed. | None — tag pages are navigable via sidebar `openAPISidebarGroups`. Success Criterion 1 (endpoints browsable) remains met. | Per additional_context: "success criterion #1 is still met because tag pages ARE rendered and ARE browsable via sidebar." |
-| D-2 | **`fetch-openapi.mjs` does not apply the OpenAPI 3.1 `$defs` → `components/schemas` transform.** The committed snapshot was manually transformed (Plan 03) to allow `@apidevtools/json-schema-ref-parser` to resolve refs. Re-running `npm run fetch-openapi` against a live backend will reintroduce `$defs` and break the build until the script is updated. | High-priority follow-up for the next snapshot refresh before v15.0 launch. Not a gate failure for Phase 225 — current snapshot is correctly transformed and build is green. | Track as follow-up task: update `fetch-openapi.mjs` to apply `$defs` → `components/schemas` rewrite before writing `geolens.json`. |
-| D-3 | **Branch `gsd/phase-225-api-reference` not yet merged to `main`.** All 15 Phase 225 commits exist on this branch; dist artifacts are from the most recent build on this branch. | Merge required before Phase 226 can start on a clean base. Not a content or functionality gap. | Standard phase-complete state — merge to main as part of phase close-out. |
+All deviations addressed in 2026-04-26 follow-up commits on the same branch.
+
+| # | Deviation | Resolution | Closing commit |
+|---|-----------|------------|----------------|
+| D-1 | **"Endpoints by Tag" Card had no href.** Plan 08's links-validator rejected the original `/guides/api/operations/tags/` route because it isn't in Starlight's content-collection registry. | Added `/guides/api/reference/**` to the validator `exclude` allowlist alongside the Phase 226/227 forward-references — the validator can't see plugin-injected routes, which is exactly what `exclude` is for. Card now points at `/guides/api/reference/operations/tags/datasets/` (most-trafficked tag); copy directs sidebar users to all 18 tag groups. | `ad0c759` |
+| D-2 | **`fetch-openapi.mjs` did not apply the OpenAPI 3.1 `$defs` → `components/schemas` transform.** Re-running `npm run fetch-openapi` would reintroduce `$defs` and break the build, since `@apidevtools/json-schema-ref-parser` (used inside starlight-openapi) cannot resolve `#/$defs/...` pointers from a non-root location. | Added a `liftDefs()` post-fetch transform that walks every nested location, promotes inline `$defs` definitions into root `components.schemas` (inline wins on collision — FastAPI's per-response `$defs` are richer), and rewrites every `$ref: "#/$defs/X"` to `$ref: "#/components/schemas/X"`. Re-fetched snapshot from local backend produces a build-clean output natively (174 paths, 4 `$defs` lifted, 0 `$defs` remaining). | `1a97706` |
+| D-3 | **Branch `gsd/phase-225-api-reference` not yet merged to `main`.** | Standard phase-complete state. User decides PR/merge timing; the branch is ready for review. | (no commit — branch merging is a user decision, not a code change) |
+
+## New Finding (Surfaced + Closed During Re-Verification)
+
+| # | Finding | Resolution | Closing commit |
+|---|---------|------------|----------------|
+| D-4 | **`dist/guides/api/index.html` was the plugin's auto-generated schema overview, not the hand-authored `index.mdx`.** Plan 06's SUMMARY claimed "content-collection won the URL race over starlight-openapi's injectRoute" — Playwright probe disproved this. The plugin's `route.ts` (lines 13-22) emits a specific `schema-overview` route at the base path, and that beat the content-collection at build time. Net effect: the curated CardGrid landing existed in source but never rendered; users at `/guides/api/` were seeing the plugin's auto-overview (no pointers to the hand-authored auth/ogc pages). | Relocated the plugin to `base: 'guides/api/reference'`. URL space now: `/guides/api/` = curated landing; `/guides/api/auth` + `/guides/api/ogc` = hand-authored; `/guides/api/reference/` = plugin overview; `/guides/api/reference/operations/...` = 229 ops + 18 tag overviews. Updated routeMiddleware prefix, links-validator exclude glob, verify-build.sh paths (5 occurrences), and the Datasets card link in the landing. Also removed a bogus `[OpenAPI snapshot](/guides/api/auth)` inline link in the curated landing prose. | `b040799` |
+
+## Re-Verification Probes (Playwright, 2026-04-26)
+
+All 3 human-verification items from the original report now pass via runtime browser probes.
+
+| # | Probe | Method | Result |
+|---|-------|--------|--------|
+| H-1 | Spec version + endpoint count rendered in Aside | Navigated to `http://localhost:4321/guides/api/`, queried `aside[class*="tip"]` | ✓ "Spec snapshot This reference is built from `geolens.json` v1.0.0 (174 endpoints across 18 tags)." — both integers and version derived from JSON import. |
+| H-2 | Pagefind runtime search excludes auto-generated operation pages | Loaded `/pagefind/pagefind.js` in browser, ran `pf.search('list datasets')` | ✓ 3 results total: `/guides/api/ogc/`, `/guides/api/`, `/guides/api/auth/`. Zero results from `/guides/api/reference/operations/` subtree. |
+| H-3 | Auto-generated tag pages render with full operation detail | Navigated to `/guides/api/reference/operations/tags/datasets/` | ✓ h1 "Overview", 35 operation links rendered, no error indicators, `data-pagefind-body` correctly absent (excluded by middleware). |
 
 ---
 
@@ -149,11 +168,14 @@ Phase 225 goal is achieved. All five success criteria are satisfied by concrete 
 4. `pagefind-exclude.ts` route middleware sets `pagefind=false` for `/guides/api/operations/` subtree; hand-authored pages retain `data-pagefind-body`. Verified statically in built HTML across all 18 tag pages.
 5. `src/content/openapi/README.md` documents the full refresh cadence, `GEOLENS_API_URL` override, diff-review process, and OASDIFF-01 deferral.
 
-All 29 `verify-build.sh` assertions pass. Three human verification items remain (visual rendering of Aside content, runtime Pagefind exclusion confirmation, and tag-page rendering quality) — none are expected to fail.
+All 29 `verify-build.sh` assertions pass. Three human verification items closed via Playwright runtime probes (see Re-Verification Probes table above).
 
-Two known follow-ups do not block the phase: (1) the `$defs` → `components/schemas` transform must be added to `fetch-openapi.mjs` before the next snapshot refresh; (2) the "Endpoints by Tag" Card intentionally has no href due to links-validator constraints.
+Three open deviations (D-1, D-2, D-3) closed in the 2026-04-26 follow-up. One additional finding (D-4) was surfaced AND closed during re-verification: the plugin's schema-overview was shadowing the curated landing at `/guides/api/`; relocating the plugin to `base: 'guides/api/reference'` gives the curated landing precedence at the canonical URL while preserving the auto-rendered reference under a sibling subtree.
+
+Phase 225 is now functionally complete — both code-evidence assertions and runtime browser probes pass. Branch `gsd/phase-225-api-reference` (19 commits ahead of main) is ready for PR review and merge.
 
 ---
 
 _Verified: 2026-04-25_
-_Verifier: Claude (gsd-verifier)_
+_Re-verified: 2026-04-26 (post-followup)_
+_Verifier: Claude (gsd-verifier + manual Playwright probes)_
