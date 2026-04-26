@@ -1196,16 +1196,13 @@ def dataset_to_ogc_record(
     # STAC properties for raster/VRT records
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
     if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
-        has_proj = False
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:epsg"] = raster_meta["epsg"]
-            has_proj = True
         if raster_meta.get("width") and raster_meta.get("height"):
             ogc_record["properties"]["proj:shape"] = [
                 raster_meta["height"],
                 raster_meta["width"],
             ]
-            has_proj = True
         if (
             raster_meta.get("res_x") is not None
             and raster_meta.get("res_y") is not None
