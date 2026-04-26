@@ -40,6 +40,26 @@ class DatasetMeta(NamedTuple):
     is_3d: bool | None
 
 
+class LayerRow(NamedTuple):
+    """One joined row from the map-layer SELECT in _fetch_layer_rows_ordered.
+
+    Used by ``get_map_with_layers`` (read path) and ``update_map`` /
+    ``duplicate_map`` (save path) to denormalize layer + record + dataset
+    metadata into a single response.
+    """
+
+    layer: MapLayer
+    title: str | None
+    geometry_type: str | None
+    table_name: str | None
+    spatial_extent: object | None
+    column_info: list | None
+    feature_count: int | None
+    sample_values: dict | None
+    record_type: str | None
+    is_3d: bool | None
+
+
 async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> None:
     """Verify user owns the map or is admin. Raises 403 if neither."""
     if map_obj.created_by == user.id:
@@ -156,7 +176,7 @@ async def get_map(
 
 async def _fetch_layer_rows_ordered(
     session: AsyncSession, map_id: uuid.UUID
-) -> list[tuple]:
+) -> list[LayerRow]:
     """Fetch the joined layer-row tuples for a map, ordered by sort_order.
 
     Map has no relationship() to MapLayer, so the .order_by(MapLayer.sort_order)
@@ -182,22 +202,26 @@ async def _fetch_layer_rows_ordered(
         .order_by(MapLayer.sort_order)
     )
     result = await session.execute(stmt)
-    return [tuple(row) for row in result.all()]
+    return [LayerRow(*row) for row in result.all()]
 
 
-async def _resolve_forked_and_owner(
+async def _resolve_save_response_metadata(
     session: AsyncSession, map_obj: Map
-) -> tuple[str | None, str | None]:
-    """Resolve forked_from_name + owner_username via a single LEFT JOIN.
+) -> tuple[str | None, str | None, datetime | None]:
+    """Resolve forked_from_name + owner_username + DB-side updated_at via one LEFT JOIN.
 
     One atomic query (matches the pre-PERF-6 get_map_with_layers semantics
     under READ COMMITTED). Used by update_map / duplicate_map where map_obj
     is already in-session — get_map_with_layers issues its own combined
     query inline to keep the read path at 2 queries total.
+
+    ``Map.updated_at`` is included so callers don't need a separate
+    ``session.refresh(map_obj)`` round-trip to read the DB-side
+    ``onupdate=func.now()`` value (PERF: saves one round-trip per save).
     """
     ForkedMap = aliased(Map)
     stmt = (
-        select(ForkedMap.name, User.username)
+        select(ForkedMap.name, User.username, Map.updated_at)
         .select_from(Map)
         .outerjoin(ForkedMap, Map.forked_from == ForkedMap.id)
         .outerjoin(User, Map.created_by == User.id)
@@ -205,14 +229,14 @@ async def _resolve_forked_and_owner(
     )
     row = (await session.execute(stmt)).one_or_none()
     if row is None:
-        return None, None
-    return row[0], row[1]
+        return None, None, None
+    return row[0], row[1], row[2]
 
 
 async def get_map_with_layers(
     session: AsyncSession,
     map_id: uuid.UUID,
-) -> tuple[Map | None, list[tuple], str | None, str | None]:
+) -> tuple[Map | None, list[LayerRow], str | None, str | None]:
     """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
 
     Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, is_3d), ...], forked_from_name, owner_username)
@@ -280,7 +304,7 @@ async def list_maps(
 
     - Admins see ALL maps (no filter).
     - Authenticated non-admin users see: their own private maps + all internal + all public.
-    - If user_id is provided without roles, falls back to owner-only (legacy).
+    - If user_roles is omitted, treats user as non-admin (still sees own + internal + public).
     - search: ILIKE filter on name and description.
     - sort_by: name, created_at, updated_at (default). Unknown values fall back to updated_at.
     - sort_dir: asc or desc.
@@ -394,7 +418,7 @@ async def update_map(
     visibility: str | None = None,
     widgets: list[str] | None = None,
     layers: list[dict] | None = None,
-) -> tuple[Map, list[tuple], str | None, str | None]:
+) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
     Raises ValueError if not found. Flushes but does NOT commit --
@@ -433,10 +457,15 @@ async def update_map(
         await _replace_layers(session, map_id, layers)
 
     await session.flush()
-    # Refresh required for updated_at (DB-side onupdate=func.now()).
-    await session.refresh(map_obj)
+    # Combined LEFT JOIN reads forked_name + owner_username + DB-side
+    # updated_at in one round-trip — eliminates the explicit
+    # ``session.refresh(map_obj)`` previously needed for ``updated_at``.
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
-    forked_name, owner_username = await _resolve_forked_and_owner(session, map_obj)
+    forked_name, owner_username, db_updated_at = (
+        await _resolve_save_response_metadata(session, map_obj)
+    )
+    if db_updated_at is not None:
+        map_obj.updated_at = db_updated_at
     return map_obj, layer_rows, forked_name, owner_username
 
 
@@ -464,16 +493,14 @@ async def _replace_layers(
     # Create new layers
     for layer_data in layers:
         dataset_id = layer_data["dataset_id"]
+        record_type, geometry_type = ds_meta.get(dataset_id, (None, None))
 
         # Resolve layer_type from explicit value or bulk-fetched record_type
         explicit_lt = layer_data.get("layer_type")
         if explicit_lt is not None:
             resolved_layer_type = explicit_lt
         else:
-            record_type, _ = ds_meta.get(dataset_id, (None, None))
             resolved_layer_type = _infer_layer_type(record_type)
-
-        _, geometry_type = ds_meta.get(dataset_id, (None, None))
 
         paint = layer_data.get("paint")
         layout = layer_data.get("layout")
@@ -619,7 +646,7 @@ async def duplicate_map(
     session: AsyncSession,
     map_id: uuid.UUID,
     user: User,
-) -> tuple[Map, list[tuple], str | None, str | None, int]:
+) -> tuple[Map, list[LayerRow], str | None, str | None, int]:
     """Deep-copy a map with RBAC-filtered layers. Does NOT commit.
 
     Returns the 4-tuple shape from ``get_map_with_layers`` plus
@@ -693,7 +720,9 @@ async def duplicate_map(
 
     await session.flush()
     layer_rows = await _fetch_layer_rows_ordered(session, new_map.id)
-    forked_name, owner_username = await _resolve_forked_and_owner(session, new_map)
+    forked_name, owner_username, _ = await _resolve_save_response_metadata(
+        session, new_map
+    )
     return new_map, layer_rows, forked_name, owner_username, excluded_count
 
 

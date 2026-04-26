@@ -43,6 +43,7 @@ from app.modules.catalog.maps.schemas import (
     VisibilityCheckResponse,
 )
 from app.modules.catalog.maps.service import (
+    LayerRow,
     bulk_check_dataset_access,
     add_layer,
     check_map_ownership,
@@ -139,24 +140,24 @@ def _build_layer_response(
     )
 
 
-def _layers_from_tuples(layer_tuples: list[tuple]) -> list[MapLayerResponse]:
-    """Build a list of MapLayerResponse from the tuples returned by get_map_with_layers."""
+def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
+    """Build a list of MapLayerResponse from the LayerRow tuples returned by get_map_with_layers."""
     return [
         _build_layer_response(
-            layer,
+            row.layer,
             DatasetMetaKwargs(
-                dataset_name=name,
-                geometry_type=gt,
-                table_name=tn,
-                extent=ext,
-                column_info=col_info,
-                feature_count=feat_count,
-                sample_values=samples,
-                record_type=rec_type,
-                is_3d=is_3d,
+                dataset_name=row.title,
+                geometry_type=row.geometry_type,
+                table_name=row.table_name,
+                extent=row.spatial_extent,
+                column_info=row.column_info,
+                feature_count=row.feature_count,
+                sample_values=row.sample_values,
+                record_type=row.record_type,
+                is_3d=row.is_3d,
             ),
         )
-        for layer, name, gt, tn, ext, col_info, feat_count, samples, rec_type, is_3d in layer_tuples
+        for row in layer_rows
     ]
 
 
@@ -391,6 +392,26 @@ async def update_map_endpoint(
                 detail={
                     "message": "Cannot set visibility to public: map contains non-public datasets",
                     "datasets": ", ".join(non_public),
+                },
+            )
+
+    # RBAC: when replacing layers, verify the user can access every dataset
+    # referenced. Without this, a map owner could insert MapLayer rows pointing
+    # at restricted datasets — RBAC at render time hides them, but the dangling
+    # rows are still a data-integrity / leakage hazard.
+    if body.layers is not None and body.layers:
+        user_roles = await get_user_roles(db, user)
+        requested_ids = [layer.dataset_id for layer in body.layers]
+        accessible = await bulk_check_dataset_access(
+            db, requested_ids, user, user_roles
+        )
+        inaccessible = [str(did) for did in requested_ids if did not in accessible]
+        if inaccessible:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "message": "Cannot access one or more layer datasets",
+                    "datasets": inaccessible,
                 },
             )
 
