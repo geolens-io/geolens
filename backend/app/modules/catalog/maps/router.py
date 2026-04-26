@@ -400,7 +400,9 @@ async def update_map_endpoint(
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 
     try:
-        await update_map(db, map_id, **kwargs)
+        map_obj, layer_tuples, forked_name, owner_username = await update_map(
+            db, map_id, **kwargs
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -418,15 +420,6 @@ async def update_map_endpoint(
     )
     await db.commit()
 
-    # Re-fetch with layers for full response
-    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
-        db, map_id
-    )
-    if map_obj is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
     layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
@@ -480,7 +473,9 @@ async def duplicate_map_endpoint(
 ) -> DuplicateMapResponse:
     """Fork a map with RBAC-filtered layers. Any authenticated user can fork."""
     try:
-        new_map, excluded_count = await duplicate_map(db, map_id, user)
+        new_map, layer_tuples, forked_name, owner_username, excluded_count = (
+            await duplicate_map(db, map_id, user)
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -502,18 +497,9 @@ async def duplicate_map_endpoint(
     )
     await db.commit()
 
-    # Re-fetch with layers for full response
-    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
-        db, new_map.id
-    )
-    if map_obj is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found after duplication",
-        )
     layers = _layers_from_tuples(layer_tuples)
     base_resp = _build_map_response(
-        map_obj,
+        new_map,
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
