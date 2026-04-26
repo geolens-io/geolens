@@ -8,8 +8,6 @@
  * pass substituted output through `dangerouslySetInnerHTML`.
  */
 
-import type { PopupConfig } from '@/types/api';
-
 const PLACEHOLDER_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
 /** Extract the unique, ordered list of placeholder keys from a template. */
@@ -48,18 +46,4 @@ export function substitutePopupTemplate(
     if (v === null || v === undefined) return '';
     return String(v);
   });
-}
-
-/**
- * Save-time gate: a config is valid when popups are off, when it has no
- * expression, or when every placeholder in the expression names a real column.
- */
-export function isPopupConfigValid(
-  cfg: PopupConfig | null | undefined,
-  columns: string[],
-): boolean {
-  if (!cfg || !cfg.enabled) return true;
-  if (cfg.expression == null || cfg.expression === '') return true;
-  const phs = extractPlaceholders(cfg.expression);
-  return validatePlaceholders(phs, columns).ok;
 }

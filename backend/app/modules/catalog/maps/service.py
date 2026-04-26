@@ -20,6 +20,7 @@ from app.modules.auth.models import User, UserRole
 from app.modules.auth.visibility import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
+from app.modules.catalog.maps.schemas import MapLayerInput
 from app.processing.raster.models import RasterAsset
 
 logger = logging.getLogger(__name__)
@@ -646,36 +647,21 @@ def _infer_layer_type(record_type: str | None) -> str:
 async def add_layer(
     session: AsyncSession,
     map_id: uuid.UUID,
-    dataset_id: uuid.UUID,
-    sort_order: int = 0,
-    visible: bool = True,
-    opacity: float = 1.0,
-    paint: dict | None = None,
-    layout: dict | None = None,
-    layer_type: str | None = None,
-    *,
-    display_name: str | None = None,
-    filter: list | None = None,
-    label_config: dict | None = None,
-    popup_config: dict | None = None,
-    style_config: dict | None = None,
-    show_in_legend: bool = True,
+    body: MapLayerInput,
 ) -> MapLayer:
     """Add a layer to a map. Applies default style if paint/layout is None.
 
     Does NOT commit.
     """
     # Single query for record_type + geometry_type (replaces two separate queries)
-    meta = await get_dataset_meta(session, dataset_id)
+    meta = await get_dataset_meta(session, body.dataset_id)
     record_type = meta.record_type if meta else None
     geometry_type = meta.geometry_type if meta else None
 
-    # Resolve layer_type from explicit value or auto-detected record_type
-    if layer_type is not None:
-        resolved_layer_type = layer_type
-    else:
-        resolved_layer_type = _infer_layer_type(record_type)
+    resolved_layer_type = body.layer_type or _infer_layer_type(record_type)
 
+    paint = body.paint
+    layout = body.layout
     # Raster layers use empty paint/layout (no vector style defaults)
     if resolved_layer_type == "raster_geolens":
         if paint is None:
@@ -691,19 +677,19 @@ async def add_layer(
 
     layer = MapLayer(
         map_id=map_id,
-        dataset_id=dataset_id,
-        sort_order=sort_order,
-        visible=visible,
-        opacity=opacity,
+        dataset_id=body.dataset_id,
+        sort_order=body.sort_order,
+        visible=body.visible,
+        opacity=body.opacity,
         paint=paint,
         layout=layout,
         layer_type=resolved_layer_type,
-        display_name=display_name,
-        filter=filter,
-        label_config=label_config,
-        popup_config=popup_config,
-        style_config=style_config,
-        show_in_legend=show_in_legend,
+        display_name=body.display_name,
+        filter=body.filter,
+        label_config=body.label_config,
+        popup_config=body.popup_config.model_dump() if body.popup_config else None,
+        style_config=body.style_config,
+        show_in_legend=body.show_in_legend,
     )
     session.add(layer)
     await session.flush()

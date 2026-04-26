@@ -9,7 +9,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceId } from '@/components/builder/map-sync';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
 import { uploadThumbnail } from '@/api/maps';
-import { isPopupConfigValid } from '@/lib/popup-template';
+import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 
@@ -145,9 +145,12 @@ export function useBuilderSave(state: SaveState) {
     // Block save if any layer's popup expression references unknown columns.
     // Server-side validation is shape-only (per CONTEXT.md / RESEARCH §4),
     // so the frontend is the primary UX gate for placeholder correctness.
-    const invalidLayer = localLayers.find(
-      (l) => !isPopupConfigValid(l.popup_config ?? null, (l.dataset_column_info ?? []).map((c) => c.name)),
-    );
+    const invalidLayer = localLayers.find((l) => {
+      const cfg = l.popup_config;
+      if (!cfg?.enabled || !cfg.expression) return false;
+      const columns = (l.dataset_column_info ?? []).map((c) => c.name);
+      return !validatePlaceholders(extractPlaceholders(cfg.expression), columns).ok;
+    });
     if (invalidLayer) {
       toast.error(t('toasts.popupConfigInvalid'));
       return;

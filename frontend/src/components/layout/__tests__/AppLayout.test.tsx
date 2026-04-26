@@ -14,6 +14,7 @@ vi.mock('@/hooks/use-edition', () => ({
 
 vi.mock('@/hooks/use-settings', () => ({
   useBranding: vi.fn(),
+  useFeatureFlags: vi.fn(() => ({ data: undefined, isLoading: false, isError: false })),
 }));
 
 const mockedUseEdition = vi.mocked(useEdition);
