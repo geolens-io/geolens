@@ -722,12 +722,18 @@ async def search_datasets(
         )
 
         if vector_ranks:
-            # Get FTS-ranked record IDs (up to a reasonable cap for merging)
+            # Get FTS-ranked record IDs (up to a reasonable cap for merging).
+            # Strip the inherited eager-loads — only record_id is needed at
+            # this stage, so 4 wasted selectinload queries per request are
+            # avoided (PERF-8).
             fts_cap = max(filters.limit * 3, 100)
-            fts_stmt = stmt.order_by(rank_col.desc()).limit(fts_cap)
+            fts_stmt = (
+                stmt.with_only_columns(Dataset.record_id)
+                .order_by(rank_col.desc())
+                .limit(fts_cap)
+            )
             fts_result = await session.execute(fts_stmt)
-            fts_rows = fts_result.unique().all()
-            fts_ids = [str(row[0].record_id) for row in fts_rows]
+            fts_ids = [str(row[0]) for row in fts_result.all()]
 
             # Compute RRF-ranked order (only includes IDs from FTS results + vector results)
             # Filter vector_ranks to only include IDs that appear in FTS results
