@@ -47,16 +47,24 @@ def build_cache_key(
     ``public_api_url`` and ``semantic_enabled`` are included only for the
     "search" endpoint — facets responses carry no URLs and do not run semantic
     ranking, so passing ``None`` keeps facet keys stable.
+
+    Maintenance contract:
+    - Every ``SearchFilters`` field must be JSON-native or have a deterministic
+      ``str()``. ``default=str`` will silently swallow non-determinism (e.g.
+      ``<X at 0x7f…>``) and degrade the cache to a no-op. Audit
+      ``SearchFilters`` when adding new fields.
+    - ``filters.keywords`` order is preserved on purpose: the underlying FTS
+      query treats different keyword orders as semantically distinct, so the
+      key must too. Do NOT sort ``filters.keywords`` here.
     """
-    payload = {
+    payload: dict[str, object] = {
         "filters": dataclasses.asdict(filters),
         "endpoint": endpoint,
         "roles": sorted(user_roles),
         "public_api_url": public_api_url or "",
-        "semantic_enabled": (
-            bool(semantic_enabled) if semantic_enabled is not None else False
-        ),
     }
+    if semantic_enabled is not None:
+        payload["semantic_enabled"] = bool(semantic_enabled)
     digest = hashlib.sha1(
         json.dumps(payload, default=str, sort_keys=True).encode()
     ).hexdigest()

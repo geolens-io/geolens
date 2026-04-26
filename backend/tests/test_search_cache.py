@@ -16,11 +16,13 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, update
 
+from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
     RecordKeyword,
 )
+from app.modules.catalog.search import cache as search_cache
 from app.platform.cache import get_cache
 
 from tests.factories import get_user_id
@@ -35,17 +37,54 @@ from tests.factories import get_user_id
 async def _reset_search_cache(client: AsyncClient):
     """Flush the search cache before and after each test.
 
-    The in-memory cache provider (``InMemoryCacheProvider``) is a session-scoped
-    singleton (``tests/conftest.py:174``), so without this fixture cached
-    responses leak between tests in the same module. Both endpoints share the
-    ``catalog:search:*`` namespace.
+    The ``client`` fixture is function-scoped and rebinds the global cache
+    provider via ``init_cache()`` on every test (``tests/conftest.py:174``),
+    so on the in-memory backend this flush is largely a no-op in CI. It is
+    kept as a defensive safety net for two reasons:
 
-    Depending on ``client`` ensures ``init_cache()`` has been called before we
-    flush — the session-scoped client fixture is what initializes the provider.
+    1. If tests are ever wired to Redis, the provider state survives across
+       tests and these flushes become load-bearing.
+    2. Depending on ``client`` makes the dependency on ``init_cache()`` explicit
+       so that future test ordering changes do not race the cache singleton.
+
+    The pattern is intentionally broader than the helper's ``catalog:search:*``
+    prefix — using ``catalog:*`` matches the production
+    ``invalidate_catalog_cache()`` reach and survives any future helper-prefix
+    rename without silently no-op'ing the flush.
     """
-    await get_cache().delete_pattern("catalog:search:*")
+    await get_cache().delete_pattern("catalog:*")
     yield
-    await get_cache().delete_pattern("catalog:search:*")
+    await get_cache().delete_pattern("catalog:*")
+
+
+# ---------------------------------------------------------------------------
+# Unit: is_anon_cacheable contract
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_is_anon_cacheable_distinguishes_authed_from_anon(
+    client: AsyncClient,
+):
+    """Lock the contract: only ``user is None`` qualifies for the anon cache.
+
+    An API-keyed-but-no-roles user has ``user_roles == set()`` but ``user is
+    not None`` — they MUST bypass the cache. If a future refactor "simplified"
+    the gate to ``not user_roles``, this test catches it.
+
+    The ``client`` fixture is requested only to satisfy the autouse cache-flush
+    fixture's dependency on it; this test does not issue any HTTP calls.
+    """
+    assert search_cache.is_anon_cacheable(None) is True
+
+    authed_no_roles = User(
+        id=uuid.uuid4(),
+        username="api_key_user",
+        email="api@example.com",
+        password_hash="x",
+        is_active=True,
+    )
+    assert search_cache.is_anon_cacheable(authed_no_roles) is False
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +162,10 @@ async def test_anon_search_caches_response(
     """Anon GET /search/datasets/ returns the cached payload on the second call.
 
     Mutating the DB between the two anon calls must NOT change the second
-    response — proving the second request is served from cache.
+    response — proving the second request is served from cache. We additionally
+    probe the cache directly to assert the entry exists for the expected key
+    (WR-02 — positive cache assertion guards against false positives where a
+    behavioral coincidence makes two responses equal even on a cache miss).
     """
     admin_id = await get_user_id(test_db_session, "admin")
     slug = f"cachetest_{uuid.uuid4().hex[:8]}"
@@ -138,7 +180,8 @@ async def test_anon_search_caches_response(
 
     first = await client.get("/search/datasets/", params={"q": slug})
     assert first.status_code == 200
-    first_matched = first.json()["numberMatched"]
+    first_payload = first.json()
+    first_matched = first_payload["numberMatched"]
     assert first_matched >= 1, "expected the seeded dataset to match"
 
     # Mutate the DB: insert a second matching dataset between calls.
@@ -151,12 +194,29 @@ async def test_anon_search_caches_response(
 
     second = await client.get("/search/datasets/", params={"q": slug})
     assert second.status_code == 200
-    second_matched = second.json()["numberMatched"]
+    second_payload = second.json()
 
-    # Cache hit: second response should be byte-for-byte the first (stale).
+    # Behavioral signal: second response must equal first (stale) on cache hit.
     assert (
-        second_matched == first_matched
+        second_payload["numberMatched"] == first_matched
     ), "anon second request should return cached (stale) numberMatched"
+
+    # WR-05: assert full-body equivalence (modulo timeStamp) — protects against
+    # silent reconstruction breakage if response_model coercion ever drifts.
+    first_body = {k: v for k, v in first_payload.items() if k != "timeStamp"}
+    second_body = {k: v for k, v in second_payload.items() if k != "timeStamp"}
+    assert second_body == first_body, "cache hit must round-trip the full body"
+
+    # WR-02: positive proof — at least one search-cache entry must exist after
+    # the two anon requests. This rules out the false-positive class where the
+    # responses coincidentally match without the cache layer ever firing.
+    cache = get_cache()
+    store = getattr(cache, "_store", {})  # InMemoryCacheProvider in tests
+    search_keys = [k for k in store if k.startswith("catalog:search:search:")]
+    assert search_keys, (
+        "anon search request must populate at least one catalog:search:search:* "
+        "cache entry; none found — cache layer was not exercised"
+    )
 
 
 @pytest.mark.anyio
@@ -250,11 +310,24 @@ async def test_anon_facets_caches_response(
 
     second = await client.get("/search/facets/", params={"q": slug})
     assert second.status_code == 200
-    second_total = _record_type_total(second.json())
+    second_payload = second.json()
+    second_total = _record_type_total(second_payload)
 
     assert (
         second_total == first_total
     ), "anon second request should return cached (stale) facet totals"
+
+    # WR-05: full-body equality — protects against silent reconstruction breakage.
+    assert second_payload == first.json(), "facet cache hit must round-trip body"
+
+    # WR-02: positive proof — at least one facets-cache entry must exist.
+    cache = get_cache()
+    store = getattr(cache, "_store", {})  # InMemoryCacheProvider in tests
+    facet_keys = [k for k in store if k.startswith("catalog:search:facets:")]
+    assert facet_keys, (
+        "anon facets request must populate at least one catalog:search:facets:* "
+        "cache entry; none found — cache layer was not exercised"
+    )
 
 
 @pytest.mark.anyio
