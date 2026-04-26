@@ -613,8 +613,10 @@ async def commit_import(
     token = getattr(commit, "token", None)
 
     # Persist the subclass-filtered view. model_dump(exclude={"token"}) is
-    # a no-op when the subclass has no token field.
-    commit_metadata = commit.model_dump(exclude={"token"})
+    # a no-op when the subclass has no token field. mode="json" so datetime
+    # fields (temporal_start/temporal_end) serialize as ISO strings before
+    # going into the JSONB column.
+    commit_metadata = commit.model_dump(exclude={"token"}, mode="json")
     if job.user_metadata:
         # Service jobs already have service_type and layer_id from preview
         merged = {**job.user_metadata, **commit_metadata}

@@ -269,7 +269,9 @@ async def _get_vector_ranks(
     model_name = await EMBEDDING_MODEL.get(session)
 
     # Tune HNSW recall — default ef_search=40 may miss relevant results
-    await session.execute(text("SET LOCAL hnsw.ef_search = 100"))
+    from app.processing.embeddings.helpers import set_hnsw_recall
+
+    await set_hnsw_recall(session)
 
     # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
     vector_stmt = (

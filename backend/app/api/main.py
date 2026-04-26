@@ -211,9 +211,43 @@ async def lifespan(app: FastAPI):
 
     pool_metrics_task = asyncio.create_task(update_pool_metrics())
 
+    async def _stale_jobs_sweeper() -> None:
+        """Periodically fail jobs whose worker crashed mid-run.
+
+        Without this, an IngestJob row can sit in 'running' forever if no
+        client polls it after the worker dies — the on-poll fail-fast logic
+        in get_job_status only catches it when a user revisits the page.
+        """
+        from app.core.db import async_session
+        from app.platform.jobs.router import fail_stale_jobs
+
+        sweeper_log = structlog.stdlib.get_logger("stale_jobs_sweeper")
+        while True:
+            try:
+                await asyncio.sleep(300)  # 5 minutes
+                async with async_session() as session:
+                    pending_failed, running_failed = await fail_stale_jobs(session)
+                if pending_failed or running_failed:
+                    sweeper_log.info(
+                        "Failed stale jobs",
+                        pending_failed=pending_failed,
+                        running_failed=running_failed,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                sweeper_log.warning(
+                    "Stale jobs sweeper iteration failed",
+                    error=str(exc),
+                    exc_info=True,
+                )
+
+    stale_jobs_task = asyncio.create_task(_stale_jobs_sweeper())
+
     yield
 
     pool_metrics_task.cancel()
+    stale_jobs_task.cancel()
     await task_app.close_async()
     await close_tile_pool()
     await _titiler_client.aclose()

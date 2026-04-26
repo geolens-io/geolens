@@ -23,6 +23,16 @@ _has_embeddings_cache: tuple[bool, float] | None = None
 _HAS_EMBEDDINGS_TTL = 30.0  # seconds
 
 
+async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
+    """Tune HNSW ef_search for the current transaction.
+
+    Default ``ef_search`` (40) misses relevant matches in recall-sensitive
+    queries like related-items and semantic-search. ``SET LOCAL`` scopes the
+    change to this transaction so other queries are unaffected.
+    """
+    await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
+
+
 async def has_embeddings(session: AsyncSession) -> bool:
     """Check whether any rows exist in catalog.record_embeddings.
 
@@ -62,6 +72,8 @@ async def get_nearest_record_ids(
     embedding = emb_result.scalar_one_or_none()
     if embedding is None:
         return []
+
+    await set_hnsw_recall(session)
 
     # Find nearest neighbors (exclude self)
     nn_stmt = (

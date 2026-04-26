@@ -3,7 +3,7 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator
 
 from app.core.text import normalize_nfc as _nfc
 
@@ -114,6 +114,14 @@ class DistributionCreate(BaseModel):
         description="File or service format, e.g. GeoJSON, SHP, WMS",
     )
     url: str = Field(max_length=2048, description="Access URL for this distribution")
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str) -> str:
+        """Validate HTTP/HTTPS URL format. Returns str so downstream code is unchanged."""
+        HttpUrl(v)
+        return v
+
     title: str | None = Field(default=None, max_length=500)
     description: str | None = Field(default=None, max_length=2000)
     protocol: str | None = Field(

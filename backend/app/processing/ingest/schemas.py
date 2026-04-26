@@ -1,6 +1,7 @@
 """Pydantic request/response models for ingestion endpoints."""
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -99,7 +100,7 @@ class RasterPreviewResponse(BaseModel):
     compliance_reason: str = Field(
         description="Explanation of COG compliance status. Lists missing requirements when not compliant."
     )
-    temporal_start: str | None = Field(
+    temporal_start: datetime | None = Field(
         default=None,
         description="ISO 8601 acquisition timestamp parsed from raster metadata, if present.",
     )
@@ -125,10 +126,10 @@ class BaseCommitRequest(BaseModel):
         default="private",
         description="Dataset visibility level: 'private' (owner-only), 'restricted' (RBAC-controlled), 'internal' (all users), 'public' (anonymous access).",
     )
-    temporal_start: str | None = Field(
+    temporal_start: datetime | None = Field(
         default=None, description="ISO 8601 start of the dataset's temporal extent."
     )
-    temporal_end: str | None = Field(
+    temporal_end: datetime | None = Field(
         default=None, description="ISO 8601 end of the dataset's temporal extent."
     )
 
@@ -233,10 +234,10 @@ class CommitRequest(BaseModel):
         default=None,
         description="Optional confirmation token returned by the preview step. Required for some workflows.",
     )
-    temporal_start: str | None = Field(
+    temporal_start: datetime | None = Field(
         default=None, description="ISO 8601 start of the dataset's temporal extent."
     )
-    temporal_end: str | None = Field(
+    temporal_end: datetime | None = Field(
         default=None, description="ISO 8601 end of the dataset's temporal extent."
     )
     compression: str | None = Field(
