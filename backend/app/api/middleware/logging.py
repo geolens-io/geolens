@@ -19,6 +19,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         request_id = str(uuid.uuid4())
         structlog.contextvars.bind_contextvars(service="api", request_id=request_id)
+        # Stash on request.state so the global exception handler can read the
+        # ID without parsing client-supplied headers (RESILIENCE-9).
+        request.state.request_id = request_id
 
         start_time = time.perf_counter_ns()
         response: Response | None = None
@@ -41,5 +44,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 request_id=request_id,
             )
 
-        response.headers["X-Request-ID"] = request_id
+        # Set on every response, including those built by the global error
+        # handler — needed because that handler runs *after* call_next raises
+        # (RESILIENCE-5).
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
         return response

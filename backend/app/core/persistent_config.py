@@ -517,8 +517,15 @@ async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
     """Batch-load all registry settings in a single DB query.
 
     Returns a dict mapping each registered key to its effective value
-    (DB override if present, otherwise env_default). Bypassed when ENV_ONLY_CONFIG
-    is set — returns env_defaults directly without hitting the DB.
+    (DB override if present, otherwise env_default). Bypassed when
+    ENV_ONLY_CONFIG is set — returns env_defaults directly without
+    hitting the DB.
+
+    .. note::
+        Currently consumed only by tests in ``test_persistent_config.py``.
+        Kept as a forward-looking helper for upcoming admin/settings dump
+        endpoints that need an atomic snapshot of all registry values
+        without N round-trips. Not exposed via the API surface yet.
     """
     settings_dict: dict[str, Any] = {}
 

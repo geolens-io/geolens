@@ -156,8 +156,14 @@ def register_error_handlers(app: FastAPI) -> None:
         except Exception:
             pass
 
-        request_id = request.headers.get("x-request-id") or request.headers.get(
-            "x-correlation-id"
+        # Prefer the middleware-generated UUID stashed on request.state — this
+        # is the same ID bound to structlog contextvars and emitted by the
+        # access log, so client errors correlate cleanly with server logs
+        # (RESILIENCE-9). Fall back to client-supplied header for legacy compat.
+        request_id = (
+            getattr(request.state, "request_id", None)
+            or request.headers.get("x-request-id")
+            or request.headers.get("x-correlation-id")
         )
         client_ip = None
         try:
@@ -176,6 +182,9 @@ def register_error_handlers(app: FastAPI) -> None:
             client_ip=client_ip,
             exc_type=type(exc).__name__,
         )
+        # Echo the request ID on the error response so clients can include
+        # it in support tickets (RESILIENCE-5).
+        headers = {"X-Request-ID": request_id} if request_id else {}
         return JSONResponse(
             status_code=500,
             content=ProblemDetail(
@@ -184,4 +193,5 @@ def register_error_handlers(app: FastAPI) -> None:
                 detail="Internal server error",
             ).model_dump(),
             media_type="application/problem+json",
+            headers=headers,
         )
