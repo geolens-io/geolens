@@ -1,13 +1,13 @@
 """ArcGIS REST API probing, URL normalization, and service type detection."""
 
 import asyncio
-import logging
 import re
 from urllib.parse import urlparse
 
 import httpx
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 
 class ArcGISTokenError(Exception):

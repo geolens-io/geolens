@@ -30,9 +30,6 @@ from app.core.db import async_session  # noqa: F401
 from app.platform.cache.tiles import invalidate_catalog_cache  # noqa: F401
 from app.platform.storage import get_storage  # noqa: F401
 from app.processing.embeddings.helpers import defer_embedding  # noqa: F401
-from app.processing.raster.cog import extract_raster_metadata, sha256_file  # noqa: F401
-from app.processing.raster.quicklook import generate_quicklook  # noqa: F401
-from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path  # noqa: F401
 
 # -- Vector file and service ingestion tasks --
 from app.processing.ingest.tasks_vector import (  # noqa: F401

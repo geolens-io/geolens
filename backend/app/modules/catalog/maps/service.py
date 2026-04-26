@@ -4,13 +4,13 @@ Handles CRUD operations for maps and map layers, plus default style generation.
 """
 
 import hashlib
-import logging
 import re
 import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import NamedTuple
 
+import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +23,7 @@ from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.catalog.maps.schemas import MapLayerInput
 from app.processing.raster.models import RasterAsset
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 
 class DatasetMeta(NamedTuple):
@@ -205,6 +205,29 @@ async def get_map_with_layers(
     return map_obj, [tuple(row) for row in rows], forked_from_name, owner_username
 
 
+def _apply_map_visibility_filter(
+    stmt: Select,
+    user_id: uuid.UUID | None,
+    is_admin: bool,
+) -> Select:
+    """Apply RBAC visibility filter to a Map query.
+
+    - Admins see everything (no filter).
+    - Authenticated users see: their own private maps + all internal + all public.
+    - Anonymous users see public only.
+    """
+    if is_admin:
+        return stmt
+    if user_id is not None:
+        return stmt.where(
+            or_(
+                Map.created_by == user_id,
+                Map.visibility.in_(["internal", "public"]),
+            )
+        )
+    return stmt.where(Map.visibility == "public")
+
+
 async def list_maps(
     session: AsyncSession,
     skip: int = 0,
@@ -233,19 +256,8 @@ async def list_maps(
 
     is_admin = "admin" in user_roles
 
-    # Build visibility filter (RBAC)
     def _apply_vis_filter(stmt: Select) -> Select:
-        if is_admin:
-            return stmt  # admins see everything
-        if user_id is not None:
-            return stmt.where(
-                or_(
-                    Map.created_by == user_id,
-                    Map.visibility.in_(["internal", "public"]),
-                )
-            )
-        # Anonymous -- public maps only
-        return stmt.where(Map.visibility == "public")
+        return _apply_map_visibility_filter(stmt, user_id, is_admin)
 
     # Build search/visibility filters (applied to both count and data queries)
     def _apply_extra_filters(stmt: Select) -> Select:
@@ -1152,17 +1164,8 @@ async def get_maps_for_dataset(
         .order_by(Map.id, Map.updated_at.desc())
     )
 
-    # RBAC filter
-    if not is_admin:
-        if user_id is not None:
-            stmt = stmt.where(
-                or_(
-                    Map.created_by == user_id,
-                    Map.visibility.in_(["internal", "public"]),
-                )
-            )
-        else:
-            stmt = stmt.where(Map.visibility == "public")
+    # RBAC filter (extracted helper — same logic also used by list_maps).
+    stmt = _apply_map_visibility_filter(stmt, user_id, is_admin)
 
     # Total count before pagination
     count_stmt = select(func.count()).select_from(stmt.subquery())

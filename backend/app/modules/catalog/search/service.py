@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import uuid as uuid_mod
 from dataclasses import dataclass
 from datetime import date
@@ -12,6 +11,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 if TYPE_CHECKING:
     from app.platform.storage.provider import StorageProvider
 
+import structlog
 from sqlalchemy import (
     String as SAString,
     case,
@@ -49,7 +49,7 @@ from app.core.persistent_config import EMBEDDING_MODEL, SEMANTIC_SEARCH_ENABLED
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.core.geo import make_bbox_filter
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 
 class FacetCounts(TypedDict):
