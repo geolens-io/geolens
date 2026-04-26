@@ -198,6 +198,19 @@ async def _dataset_to_stac_item(
         storage_provider=storage,
     )
 
+    # Declare projection STAC extension for raster/VRT items that emit proj:* properties.
+    # Lives here (not in dataset_to_ogc_record) so OGC Records output stays free of
+    # STAC-specific keys.
+    record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
+    if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
+        has_proj = raster_meta.get("epsg") is not None or bool(
+            raster_meta.get("width") and raster_meta.get("height")
+        )
+        if has_proj:
+            ogc_record.setdefault("stac_extensions", []).append(
+                "https://stac-extensions.github.io/projection/v2.0.0/schema.json"
+            )
+
     # Look up collection membership if not provided
     if collection_id is None:
         cd_result = await db.execute(
