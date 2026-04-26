@@ -4,8 +4,8 @@ milestone: none
 milestone_name: idle
 status: idle
 stopped_at: Cross-repo planning split — v14.0/v15.0/999.5 relocated to getgeolens.com repo
-last_updated: "2026-04-26T16:30:00.000Z"
-last_activity: 2026-04-26
+last_updated: "2026-04-26T17:55:00.000Z"
+last_activity: 2026-04-26 - Completed quick task 260426-ihc: PR1 search hot-path caching (PERF-2 + PERF-7)
 progress:
   total_phases: 0
   completed_phases: 0
@@ -55,9 +55,10 @@ The following stay in this repo because they describe work executed in this repo
 | 260425-lbc | Fix map overlay positioning conflicts (filter chips vs measure widget, bottom-left stacking) | 2026-04-25 | cd2e5a3f | Needs Review | [260425-lbc-in-the-map-builder-review-the-map-overla](./quick/260425-lbc-in-the-map-builder-review-the-map-overla/) |
 | 260425-oxh | Layer popup config: enable/disable + custom expression with validation | 2026-04-25 | 8ca90a9f | Verified | [260425-oxh-layer-popup-config-enable-disable-custom](./quick/260425-oxh-layer-popup-config-enable-disable-custom/) |
 | 260425-sl1 | Address backend test debt (15 failures from audit 2026-04-25) — restored green-baseline (1965/1965) | 2026-04-26 | d6c5a4c8 | Verified | [260425-sl1-address-the-debt-in-docs-internal-audits](./quick/260425-sl1-address-the-debt-in-docs-internal-audits/) |
+| 260426-ihc | PR1 of post-impl-20260426-HANDOFF: search hot-path caching (PERF-2 + PERF-7) — 30s anon-only response cache on /search/datasets and /search/facets | 2026-04-26 | 7aebc4d8 | Verified | [260426-ihc-pr1-search-hot-path-caching-perf-2-perf-](./quick/260426-ihc-pr1-search-hot-path-caching-perf-2-perf-/) |
 
 ## Session Continuity
 
 Last session: 2026-04-26
-Stopped at: Cross-repo planning split — v14.0/v15.0/999.5 relocated to getgeolens.com repo
+Stopped at: Completed quick task 260426-ihc (PR1 search hot-path caching). Remaining post-impl-20260426 deferred items: PR2 (KISS-1/KISS-2/PERF-6 search-maps decomposition), PR3 (PERF-1/PERF-10/CLEANUP-2 ops), KISS-7/KISS-8 small refactors.
 Resume file: None
