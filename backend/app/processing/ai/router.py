@@ -74,20 +74,14 @@ async def _check_ai_available(db: AsyncSession) -> None:
             detail="AI features are disabled by administrator",
         )
     provider = await LLM_PROVIDER.get(db)
-    if provider == "anthropic" and not settings.anthropic_api_key:
+    keys = {
+        "anthropic": settings.anthropic_api_key,
+        "openai_compatible": settings.openai_api_key,
+    }
+    if not keys.get(provider):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Selected LLM provider API key not configured",
-        )
-    if provider == "openai_compatible" and not settings.openai_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Selected LLM provider API key not configured",
-        )
-    if not settings.anthropic_api_key and not settings.openai_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI is not configured (missing API key)",
         )
 
 

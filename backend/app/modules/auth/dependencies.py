@@ -125,6 +125,19 @@ async def get_current_user(
         user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception
+    except jwt.ExpiredSignatureError:
+        # Distinguish expired-token from invalid-token per RFC 6750 so the
+        # frontend can drive a silent refresh instead of forcing re-login.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The access token expired",
+            headers={
+                "WWW-Authenticate": (
+                    'Bearer error="invalid_token", '
+                    'error_description="The access token expired"'
+                )
+            },
+        )
     except jwt.PyJWTError:
         raise credentials_exception
 

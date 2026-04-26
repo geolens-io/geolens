@@ -27,6 +27,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     VrtStatusResponse,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
+from app.processing.ingest.schemas import VrtMutationResponse
 from app.core.dependencies import get_db
 
 router = APIRouter(prefix="/datasets", tags=["Datasets - VRT"])
@@ -274,16 +275,15 @@ async def list_vrt_generations(
 
 @router.post(
     "/{dataset_id}/vrt/regenerate/",
-    response_model=None,
+    response_model=VrtMutationResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def regenerate_vrt_endpoint(
     dataset_id: uuid.UUID,
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> VrtMutationResponse:
     """Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds."""
-    from app.processing.ingest.schemas import VrtMutationResponse
     from app.processing.ingest.service import create_ingest_job
     from app.processing.ingest.tasks import regenerate_vrt
     from app.platform.jobs.defer_guard import defer_with_orphan_guard

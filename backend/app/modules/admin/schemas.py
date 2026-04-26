@@ -23,6 +23,7 @@ class AdminUserCreate(BaseModel):
     )
     email: EmailStr | None = Field(
         default=None,
+        max_length=255,
         description="Optional email address. Used for OAuth account linking and notifications.",
     )
     role: str = Field(
