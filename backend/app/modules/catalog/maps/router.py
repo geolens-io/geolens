@@ -774,23 +774,7 @@ async def add_layer_endpoint(
             detail="Cannot access this dataset",
         )
 
-    layer = await add_layer(
-        db,
-        map_id,
-        body.dataset_id,
-        body.sort_order,
-        body.visible,
-        body.opacity,
-        body.paint,
-        body.layout,
-        body.layer_type,
-        display_name=body.display_name,
-        filter=body.filter,
-        label_config=body.label_config,
-        popup_config=body.popup_config.model_dump() if body.popup_config else None,
-        style_config=body.style_config,
-        show_in_legend=body.show_in_legend,
-    )
+    layer = await add_layer(db, map_id, body)
 
     await log_action(
         db,

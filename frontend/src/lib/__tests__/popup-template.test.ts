@@ -3,7 +3,6 @@ import {
   extractPlaceholders,
   validatePlaceholders,
   substitutePopupTemplate,
-  isPopupConfigValid,
 } from '@/lib/popup-template';
 
 describe('extractPlaceholders', () => {
@@ -104,43 +103,13 @@ describe('substitutePopupTemplate', () => {
   it('coerces booleans via String()', () => {
     expect(substitutePopupTemplate('{flag}', { flag: true })).toBe('true');
   });
-});
 
-describe('isPopupConfigValid', () => {
-  it('returns true when config is null', () => {
-    expect(isPopupConfigValid(null, ['a', 'b'])).toBe(true);
+  it('does not crash and substitutes empty when properties is null', () => {
+    expect(substitutePopupTemplate('{city}, {state}', null)).toBe(', ');
   });
 
-  it('returns true when popups are disabled', () => {
-    expect(
-      isPopupConfigValid({ enabled: false, expression: '{unknown}', visible_fields: null }, ['a']),
-    ).toBe(true);
-  });
-
-  it('returns true when expression is empty / null', () => {
-    expect(isPopupConfigValid({ enabled: true, expression: '', visible_fields: null }, ['a'])).toBe(
-      true,
-    );
-    expect(
-      isPopupConfigValid({ enabled: true, expression: null, visible_fields: null }, ['a']),
-    ).toBe(true);
-  });
-
-  it('returns true when every placeholder is a known column', () => {
-    expect(
-      isPopupConfigValid(
-        { enabled: true, expression: '{name} -- {city}', visible_fields: null },
-        ['name', 'city'],
-      ),
-    ).toBe(true);
-  });
-
-  it('returns false when expression references an unknown column', () => {
-    expect(
-      isPopupConfigValid(
-        { enabled: true, expression: '{name} ({nope})', visible_fields: null },
-        ['name'],
-      ),
-    ).toBe(false);
+  it('does not crash and substitutes empty when properties is undefined', () => {
+    expect(substitutePopupTemplate('{city}', undefined)).toBe('');
   });
 });
+

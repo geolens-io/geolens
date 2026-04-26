@@ -129,6 +129,33 @@ describe('PopupConfigEditor', () => {
     });
   });
 
+  it('expression input has maxLength=500 to enforce the backend cap client-side', () => {
+    const cfg: PopupConfig = { enabled: true, expression: '', visible_fields: null };
+    render(<PopupConfigEditor columns={COLUMNS} popupConfig={cfg} onPopupChange={vi.fn()} />);
+    const input = screen.getByPlaceholderText(/\{city\}, \{state\}/i);
+    expect(input).toHaveAttribute('maxLength', '500');
+  });
+
+  it('shows the noColumns empty-state message when custom mode is active and the layer has no columns', () => {
+    const cfg: PopupConfig = { enabled: true, expression: '', visible_fields: [] };
+    render(<PopupConfigEditor columns={[]} popupConfig={cfg} onPopupChange={vi.fn()} />);
+    // i18n key has en value "This layer has no inspectable columns."
+    expect(screen.getByText(/no inspectable columns/i)).toBeInTheDocument();
+  });
+
+  it('clearing the expression input emits expression: null (not empty string)', async () => {
+    const onPopupChange = vi.fn();
+    const cfg: PopupConfig = { enabled: true, expression: '{name}', visible_fields: null };
+    render(<PopupConfigEditor columns={COLUMNS} popupConfig={cfg} onPopupChange={onPopupChange} />);
+    const input = screen.getByPlaceholderText(/\{city\}, \{state\}/i);
+    fireEvent.change(input, { target: { value: '' } });
+    expect(onPopupChange).toHaveBeenCalledWith({
+      enabled: true,
+      expression: null,
+      visible_fields: null,
+    });
+  });
+
   // Cleanup any leftover fake timers between tests
   beforeEach(() => {});
   afterEach(() => {

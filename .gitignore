@@ -38,6 +38,7 @@ playwright-report/
 test-results/
 blob-report/
 .playwright-mcp/
+.ux-audit/
 
 # Load test results
 tests/load/results/*.csv
