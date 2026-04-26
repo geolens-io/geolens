@@ -1056,7 +1056,11 @@ async def get_related_datasets(
         if not neighbor_record_ids:
             return []
 
-        # Compute distances for the neighbors (needed for similarity score)
+        # Compute distances for the neighbors (needed for similarity score).
+        # Tune HNSW recall (default ef_search=40 may miss relevant matches).
+        from app.processing.embeddings.helpers import set_hnsw_recall
+
+        await set_hnsw_recall(db)
         nn_dist_stmt = select(
             RecordEmbedding.record_id,
             RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),

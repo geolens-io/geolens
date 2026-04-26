@@ -8,7 +8,7 @@ from typing import Annotated
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import ApiKey, User
@@ -37,13 +37,24 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     user = api_key_obj.user
     if user is None or not user.is_active or user.status != "active":
         return None
-    # Only update last_used_at if it's been more than 60 seconds (reduce write amplification)
+    # Only update last_used_at if it's been more than 60 seconds (reduce write amplification).
+    # Use a separate session so we don't flush the request-scoped session early —
+    # an early commit on `db` would release advisory locks the route handler
+    # may still need, and would persist any uncommitted state from prior
+    # dependencies before the route's own logic decides whether to commit.
     now = datetime.now(timezone.utc)
     if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(
         seconds=60
     ):
+        from app.core.db import async_session
+
+        api_key_id = api_key_obj.id
+        async with async_session() as side_session:
+            await side_session.execute(
+                update(ApiKey).where(ApiKey.id == api_key_id).values(last_used_at=now)
+            )
+            await side_session.commit()
         api_key_obj.last_used_at = now
-        await db.commit()
     return user
 
 

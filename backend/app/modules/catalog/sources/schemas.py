@@ -2,7 +2,17 @@
 
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+
+def _validate_http_url(v: str) -> str:
+    """Validate HTTP/HTTPS URL format at the schema boundary.
+
+    Returns the input string so downstream code keeps working with str. The
+    SSRF guard runs separately after this format check.
+    """
+    HttpUrl(v)
+    return v
 
 
 class ProbeRequest(BaseModel):
@@ -11,6 +21,7 @@ class ProbeRequest(BaseModel):
         max_length=2048,
         description="Service URL to probe. May be a WFS GetCapabilities URL or an ArcGIS service endpoint.",
     )
+    _validate_url = field_validator("url")(_validate_http_url)
     token: str | None = Field(
         default=None,
         max_length=1000,
@@ -70,6 +81,7 @@ class ServicePreviewRequest(BaseModel):
         max_length=2048,
         description="Normalized service URL from a previous probe response.",
     )
+    _validate_url = field_validator("url")(_validate_http_url)
     service_type: str = Field(
         min_length=1,
         max_length=100,

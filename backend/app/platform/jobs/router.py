@@ -35,23 +35,22 @@ JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
 
 
-@router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
-async def cleanup_stale_jobs(
-    user: User = Depends(require_permission("manage_users")),
-    db: AsyncSession = Depends(get_db),
-) -> StaleCleanupResponse:
-    """Fail all stale jobs: pending >1h or running >1h.
+async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
+    """Mark stale ingest jobs as failed. Returns (pending_failed, running_failed).
 
-    Admin-only. Use after a failed bulk import to clean up orphaned jobs.
+    Stale rules:
+      - status='pending' and created_at older than PENDING_TIMEOUT_SECONDS (orphan, never queued)
+      - status='running' and started_at older than JOB_TIMEOUT_SECONDS (worker crashed mid-job)
+
+    Used by both the admin cleanup endpoint and the background lifespan sweeper.
     """
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
+    pending_cutoff = now - timedelta(seconds=PENDING_TIMEOUT_SECONDS)
 
-    # Orphaned pending jobs
     result = await db.execute(
         select(IngestJob).where(
             IngestJob.status == "pending",
-            IngestJob.created_at < cutoff,
+            IngestJob.created_at < pending_cutoff,
         )
     )
     pending_jobs = list(result.scalars())
@@ -60,7 +59,6 @@ async def cleanup_stale_jobs(
         job.error_message = "Stale: pending for over 1 hour (never queued)"
         job.completed_at = now
 
-    # Stale running jobs
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
     result = await db.execute(
         select(IngestJob).where(
@@ -77,11 +75,24 @@ async def cleanup_stale_jobs(
         job.completed_at = now
 
     await db.commit()
+    return len(pending_jobs), len(running_jobs)
 
+
+@router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
+async def cleanup_stale_jobs(
+    user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> StaleCleanupResponse:
+    """Fail all stale jobs: pending >1h or running >1h.
+
+    Admin-only. Use after a failed bulk import to clean up orphaned jobs.
+    Same logic runs automatically every 5 minutes via a lifespan sweeper.
+    """
+    pending_failed, running_failed = await fail_stale_jobs(db)
     return StaleCleanupResponse(
-        pending_failed=len(pending_jobs),
-        running_failed=len(running_jobs),
-        total_cleaned=len(pending_jobs) + len(running_jobs),
+        pending_failed=pending_failed,
+        running_failed=running_failed,
+        total_cleaned=pending_failed + running_failed,
     )
 
 
