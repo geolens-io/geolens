@@ -328,16 +328,16 @@ async def _handle_search(
     else:
         user_roles = set()
 
-    semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(db)
-
     cache_key: str | None = None
     if search_cache.is_anon_cacheable(user):
+        # Only read semantic flag when caching is applicable — authed callers skip both reads.
+        semantic_enabled_for_key = await SEMANTIC_SEARCH_ENABLED.get(db)
         cache_key = search_cache.build_cache_key(
             endpoint="search",
             filters=filters,
             user_roles=user_roles,
             public_api_url=public_api_url,
-            semantic_enabled=semantic_enabled,
+            semantic_enabled=semantic_enabled_for_key,
         )
         cached = await search_cache.get_cached(cache_key)
         if cached is not None:
