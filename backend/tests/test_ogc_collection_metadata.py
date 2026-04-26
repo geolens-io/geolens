@@ -380,7 +380,7 @@ async def test_per_dataset_collection_has_extent_in_list(
         data_vintage_end=date(2022, 6, 30),
     )
 
-    resp = await client.get("/collections")
+    resp = await client.get("/collections", params={"limit": 200})
     assert resp.status_code == 200
     data = resp.json()
     # Find the per-dataset entry
@@ -415,7 +415,7 @@ async def test_per_dataset_collection_has_root_link_in_list(
         name="PerDS Root Link",
     )
 
-    resp = await client.get("/collections")
+    resp = await client.get("/collections", params={"limit": 200})
     assert resp.status_code == 200
     data = resp.json()
     per_ds = [c for c in data["collections"] if c["id"] == str(ds.id)]
