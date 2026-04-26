@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 import structlog
 from sqlalchemy import (
     String as SAString,
+    Select,
     case,
     collate,
     exists,
@@ -25,6 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.sql.elements import ColumnElement, Label
 
 from app.modules.auth.models import User
 from app.core.config import settings
@@ -265,30 +267,40 @@ async def _get_vector_ranks(
         )
         return {}
 
-    # Get current model name for filtering
-    model_name = await EMBEDDING_MODEL.get(session)
+    try:
+        # Get current model name for filtering
+        model_name = await EMBEDDING_MODEL.get(session)
 
-    # Tune HNSW recall — default ef_search=40 may miss relevant results
-    from app.processing.embeddings.helpers import set_hnsw_recall
+        # Tune HNSW recall — default ef_search=40 may miss relevant results
+        from app.processing.embeddings.helpers import set_hnsw_recall
 
-    await set_hnsw_recall(session)
+        await set_hnsw_recall(session)
 
-    # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
-    vector_stmt = (
-        select(
-            RecordEmbedding.record_id,
-            RecordEmbedding.embedding.cosine_distance(query_vector).label("distance"),
+        # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
+        vector_stmt = (
+            select(
+                RecordEmbedding.record_id,
+                RecordEmbedding.embedding.cosine_distance(query_vector).label(
+                    "distance"
+                ),
+            )
+            .where(
+                RecordEmbedding.model_name == model_name,
+                RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
+            )
+            .order_by("distance")
+            .limit(limit)
         )
-        .where(
-            RecordEmbedding.model_name == model_name,
-            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
-        )
-        .order_by("distance")
-        .limit(limit)
-    )
 
-    result = await session.execute(vector_stmt)
-    rows = result.all()
+        result = await session.execute(vector_stmt)
+        rows = result.all()
+    except Exception:
+        # pgvector extension missing, HNSW SET error, or DB execute failure —
+        # honor the docstring contract and degrade to FTS-only
+        logger.warning(
+            "Vector similarity query failed, falling back to FTS", exc_info=True
+        )
+        return {}
 
     # Assign positional ranks (1-based)
     return {str(row.record_id): rank + 1 for rank, row in enumerate(rows)}
@@ -609,7 +621,9 @@ async def search_collections(
     ]
 
 
-def _build_fts_rank_col(filters: SearchFilters):
+def _build_fts_rank_col(
+    filters: SearchFilters,
+) -> tuple[ColumnElement[bool], Label[float]]:
     """Build the FTS composite rank column + matching WHERE clause.
 
     Returns ``(text_clause, rank_col)``. Caller should attach both to the
@@ -644,7 +658,7 @@ def _build_fts_rank_col(filters: SearchFilters):
     return text_clause, rank_col
 
 
-def _apply_search_only_filters(stmt, filters: SearchFilters):
+def _apply_search_only_filters(stmt: Select, filters: SearchFilters) -> Select:
     """Apply filters that belong to /search but NOT to /facets.
 
     Handles record_type, date_from, date_to, vintage_start, vintage_end,
@@ -670,7 +684,12 @@ def _apply_search_only_filters(stmt, filters: SearchFilters):
     return stmt
 
 
-def _resolve_sort_order(stmt, filters: SearchFilters, has_text_search: bool, rank_col):
+def _resolve_sort_order(
+    stmt: Select,
+    filters: SearchFilters,
+    has_text_search: bool,
+    rank_col: Label[float] | None,
+) -> Select:
     """Apply ORDER BY clauses for the standard (non-RRF) sort path.
 
     Handles the 5 sort modes: relevance, date_added, title/name,
@@ -728,8 +747,8 @@ def _resolve_sort_order(stmt, filters: SearchFilters, has_text_search: bool, ran
 async def _run_rrf_merge(
     session: AsyncSession,
     filters: SearchFilters,
-    stmt,
-    rank_col,
+    stmt: Select,
+    rank_col: Label[float],
     total: int,
 ) -> tuple[list[Dataset], int] | None:
     """Execute hybrid FTS+vector RRF merge and return paginated results.
@@ -749,6 +768,10 @@ async def _run_rrf_merge(
     vector_ranks = await _get_vector_ranks(session, q_stripped, filters.limit)
 
     if not vector_ranks:
+        logger.info(
+            "rrf_fallback_to_fts",
+            extra={"reason": "empty_vector_ranks", "q_prefix": q_stripped[:50]},
+        )
         return None
 
     # Get FTS-ranked record IDs (up to a reasonable cap for merging).
@@ -1056,6 +1079,11 @@ def dataset_to_ogc_record(
         try:
             geometry = json.loads(spatial_extent_geojson)
         except Exception:
+            logger.warning(
+                "ogc_geometry_geojson_parse_failed",
+                extra={"record_id": str(record.id)},
+                exc_info=True,
+            )
             geometry = None
     elif record.spatial_extent is not None:
         try:
@@ -1071,6 +1099,11 @@ def dataset_to_ogc_record(
                 else [],
             }
         except Exception:
+            logger.warning(
+                "ogc_geometry_wkb_deserialize_failed",
+                extra={"record_id": str(record.id)},
+                exc_info=True,
+            )
             geometry = None
 
     # STAC 1.0.0 datetime rules: if datetime is null, start_datetime AND

@@ -768,11 +768,20 @@ async def _build_collection_metadata(
     summary_stmt = apply_visibility_filter(
         summary_stmt, user, user_roles, Record, DatasetGrant
     )
-    summary_row = (await db.execute(summary_stmt)).one()
-    geometry_types = sorted(summary_row.geometry_types or [])
-    srids = sorted(summary_row.srids or [])
-    organizations = sorted(summary_row.organizations or [])
-    keywords_list = sorted(summary_row.keywords or [])
+    # Best-effort summaries: a transient aggregation failure (e.g. a
+    # corrupted record_keywords row) must not 500 the entire collection
+    # metadata endpoint — degrade to "extent only, no summaries".
+    try:
+        summary_row = (await db.execute(summary_stmt)).one()
+    except Exception:
+        logger.error(
+            "Failed to compute summaries for collection metadata", exc_info=True
+        )
+        summary_row = None
+    geometry_types = sorted((summary_row.geometry_types if summary_row else None) or [])
+    srids = sorted((summary_row.srids if summary_row else None) or [])
+    organizations = sorted((summary_row.organizations if summary_row else None) or [])
+    keywords_list = sorted((summary_row.keywords if summary_row else None) or [])
 
     # Build summaries
     summaries = {}
@@ -1261,11 +1270,20 @@ async def get_collection_item(
         for da in da_result.scalars().all()
     ]
 
-    # Fetch raster metadata for STAC property enrichment
+    # Fetch raster metadata for STAC property enrichment (best-effort —
+    # transient raster-meta failures must not 500 the entire item endpoint).
     item_raster_meta = None
     rec_type = getattr(dataset.record, "record_type", None)
     if rec_type in ("raster_dataset", "vrt_dataset"):
-        item_raster_meta = await _build_raster_assets(db, record_id)
+        try:
+            item_raster_meta = await _build_raster_assets(db, record_id)
+        except Exception:
+            logger.warning(
+                "ogc_item_raster_meta_failed",
+                record_id=str(record_id),
+                exc_info=True,
+            )
+            item_raster_meta = None
 
     public_api_url = await get_public_api_url(db, request=request)
     lang = parse_accept_language(request)
@@ -1305,79 +1323,118 @@ async def _bulk_fetch_dataset_metadata(
     Block order is load-bearing: block 3 mutates block 2's output in place,
     so do NOT flatten with asyncio.gather.
     """
-    # Block 1 — STAC assets
-    from app.processing.raster.models import DatasetAsset
-
     all_dataset_ids = [d.id for d in datasets]
     stac_assets_by_dataset: dict[str, list[dict]] = {}
+    raster_meta: dict[str, dict] = {}
+    extent_geojson_map: dict[str, str | None] = {}
+
+    # Each block is best-effort: a transient failure in raster meta or VRT
+    # source_count must not take down the whole search response (the OGC
+    # record renderer already handles None for any of these maps).
+
+    # Block 1 — STAC assets
     if all_dataset_ids:
-        da_stmt = select(DatasetAsset).where(
-            DatasetAsset.dataset_id.in_(all_dataset_ids)
-        )
-        da_result = await db.execute(da_stmt)
-        for da in da_result.scalars().all():
-            ds_key = str(da.dataset_id)
-            stac_assets_by_dataset.setdefault(ds_key, []).append(
-                {
-                    "key": da.key,
-                    "href": da.href,
-                    "media_type": da.media_type,
-                    "roles": da.roles,
-                    "title": da.title,
-                    "description": da.description,
-                }
+        try:
+            from app.processing.raster.models import DatasetAsset
+
+            da_stmt = select(DatasetAsset).where(
+                DatasetAsset.dataset_id.in_(all_dataset_ids)
             )
+            da_result = await db.execute(da_stmt)
+            for da in da_result.scalars().all():
+                ds_key = str(da.dataset_id)
+                stac_assets_by_dataset.setdefault(ds_key, []).append(
+                    {
+                        "key": da.key,
+                        "href": da.href,
+                        "media_type": da.media_type,
+                        "roles": da.roles,
+                        "title": da.title,
+                        "description": da.description,
+                    }
+                )
+        except Exception:
+            logger.warning(
+                "search_bulk_fetch_stac_assets_failed",
+                dataset_count=len(all_dataset_ids),
+                exc_info=True,
+            )
+            stac_assets_by_dataset = {}
 
     # Block 2 — Raster metadata for STAC property enrichment
-    raster_meta: dict[str, dict] = {}
     raster_ids = [
         d.id
         for d in datasets
         if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
     ]
     if raster_ids:
-        from app.processing.raster.queries import fetch_raster_meta_bulk
+        try:
+            from app.processing.raster.queries import fetch_raster_meta_bulk
 
-        raster_meta.update(await fetch_raster_meta_bulk(db, raster_ids))
+            raster_meta.update(await fetch_raster_meta_bulk(db, raster_ids))
+        except Exception:
+            logger.warning(
+                "search_bulk_fetch_raster_meta_failed",
+                raster_count=len(raster_ids),
+                exc_info=True,
+            )
+            raster_meta = {}
 
         # Block 3 — VRT source_count (mutates raster_meta IN PLACE)
-        from app.processing.raster.models import RasterAsset, VrtGeneration
+        if raster_meta:
+            try:
+                from app.processing.raster.models import RasterAsset, VrtGeneration
 
-        vrt_dataset_ids = [
-            did
-            for did in raster_ids
-            if raster_meta.get(str(did), {}).get("vrt_type") is not None
-        ]
-        if vrt_dataset_ids:
-            vg_stmt = (
-                select(
-                    RasterAsset.dataset_id,
-                    VrtGeneration.source_count,
+                vrt_dataset_ids = [
+                    did
+                    for did in raster_ids
+                    if raster_meta.get(str(did), {}).get("vrt_type") is not None
+                ]
+                if vrt_dataset_ids:
+                    vg_stmt = (
+                        select(
+                            RasterAsset.dataset_id,
+                            VrtGeneration.source_count,
+                        )
+                        .join(
+                            VrtGeneration,
+                            VrtGeneration.id == RasterAsset.current_generation_id,
+                        )
+                        .where(RasterAsset.dataset_id.in_(vrt_dataset_ids))
+                    )
+                    vg_result = await db.execute(vg_stmt)
+                    for row in vg_result.all():
+                        if str(row.dataset_id) in raster_meta:
+                            raster_meta[str(row.dataset_id)]["source_count"] = (
+                                row.source_count
+                            )
+            except Exception:
+                logger.warning(
+                    "search_bulk_fetch_vrt_source_count_failed",
+                    raster_count=len(raster_ids),
+                    exc_info=True,
                 )
-                .join(
-                    VrtGeneration,
-                    VrtGeneration.id == RasterAsset.current_generation_id,
-                )
-                .where(RasterAsset.dataset_id.in_(vrt_dataset_ids))
-            )
-            vg_result = await db.execute(vg_stmt)
-            for row in vg_result.all():
-                if str(row.dataset_id) in raster_meta:
-                    raster_meta[str(row.dataset_id)]["source_count"] = row.source_count
 
     # Block 4 — ST_AsGeoJSON spatial extents (one query for the page,
     # avoids per-row Python WKB deserialization via to_shape()).
-    extent_geojson_map: dict[str, str | None] = {}
     if all_dataset_ids:
-        geojson_stmt = (
-            select(
-                Dataset.id,
-                func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
+        try:
+            geojson_stmt = (
+                select(
+                    Dataset.id,
+                    func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
+                )
+                .join(Record, Dataset.record_id == Record.id)
+                .where(Dataset.id.in_(all_dataset_ids))
             )
-            .join(Record, Dataset.record_id == Record.id)
-            .where(Dataset.id.in_(all_dataset_ids))
-        )
-        for _row in (await db.execute(geojson_stmt)).all():
-            extent_geojson_map[str(_row.id)] = _row.geojson
+            for _row in (await db.execute(geojson_stmt)).all():
+                extent_geojson_map[str(_row.id)] = _row.geojson
+        except Exception:
+            logger.warning(
+                "search_bulk_fetch_geojson_extents_failed",
+                dataset_count=len(all_dataset_ids),
+                exc_info=True,
+            )
+            extent_geojson_map = {}
 
     return stac_assets_by_dataset, raster_meta, extent_geojson_map
