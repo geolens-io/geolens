@@ -14,7 +14,6 @@ import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from app.modules.auth.models import User, UserRole
 from app.modules.auth.visibility import apply_visibility_filter, get_user_roles
@@ -154,33 +153,15 @@ async def get_map(
     return result.scalar_one_or_none()
 
 
-async def get_map_with_layers(
-    session: AsyncSession,
-    map_id: uuid.UUID,
-) -> tuple[Map | None, list[tuple], str | None, str | None]:
-    """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
+async def _fetch_layer_rows_ordered(
+    session: AsyncSession, map_id: uuid.UUID
+) -> list[tuple]:
+    """Fetch the joined layer-row tuples for a map, ordered by sort_order.
 
-    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, is_3d), ...], forked_from_name, owner_username)
-    or (None, [], None, None).
+    Map has no relationship() to MapLayer, so the .order_by(MapLayer.sort_order)
+    clause MUST live in the explicit SELECT — there is no relationship-level
+    ordering to leverage.
     """
-    ForkedMap = aliased(Map)
-    map_stmt = (
-        select(
-            Map,
-            ForkedMap.name.label("forked_from_name"),
-            User.username.label("owner_username"),
-        )
-        .outerjoin(ForkedMap, Map.forked_from == ForkedMap.id)
-        .outerjoin(User, Map.created_by == User.id)
-        .where(Map.id == map_id)
-    )
-    map_result = await session.execute(map_stmt)
-    map_row = map_result.one_or_none()
-    if map_row is None:
-        return None, [], None, None
-
-    map_obj, forked_from_name, owner_username = map_row
-
     stmt = (
         select(
             MapLayer,
@@ -200,9 +181,47 @@ async def get_map_with_layers(
         .order_by(MapLayer.sort_order)
     )
     result = await session.execute(stmt)
-    rows = result.all()
+    return [tuple(row) for row in result.all()]
 
-    return map_obj, [tuple(row) for row in rows], forked_from_name, owner_username
+
+async def _resolve_forked_and_owner(
+    session: AsyncSession, map_obj: Map
+) -> tuple[str | None, str | None]:
+    """Resolve forked_from_name + owner_username from a Map. Both nullable."""
+    forked_name: str | None = None
+    if map_obj.forked_from is not None:
+        forked_name = (
+            await session.execute(
+                select(Map.name).where(Map.id == map_obj.forked_from)
+            )
+        ).scalar_one_or_none()
+    owner_username: str | None = None
+    if map_obj.created_by is not None:
+        owner_username = (
+            await session.execute(
+                select(User.username).where(User.id == map_obj.created_by)
+            )
+        ).scalar_one_or_none()
+    return forked_name, owner_username
+
+
+async def get_map_with_layers(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+) -> tuple[Map | None, list[tuple], str | None, str | None]:
+    """Fetch map and its layers with dataset info, forked_from_name, and owner_username.
+
+    Returns (map, [(layer, dataset_name, geometry_type, table_name, extent, column_info, feature_count, sample_values, record_type, is_3d), ...], forked_from_name, owner_username)
+    or (None, [], None, None).
+    """
+    map_obj = await get_map(session, map_id)
+    if map_obj is None:
+        return None, [], None, None
+    layer_rows = await _fetch_layer_rows_ordered(session, map_id)
+    forked_from_name, owner_username = await _resolve_forked_and_owner(
+        session, map_obj
+    )
+    return map_obj, layer_rows, forked_from_name, owner_username
 
 
 def _apply_map_visibility_filter(
@@ -357,11 +376,15 @@ async def update_map(
     visibility: str | None = None,
     widgets: list[str] | None = None,
     layers: list[dict] | None = None,
-) -> Map:
+) -> tuple[Map, list[tuple], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
     Raises ValueError if not found. Flushes but does NOT commit --
     callers must own the commit lifecycle.
+
+    Returns the same 4-tuple shape as ``get_map_with_layers``:
+    ``(Map, layer_rows, forked_from_name, owner_username)``. Built from
+    in-session ORM state so callers don't need a post-save re-fetch.
     """
     result = await session.execute(select(Map).where(Map.id == map_id))
     map_obj = result.scalar_one_or_none()
@@ -392,8 +415,11 @@ async def update_map(
         await _replace_layers(session, map_id, layers)
 
     await session.flush()
+    # Refresh required for updated_at (DB-side onupdate=func.now()).
     await session.refresh(map_obj)
-    return map_obj
+    layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
+    forked_name, owner_username = await _resolve_forked_and_owner(session, map_obj)
+    return map_obj, layer_rows, forked_name, owner_username
 
 
 async def _replace_layers(
@@ -575,10 +601,14 @@ async def duplicate_map(
     session: AsyncSession,
     map_id: uuid.UUID,
     user: User,
-) -> tuple[Map, int]:
+) -> tuple[Map, list[tuple], str | None, str | None, int]:
     """Deep-copy a map with RBAC-filtered layers. Does NOT commit.
 
-    Returns (new_map, excluded_layer_count).
+    Returns the 4-tuple shape from ``get_map_with_layers`` plus
+    ``excluded_layer_count`` appended:
+    ``(new_map, layer_rows, forked_from_name, owner_username,
+       excluded_layer_count)``. Built from in-session ORM state so callers
+    don't need a post-save re-fetch.
     """
     source = await get_map(session, map_id)
     if source is None:
@@ -644,7 +674,9 @@ async def duplicate_map(
         session.add(new_layer)
 
     await session.flush()
-    return new_map, excluded_count
+    layer_rows = await _fetch_layer_rows_ordered(session, new_map.id)
+    forked_name, owner_username = await _resolve_forked_and_owner(session, new_map)
+    return new_map, layer_rows, forked_name, owner_username, excluded_count
 
 
 def _infer_layer_type(record_type: str | None) -> str:
