@@ -139,59 +139,32 @@ async def _build_raster_assets(
     db: AsyncSession,
     dataset_id: uuid.UUID,
 ) -> dict | None:
-    """Fetch raster metadata for a single dataset.
+    """Fetch raster metadata for a single dataset (column list lives in
+    app/processing/raster/queries.py — KISS-6).
 
-    Returns a dict of raster properties or None if no raster asset exists.
+    For VRT datasets, also looks up source_count from VrtGeneration.
     """
-    from app.processing.raster.models import RasterAsset
+    from app.processing.raster.queries import fetch_raster_meta_one
 
-    ra_row = await db.execute(
-        select(
-            RasterAsset.band_count,
-            RasterAsset.epsg,
-            RasterAsset.res_x,
-            RasterAsset.res_y,
-            RasterAsset.width,
-            RasterAsset.height,
-            RasterAsset.dtype,
-            RasterAsset.nodata,
-            RasterAsset.band_info,
-            RasterAsset.vrt_type,
-            RasterAsset.resolution_strategy,
-            RasterAsset.current_generation_id,
-        ).where(RasterAsset.dataset_id == dataset_id)
-    )
-    ra = ra_row.one_or_none()
-    if ra is None:
+    meta = await fetch_raster_meta_one(db, dataset_id)
+    if meta is None:
         return None
 
-    meta = {
-        "band_count": ra.band_count,
-        "epsg": ra.epsg,
-        "res_x": float(ra.res_x) if ra.res_x is not None else None,
-        "res_y": float(ra.res_y) if ra.res_y is not None else None,
-        "width": ra.width,
-        "height": ra.height,
-        "dtype": ra.dtype,
-        "nodata": ra.nodata,
-        "band_info": ra.band_info,
-        "vrt_type": ra.vrt_type,
-        "resolution_strategy": ra.resolution_strategy,
-    }
-
-    # Fetch source_count for VRT datasets
-    if ra.vrt_type is not None and ra.current_generation_id is not None:
+    # Fetch source_count for VRT datasets (only this site needs it)
+    if meta.get("vrt_type") is not None and meta.get("current_generation_id") is not None:
         from app.processing.raster.models import VrtGeneration
 
         vg_row = await db.execute(
             select(VrtGeneration.source_count).where(
-                VrtGeneration.id == ra.current_generation_id
+                VrtGeneration.id == meta["current_generation_id"]
             )
         )
         vg = vg_row.scalar_one_or_none()
         if vg is not None:
             meta["source_count"] = vg
 
+    # Drop the internal generation_id from the public response (kept only for the join above).
+    meta.pop("current_generation_id", None)
     return meta
 
 
@@ -397,37 +370,9 @@ async def _handle_search(
         if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
     ]
     if raster_ids:
-        from app.processing.raster.models import RasterAsset
+        from app.processing.raster.queries import fetch_raster_meta_bulk
 
-        ra_stmt = select(
-            RasterAsset.dataset_id,
-            RasterAsset.band_count,
-            RasterAsset.epsg,
-            RasterAsset.res_x,
-            RasterAsset.res_y,
-            RasterAsset.width,
-            RasterAsset.height,
-            RasterAsset.dtype,
-            RasterAsset.nodata,
-            RasterAsset.band_info,
-            RasterAsset.vrt_type,
-            RasterAsset.resolution_strategy,
-        ).where(RasterAsset.dataset_id.in_(raster_ids))
-        ra_result = await db.execute(ra_stmt)
-        for row in ra_result.all():
-            raster_meta[str(row.dataset_id)] = {
-                "band_count": row.band_count,
-                "epsg": row.epsg,
-                "res_x": float(row.res_x) if row.res_x is not None else None,
-                "res_y": float(row.res_y) if row.res_y is not None else None,
-                "width": row.width,
-                "height": row.height,
-                "dtype": row.dtype,
-                "nodata": row.nodata,
-                "band_info": row.band_info,
-                "vrt_type": row.vrt_type,
-                "resolution_strategy": row.resolution_strategy,
-            }
+        raster_meta.update(await fetch_raster_meta_bulk(db, raster_ids))
 
         # Fetch source_count for VRT datasets from VrtGeneration table
         from app.processing.raster.models import VrtGeneration

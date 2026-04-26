@@ -130,36 +130,14 @@ async def _fetch_raster_meta(
     db: AsyncSession,
     dataset_ids: list[uuid.UUID],
 ) -> dict[str, dict]:
-    """Bulk-fetch raster metadata for a set of dataset IDs."""
-    if not dataset_ids:
-        return {}
-    ra_stmt = select(
-        RasterAsset.dataset_id,
-        RasterAsset.band_count,
-        RasterAsset.epsg,
-        RasterAsset.res_x,
-        RasterAsset.res_y,
-        RasterAsset.width,
-        RasterAsset.height,
-        RasterAsset.dtype,
-        RasterAsset.nodata,
-        RasterAsset.band_info,
-    ).where(RasterAsset.dataset_id.in_(dataset_ids))
-    ra_result = await db.execute(ra_stmt)
-    meta: dict[str, dict] = {}
-    for row in ra_result.all():
-        meta[str(row.dataset_id)] = {
-            "band_count": row.band_count,
-            "epsg": row.epsg,
-            "res_x": float(row.res_x) if row.res_x is not None else None,
-            "res_y": float(row.res_y) if row.res_y is not None else None,
-            "width": row.width,
-            "height": row.height,
-            "dtype": row.dtype,
-            "nodata": row.nodata,
-            "band_info": row.band_info,
-        }
-    return meta
+    """Bulk-fetch raster metadata for a set of dataset IDs.
+
+    Delegates to the shared raster/queries helper (KISS-6). STAC items don't
+    need vrt_type/resolution_strategy at this layer, so include_vrt=False.
+    """
+    from app.processing.raster.queries import fetch_raster_meta_bulk
+
+    return await fetch_raster_meta_bulk(db, dataset_ids, include_vrt=False)
 
 
 async def _dataset_to_stac_item(
