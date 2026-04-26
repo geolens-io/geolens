@@ -8,28 +8,17 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-42 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v14.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Marketing site at getgeolens.com shipped with Astro 6, SEO infrastructure, stylized product previews, homepage, demo collections, and WCAG 2.1 AA accessibility. Backend hardened with CommitRequest discriminated unions, PersistentConfig TypeAdapter validation, 3D geometry detection, GeoJSON-Z delivery, and shared vector staging pipeline. Phase 216 (Features & Quickstart pages) deferred to future milestone. **v15.0 Phase 223 complete (2026-04-25):** docs/ subtree scaffolded inside getgeolens.com repo as independent Astro 6 + Starlight 0.38.4 project — locked URL structure (/guides/* sidebar groups), canonical URL anchored to docs.getgeolens.com, defense-in-depth noindex (robots.txt Disallow:/ + meta noindex), sitemap generation, 9-rule legacy redirects (/install, /admin, /api → /guides/*), GitHub Actions docs-ci.yml with paths-filter isolation from marketing ci.yml, load-bearing verify-build.sh gate. CF Pages dashboard work + custom domain attachment + TLS verification deferred to operator (tracked in 223-HUMAN-UAT.md).
+42 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v14.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Marketing site at getgeolens.com shipped with Astro 6, SEO infrastructure, stylized product previews, homepage, demo collections, and WCAG 2.1 AA accessibility. Backend hardened with CommitRequest discriminated unions, PersistentConfig TypeAdapter validation, 3D geometry detection, GeoJSON-Z delivery, and shared vector staging pipeline. Phase 216 (Features & Quickstart pages) deferred to future milestone.
 
-## Last Milestone: v14.0 getgeolens.com Marketing Site (shipped 2026-04-13)
+The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-**Delivered:** 14 phases (212-222, 999.1-999.4), 33 plans — Astro 6 marketing site with homepage, SEO, OG images, product previews, demo collections, accessibility audit. Backend: CommitRequest refactor, sample_values fix, PersistentConfig validation, 3D support (terrain, extrusions, metadata), GeoJSON-Z, shared staging pipeline. Known gap: Phase 216 (Features & Quickstart pages) deferred — split into v15.0 (Quickstart → docs site) and v15.0 marketing Features page.
+## Last Milestone (this repo): v13.0 Open-Core Pre-Release (shipped 2026-03-27)
 
-## Current Milestone: v15.0 Documentation Site (docs.getgeolens.com)
+**Delivered:** 6 phases (206-211) — Apache 2.0 licensing, enterprise repo split, public README, contributor docs. v14.0 Marketing Site (212-217 + 999.1–999.4) shipped 2026-04-13 in the getgeolens.com repo.
 
-**Goal:** Ship a documentation site at `docs.getgeolens.com` covering install/quickstart, user guide, admin guide, and auto-generated API reference — built on Astro Starlight in the existing getgeolens-com repo, deployed via Cloudflare Pages.
+## Current Position
 
-**Target features:**
-- Astro Starlight bootstrapped in the getgeolens-com repo with shared OKLCH design tokens and brand identity
-- Subdomain routing: separate Cloudflare Pages project from the same repo, mapped to `docs.getgeolens.com`
-- Quickstart & Install guide (migrates and expands `docs/install.md`, satisfies deferred QUICK-01/02/03)
-- User guide covering search, dataset detail, map builder, collections, exports, AI chat
-- Admin guide covering RBAC, OAuth, settings, backups, infrastructure dashboard (migrates `docs/admin.md`)
-- Auto-generated API reference rendered from FastAPI `openapi.json` at build time
-- Pagefind static search out-of-the-box; no external search service
-- WCAG 2.1 AA parity with marketing site, SEO meta/OG/sitemap per page
-- New Features page on `getgeolens.com` (the marketing-site half of deferred Phase 216) with cross-links into docs
-
-**Single "latest" version** — no versioning machinery in v15.0.
+No active milestone in the geolens repo. Backlog phases 999.1–999.4 (3D viewer, PostGIS 3D detection, GeoJSON-Z delivery, shared vector staging pipeline) are completed work tracked here. New geolens-app milestones (v16.0+) would land in this repo. Documentation-site work (v15.0) is being executed in the getgeolens.com repo.
 
 ## Core Value
 
