@@ -26,10 +26,11 @@ from app.platform.config_ops.service import (
 )
 from app.core.dependencies import get_db
 from app.processing.export.service import safe_content_disposition
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/config-ops", tags=["config-ops"])
+router = APIRouter(prefix="/config-ops", tags=["config-ops"], responses=ERROR_RESPONSES_AUTH)
 
 
 @router.get(

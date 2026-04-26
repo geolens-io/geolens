@@ -63,10 +63,11 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/maps", tags=["Maps"])
+router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
 
 
 # ---------------------------------------------------------------------------

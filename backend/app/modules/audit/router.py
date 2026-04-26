@@ -32,9 +32,10 @@ from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import User
 from app.core.dependencies import get_db
 from app.processing.export.service import safe_content_disposition
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 # Shares /admin prefix with admin/router.py — kept separate for module organization.
-router = APIRouter(prefix="/admin", tags=["Admin"])
+router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
 @router.get("/audit-logs/", response_model=AuditLogListResponse)

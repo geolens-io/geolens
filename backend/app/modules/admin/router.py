@@ -38,10 +38,11 @@ from app.modules.catalog.maps.schemas import (
     AdminShareTokenListResponse,
     AdminShareTokenResponse,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/admin", tags=["Admin"])
+router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
 def _user_response(user: User) -> UserResponse:

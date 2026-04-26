@@ -1,3 +1,4 @@
+import json
 import uuid
 from enum import Enum
 from datetime import datetime, timezone
@@ -6,6 +7,25 @@ from typing import Annotated, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.core.text import normalize_nfc as _nfc
+
+# MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
+# because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
+# size to prevent a single PUT from storing a megabytes-sized JSONB blob per layer.
+_MAX_STYLE_DICT_BYTES = 64 * 1024  # 64 KB serialized — generous for any real style override
+# MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
+_MAX_LAYERS_PER_MAP = 200
+
+
+def _validate_style_dict(v: dict | None) -> dict | None:
+    """Reject style-override dicts whose JSON serialization exceeds the cap."""
+    if v is None:
+        return v
+    serialized = json.dumps(v, separators=(",", ":"))
+    if len(serialized.encode("utf-8")) > _MAX_STYLE_DICT_BYTES:
+        raise ValueError(
+            f"Style configuration too large (>{_MAX_STYLE_DICT_BYTES} bytes serialized)"
+        )
+    return v
 
 
 class PopupConfig(BaseModel):
@@ -81,6 +101,11 @@ class MapLayerInput(BaseModel):
     style_config: dict | None = Field(
         default=None, description="Data-driven style configuration"
     )
+
+    _validate_paint = field_validator("paint")(_validate_style_dict)
+    _validate_layout = field_validator("layout")(_validate_style_dict)
+    _validate_label_config = field_validator("label_config")(_validate_style_dict)
+    _validate_style_config = field_validator("style_config")(_validate_style_dict)
     layer_type: str | None = Field(
         default=None,
         pattern=r"^(vector_geolens|raster_geolens|geojson)$",
@@ -143,10 +168,14 @@ class MapUpdate(BaseModel):
         default=None, description="private, internal, or public"
     )
     layers: list[MapLayerInput] | None = Field(
-        default=None, description="Full replacement layer list"
+        default=None,
+        max_length=_MAX_LAYERS_PER_MAP,
+        description=f"Full replacement layer list (max {_MAX_LAYERS_PER_MAP} layers)",
     )
     widgets: list[str] | None = Field(
-        default=None, description="Enabled widget IDs, e.g. ['measurement']"
+        default=None,
+        max_length=50,
+        description="Enabled widget IDs, e.g. ['measurement']",
     )
 
 

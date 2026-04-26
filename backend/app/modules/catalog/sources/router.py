@@ -34,10 +34,11 @@ from app.modules.catalog.sources.security import (
     SSRFError,
     validate_url_for_ssrf,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/services", tags=["Datasets"])
+router = APIRouter(prefix="/services", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE)
 
 
 async def _probe_audit_fail(

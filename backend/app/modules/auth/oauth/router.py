@@ -20,10 +20,11 @@ from app.core.persistent_config import (
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from app.core.public_urls import get_public_api_url, get_public_app_url
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/auth/oauth", tags=["Auth"])
+router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
 
 async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:

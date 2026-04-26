@@ -56,10 +56,11 @@ from app.modules.catalog.datasets.domain.service import (
 from app.core.dependencies import get_db
 from app.core.public_urls import get_dataset_service_url
 from app.platform.storage import get_storage
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/datasets", tags=["Datasets"])
+router = APIRouter(prefix="/datasets", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE)
 
 _CATALOG_CACHE_TTL = 60  # seconds
 

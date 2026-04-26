@@ -29,8 +29,11 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.processing.ingest.schemas import VrtMutationResponse
 from app.core.dependencies import get_db
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/datasets", tags=["Datasets - VRT"])
+router = APIRouter(
+    prefix="/datasets", tags=["Datasets - VRT"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 def _advisory_lock_key(dataset_id: uuid.UUID) -> int:

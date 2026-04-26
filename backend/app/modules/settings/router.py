@@ -47,10 +47,11 @@ from app.modules.settings.schemas import (
     SettingsUpdateRequest,
     TileConfigResponse,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/settings", tags=["Admin"])
+router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
 # ---------------------------------------------------------------------------

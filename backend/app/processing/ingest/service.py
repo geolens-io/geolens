@@ -163,18 +163,38 @@ async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
     """Resolve a file path that may be an S3 key to a local file path.
 
     If the file exists locally, returns as-is. If not (presigned S3 upload),
-    downloads from S3 to a local temp path and returns that path.
+    downloads from S3 to a local temp path and returns that path. The S3
+    download retries up to 2 times on transient network failures with linear
+    backoff so a single S3 blip mid-ingest doesn't force the user to reupload.
     """
     if Path(file_path).exists():
         return file_path
 
     # File was uploaded directly to S3 via presigned URL
+    import asyncio
+
     from app.platform.storage import get_storage
 
     storage = get_storage()
     local_name = f"{job_id}_{Path(file_path).name}" if job_id else Path(file_path).name
     local_path = Path(settings.upload_staging_dir) / local_name
-    await storage.get_to_file(file_path, local_path)
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            await storage.get_to_file(file_path, local_path)
+            return str(local_path)
+        except (OSError, asyncio.TimeoutError, ConnectionError) as exc:
+            # OSError covers most botocore network failures (BotoCoreError is a subclass).
+            # Re-raise immediately on permanent errors (NoSuchKey, AccessDenied) — those
+            # surface as ClientError with specific codes; OSError is the transient bucket.
+            last_exc = exc
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s
+                continue
+            raise
+    if last_exc is not None:  # pragma: no cover - unreachable, satisfies type checker
+        raise last_exc
     return str(local_path)
 
 

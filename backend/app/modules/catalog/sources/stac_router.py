@@ -92,7 +92,11 @@ async def _fetch_cog_info(url: str) -> dict | None:
         return None
 
 
-router = APIRouter(prefix="/services/stac", tags=["STAC Import"])
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+
+router = APIRouter(
+    prefix="/services/stac", tags=["STAC Import"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 # ---------------------------------------------------------------------------

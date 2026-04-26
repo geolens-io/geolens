@@ -57,8 +57,11 @@ from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extension
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/datasets", tags=["Datasets - Reupload"])
+router = APIRouter(
+    prefix="/datasets", tags=["Datasets - Reupload"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 @router.post(

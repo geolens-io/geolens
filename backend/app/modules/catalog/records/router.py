@@ -41,8 +41,9 @@ from app.modules.catalog.records.service import (
     update_contact,
     update_distribution,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/records", tags=["Records"])
+router = APIRouter(prefix="/records", tags=["Records"], responses=ERROR_RESPONSES_WRITE)
 
 
 async def _check_record_read_access(
