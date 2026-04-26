@@ -9,7 +9,7 @@
 
 - [x] **Phase 223: Bootstrap & Infrastructure Lock** — Starlight scaffold, CF Pages multi-project, deploy pipeline, URL structure, token bridge, redirects stub, version pin, CI scaffolding (completed 2026-04-25)
 - [x] **Phase 224: Brand, Shell & Search** — Full OKLCH token bridge, Inter font, dark/light parity, sidebar groups, shell components (prev/next, edit-this-page, 404, last-updated), Pagefind config, cross-site nav links, OG image pipeline, llms.txt (completed 2026-04-25)
-- [ ] **Phase 225: API Reference** — openapi.json snapshot script, starlight-openapi plugin, API auth and OGC hand-authored sections, snapshot freshness README
+- [x] **Phase 225: API Reference** — openapi.json snapshot script, starlight-openapi plugin, API auth and OGC hand-authored sections, snapshot freshness README (completed 2026-04-26)
 - [ ] **Phase 226: Quickstart & Install Guide** — Migrate and expand backend/docs/install.md, topology diagram, screenshots, expected outcomes, legacy stub replacement
 - [ ] **Phase 227: User Guide & Admin Guide** — All USER-* and ADMIN-* pages, migrate backend/docs/admin.md, legacy stub replacement, repo README/CONTRIBUTING update
 - [ ] **Phase 228: SEO, A11Y, Marketing Features Page & Launch** — Per-page OG images, sitemap submission, llms.txt completion, A11Y audit, Lighthouse CI, marketing /features page, GA4 install on both sites, post-launch GSC submission
@@ -57,18 +57,18 @@
   3. The OGC endpoints page lists OGC API Common, Records, Features, STAC, and tile endpoints with QGIS/GDAL connection examples
   4. API reference index page does not appear in Pagefind search results (code blocks excluded from index)
   5. The `docs/src/content/openapi/` README explains how to refresh the snapshot before each release
-**Plans:** 10/10 plans
+**Plans:** 10/10 plans complete
 
-- [ ] 225-01-PLAN.md — Snapshot fetch script + npm script wiring (API-01)
-- [ ] 225-02-PLAN.md — Generate snapshot from running backend + commit (API-01)
-- [ ] 225-03-PLAN.md — Install + register starlight-openapi 0.25.0; sidebar wiring (API-02)
-- [ ] 225-04-PLAN.md — Hand-authored auth.mdx with corrected X-Api-Key header (API-03)
-- [ ] 225-05-PLAN.md — Hand-authored ogc.mdx landing page (API-04)
-- [ ] 225-06-PLAN.md — Curated index.mdx replacing Phase 224 placeholder (API-02 success #1)
-- [ ] 225-07-PLAN.md — src/content/openapi/README.md refresh-cadence doc (API-05)
-- [ ] 225-08-PLAN.md — Install + register starlight-links-validator with exclude allowlist (CI-01)
-- [ ] 225-09-PLAN.md — Pagefind exclusion via routeMiddleware (success #4)
-- [ ] 225-10-PLAN.md — verify-build.sh extensions + llms.txt updates (CI-01, success #4)
+- [x] 225-01-PLAN.md — Snapshot fetch script + npm script wiring (API-01)
+- [x] 225-02-PLAN.md — Generate snapshot from running backend + commit (API-01)
+- [x] 225-03-PLAN.md — Install + register starlight-openapi 0.25.0; sidebar wiring (API-02)
+- [x] 225-04-PLAN.md — Hand-authored auth.mdx with corrected X-Api-Key header (API-03)
+- [x] 225-05-PLAN.md — Hand-authored ogc.mdx landing page (API-04)
+- [x] 225-06-PLAN.md — Curated index.mdx replacing Phase 224 placeholder (API-02 success #1)
+- [x] 225-07-PLAN.md — src/content/openapi/README.md refresh-cadence doc (API-05)
+- [x] 225-08-PLAN.md — Install + register starlight-links-validator with exclude allowlist (CI-01)
+- [x] 225-09-PLAN.md — Pagefind exclusion via routeMiddleware (success #4)
+- [x] 225-10-PLAN.md — verify-build.sh extensions + llms.txt updates (CI-01, success #4)
 
 ### Phase 226: Quickstart & Install Guide
 **Goal**: A new visitor can follow the Quickstart guide from zero to a running GeoLens instance — including a topology diagram, copyable commands, and a screenshot of the expected first-login outcome — and the legacy `backend/docs/install.md` is replaced with a pointer stub so there is exactly one canonical source.
@@ -113,7 +113,7 @@
 |-------|----------------|--------|-----------|
 | 223. Bootstrap & Infrastructure Lock | 2/2 | Complete    | 2026-04-25 |
 | 224. Brand, Shell & Search | 5/5 | Complete   | 2026-04-25 |
-| 225. API Reference | 0/10 | Not started | - |
+| 225. API Reference | 10/10 | Complete   | 2026-04-26 |
 | 226. Quickstart & Install Guide | 0/? | Not started | - |
 | 227. User Guide & Admin Guide | 0/? | Not started | - |
 | 228. SEO, A11Y, Marketing Features Page & Launch | 0/? | Not started | - |
