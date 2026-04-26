@@ -1,7 +1,11 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
+
+# User account status enum mirrors the CHECK constraint on User.status.
+UserStatus = Literal["active", "pending", "suspended", "deactivated"]
 
 
 class TokenResponse(BaseModel):
@@ -46,7 +50,9 @@ class UserResponse(BaseModel):
     username: str
     email: str | None
     is_active: bool
-    status: str = Field(description="Account status: active, pending, disabled")
+    status: UserStatus = Field(
+        description="Account status: active, pending, suspended, or deactivated."
+    )
     last_login_at: datetime | None
     created_at: datetime
     roles: list[str] = Field(
