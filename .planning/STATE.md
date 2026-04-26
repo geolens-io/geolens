@@ -4,7 +4,7 @@ milestone: v15.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 999.5 context gathered
-last_updated: "2026-04-26T14:09:55.431Z"
+last_updated: "2026-04-26T14:13:05.561Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 6
@@ -52,6 +52,7 @@ Last activity: 2026-04-26
 *Updated after each plan completion*
 | Phase 223 P01 | 5 | 3 tasks | 15 files |
 | Phase 224 P05 | 12min | 3 tasks | 3 files |
+| Phase 999.5 P01 | 6min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,8 @@ Last activity: 2026-04-26
 - [Phase 224]: [224-05]: Sized --back-link-reserved-space at 10rem (160px) — clears back-link.right (~146.8px) with ~13.2px headroom; 9rem would re-introduce ~2.8px overlap
 - [Phase 224]: [224-05]: Source-side grep in verify-build.sh (not dist-side) — Vite minification unstable across upgrades, same lesson as Plan 04 BRAND-01
 - [Phase 224]: [224-05]: Playwright shell-layout probe is runtime-only, not wired into docs-ci.yml — preview-server lifecycle complicates CI; build-time grep guards against deletion
+- [Phase 999.5-01]: @fontsource/inter devDep was unused (audit Case A); src/lib/og.ts loads inter-700.ttf locally from src/assets/fonts/, not from node_modules — safe to remove the package without script edits
+- [Phase 999.5-01]: OG image script font swap (RESEARCH.md Pitfall 6) deferred — Plan 01 is package-manifest-only; the local inter-700.ttf TTF file is unaffected and remains a candidate for a future task
 
 ### Roadmap Evolution
 
@@ -104,7 +107,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-26T14:09:55.426Z
+Last session: 2026-04-26T14:13:05.556Z
 Stopped at: Phase 999.5 context gathered
 Resume file: None
 
