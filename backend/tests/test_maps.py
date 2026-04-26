@@ -2206,6 +2206,52 @@ class TestLayerTypeRoundTrip:
         assert data["layer_type"] == "raster_geolens"
 
 
+async def test_update_map_layers_round_trip_sort_order(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """PUT layers with sort_order=[2, 0, 1] -> response layers must be [0, 1, 2].
+
+    Locks MapLayer.sort_order ordering through the PUT round-trip after the
+    PERF-6 service-level refactor (build response from in-session state).
+    Existing tests use dict[str, str] keyed by dataset_id (e.g.
+    test_layer_type_auto_detect_via_put) and lose list order, so a focused
+    list-order assertion is required.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds_a = await create_dataset(test_db_session, created_by=admin_id)
+    ds_b = await create_dataset(test_db_session, created_by=admin_id)
+    ds_c = await create_dataset(test_db_session, created_by=admin_id)
+
+    created = await _create_map(client, admin_auth_header)
+    map_id = created["id"]
+
+    # Intentionally out-of-order in the request body so we don't accidentally
+    # rely on insertion order. Sort_order values are explicit.
+    resp = await client.put(
+        f"/maps/{map_id}",
+        json={
+            "layers": [
+                {"dataset_id": str(ds_a.id), "sort_order": 2},
+                {"dataset_id": str(ds_b.id), "sort_order": 0},
+                {"dataset_id": str(ds_c.id), "sort_order": 1},
+            ]
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    layers = resp.json()["layers"]
+    assert len(layers) == 3
+    # The response must come back ordered by sort_order ascending [0, 1, 2].
+    assert [layer["sort_order"] for layer in layers] == [0, 1, 2]
+    # And the dataset bound to each sort_order should match what we PUT.
+    by_order = {layer["sort_order"]: layer["dataset_id"] for layer in layers}
+    assert by_order[0] == str(ds_b.id)
+    assert by_order[1] == str(ds_c.id)
+    assert by_order[2] == str(ds_a.id)
+
+
 class TestShowInLegendRoundTrip:
     """Tests for show_in_legend persistence."""
 
