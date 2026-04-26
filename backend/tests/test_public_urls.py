@@ -210,6 +210,7 @@ def test_get_env_public_api_url_uses_current_settings(
 
 @pytest.mark.anyio
 async def test_load_public_url_overrides_unwraps_json_values() -> None:
+    public_urls._PUBLIC_URL_CACHE = None
     db = AsyncMock()
     db.execute.return_value = SimpleNamespace(
         all=lambda: [
