@@ -87,8 +87,11 @@ async def cleanup_stale_jobs(
 ) -> StaleCleanupResponse:
     """Fail all stale jobs: pending >1h or running >1h.
 
-    Admin-only. Use after a failed bulk import to clean up orphaned jobs.
-    Same logic runs automatically every 5 minutes via a lifespan sweeper.
+    **Ops-only.** Not used by the GeoLens UI — invoke from `curl`/`gh api`/cron
+    when you need to force-clean orphaned jobs after a worker outage.
+    Equivalent logic runs automatically every 5 minutes via the lifespan
+    sweeper, so this endpoint is only needed if you need cleanup faster than
+    that interval.
     """
     pending_failed, running_failed = await fail_stale_jobs(db)
     return StaleCleanupResponse(

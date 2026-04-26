@@ -10,7 +10,7 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
-import logging
+import structlog
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.schemas import (
@@ -32,7 +32,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 _COLUMN_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _SAFE_TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
@@ -1119,10 +1119,11 @@ async def get_related_datasets(
 async def create_relationship(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-    rel,
-):  # -> DatasetRelationship
+    rel: "DatasetRelationshipCreate",
+) -> "DatasetRelationship":
     """Create FK relationship from source dataset to target dataset."""
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
+    from app.modules.catalog.datasets.domain.schemas import DatasetRelationshipCreate  # noqa: F401
 
     obj = DatasetRelationship(
         source_dataset_id=dataset_id,

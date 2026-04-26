@@ -41,11 +41,11 @@ router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AU
 @router.get("/audit-logs/", response_model=AuditLogListResponse)
 async def list_audit_logs(
     user_id: uuid.UUID | None = Query(None),
-    action: str | None = Query(None),
-    resource_type: str | None = Query(None),
+    action: str | None = Query(None, max_length=200),
+    resource_type: str | None = Query(None, max_length=200),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
-    search: str | None = Query(None),
+    search: str | None = Query(None, max_length=200),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     user: User = Depends(require_permission("manage_settings")),

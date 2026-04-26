@@ -106,8 +106,8 @@ async def create_user(
 async def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    status_filter: str | None = Query(None, alias="status"),
-    search: str | None = Query(None),
+    status_filter: str | None = Query(None, alias="status", max_length=50),
+    search: str | None = Query(None, max_length=200),
     db: AsyncSession = Depends(get_db),
 ) -> UserListResponse:
     """List all users with pagination and optional status/search filter (admin only)."""

@@ -15,14 +15,14 @@
 
 import asyncio
 import json
-import logging
 import os
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import defusedxml.ElementTree as ET
 import httpx
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 
 def parse_wfs_capabilities(xml_text: str) -> tuple[str, list[dict]]:

@@ -1,8 +1,8 @@
 """Admin service: user CRUD, role assignment, and catalog stats."""
 
-import logging
 import uuid
 
+import structlog
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,7 @@ from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 
 class AdminService:

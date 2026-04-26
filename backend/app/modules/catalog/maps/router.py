@@ -1,9 +1,9 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
-import logging
 import uuid
 from typing import Literal
 
+import structlog
 from fastapi import (
     APIRouter,
     Body,
@@ -65,7 +65,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
 
@@ -73,6 +73,38 @@ router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRIT
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
+    """Map a DatasetMeta tuple (or None) to the kwargs _build_layer_response expects.
+
+    Centralizes the "Unknown" / empty-string / None defaults so callers don't
+    repeat 9 ternaries every time they want a layer response after a fresh
+    `get_dataset_meta` call.
+    """
+    if meta is None:
+        return DatasetMetaKwargs(
+            dataset_name="Unknown",
+            geometry_type=None,
+            table_name="",
+            extent=None,
+            column_info=None,
+            feature_count=None,
+            sample_values=None,
+            record_type=None,
+            is_3d=None,
+        )
+    return DatasetMetaKwargs(
+        dataset_name=meta.title,
+        geometry_type=meta.geometry_type,
+        table_name=meta.table_name,
+        extent=meta.extent,
+        column_info=meta.column_info,
+        feature_count=meta.feature_count,
+        sample_values=meta.sample_values,
+        record_type=meta.record_type,
+        is_3d=meta.is_3d,
+    )
 
 
 def _build_layer_response(
@@ -791,20 +823,7 @@ async def add_layer_endpoint(
     # Get dataset fields for the response (single query via service helper)
     meta = await get_dataset_meta(db, body.dataset_id)
 
-    return _build_layer_response(
-        layer,
-        DatasetMetaKwargs(
-            dataset_name=meta.title if meta else "Unknown",
-            geometry_type=meta.geometry_type if meta else None,
-            table_name=meta.table_name if meta else "",
-            extent=meta.extent if meta else None,
-            column_info=meta.column_info if meta else None,
-            feature_count=meta.feature_count if meta else None,
-            sample_values=meta.sample_values if meta else None,
-            record_type=meta.record_type if meta else None,
-            is_3d=meta.is_3d if meta else None,
-        ),
-    )
+    return _build_layer_response(layer, _meta_to_kwargs(meta))
 
 
 @router.delete("/{map_id}/layers/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
