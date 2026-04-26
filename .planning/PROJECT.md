@@ -14,7 +14,11 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 ## Last Milestone (this repo): v13.0 Open-Core Pre-Release (shipped 2026-03-27)
 
-**Delivered:** 6 phases (206-211) — Apache 2.0 licensing, enterprise repo split, public README, contributor docs. v14.0 Marketing Site (212-217 + 999.1–999.4) shipped 2026-04-13 in the getgeolens.com repo.
+**Delivered:** 6 phases (206-211) — Apache 2.0 licensing, enterprise repo split, public README, contributor docs.
+
+**Concurrent shipped work:**
+- v14.0 Marketing Site (phases 212-217, executed in the `getgeolens.com` repo, shipped 2026-04-13). Phase artifacts archived during cleanup; only milestone summary persisted, now relocated.
+- 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
 ## Current Position
 
