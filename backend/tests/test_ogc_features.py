@@ -145,7 +145,7 @@ async def test_collections_includes_dataset_collections(
     client: AsyncClient, public_dataset: Dataset
 ):
     """GET /collections includes per-dataset feature collections alongside 'datasets' catalog."""
-    resp = await client.get("/collections")
+    resp = await client.get("/collections", params={"limit": 200})
     assert resp.status_code == 200
     data = resp.json()
     assert "collections" in data
