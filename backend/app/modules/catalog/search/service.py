@@ -736,10 +736,17 @@ async def _run_rrf_merge(
 
     Returns ``None`` when RRF doesn't apply (vector backend empty/failed).
     Caller falls through to the standard sort path on None.
+
+    Returns ``([], total)`` rather than ``None`` when the FTS-cap query
+    yields zero ids — caller returns that tuple as-is. Preserved from
+    pre-refactor behavior; do not change to ``None`` (would alter
+    observable behavior by falling through to the standard sort path).
     """
-    assert filters.q is not None  # caller guarantees via filters.q.strip() check
+    if filters.q is None:
+        raise ValueError("_run_rrf_merge requires filters.q to be non-None")
+    q_stripped = filters.q.strip()
     # Get vector similarity ranks (empty dict on any failure = FTS-only)
-    vector_ranks = await _get_vector_ranks(session, filters.q.strip(), filters.limit)
+    vector_ranks = await _get_vector_ranks(session, q_stripped, filters.limit)
 
     if not vector_ranks:
         return None
