@@ -606,12 +606,28 @@ async def search_facets_endpoint(
         collection_id=collection_id,
     )
 
+    facet_cache_key: str | None = None
+    if search_cache.is_anon_cacheable(user):
+        facet_cache_key = search_cache.build_cache_key(
+            endpoint="facets",
+            filters=facet_filters,
+            user_roles=user_roles,
+            public_api_url=None,
+            semantic_enabled=None,
+        )
+        cached = await search_cache.get_cached(facet_cache_key)
+        if cached is not None:
+            # FastAPI coerces dict -> FacetCountResponse via response_model.
+            return cached
+
     result = await get_facet_counts(
         db,
         user,
         user_roles,
         facet_filters,
     )
+    if facet_cache_key is not None:
+        await search_cache.set_cached(facet_cache_key, result)
     return result
 
 
