@@ -40,8 +40,13 @@ from app.modules.embed_tokens.service import (
     update_embed_token,
 )
 from app.modules.catalog.maps.service import check_map_ownership, get_map
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/maps/{map_id}/embed-tokens", tags=["Embed Tokens"])
+router = APIRouter(
+    prefix="/maps/{map_id}/embed-tokens",
+    tags=["Embed Tokens"],
+    responses=ERROR_RESPONSES_WRITE,
+)
 
 
 # ---------------------------------------------------------------------------

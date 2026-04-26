@@ -38,10 +38,11 @@ from app.processing.tiles.signing import (
     round_expiry,
     verify_tile_signature,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/tiles", tags=["Tiles"])
+router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PUBLIC)
 
 _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 

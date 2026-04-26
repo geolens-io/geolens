@@ -36,8 +36,9 @@ from app.core.persistent_config import (
     get_cached_global_rate_limit,
     get_cached_login_rate_limit,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
 
 def _global_rate_limit(_request: Request | None = None) -> str:

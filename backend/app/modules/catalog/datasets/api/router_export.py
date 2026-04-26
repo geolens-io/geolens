@@ -40,10 +40,13 @@ from app.core.dependencies import get_db
 from app.processing.export.service import safe_content_disposition
 from app.core.public_urls import get_public_api_url
 from app.platform.storage import get_storage
+from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/datasets", tags=["Datasets - Export"])
+router = APIRouter(
+    prefix="/datasets", tags=["Datasets - Export"], responses=ERROR_RESPONSES_PUBLIC
+)
 
 
 # ---------------------------------------------------------------------------

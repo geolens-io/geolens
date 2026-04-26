@@ -37,8 +37,11 @@ from app.modules.catalog.collections.service import (
 from app.modules.catalog.datasets.domain.helpers import dataset_to_response
 from app.modules.catalog.datasets.domain.schemas import DatasetListResponse
 from app.core.dependencies import get_db
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/catalog/collections", tags=["Datasets"])
+router = APIRouter(
+    prefix="/catalog/collections", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 def _collection_to_response(

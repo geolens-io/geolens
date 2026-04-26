@@ -27,7 +27,9 @@ from app.platform.jobs.schemas import (
 # string literals inside the ``Literal[...]`` expression.
 TemporalParseKey = Literal["temporal_start", "temporal_end"]
 
-router = APIRouter(prefix="/jobs", tags=["Admin"])
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+
+router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 # Jobs running longer than this are considered stale and auto-failed.
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)

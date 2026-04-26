@@ -73,10 +73,11 @@ from app.core.persistent_config import (
 )
 from app.processing.raster.validation import validate_sources
 from app.platform.storage import get_storage
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/ingest", tags=["Datasets"])
+router = APIRouter(prefix="/ingest", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE)
 
 PART_SIZE = 10 * 1024 * 1024  # 10MB per part
 

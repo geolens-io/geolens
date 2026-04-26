@@ -20,8 +20,13 @@ from app.modules.embed_tokens.service import (
     bulk_revoke_embed_tokens,
     list_admin_embed_tokens,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
-router = APIRouter(prefix="/admin/embed-tokens", tags=["Admin Embed Tokens"])
+router = APIRouter(
+    prefix="/admin/embed-tokens",
+    tags=["Admin Embed Tokens"],
+    responses=ERROR_RESPONSES_AUTH,
+)
 
 
 # ---------------------------------------------------------------------------

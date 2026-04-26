@@ -44,8 +44,11 @@ from app.modules.catalog.validation.schemas import (
     ValidationResultResponse,
 )
 from app.modules.catalog.validation.service import validate_record as run_validation
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/datasets", tags=["Datasets - Data"])
+router = APIRouter(
+    prefix="/datasets", tags=["Datasets - Data"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 @router.get("/{dataset_id}/related/", response_model=RelatedDatasetsResponse)

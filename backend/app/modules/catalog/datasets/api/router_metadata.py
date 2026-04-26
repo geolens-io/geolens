@@ -40,8 +40,11 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset_versions,
 )
 from app.core.dependencies import get_db
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-router = APIRouter(prefix="/datasets", tags=["Datasets - Metadata"])
+router = APIRouter(
+    prefix="/datasets", tags=["Datasets - Metadata"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 # ---------------------------------------------------------------------------

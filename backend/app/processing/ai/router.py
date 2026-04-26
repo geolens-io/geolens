@@ -47,12 +47,13 @@ from app.modules.catalog.maps.models import Map
 from app.core.persistent_config import AI_ENABLED, LLM_PROVIDER
 from app.modules.auth.router import limiter
 from app.platform.sandbox.validator import build_table_allowlist
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 _T = TypeVar("_T")
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/ai", tags=["Maps"])
+router = APIRouter(prefix="/ai", tags=["Maps"], responses=ERROR_RESPONSES_AUTH)
 
 # AI endpoints call external LLM APIs — rate limit to prevent quota exhaustion.
 # Map generation/chat: 10/min (heavy, multi-step tool loops)
