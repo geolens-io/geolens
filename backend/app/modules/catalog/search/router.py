@@ -52,6 +52,7 @@ from app.modules.catalog.search.schemas import (
     SavedSearchListResponse,
     SavedSearchResponse,
 )
+from app.modules.catalog.search import cache as search_cache
 from app.modules.catalog.search.service import (
     SearchFilters,
     dataset_to_ogc_record,
@@ -59,6 +60,7 @@ from app.modules.catalog.search.service import (
     search_collections,
     search_datasets,
 )
+from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from pydantic import BaseModel as _BaseModel
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -326,6 +328,21 @@ async def _handle_search(
     else:
         user_roles = set()
 
+    semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(db)
+
+    cache_key: str | None = None
+    if search_cache.is_anon_cacheable(user):
+        cache_key = search_cache.build_cache_key(
+            endpoint="search",
+            filters=filters,
+            user_roles=user_roles,
+            public_api_url=public_api_url,
+            semantic_enabled=semantic_enabled,
+        )
+        cached = await search_cache.get_cached(cache_key)
+        if cached is not None:
+            return OGCFeatureCollectionResponse(**cached)
+
     try:
         datasets, total = await search_datasets(
             db,
@@ -516,7 +533,7 @@ async def _handle_search(
             )
         )
 
-    return OGCFeatureCollectionResponse(
+    response = OGCFeatureCollectionResponse(
         type="FeatureCollection",
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
@@ -526,6 +543,9 @@ async def _handle_search(
         features=features,
         links=links,
     )
+    if cache_key is not None:
+        await search_cache.set_cached(cache_key, response.model_dump(mode="json"))
+    return response
 
 
 # ---------------------------------------------------------------------------
