@@ -4,7 +4,7 @@ milestone: v15.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed Phase 999.5 Plan 02 (logo SVG creation, cross-repo)
-last_updated: "2026-04-26T14:17:36.022Z"
+last_updated: "2026-04-26T14:25:21.888Z"
 last_activity: 2026-04-26
 progress:
   total_phases: 6
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-25)
 ## Current Position
 
 Phase: 999.5 (style-system-alignment) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-04-26
 
@@ -54,6 +54,7 @@ Last activity: 2026-04-26
 | Phase 224 P05 | 12min | 3 tasks | 3 files |
 | Phase 999.5 P01 | 6min | 3 tasks | 4 files |
 | Phase 999.5 P02 | 1min | 2 tasks | 2 files |
+| Phase 999.5 P03 | 1min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Last activity: 2026-04-26
 - [Phase ?]: [Phase 999.5-02]: Canonical logo SVG canonicalized on existing favicon geometry (viewBox 0 0 64 64, r=22, cx/cy 27) — NOT a JSX-to-SVG extraction of GeoLensLogo.tsx (different proportions r=18 cx/cy 26)
 - [Phase ?]: [Phase 999.5-02]: Two byte-identical SVG copies (public/logo.svg + docs/src/assets/logo.svg) to satisfy Astro/Vite cross-project-root asset import constraint (RESEARCH Pitfall 3)
 - [Phase ?]: [Phase 999.5-02]: stroke=currentColor only on logo.svg — favicon.svg keeps hardcoded #334155 because browser favicon contexts cannot resolve currentColor
+- [Phase 999.5-03]: Marketing global.css IBM Plex swap applied via four edits — @import, @theme --font-sans, html font-family fallback, and header comment block (D-06 'Intentional / Rationale / Revisit if' format). Astro build green; IBM Plex woff2 subsets emitted.
+- [Phase 999.5-03]: Did NOT add --font-mono to global.css (RESEARCH File 1 explicit guidance — marketing has no monospace usage). Mono token only added to docs custom.css in Plan 04.
 
 ### Roadmap Evolution
 
@@ -111,7 +114,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-26T14:17:22.570Z
+Last session: 2026-04-26T14:22:29.900Z
 Stopped at: Completed Phase 999.5 Plan 02 (logo SVG creation, cross-repo)
 Resume file: None
 
