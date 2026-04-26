@@ -659,24 +659,38 @@ class TestSearchEnrichmentVrt:
     """Search enrichment includes vrt_dataset in band_count batch fetch (regression guard)."""
 
     def test_search_router_includes_vrt_dataset_in_raster_ids_filter(self):
-        """_handle_search in search/router.py includes vrt_dataset in raster enrichment."""
+        """search router includes vrt_dataset in raster enrichment.
+
+        After KISS-2 refactor, the bulk-fetch logic moved into the
+        _bulk_fetch_dataset_metadata helper that _handle_search calls.
+        Inspect both functions so the regression guard still applies.
+        """
         import app.modules.catalog.search.router as search_module
         import inspect
 
-        source = inspect.getsource(search_module._handle_search)
+        source = inspect.getsource(
+            search_module._bulk_fetch_dataset_metadata
+        ) + inspect.getsource(search_module._handle_search)
 
         # Both record_types must be in the enrichment filter
         assert "vrt_dataset" in source, (
-            "_handle_search must include 'vrt_dataset' in raster enrichment filter"
+            "search router must include 'vrt_dataset' in raster enrichment filter "
+            "(checked _handle_search + _bulk_fetch_dataset_metadata)"
         )
         assert "raster_dataset" in source
 
     def test_search_enrichment_assigns_band_count_to_vrt_features(self):
-        """Search enrichment assigns band_count to features with vrt_dataset record_type."""
+        """Search enrichment assigns band_count to features with vrt_dataset record_type.
+
+        See test_search_router_includes_vrt_dataset_in_raster_ids_filter for
+        why both _handle_search and _bulk_fetch_dataset_metadata are inspected.
+        """
         import app.modules.catalog.search.router as search_module
         import inspect
 
-        source = inspect.getsource(search_module._handle_search)
+        source = inspect.getsource(
+            search_module._bulk_fetch_dataset_metadata
+        ) + inspect.getsource(search_module._handle_search)
 
         # The assignment branch must also check vrt_dataset
         lines_with_vrt = [
@@ -687,16 +701,23 @@ class TestSearchEnrichmentVrt:
         )
 
     def test_band_count_assignment_covers_vrt_dataset(self):
-        """Both the raster_ids filter and the assignment loop in _handle_search cover vrt_dataset."""
+        """Both the raster_ids filter and the assignment loop in the search router cover vrt_dataset.
+
+        See test_search_router_includes_vrt_dataset_in_raster_ids_filter for
+        why both _handle_search and _bulk_fetch_dataset_metadata are inspected.
+        """
         import app.modules.catalog.search.router as search_module
         import inspect
 
-        source = inspect.getsource(search_module._handle_search)
+        source = inspect.getsource(
+            search_module._bulk_fetch_dataset_metadata
+        ) + inspect.getsource(search_module._handle_search)
 
         # Count how many times vrt_dataset appears — must be at least 2
         # (once in raster_ids filter, once in the assignment branch)
         count = source.count("vrt_dataset")
         assert count >= 2, (
-            f"Expected vrt_dataset to appear in at least 2 locations in _handle_search, found {count}. "
+            f"Expected vrt_dataset to appear in at least 2 locations across "
+            f"_handle_search + _bulk_fetch_dataset_metadata, found {count}. "
             "Both the raster_ids filter and the band_count assignment loop must handle vrt_dataset."
         )
