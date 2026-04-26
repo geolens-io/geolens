@@ -21,13 +21,12 @@ from app.platform.jobs.schemas import (
     ReservedRenameWarning,
     StaleCleanupResponse,
 )
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 # Contract: only these two keys may appear in temporal_parse_errors. The
 # alias lets ``cast`` narrow dict writes without triggering ruff F821 on
 # string literals inside the ``Literal[...]`` expression.
 TemporalParseKey = Literal["temporal_start", "temporal_end"]
-
-from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/jobs", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
