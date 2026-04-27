@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: Phase 214 shipped 2026-04-27; ready to start Phase 215 / 217 / 218
+status: executing
 stopped_at: Phase 215 context gathered (auto-mode)
-last_updated: "2026-04-27T18:36:32.998Z"
-last_activity: 2026-04-27
+last_updated: "2026-04-27T19:11:35.431Z"
+last_activity: 2026-04-27 -- Phase 215 planning complete
 progress:
   total_phases: 9
   completed_phases: 3
-  total_plans: 12
+  total_plans: 17
   completed_plans: 12
-  percent: 100
+  percent: 71
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 Phase: 214 (identity-protocol-extract) — COMPLETE (4/4 plans)
 Plan: — (no active plan)
-Status: Phase 214 shipped 2026-04-27; ready to start Phase 215 / 217 / 218
-Last activity: 2026-04-27
+Status: Ready to execute
+Last activity: 2026-04-27 -- Phase 215 planning complete
 
 ## Roadmap Snapshot
 
