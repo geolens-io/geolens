@@ -4,6 +4,10 @@ Thanks for your interest in contributing to GeoLens. This guide covers the devel
 
 No CLA required -- the Apache 2.0 license covers all contributions.
 
+## Documentation
+
+Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. Source MDX files for the documentation site live in the [getgeolens-com repo](https://github.com/geolens-io/getgeolens.com/tree/main/docs/) under `docs/src/content/docs/guides/`. Submit doc fixes via PRs against that repo, not this one.
+
 ## Development Setup
 
 GeoLens runs entirely in Docker -- you don't need Python, Node.js, or PostgreSQL installed locally.
@@ -215,6 +219,17 @@ Include:
 - Potential impact
 
 We will acknowledge your report within 48 hours and work with you on a fix before any public disclosure.
+
+## Reporting Issues
+
+For non-security bugs, feature requests, and questions, open an issue in the [GeoLens repo](https://github.com/geolens-io/geolens/issues). Include:
+
+- GeoLens version (find in admin overview or `docker compose exec api python -c "import importlib.metadata; print(importlib.metadata.version('geolens'))"`)
+- Reproduction steps
+- Expected vs. actual behavior
+- Logs (`docker compose logs api worker | tail -200`)
+
+Search existing issues before opening a new one. For documentation bugs, file the issue in the [getgeolens.com repo](https://github.com/geolens-io/getgeolens.com/issues) instead.
 
 ## Questions?
 
