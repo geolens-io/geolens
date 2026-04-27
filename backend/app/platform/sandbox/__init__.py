@@ -14,7 +14,7 @@ from __future__ import annotations
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.platform.sandbox.executor import execute_safe
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 from app.platform.sandbox.validator import (
@@ -31,7 +31,7 @@ __all__ = ["validate_and_execute", "SandboxResult", "SandboxError"]
 async def validate_and_execute(
     sql: str,
     db: AsyncSession,
-    user: User | None,
+    user: Identity | None,
     *,
     row_limit: int = 1000,
 ) -> SandboxResult:

@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
 from app.core.dependencies import get_db
 from app.modules.catalog.datasets.domain.models import Record
@@ -49,7 +49,7 @@ router = APIRouter(prefix="/records", tags=["Records"], responses=ERROR_RESPONSE
 async def _check_record_read_access(
     db: AsyncSession,
     record_id: uuid.UUID,
-    user: User | None,
+    user: Identity | None,
 ) -> None:
     """Verify the record exists and is visible to the caller. Raises 404."""
     record = await get_record(db, record_id)
@@ -66,7 +66,7 @@ async def _check_record_read_access(
 
 
 async def _check_record_ownership(
-    db: AsyncSession, record_id: uuid.UUID, user: User
+    db: AsyncSession, record_id: uuid.UUID, user: Identity
 ) -> Record:
     """Verify the user owns the record or is an admin. Raises 404/403.
 
@@ -98,7 +98,7 @@ async def list_contacts_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ContactListResponse:
     """List all contacts for a record."""
@@ -121,7 +121,7 @@ async def list_contacts_endpoint(
 async def create_contact_endpoint(
     record_id: uuid.UUID,
     body: ContactCreate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ContactResponse:
     """Create a new contact for a record."""
@@ -159,7 +159,7 @@ async def update_contact_endpoint(
     record_id: uuid.UUID,
     contact_id: uuid.UUID,
     body: ContactUpdate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ContactResponse:
     """Update a contact."""
@@ -189,7 +189,7 @@ async def update_contact_endpoint(
 async def delete_contact_endpoint(
     record_id: uuid.UUID,
     contact_id: uuid.UUID,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a contact."""
@@ -214,7 +214,7 @@ async def list_keywords_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> KeywordListResponse:
     """List all keywords for a record."""
@@ -237,7 +237,7 @@ async def list_keywords_endpoint(
 async def create_keyword_endpoint(
     record_id: uuid.UUID,
     body: KeywordCreate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> KeywordResponse:
     """Create a new keyword for a record."""
@@ -272,7 +272,7 @@ async def create_keyword_endpoint(
 async def delete_keyword_endpoint(
     record_id: uuid.UUID,
     keyword_id: uuid.UUID,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a keyword."""
@@ -297,7 +297,7 @@ async def list_distributions_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DistributionListResponse:
     """List all distributions for a record."""
@@ -320,7 +320,7 @@ async def list_distributions_endpoint(
 async def create_distribution_endpoint(
     record_id: uuid.UUID,
     body: DistributionCreate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> DistributionResponse:
     """Create a manual distribution for a record."""
@@ -362,7 +362,7 @@ async def update_distribution_endpoint(
     record_id: uuid.UUID,
     distribution_id: uuid.UUID,
     body: DistributionUpdate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> DistributionResponse:
     """Update a distribution (manual only; auto-generated distributions are immutable)."""
@@ -398,7 +398,7 @@ async def update_distribution_endpoint(
 async def delete_distribution_endpoint(
     record_id: uuid.UUID,
     distribution_id: uuid.UUID,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a distribution (manual only; auto-generated distributions are immutable)."""

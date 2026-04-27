@@ -10,8 +10,8 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
@@ -55,7 +55,7 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates."""
@@ -123,7 +123,7 @@ async def list_features(
     offset: int = Query(0, ge=0),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
     include_geometry: bool = Query(True, description="Include geometry in response"),
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Get paginated GeoJSON features for a dataset."""
@@ -262,7 +262,7 @@ async def list_features(
 async def get_single_feature(
     dataset_id: uuid.UUID,
     gid: int,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Get a single GeoJSON feature by gid."""
@@ -321,7 +321,7 @@ async def get_single_feature(
 async def create_feature(
     dataset_id: uuid.UUID,
     body: FeatureCreate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Insert a new GeoJSON feature into a dataset."""
@@ -404,7 +404,7 @@ async def replace_single_feature(
     dataset_id: uuid.UUID,
     gid: int,
     body: FeatureReplace,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Full replacement of a feature (PUT semantics)."""
@@ -485,7 +485,7 @@ async def patch_single_feature(
     dataset_id: uuid.UUID,
     gid: int,
     body: FeatureUpdate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Partial update of a feature (PATCH semantics)."""
@@ -561,7 +561,7 @@ async def patch_single_feature(
 async def delete_single_feature(
     dataset_id: uuid.UUID,
     gid: int,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a feature by gid (hard delete)."""

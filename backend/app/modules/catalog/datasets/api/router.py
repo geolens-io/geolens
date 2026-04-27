@@ -19,12 +19,12 @@ from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import log_action, query_audit_logs
 from app.platform.cache import get_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
     require_permission,
 )
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     get_user_roles,
@@ -60,7 +60,9 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/datasets", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE)
+router = APIRouter(
+    prefix="/datasets", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
+)
 
 _CATALOG_CACHE_TTL = 60  # seconds
 
@@ -70,7 +72,7 @@ async def list_all_datasets(
     request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetListResponse:
     """List datasets with visibility filtering and pagination."""
@@ -112,7 +114,7 @@ async def list_all_datasets(
 async def create_empty_dataset_endpoint(
     body: CreateEmptyDatasetRequest,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetResponse:
     """Create an empty dataset with user-defined columns.
@@ -138,7 +140,7 @@ async def create_empty_dataset_endpoint(
 async def get_single_dataset(
     dataset_id: uuid.UUID,
     request: Request,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetResponse:
     """Get a single dataset by ID with visibility check."""
@@ -192,7 +194,7 @@ async def get_quicklook(
     size: int = Query(
         256, ge=1, le=512, description="Quicklook size in pixels (256 or 512)"
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve a quicklook PNG image for a dataset."""
@@ -265,7 +267,7 @@ async def update_dataset_metadata(
     dataset_id: uuid.UUID,
     meta: DatasetMeta,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetResponse:
     """Update user-editable dataset metadata."""
@@ -318,7 +320,7 @@ async def update_dataset_metadata(
 async def bulk_delete_datasets_endpoint(
     body: BulkDeleteRequest,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> BulkDeleteResponse:
     """Delete multiple datasets in one request. Returns per-item results."""
@@ -372,7 +374,7 @@ async def delete_dataset_endpoint(
     dataset_id: uuid.UUID,
     body: DatasetDeleteRequest,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a dataset with cascade cleanup. Admin only, requires confirm_title."""
@@ -420,7 +422,7 @@ async def get_dataset_history(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> AuditLogListResponse:
     """Get audit log history for a specific dataset."""

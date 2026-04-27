@@ -599,9 +599,7 @@ async def get_collection_items(
                 .join(Record, Dataset.record_id == Record.id)
                 .where(Dataset.id.in_(ds_ids))
             )
-            return {
-                str(row.id): row.geojson for row in (await s.execute(stmt)).all()
-            }
+            return {str(row.id): row.geojson for row in (await s.execute(stmt)).all()}
 
     asset_rows_map, raster_meta_map, extent_geojson_map = await asyncio.gather(
         _assets(), _raster(), _extents()

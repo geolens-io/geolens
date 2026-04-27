@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.processing.ingest.ogr import IngestionError
@@ -38,7 +38,9 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/services", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE)
+router = APIRouter(
+    prefix="/services", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
+)
 
 
 async def _probe_audit_fail(
@@ -83,7 +85,7 @@ async def _fail_preview(
 @router.post("/probe/", response_model=ProbeResponse)
 async def probe_service_url(
     request: ProbeRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> ProbeResponse:
     """Probe a remote service URL to detect its type and list available layers.
@@ -217,7 +219,7 @@ async def probe_service_url(
 @router.post("/preview/", response_model=ServicePreviewResponse)
 async def preview_service_layer(
     request: ServicePreviewRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> ServicePreviewResponse:
     """Preview a selected remote layer via ogrinfo and create a pending IngestJob.

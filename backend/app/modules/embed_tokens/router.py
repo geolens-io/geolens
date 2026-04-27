@@ -23,8 +23,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.auth.models import User
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.schemas import (
     EmbedTokenCreate,
@@ -60,7 +60,7 @@ router = APIRouter(
 async def create_embed_token_endpoint(
     map_id: uuid.UUID,
     body: EmbedTokenCreate,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenCreatedResponse:
     """Create an embed token scoped to a map's current layers."""
@@ -106,7 +106,7 @@ async def create_embed_token_endpoint(
 @router.get("/", response_model=EmbedTokenListResponse)
 async def list_embed_tokens_endpoint(
     map_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenListResponse:
     """List all embed tokens for a map."""
@@ -130,7 +130,7 @@ async def update_embed_token_endpoint(
     map_id: uuid.UUID,
     token_id: uuid.UUID,
     body: EmbedTokenUpdate,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
     """Update embed token allowed_origins (domain restrictions)."""
@@ -167,7 +167,7 @@ async def update_embed_token_endpoint(
 async def revoke_embed_token_endpoint(
     map_id: uuid.UUID,
     token_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
     """Revoke an embed token."""

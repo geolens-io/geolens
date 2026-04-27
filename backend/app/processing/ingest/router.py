@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
-from app.modules.auth.models import User
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.processing.ingest.ogr import (
@@ -116,7 +116,7 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
 
 @router.get("/upload/config", response_model=UploadConfigResponse)
 async def get_upload_config(
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> UploadConfigResponse:
     """Return upload configuration including presigned upload availability."""
@@ -139,7 +139,7 @@ async def get_upload_config(
 )
 async def request_presigned_upload(
     request: PresignedUploadRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> PresignedUploadResponse:
     """Request presigned URL(s) for direct-to-S3 file upload."""
@@ -233,7 +233,7 @@ async def request_presigned_upload(
 async def complete_presigned_upload(
     job_id: uuid.UUID,
     request: PresignedCompleteRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """Notify that direct-to-S3 upload is complete."""
@@ -358,7 +358,7 @@ async def _stamp_raster_metadata(
 )
 async def upload_file(
     file: UploadFile = File(...),
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """Upload a geospatial file for staging.
@@ -444,7 +444,7 @@ async def preview_file(
     layer_name: str | None = Query(
         None, description="Sheet/layer name for multi-layer files"
     ),
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> PreviewResponse | RasterPreviewResponse:
     """Run preview on a staged file and return preview data.
@@ -580,7 +580,7 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
 async def commit_import(
     job_id: uuid.UUID,
     request: CommitRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> CommitResponse:
     """Commit a staged file for ingestion with user-supplied metadata.
@@ -654,7 +654,7 @@ async def commit_import(
 )
 async def register_table(
     request: RegisterRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> TableRegisterResponse:
     """Register an existing PostGIS table as a dataset.
@@ -702,7 +702,7 @@ async def discover_tables(
         le=5000,
         description="Maximum number of tables to return (PERF-11 bound).",
     ),
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> DiscoverResponse:
     """Discover unregistered tables in the data schema.
@@ -723,7 +723,7 @@ async def discover_tables(
 )
 async def bulk_register_tables(
     request: BulkRegisterRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> BulkRegisterResponse:
     """Bulk-register multiple existing PostGIS tables as datasets.
@@ -775,7 +775,7 @@ async def bulk_register_tables(
 )
 async def create_vrt(
     request: VrtCreateRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> VrtCreateResponse:
     """Create a VRT dataset by combining existing raster datasets.
@@ -798,7 +798,7 @@ async def create_vrt(
 async def add_vrt_source(
     dataset_id: uuid.UUID,
     request: VrtAddSourceRequest,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> VrtMutationResponse:
     """Add a COG source to an existing VRT and trigger async regeneration.
@@ -984,7 +984,7 @@ async def add_vrt_source(
 async def remove_vrt_source(
     dataset_id: uuid.UUID,
     source_dataset_id: uuid.UUID,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> VrtMutationResponse:
     """Remove a COG source from an existing VRT and trigger async regeneration.

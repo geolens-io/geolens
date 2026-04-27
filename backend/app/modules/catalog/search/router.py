@@ -14,8 +14,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, get_optional_user
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access_or_anonymous,
@@ -153,7 +153,10 @@ async def _build_raster_assets(
         return None
 
     # Fetch source_count for VRT datasets (only this site needs it)
-    if meta.get("vrt_type") is not None and meta.get("current_generation_id") is not None:
+    if (
+        meta.get("vrt_type") is not None
+        and meta.get("current_generation_id") is not None
+    ):
         from app.processing.raster.models import VrtGeneration
 
         vg_row = await db.execute(
@@ -314,7 +317,7 @@ class SearchQueryParams(_BaseModel):
 
 async def _handle_search(
     db: AsyncSession,
-    user: User | None,
+    user: Identity | None,
     request: Request,
     params: SearchQueryParams,
 ) -> OGCFeatureCollectionResponse:
@@ -356,9 +359,11 @@ async def _handle_search(
             detail="Invalid spatial filter geometry",
         )
 
-    stac_assets_by_dataset, raster_meta, extent_geojson_map = (
-        await _bulk_fetch_dataset_metadata(db, datasets)
-    )
+    (
+        stac_assets_by_dataset,
+        raster_meta,
+        extent_geojson_map,
+    ) = await _bulk_fetch_dataset_metadata(db, datasets)
 
     features = [
         dataset_to_ogc_record(
@@ -510,7 +515,7 @@ async def search_facets_endpoint(
     collection_id: uuid.UUID | None = Query(
         None, description="Filter by collection membership"
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> FacetCountResponse:
     """Return record_type facet counts for the given filters."""
@@ -564,7 +569,7 @@ async def search_facets_endpoint(
 async def search_datasets_endpoint(
     request: Request,
     params: SearchQueryParams = Depends(),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
@@ -587,7 +592,7 @@ async def search_datasets_endpoint(
 )
 async def create_saved_search_endpoint(
     body: SavedSearchCreate,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> SavedSearchResponse:
     """Save a search query with a name for later reuse."""
@@ -601,7 +606,7 @@ async def create_saved_search_endpoint(
 async def list_saved_searches_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> SavedSearchListResponse:
     """List saved searches for the authenticated user."""
@@ -615,7 +620,7 @@ async def list_saved_searches_endpoint(
 @search_router.get("/saved/{search_id}", response_model=SavedSearchResponse)
 async def get_saved_search_endpoint(
     search_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> SavedSearchResponse:
     """Get a single saved search by ID."""
@@ -631,7 +636,7 @@ async def get_saved_search_endpoint(
 @search_router.delete("/saved/{search_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_saved_search_endpoint(
     search_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a saved search."""
@@ -663,7 +668,7 @@ _COLLECTION_META_MAX_SIZE = 200
 
 async def _build_collection_metadata(
     db: AsyncSession,
-    user: User | None,
+    user: Identity | None,
     public_api_url: str,
 ) -> dict:
     """Build dynamic collection metadata with aggregated extents and summaries.
@@ -810,7 +815,9 @@ async def _build_collection_metadata(
     # Store in cache — evict oldest entries if over max size
     _COLLECTION_META_CACHE[cache_key] = (time.monotonic(), collection)
     if len(_COLLECTION_META_CACHE) > _COLLECTION_META_MAX_SIZE:
-        oldest_key = min(_COLLECTION_META_CACHE, key=lambda k: _COLLECTION_META_CACHE[k][0])
+        oldest_key = min(
+            _COLLECTION_META_CACHE, key=lambda k: _COLLECTION_META_CACHE[k][0]
+        )
         _COLLECTION_META_CACHE.pop(oldest_key, None)
 
     return collection
@@ -867,7 +874,7 @@ async def list_collections(
     limit: int = Query(
         50, ge=1, le=200, description="Max per-dataset collections to return"
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCCollectionsResponse:
     """List available OGC collections (catalog + per-dataset feature collections)."""
@@ -1012,7 +1019,7 @@ async def list_collections(
 @collections_router.get("/datasets", response_model=OGCCollectionMetadataResponse)
 async def get_collection_metadata(
     request: Request,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCCollectionMetadataResponse:
     """Get metadata for the datasets collection."""
@@ -1171,7 +1178,7 @@ async def collection_items(
         alias="externalId",
         description="OGC Records external identifier filter (matches dataset UUID)",
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Records items endpoint -- mirrors /search/datasets."""
@@ -1226,7 +1233,7 @@ async def collection_items(
 async def get_collection_item(
     record_id: uuid.UUID,
     request: Request,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Get a single dataset as an OGC Record Feature."""

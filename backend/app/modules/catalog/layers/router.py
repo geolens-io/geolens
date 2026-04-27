@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.core.dependencies import get_db
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.layers.schemas import (
@@ -39,7 +39,7 @@ layers_router = APIRouter(prefix="/layers", tags=["Maps"])
 )
 async def create_layer_endpoint(
     body: CreateLayerRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> CreateLayerResponse:
     """Create a new empty spatial layer.
@@ -94,7 +94,7 @@ async def create_layer_endpoint(
 async def add_column_endpoint(
     dataset_id: uuid.UUID,
     body: AddColumnRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnListResponse:
     """Add a column to an existing layer."""
@@ -146,7 +146,7 @@ async def rename_column_endpoint(
     dataset_id: uuid.UUID,
     column_name: str,
     body: RenameColumnRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnListResponse:
     """Rename a column on an existing layer."""
@@ -194,7 +194,7 @@ async def alter_column_type_endpoint(
     dataset_id: uuid.UUID,
     column_name: str,
     body: AlterColumnTypeRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnListResponse:
     """Change a column's type on an existing layer.
@@ -253,7 +253,7 @@ async def alter_column_type_endpoint(
 async def drop_column_endpoint(
     dataset_id: uuid.UUID,
     column_name: str,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnListResponse:
     """Remove a column from an existing layer."""

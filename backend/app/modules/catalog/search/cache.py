@@ -9,7 +9,7 @@ from typing import Literal
 
 import structlog
 
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.modules.catalog.search.service import SearchFilters
 from app.platform.cache import get_cache
 
@@ -20,7 +20,7 @@ SEARCH_CACHE_TTL = 30  # seconds — CONTEXT.md decision
 EndpointKind = Literal["search", "facets"]
 
 
-def is_anon_cacheable(user: User | None) -> bool:
+def is_anon_cacheable(user: Identity | None) -> bool:
     """Single source of truth for "should this request use the anon cache?".
 
     Anonymous = ``user is None``. API-key-authed users with empty role sets are

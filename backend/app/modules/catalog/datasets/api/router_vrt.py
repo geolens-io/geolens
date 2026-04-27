@@ -14,8 +14,8 @@ from fastapi import (
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.schemas import (
     VrtActiveGeneration,
@@ -44,7 +44,7 @@ def _advisory_lock_key(dataset_id: uuid.UUID) -> int:
 @router.get("/{dataset_id}/vrt-sources/", response_model=VrtSourceListResponse)
 async def list_vrt_sources(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> VrtSourceListResponse:
     """Return ordered list of COG sources for a VRT dataset."""
@@ -96,7 +96,7 @@ async def list_vrt_sources(
 @router.get("/{dataset_id}/vrt/status/", response_model=VrtStatusResponse)
 async def get_vrt_status(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> VrtStatusResponse:
     """Return VRT dataset status, last generation time, source count, and per-source health."""
@@ -230,7 +230,7 @@ async def list_vrt_generations(
     dataset_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> VrtGenerationListResponse:
     """Return paginated generation history for a VRT dataset."""
@@ -283,7 +283,7 @@ async def list_vrt_generations(
 )
 async def regenerate_vrt_endpoint(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> VrtMutationResponse:
     """Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds."""

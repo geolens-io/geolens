@@ -877,12 +877,7 @@ async def search_datasets(
     total = (await session.execute(count_base)).scalar_one()
     # -- Hybrid semantic search with RRF --
     semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(session)
-    if (
-        semantic_enabled
-        and has_text_search
-        and filters.q
-        and filters.q.strip()
-    ):
+    if semantic_enabled and has_text_search and filters.q and filters.q.strip():
         if rrf_result := await _run_rrf_merge(session, filters, stmt, rank_col, total):
             return rrf_result
     # 6. Sort (standard FTS-only path or semantic=False)

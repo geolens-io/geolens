@@ -461,8 +461,8 @@ async def update_map(
     # updated_at in one round-trip — eliminates the explicit
     # ``session.refresh(map_obj)`` previously needed for ``updated_at``.
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
-    forked_name, owner_username, db_updated_at = (
-        await _resolve_save_response_metadata(session, map_obj)
+    forked_name, owner_username, db_updated_at = await _resolve_save_response_metadata(
+        session, map_obj
     )
     if db_updated_at is not None:
         map_obj.updated_at = db_updated_at

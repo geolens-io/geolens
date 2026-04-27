@@ -25,7 +25,7 @@ from app.processing.ai.sql_generator import build_sql_schema_context, generate_s
 from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
 from app.processing.ai.service import _execute_search_tool, _should_send_sample_values
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.column_stats import (
     get_column_stats,
     get_distinct_values,
@@ -555,7 +555,7 @@ def _extract_geojson(
 async def _handle_query_data(
     tool_input: dict,
     session: AsyncSession,
-    user: User,
+    user: Identity,
     layers: list[ChatMapLayer],
     stage_callback: Callable[[str], None] | None = None,
 ) -> dict:
@@ -616,7 +616,7 @@ async def _execute_chat_tool(
     tool_name: str,
     tool_input: dict,
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     layers: list[ChatMapLayer],
     stage_callback: Callable[[str], None] | None = None,
@@ -903,7 +903,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
 
 async def chat_edit_map(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     message: str,
     layers: list[ChatMapLayer],

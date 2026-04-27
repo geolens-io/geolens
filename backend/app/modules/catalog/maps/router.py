@@ -17,12 +17,12 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
     require_permission,
 )
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
@@ -163,7 +163,7 @@ def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
 
 async def _check_map_read_access(
     map_obj: Map,
-    user: User | None,
+    user: Identity | None,
     db: AsyncSession,
 ) -> None:
     """Raise 404 if the user cannot read the map."""
@@ -231,7 +231,7 @@ def _build_map_response(
 async def create_map_endpoint(
     body: MapCreate,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
@@ -260,7 +260,7 @@ async def list_maps_endpoint(
     sort_by: Literal["name", "created_at", "updated_at"] = "updated_at",
     sort_dir: Literal["asc", "desc"] = "desc",
     visibility: str | None = None,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> MapListResponse:
     """List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
@@ -293,7 +293,7 @@ async def list_maps_endpoint(
 @router.get("/shared/{token}", response_model=SharedMapResponse)
 async def get_shared_map_endpoint(
     token: str,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> SharedMapResponse:
     """Get a shared map by token. Optionally authenticated for non-public layers."""
@@ -318,7 +318,7 @@ async def get_shared_map_endpoint(
 @router.get("/{map_id}/visibility-check/", response_model=VisibilityCheckResponse)
 async def visibility_check_endpoint(
     map_id: uuid.UUID,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> VisibilityCheckResponse:
     """Check if a map has non-public datasets. Informational only."""
@@ -338,7 +338,7 @@ async def visibility_check_endpoint(
 @router.get("/{map_id}", response_model=MapResponse)
 async def get_map_endpoint(
     map_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Get a single map with its layers."""
@@ -366,7 +366,7 @@ async def update_map_endpoint(
     map_id: uuid.UUID,
     body: MapUpdate,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Update a map's metadata and/or replace its layers."""
@@ -454,7 +454,7 @@ async def update_map_endpoint(
 async def delete_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a map. Only the owner or an admin can delete."""
@@ -489,14 +489,18 @@ async def duplicate_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
     # Any authenticated user may fork — does not require editor role
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> DuplicateMapResponse:
     """Fork a map with RBAC-filtered layers. Any authenticated user can fork."""
     try:
-        new_map, layer_tuples, forked_name, owner_username, excluded_count = (
-            await duplicate_map(db, map_id, user)
-        )
+        (
+            new_map,
+            layer_tuples,
+            forked_name,
+            owner_username,
+            excluded_count,
+        ) = await duplicate_map(db, map_id, user)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -534,7 +538,7 @@ async def duplicate_map_endpoint(
 @router.get("/{map_id}/share/", response_model=ShareTokenResponse | None)
 async def get_map_share_token_endpoint(
     map_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse | None:
     """Return the active share token for a map, or null if none exists."""
@@ -561,7 +565,7 @@ async def share_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
     body: ShareTokenRequest | None = Body(default=None),
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse:
     """Create or retrieve a share token for a public map."""
@@ -604,7 +608,7 @@ async def update_map_share_token_endpoint(
     map_id: uuid.UUID,
     body: ShareTokenRequest,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse:
     """Update expiration on an existing share token. Owner or admin only."""
@@ -643,7 +647,7 @@ async def update_map_share_token_endpoint(
 async def revoke_map_share_endpoint(
     map_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke share token(s) for a map. Owner or admin only."""
@@ -677,7 +681,7 @@ async def revoke_map_share_endpoint(
 async def upload_thumbnail(
     map_id: uuid.UUID,
     data_uri: str = Body(..., media_type="text/plain"),
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Upload a base64 thumbnail for a map.
@@ -746,7 +750,7 @@ async def upload_thumbnail(
 @router.get("/{map_id}/thumbnail/", response_class=Response)
 async def get_thumbnail(
     map_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve map thumbnail image from storage (visibility-checked)."""
@@ -791,7 +795,7 @@ async def add_layer_endpoint(
     map_id: uuid.UUID,
     body: MapLayerInput,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> MapLayerResponse:
     """Add a layer to a map."""
@@ -838,7 +842,7 @@ async def remove_layer_endpoint(
     map_id: uuid.UUID,
     layer_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Remove a layer from a map."""

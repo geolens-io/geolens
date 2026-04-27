@@ -11,7 +11,9 @@ from app.core.text import normalize_nfc as _nfc
 # MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
 # because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
 # size to prevent a single PUT from storing a megabytes-sized JSONB blob per layer.
-_MAX_STYLE_DICT_BYTES = 64 * 1024  # 64 KB serialized — generous for any real style override
+_MAX_STYLE_DICT_BYTES = (
+    64 * 1024
+)  # 64 KB serialized — generous for any real style override
 # MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
 _MAX_LAYERS_PER_MAP = 200
 

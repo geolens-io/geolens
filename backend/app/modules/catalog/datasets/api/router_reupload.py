@@ -16,8 +16,8 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.schemas import (
     ReuploadCommitRequest,
@@ -72,7 +72,7 @@ router = APIRouter(
 async def reupload_dataset(
     dataset_id: uuid.UUID,
     file: UploadFile = File(...),
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadResponse:
     """Upload a new file to replace the data in an existing dataset."""
@@ -144,7 +144,7 @@ async def reupload_dataset(
 async def reupload_service_preview(
     dataset_id: uuid.UUID,
     request: ReuploadServicePreviewRequest,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadPreviewResponse:
     """Preview a remote service layer for dataset re-upload."""
@@ -241,7 +241,7 @@ async def reupload_service_preview(
 async def reupload_preview(
     dataset_id: uuid.UUID,
     job_id: uuid.UUID,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadPreviewResponse:
     """Preview the schema diff between old dataset and new upload."""
@@ -315,7 +315,7 @@ async def reupload_commit(
     dataset_id: uuid.UUID,
     job_id: uuid.UUID,
     request: ReuploadCommitRequest,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadCommitResponse:
     """Commit a re-upload, queuing the background swap task."""
@@ -442,7 +442,7 @@ async def reupload_commit(
 async def request_presigned_reupload(
     dataset_id: uuid.UUID,
     request: PresignedUploadRequest,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> PresignedUploadResponse:
     """Request presigned URL(s) for direct-to-S3 reupload."""
@@ -557,7 +557,7 @@ async def complete_presigned_reupload(
     dataset_id: uuid.UUID,
     job_id: uuid.UUID,
     request: PresignedCompleteRequest,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """Notify that direct-to-S3 reupload is complete."""

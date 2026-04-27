@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.modules.auth.oauth import service as oauth_service
 from app.modules.auth.oauth.schemas import (
     OAuthProviderCreate,
@@ -171,7 +171,7 @@ async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
 @router.get("/all/", response_model=SettingsAllResponse)
 async def get_all_settings(
     request: Request,
-    _user: User = Depends(require_permission("manage_settings")),
+    _user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Return all settings grouped by tab with source indicators (admin only)."""
@@ -222,7 +222,7 @@ async def get_all_settings(
 async def update_settings(
     body: SettingsUpdateRequest,
     request: Request,
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Update one or more settings (admin only). Returns updated settings."""
@@ -291,7 +291,7 @@ async def update_settings(
 async def reset_settings(
     body: SettingsResetRequest,
     request: Request,
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> SettingsAllResponse:
     """Reset one or more settings to their defaults (admin only). Returns updated settings."""
@@ -313,7 +313,7 @@ async def reset_settings(
 
 @router.get("/api-key-status/", response_model=ApiKeyStatusResponse)
 async def get_api_key_status(
-    _user: User = Depends(require_permission("manage_settings")),
+    _user: Identity = Depends(require_permission("manage_settings")),
 ) -> ApiKeyStatusResponse:
     """Return which LLM API keys are configured (without exposing values)."""
     return ApiKeyStatusResponse(
@@ -324,7 +324,7 @@ async def get_api_key_status(
 
 @router.post("/detect-embedding-dims/", response_model=DetectEmbeddingDimsResponse)
 async def detect_embedding_dims(
-    _user: User = Depends(require_permission("manage_settings")),
+    _user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> DetectEmbeddingDimsResponse:
     """Probe the configured embedding model and return its output dimensions."""
@@ -361,7 +361,7 @@ async def get_config_mode() -> ConfigModeResponse:
 
 @router.get("/oauth-providers/", response_model=list[OAuthProviderResponse])
 async def list_oauth_providers(
-    _user: User = Depends(require_permission("manage_settings")),
+    _user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> list[OAuthProviderResponse]:
     """List all OAuth providers (admin only)."""
@@ -377,7 +377,7 @@ async def list_oauth_providers(
 async def create_oauth_provider(
     body: OAuthProviderCreate,
     request: Request,
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthProviderResponse:
     """Create a new OAuth provider (admin only)."""
@@ -404,7 +404,7 @@ async def update_oauth_provider(
     provider_id: uuid.UUID,
     body: OAuthProviderUpdate,
     request: Request,
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthProviderResponse:
     """Update an existing OAuth provider (admin only)."""
@@ -435,7 +435,7 @@ async def update_oauth_provider(
 async def delete_oauth_provider(
     provider_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete an OAuth provider (admin only)."""

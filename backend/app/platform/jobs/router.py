@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
-from app.modules.auth.models import User
 from app.core.dependencies import get_db
 from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
@@ -81,7 +81,7 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
 
 @router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
 async def cleanup_stale_jobs(
-    user: User = Depends(require_permission("manage_users")),
+    user: Identity = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> StaleCleanupResponse:
     """Fail all stale jobs: pending >1h or running >1h.
@@ -103,7 +103,7 @@ async def cleanup_stale_jobs(
 @router.get("/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
     job_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
     """Get the status of an ingestion job.
@@ -234,7 +234,7 @@ def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
 @router.get("/by-dataset/{dataset_id}", response_model=JobStatusResponse)
 async def get_job_status_by_dataset(
     dataset_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> JobStatusResponse:
     """Look up the most recent ingest job for a dataset.
@@ -251,7 +251,10 @@ async def get_job_status_by_dataset(
     # Visibility check: reuse the dataset detail permission so only users
     # who can see the dataset can see the job warnings. Avoid leaking the
     # existence of jobs via 403 vs 404 divergence.
-    from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+    from app.modules.catalog.authorization import (
+        apply_visibility_filter,
+        get_user_roles,
+    )
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
         DatasetGrant,
@@ -297,7 +300,7 @@ async def get_job_status_by_dataset(
 )
 async def retry_job(
     job_id: uuid.UUID,
-    user: User = Depends(require_permission("upload")),
+    user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
     """Retry a failed ingestion job by re-queuing.

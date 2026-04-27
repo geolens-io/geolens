@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import sqlglot
 from sqlglot import exp
 
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.platform.sandbox.schemas import SandboxError, ValidatedQuery
@@ -128,7 +128,7 @@ def validate_sql(sql: str) -> ValidatedQuery:
     return ValidatedQuery(sql=sql, tables=tables, cte_names=cte_names)
 
 
-async def build_table_allowlist(db: AsyncSession, user: User | None) -> set[str]:
+async def build_table_allowlist(db: AsyncSession, user: Identity | None) -> set[str]:
     """Return set of data.* table names visible to the user via RBAC.
 
     Queries visible datasets using apply_visibility_filter() and returns

@@ -18,7 +18,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import Role, User, UserRole
+from app.core.identity import Identity
+from app.modules.auth.models import Role, UserRole
 from app.modules.catalog.datasets.domain.models import DatasetGrant
 
 
@@ -32,7 +33,7 @@ class DatasetVisibility(str, enum.Enum):
 
 def apply_visibility_filter(
     stmt: Select[Any],
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
     record_cls: Any,
     grant_cls: Any | None = None,
@@ -95,7 +96,7 @@ def apply_visibility_filter(
     return stmt.where(and_(or_(*conditions), status_filter))
 
 
-async def get_user_roles(db: AsyncSession, user: User) -> set[str]:
+async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
     """Get the set of role names for a user.
 
     Replaces the per-router ``_get_user_roles()`` duplicates.
@@ -109,7 +110,7 @@ async def get_user_roles(db: AsyncSession, user: User) -> set[str]:
 
 
 async def check_dataset_access_or_anonymous(
-    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: User | None
+    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: Identity | None
 ) -> set[str]:
     """Enforce visibility for both authenticated and anonymous users.
 
@@ -134,7 +135,7 @@ async def check_dataset_access(
     db: AsyncSession,
     dataset: Any,
     dataset_id: uuid.UUID,
-    user: User,
+    user: Identity,
     *,
     user_roles: set[str] | None = None,
 ) -> set[str]:

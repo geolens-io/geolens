@@ -19,8 +19,8 @@ from app.processing.ingest.schemas import Visibility
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -47,7 +47,9 @@ async def _fetch_cog_info(url: str) -> dict | None:
     min/max per band for rescaling), or None on failure.
     """
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=5.0)
+        ) as client:
             # Fetch structural info
             info_resp = await client.get(
                 "http://titiler:8000/cog/info",
@@ -281,7 +283,7 @@ class StacImportResponse(BaseModel):
 @router.post("/connect", response_model=StacConnectResponse)
 async def stac_connect(
     request: StacConnectRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> StacConnectResponse:
     """Connect to a STAC API and validate the endpoint."""
@@ -330,7 +332,7 @@ async def stac_connect(
 @router.post("/collections", response_model=StacCollectionsResponse)
 async def stac_collections(
     request: StacConnectRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
 ) -> StacCollectionsResponse:
     """List collections from a connected STAC API."""
     try:
@@ -356,7 +358,7 @@ async def stac_collections(
 @router.post("/search", response_model=StacSearchResponse)
 async def stac_search(
     request: StacSearchRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
 ) -> StacSearchResponse:
     """Search items in a STAC API with spatial/temporal filters."""
     try:
@@ -399,7 +401,7 @@ def _parse_date(iso_str: str | None) -> date | None:
 @router.post("/import", response_model=StacImportResponse)
 async def stac_import(
     request: StacImportRequest,
-    user: User = Depends(require_permission("create_layers")),
+    user: Identity = Depends(require_permission("create_layers")),
     db: AsyncSession = Depends(get_db),
 ) -> StacImportResponse:
     """Import selected STAC items as raster datasets.
