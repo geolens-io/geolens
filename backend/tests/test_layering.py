@@ -1,23 +1,38 @@
-"""Layering rules: core/ must not depend on modules/settings/, and modules/auth/visibility.py is gone.
+"""Layering rules across Phases 212, 213, and 214.
 
-Enforces open-core boundaries closed by Phases 212 and 213. If a test in this
-file fails, a forbidden import (`from app.modules.settings.<...>` under
-`backend/app/core/`, OR `from app.modules.auth.visibility import ...` anywhere
-under `backend/`) was reintroduced, which violates the layering rules that
-modules depend on core (not the reverse) and that catalog authorization lives
-in `app.modules.catalog.authorization` (not `app.modules.auth.visibility`).
+Enforces open-core boundaries closed by:
+- Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
+- Phase 213 LAYER-02 - modules/auth/visibility.py is gone; catalog authorization
+  lives at app.modules.catalog.authorization.
+- Phase 214 IDENT-01..03 - core/ broadened: must not depend on ANY app.modules.*.
+  Cross-domain code does not import the concrete `User` ORM from
+  `app.modules.auth.models` outside the 18-file allowlist (auth/**, admin/**,
+  plus 7 specific files where `User` is used as a SQLAlchemy InstrumentedAttribute
+  holder for SQL queries).
 
-Scope (Phases 212-213):
-- `from app.modules.settings` under `backend/app/core/` (Phase 212 LAYER-01)
+If a test in this file fails, a forbidden import was reintroduced - the failure
+message names the offending lines for fix-forward.
+
+Scope:
+- `from app.modules.*` under `backend/app/core/` (Phase 214 IDENT-01 - broadens
+  Phase 212's settings-only guard)
+- `from app.modules.settings.models` anywhere under `backend/` (Phase 212 D-05
+  deleted-path regression)
 - `from app.modules.auth.visibility` anywhere under `backend/` (Phase 213 LAYER-02)
-- Broader `auth.visibility` reference catch (Phase 213 LAYER-02; pathspec excludes this test file to avoid the self-positive bug from Phase 212-03 commit b0bd0c2c)
+- Broader `auth.visibility` reference catch (Phase 213 LAYER-02)
+- `from app.modules.auth.models import .*\\bUser\\b` outside the 18-file
+  allowlist (Phase 214 IDENT-02 - pathspec excludes auth/**, admin/**,
+  audit/{models,service}.py, api/main.py, processing/ingest/tasks_raster.py,
+  embed_tokens/service.py, catalog/{maps/service,collections/router,
+  datasets/api/router_export,datasets/domain/helpers,search/service}.py, and
+  tests/)
 
-Phase 214 (identity-protocol-extract) closes additional core->modules edges;
-Phase 218 will broaden this guard to `from app.modules.<*>` once those phases land.
+Phase 218 will re-run `/oc-audit` to verify Boundary B -> A-, Seam Quality
+C -> B, OSS Surface D -> C grade improvements.
 
 Markers:
 - `@pytest.mark.architecture` - opt-out locally with `pytest -m 'not architecture'`
-  (D-07). Runs by default in CI because `addopts` does not exclude it.
+  (Phase 212-03 D-07). Runs by default in CI because `addopts` does not exclude it.
 """
 
 from __future__ import annotations
@@ -73,18 +88,26 @@ def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.mark.architecture
-def test_core_does_not_import_from_settings_module() -> None:
-    """`backend/app/core/` must never import from `app.modules.settings`.
+def test_core_does_not_import_from_any_module() -> None:
+    """`backend/app/core/` must never import from `app.modules.*`.
 
-    Closes Phase 212 LAYER-01: the `core <-> settings` layering inversion at
-    `core/persistent_config.py:30` and `core/public_urls.py:14` is gone, and
-    must stay gone.
+    Closes Phase 214 IDENT-01 (broadens Phase 212-03's settings-only guard).
+    The `core` layer is the lowest layer; modules (auth, catalog, audit,
+    settings, ...) depend on core, never the reverse. Phase 214's
+    `core/identity.py` is the first new file in `core/` since Phase 212;
+    this test ensures it (and any future core/ files) respect the boundary.
+
+    Subsumes Phase 212-03's `test_core_does_not_import_from_settings_module`
+    - `app.modules.settings` is a subset of `app.modules.*`. The deleted-path
+    regression `test_app_settings_imports_only_via_core_db_models` is kept
+    verbatim because it covers a different invariant (the deleted module
+    PATH, not just the layering rule).
     """
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
 
     result = _git_grep(
-        r"^\s*(from|import)\s+app\.modules\.settings",
+        r"^\s*(from|import)\s+app\.modules\.",
         "backend/app/core/",
     )
 
@@ -92,8 +115,9 @@ def test_core_does_not_import_from_settings_module() -> None:
     if result.returncode == 0:
         pytest.fail(
             "Layering violation: backend/app/core/ contains imports from "
-            "app.modules.settings (modules must depend on core, not the "
-            "reverse). Offending lines:\n" + result.stdout
+            "app.modules.* (modules must depend on core, not the reverse). "
+            "Phase 214 IDENT-01: core/ is the lowest layer. Offending lines:\n"
+            + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
@@ -201,6 +225,102 @@ def test_no_auth_visibility_module_referenced() -> None:
         pytest.fail(
             "Regression: `auth.visibility` is referenced outside test_layering.py. "
             "Offending lines:\n" + result.stdout
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_cross_domain_does_not_import_user_from_auth_models() -> None:
+    """`from app.modules.auth.models import .*User` must only appear in the allowlist.
+
+    Closes Phase 214 IDENT-02. The concrete `User` SQLAlchemy ORM stays
+    inside `auth/`; cross-domain code (catalog, audit, processing, platform,
+    standards) types against `app.core.identity.Identity` (the Protocol
+    alias) instead. Allowlist (D-09 + Pitfall 1 reconciliation):
+
+    - `auth/**`         - owns the model
+    - `admin/**`        - admin endpoints CRUD User rows; read sensitive
+                          fields (password_hash, auth_provider, etc.) NOT
+                          on the Identity Protocol
+    - `audit/models.py` - `Mapped["User"]` relationship (TYPE_CHECKING)
+    - `audit/service.py`- function-scope `select(User.id)` SQL filter
+                          (Pitfall 1 reconciliation - InstrumentedAttribute
+                          use, not parameter annotation)
+    - `api/main.py`     - Base.metadata registration for Alembic discovery
+    - `processing/ingest/tasks_raster.py`
+                          - Procrastinate worker `Base.metadata` registration
+    - `embed_tokens/service.py` - function-scope `select(...User.username...)`
+                                   for admin embed-token list (Pitfall 1)
+    - `catalog/maps/service.py` - `User.username.label()` in JOINs/SELECTs
+                                   for owner display (Pitfall 1)
+    - `catalog/collections/router.py` - `select(User).where(User.id.in_(actor_ids))`
+                                         for actor enrichment (Pitfall 1)
+    - `catalog/datasets/api/router_export.py` - `select(User).where(User.id == ...)`
+                                                for export header personalization (Pitfall 1)
+    - `catalog/datasets/domain/helpers.py` - `select(User).where(User.id.in_(ids))`
+                                              for batched user resolution (Pitfall 1)
+    - `catalog/search/service.py` - `select(User).where(User.id.in_(actor_ids))`
+                                     for search-result enrichment (Pitfall 1)
+    - `tests/`          - fixtures construct `User(...)` directly; structurally
+                          valid as Identity at the call site
+
+    The `\\bUser\\b` word-boundary ensures `import UserRole` (no standalone
+    `User`) does NOT trip the guard - `UserRole` stays concrete per D-08.
+    `import Role, User, UserRole` and `import User` and `import ApiKey, User`
+    all DO trip the guard outside the allowlist.
+
+    Maps directly to ROADMAP Phase 214 SC#2.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; install a newer git "
+            "or run this test from the host"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"^\s*(from|import)\s+app\.modules\.auth\.models\s+import\s+.*\bUser\b",
+            "--",
+            "backend/",
+            ":!backend/app/modules/auth/",
+            ":!backend/app/modules/admin/",
+            ":!backend/app/modules/audit/models.py",
+            ":!backend/app/modules/audit/service.py",
+            ":!backend/app/api/main.py",
+            ":!backend/app/processing/ingest/tasks_raster.py",
+            ":!backend/app/modules/embed_tokens/service.py",
+            ":!backend/app/modules/catalog/maps/service.py",
+            ":!backend/app/modules/catalog/collections/router.py",
+            ":!backend/app/modules/catalog/datasets/api/router_export.py",
+            ":!backend/app/modules/catalog/datasets/domain/helpers.py",
+            ":!backend/app/modules/catalog/search/service.py",
+            ":!backend/tests/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Layering violation: cross-domain code imports the concrete "
+            "`User` ORM from `app.modules.auth.models`. Phase 214 IDENT-02 "
+            "requires cross-domain code to type against "
+            "`app.core.identity.Identity` (the Protocol alias) instead. "
+            "If this is a legitimate SQL InstrumentedAttribute use, add "
+            "the file to the allowlist in this test and document the "
+            "reason. Offending lines:\n" + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
