@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.settings.models import AppSetting
+from app.core.db.models import AppSetting
 
 PUBLIC_APP_URL_KEY = "public_app_url"
 PUBLIC_API_URL_KEY = "public_api_url"

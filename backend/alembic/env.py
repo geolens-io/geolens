@@ -19,7 +19,7 @@ import app.modules.catalog.collections.models  # noqa: F401
 import app.modules.catalog.maps.models  # noqa: F401
 import app.processing.raster.models  # noqa: F401
 import app.modules.catalog.search.saved  # noqa: F401
-import app.modules.settings.models  # noqa: F401
+import app.core.db.models  # noqa: F401
 import app.processing.embeddings.models  # noqa: F401
 import app.processing.ai.token_usage  # noqa: F401
 

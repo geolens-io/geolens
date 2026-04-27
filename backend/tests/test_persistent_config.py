@@ -15,7 +15,7 @@ async def _clean_settings(client: AsyncClient):
     # Remove any settings rows inserted during tests
     from app.core.dependencies import get_db
     from app.api.main import app
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         await db.execute(delete(AppSetting))
@@ -939,7 +939,7 @@ async def test_get_falls_back_to_env_default_on_validation_error(
     from app.core.dependencies import get_db
     from app.api.main import app
     from app.core.persistent_config import _DEFAULT_LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         # Inject a corrupt row: LOGIN_RATE_LIMIT expects int, but we write a
@@ -982,7 +982,7 @@ async def test_get_does_not_cache_fallback_value(client: AsyncClient):
     from app.core.dependencies import get_db
     from app.api.main import app
     from app.core.persistent_config import LOGIN_RATE_LIMIT
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         # Inject corrupt row
@@ -1018,7 +1018,7 @@ async def test_log_level_config_subclass_validates_str(client: AsyncClient):
     from app.core.dependencies import get_db
     from app.api.main import app
     from app.core.persistent_config import LOG_LEVEL
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         # Inject a row with a non-string value — dict is LAX-rejected for str
@@ -1076,7 +1076,7 @@ async def test_get_all_registry_values_falls_back_on_bad_row(client: AsyncClient
         AI_ENABLED,
         get_all_registry_values,
     )
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         # Good row for ai_enabled

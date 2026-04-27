@@ -19,7 +19,7 @@ async def _clean_settings(client: AsyncClient):
     yield
     from app.core.dependencies import get_db
     from app.api.main import app
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     async for db in app.dependency_overrides[get_db]():
         await db.execute(delete(AppSetting))
