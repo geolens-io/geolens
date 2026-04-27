@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.modules.audit.service import log_action
 from app.platform.cache import get_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
@@ -73,7 +74,7 @@ def _collection_to_response(
 async def create_collection_endpoint(
     body: CollectionCreate,
     request: Request,
-    user: User = Depends(require_permission("manage_collections")),
+    user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionResponse:
     """Create a new collection."""
@@ -111,7 +112,7 @@ _CATALOG_CACHE_TTL = 60  # seconds
 async def list_collections_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionListResponse:
     """List all collections with dataset_count and extent computed per-user."""
@@ -154,7 +155,7 @@ async def list_collections_endpoint(
 @router.get("/{collection_id}", response_model=CollectionResponse)
 async def get_collection_endpoint(
     collection_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionResponse:
     """Get a single collection with dataset_count and extent."""
@@ -183,7 +184,7 @@ async def update_collection_endpoint(
     collection_id: uuid.UUID,
     body: CollectionUpdate,
     request: Request,
-    user: User = Depends(require_permission("manage_collections")),
+    user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionResponse:
     """Update a collection's name and/or description."""
@@ -226,7 +227,7 @@ async def update_collection_endpoint(
 async def delete_collection_endpoint(
     collection_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("manage_collections")),
+    user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a collection. Admin only."""
@@ -258,7 +259,7 @@ async def add_datasets_endpoint(
     collection_id: uuid.UUID,
     body: CollectionAddDatasetsRequest,
     request: Request,
-    user: User = Depends(require_permission("manage_collections")),
+    user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> AddDatasetsResponse:
     """Add datasets to a collection."""
@@ -294,7 +295,7 @@ async def remove_dataset_endpoint(
     collection_id: uuid.UUID,
     dataset_id: uuid.UUID,
     request: Request,
-    user: User = Depends(require_permission("manage_collections")),
+    user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Remove a dataset from a collection."""
@@ -325,7 +326,7 @@ async def get_collection_datasets_endpoint(
     collection_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetListResponse:
     """Get datasets in a collection with RBAC filtering."""
