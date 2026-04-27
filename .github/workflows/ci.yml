@@ -102,6 +102,45 @@ jobs:
       - name: Verify openapi.json is up to date
         run: uv run python scripts/dump_openapi.py --check
 
+  sdks-check:
+    name: SDKs Drift Gate
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      # Match the OpenAPI snapshot job's env so dump_openapi.py runs
+      JWT_SECRET_KEY: sdks-check-padding-key-32characters-here
+      PYTHONPATH: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Install backend dependencies (for dump_openapi.py)
+        working-directory: backend
+        run: uv sync --locked --dev
+
+      - name: Install TypeScript SDK dependencies (locked)
+        working-directory: sdks/typescript
+        run: npm ci
+
+      - name: Regenerate SDKs and check for drift
+        run: make sdks-check
+
   backend-test:
     name: Backend Tests
     needs: changes

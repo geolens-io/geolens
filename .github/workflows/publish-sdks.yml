@@ -1,0 +1,95 @@
+# Manual-trigger publish workflow for the GeoLens SDKs.
+# Phase 215 ships the workflow; running it requires:
+#   1. PyPI token in repo secret PYPI_TOKEN (or migrate to Trusted Publishing — future)
+#   2. npm token in repo secret NPM_TOKEN
+#   3. The @geolens npm org claimed by the user (one-time)
+# See docs/sdks.md for the full first-publish runbook.
+name: Publish SDKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which SDK to publish'
+        required: true
+        type: choice
+        options:
+          - python
+          - typescript
+          - both
+        default: 'both'
+      dry_run:
+        description: 'Build only, do not publish'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write  # for PyPI Trusted Publishing (future migration)
+
+jobs:
+  publish-python:
+    if: inputs.target == 'python' || inputs.target == 'both'
+    name: Publish Python SDK to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.2"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel + sdist
+        working-directory: sdks/python
+        run: uv build
+
+      - name: List built artifacts
+        working-directory: sdks/python
+        run: ls -la dist/
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/python
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: uv publish
+
+  publish-typescript:
+    if: inputs.target == 'typescript' || inputs.target == 'both'
+    name: Publish TypeScript SDK to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Install dependencies (locked)
+        working-directory: sdks/typescript
+        run: npm ci
+
+      - name: Build
+        working-directory: sdks/typescript
+        run: npm run build
+
+      - name: Verify package contents (dry run)
+        working-directory: sdks/typescript
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # publishConfig.access=public in package.json + explicit flag = belt-and-suspenders
+        # for first-time publish of @geolens/sdk (RESEARCH Pitfall 10).
+        run: npm publish --access public
