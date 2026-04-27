@@ -4,13 +4,13 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: ready_to_plan
 stopped_at: Phase 213 context gathered
-last_updated: "2026-04-27T13:07:26.063Z"
-last_activity: 2026-04-27 -- Phase 213 execution started
+last_updated: "2026-04-27T15:15:00.000Z"
+last_activity: 2026-04-27 -- Phase 212 UAT complete (LAYER-01 fully satisfied)
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 8
-  completed_plans: 4
+  completed_plans: 8
   percent: 22
 ---
 
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 213 — catalog-authz-relocate
+**Current focus:** Phase 214 — identity-protocol-extract (next; 212+213 complete)
 
 ## Current Position
 

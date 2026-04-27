@@ -12,7 +12,7 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 
 ## Phases
 
-- [ ] **Phase 212: core-settings-decouple** — Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`)
+- [x] **Phase 212: core-settings-decouple** — Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`) (completed 2026-04-27)
 - [x] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change (completed 2026-04-27)
 - [ ] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends
 - [ ] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate
@@ -32,13 +32,13 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
   3. `core/public_urls.py` continues to resolve the public base URL with the same precedence (request → DB override → env var)
   4. The 1965-test backend baseline stays green; no test required AppSetting-import shimming
   5. The audit's "Layering" finding for `core/persistent_config.py:30` and `core/public_urls.py:14` no longer reproduces
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete (verified 2026-04-26 + UAT 2026-04-27)
 
 Plans:
 - [x] 212-01-introduce-core-db-models-PLAN.md — Create new core/db/models.py with relocated AppSetting class (verbatim copy + docstring)
 - [x] 212-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 9 callers to app.core.db.models, update alembic/env.py, delete modules/settings/models.py
 - [x] 212-03-architecture-guard-PLAN.md — Add backend/tests/test_layering.py guard + register architecture pytest marker
-- [ ] 212-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC verification gate
+- [x] 212-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC verification gate
 
 ### Phase 213: catalog-authz-relocate
 **Goal**: Dataset visibility / authorization logic lives under `catalog/authorization.py` where it belongs; `auth/` no longer owns catalog-domain knowledge
@@ -124,7 +124,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 212. core-settings-decouple | 3/4 | In Progress|  |
+| 212. core-settings-decouple | 4/4 | Complete    | 2026-04-27 |
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
 | 214. identity-protocol-extract | 0/TBD | Not started | - |
 | 215. sdks-from-openapi | 0/TBD | Not started | - |
