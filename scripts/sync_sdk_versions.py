@@ -4,10 +4,11 @@ Idempotent: same input always produces the same output. Run as part of
 `make sdks` so the drift gate (`make sdks-check`) catches version drift in
 the same diff that catches code drift (CONTEXT.md D-08).
 
-Touches three files:
+Touches four files:
   - sdks/python/pyproject.toml          ([project] version)
   - sdks/python/.openapi-python-client.yaml  (package_version_override)
   - sdks/typescript/package.json        (.version)
+  - cli/pyproject.toml                  ([project] version — Phase 216 D-03)
 
 NEVER add timestamps, build numbers, hashes, or environment-derived suffixes.
 The drift gate is a static equality check — every variation breaks CI.
@@ -28,6 +29,7 @@ OPENAPI_PATH = REPO_ROOT / "backend" / "openapi.json"
 PY_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
+CLI_PYPROJECT = REPO_ROOT / "cli" / "pyproject.toml"
 
 
 def _read_openapi_version() -> str:
@@ -47,7 +49,9 @@ def _read_openapi_version() -> str:
     return version
 
 
-def _replace_pyproject_version(text: str, version: str) -> str:
+def _replace_pyproject_version(
+    text: str, version: str, *, source: Path = PY_PYPROJECT
+) -> str:
     # Match: version = "..." (only inside [project] section).
     # Simple line-based replacement — pyproject.toml is hand-maintained and
     # only one [project] section exists.
@@ -55,7 +59,7 @@ def _replace_pyproject_version(text: str, version: str) -> str:
     new_text, count = pattern.subn(f'version = "{version}"', text)
     if count != 1:
         sys.stderr.write(
-            f"Expected exactly 1 'version = \"...\"' line in {PY_PYPROJECT}, "
+            f"Expected exactly 1 'version = \"...\"' line in {source}, "
             f"found {count}.\n"
         )
         sys.exit(1)
@@ -110,6 +114,20 @@ def main() -> int:
     if new_ts_text != ts_text:
         TS_PACKAGE.write_text(new_ts_text)
         print(f"Updated {TS_PACKAGE.relative_to(REPO_ROOT)} version → {version}")
+
+    # CLI pyproject.toml (Phase 216 / D-03 — lockstep version with the SDK).
+    # Guarded with .exists() so an interim state where this script is run
+    # before cli/pyproject.toml lands does not break the sync.
+    if CLI_PYPROJECT.exists():
+        cli_text = CLI_PYPROJECT.read_text()
+        new_cli_text = _replace_pyproject_version(
+            cli_text, version, source=CLI_PYPROJECT
+        )
+        if new_cli_text != cli_text:
+            CLI_PYPROJECT.write_text(new_cli_text)
+            print(
+                f"Updated {CLI_PYPROJECT.relative_to(REPO_ROOT)} version → {version}"
+            )
 
     return 0
 
