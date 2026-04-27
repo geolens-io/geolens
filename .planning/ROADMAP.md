@@ -104,10 +104,10 @@ Plans:
   4. `geolens publish <file>` uploads a vector or raster file to the configured instance via the generated Python SDK and prints the resulting dataset URL on success
   5. `geolens export stac <dataset-id>` writes valid STAC 1.1 JSON for a raster dataset to stdout (or a file via `-o`)
   6. The CLI source contains zero direct HTTP/`httpx`/`requests` imports for catalog operations — every API call goes through the generated Python SDK from Phase 215
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
-- [ ] 216-01-scaffold-cli-package-PLAN.md — Apache-2.0 cli/ package + Typer scaffold + Wave 0 tests + Makefile recipes
+- [x] 216-01-scaffold-cli-package-PLAN.md — Apache-2.0 cli/ package + Typer scaffold + Wave 0 tests + Makefile recipes
 - [ ] 216-02-auth-and-config-PLAN.md — XDG config + keyring with file fallback + login/logout/whoami + AppState.sdk()
 - [ ] 216-03-scan-command-PLAN.md — directory walk + extension classification + shapefile sibling-grouping
 - [ ] 216-04-publish-command-PLAN.md — 3-step ingest with multipart workaround + progress UI + dataset URL
@@ -149,7 +149,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
 | 214. identity-protocol-extract | 4/4 | Complete    | 2026-04-27 |
 | 215. sdks-from-openapi | 5/5 | Complete   | 2026-04-27 |
-| 216. geolens-cli-mvp | 0/6 | Not started | - |
+| 216. geolens-cli-mvp | 1/6 | In Progress|  |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
 | 218. oc-audit-close-v13.1 | 0/TBD | Not started | - |
 

@@ -4,14 +4,14 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 216 context gathered
-last_updated: "2026-04-27T21:50:38.067Z"
-last_activity: 2026-04-27 -- Phase 216 planning complete
+last_updated: "2026-04-27T21:57:59.661Z"
+last_activity: 2026-04-27
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 17
-  percent: 74
+  completed_plans: 18
+  percent: 78
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 215 complete (5/5 plans, OCSDK-01..04 closed); ready to start Phase 216 (geolens-cli-mvp)
+**Current focus:** Phase 216 — geolens-cli-mvp
 
 ## Current Position
 
-Phase: 215 (sdks-from-openapi) — COMPLETE (5/5 plans)
-Plan: 215-05 — COMPLETE (docs/sdks.md written [305 lines, 213 non-blank]; __init__.py cp-stash gap closed; SDK round-trip module guarded for container runs; phase verification gate PASS — alembic clean / 2001 pytest / sdks-check 0 / 12 round-trip / both SDKs build / 4 ROADMAP SC verified)
+Phase: 216 (geolens-cli-mvp) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-04-27 -- Phase 216 planning complete
+Last activity: 2026-04-27
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T20:52:41.327Z
+Last session: 2026-04-27T21:57:59.658Z
 Stopped at: Phase 216 context gathered
-Resume file: .planning/phases/216-geolens-cli-mvp/216-CONTEXT.md
+Resume file: None
