@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 from app.modules.audit.service import log_action
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.models import User
-from app.modules.auth.visibility import check_dataset_access
+from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.features.service import parse_bbox
 from app.core.dependencies import get_db

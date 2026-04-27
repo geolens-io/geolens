@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.modules.auth.models import User
-from app.modules.auth.visibility import apply_visibility_filter
+from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 

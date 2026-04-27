@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.auth.models import User
-from app.modules.auth.visibility import check_dataset_access
+from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.schemas import (
     VrtActiveGeneration,
     VrtGenerationItem,
