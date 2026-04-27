@@ -4,8 +4,8 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 213 context gathered
-last_updated: "2026-04-27T13:06:46.859Z"
-last_activity: 2026-04-27 -- Phase 213 planning complete
+last_updated: "2026-04-27T13:07:26.063Z"
+last_activity: 2026-04-27 -- Phase 213 execution started
 progress:
   total_phases: 9
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 212 — core-settings-decouple
+**Current focus:** Phase 213 — catalog-authz-relocate
 
 ## Current Position
 
-Phase: 212 (core-settings-decouple) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-04-27 -- Phase 213 planning complete
+Phase: 213 (catalog-authz-relocate) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 213
+Last activity: 2026-04-27 -- Phase 213 execution started
 
 ## Roadmap Snapshot
 
