@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
-stopped_at: Phase 214 complete (identity-protocol-extract); next phase 215 (sdks-from-openapi) or 217 (auth-saml-enterprise)
-last_updated: "2026-04-27T18:30:37.000Z"
+status: Phase 214 shipped 2026-04-27; ready to start Phase 215 / 217 / 218
+stopped_at: Phase 215 context gathered (auto-mode)
+last_updated: "2026-04-27T18:36:32.998Z"
 last_activity: 2026-04-27
 progress:
   total_phases: 9
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T18:30:37.000Z
-Stopped at: Phase 214 complete — 4/4 plans shipped (core/identity.py + extension seam + 33 caller migrations + architecture-guard regression seal); IDENT-01/02/03 closed; ROADMAP SC#1-#5 all PASS. Ready for Phase 215 (sdks-from-openapi) or Phase 217 (auth-saml-enterprise) which now has its prerequisite seam.
-Resume file: None
+Last session: 2026-04-27T18:36:32.994Z
+Stopped at: Phase 215 context gathered (auto-mode)
+Resume file: .planning/phases/215-sdks-from-openapi/215-CONTEXT.md
