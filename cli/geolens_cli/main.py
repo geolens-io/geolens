@@ -18,8 +18,9 @@ from rich.table import Table
 from . import auth as _auth
 from . import config as _config
 from . import output as _output
+from . import publish as _publish
 from . import scan as _scan
-from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap
+from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, call_sdk, unwrap
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
 export_app = typer.Typer(no_args_is_help=True, help="Export commands")
@@ -293,11 +294,138 @@ def scan(
 @app.command()
 def publish(
     ctx: typer.Context,
-    file: Annotated[str, typer.Argument(help="File to publish")],
+    file: Annotated[
+        Path,
+        typer.Argument(
+            help="Spatial file to publish",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+    name: Annotated[
+        Optional[str],
+        typer.Option("--name", help="Dataset name (default: filename stem)"),
+    ] = None,
+    description: Annotated[
+        Optional[str],
+        typer.Option("--description", help="Dataset description"),
+    ] = None,
+    tags: Annotated[
+        Optional[str],
+        typer.Option("--tags", help="Comma-separated keyword tags (currently a no-op; see docs/cli.md)"),
+    ] = None,
+    collection: Annotated[
+        Optional[str],
+        typer.Option("--collection", help="Add to this collection after commit (currently a no-op; see docs/cli.md)"),
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Wait for ingestion to resolve the dataset id"),
+    ] = True,
 ) -> None:
-    """Publish a vector or raster file (stub — Plan 04)."""
-    ctx.obj.output.error("publish not yet implemented (Plan 04)")
-    raise typer.Exit(2)
+    """Upload a vector or raster file and publish it as a dataset.
+
+    Runs the 3-step ingest flow (upload → preview → commit) via the SDK.
+    On success, prints the dataset URL bound by ROADMAP SC#4. With
+    ``--wait`` (default), polls the job-status endpoint to resolve the
+    dataset_id; ``--no-wait`` returns immediately with a job-search URL.
+
+    Pitfall 6: commit is NOT idempotent. On a duplicate commit (job
+    already processed), prints "already committed" and exits 1.
+    """
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    state: AppState = ctx.obj
+    instance = state.active_instance()
+    if not instance:
+        state.output.error("No instance configured. Run `geolens login <url>` first.")
+        raise typer.Exit(EXIT_AUTH)
+
+    sdk = state.sdk()
+    title = name or file.stem
+
+    # Deferred-flag warnings (Task 0 Q2 + Q5). These flags exist for forward
+    # compatibility but currently no-op; the docs/cli.md note in Plan 06
+    # captures the user-facing TODO.
+    if tags:
+        # TODO(OCCLI-deferred): tags requires a post-commit PATCH or a
+        # `keywords` field on CommitRequest; see Phase 216 Open Question 4.
+        state.output.debug(
+            "tags deferred — CommitRequest does not expose a tags field; see Phase 216 Open Question 4",
+        )
+    if collection:
+        # TODO(OCCLI-deferred): collection-add endpoint not in SDK; see
+        # Phase 216 Open Question / CONTEXT.md Deferred Ideas.
+        state.output.debug(
+            "collection deferred — no add-to-collection endpoint in SDK; see Phase 216 Deferred Ideas",
+        )
+
+    # Lazy SDK imports — keeps `geolens --help` snappy.
+    from geolens_sdk.api.datasets import (
+        commit_import_ingest_commit_job_id_post as _commit,
+        preview_file_ingest_preview_job_id_post as _preview,
+    )
+
+    progress_disabled = state.json_mode or not state.output.is_tty
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        disable=progress_disabled,
+    )
+
+    with progress:
+        # Stage 1 — Upload (multipart workaround).
+        t1 = progress.add_task("Uploading...", total=None)
+        upload_resp = _publish.upload_file(sdk.client, file)
+        upload = unwrap(upload_resp, expected=_publish.UPLOAD_OK_STATUS)
+        job_id = getattr(upload, "job_id", None)
+        if job_id is None:
+            state.output.error("Upload did not return a job_id; cannot proceed.")
+            raise typer.Exit(EXIT_GENERIC)
+        progress.update(t1, description=f"Uploaded (job_id={job_id})")
+
+        # Stage 2 — Preview.
+        progress.add_task("Previewing...", total=None)
+        preview_resp = call_sdk(_preview.sync_detailed, job_id=job_id, client=sdk.client)
+        unwrap(preview_resp, expected=_publish.PREVIEW_OK_STATUS)
+
+        # Stage 3 — Commit (NOT idempotent — Pitfall 6).
+        progress.add_task("Committing...", total=None)
+        commit_body = _publish.build_commit_request(title=title, description=description)
+        commit_resp = call_sdk(
+            _commit.sync_detailed,
+            job_id=job_id,
+            client=sdk.client,
+            body=commit_body,
+        )
+        if _publish.is_duplicate_commit_response(commit_resp):
+            _publish.handle_commit_already_processed(str(job_id), state.output)
+        commit = unwrap(commit_resp, expected=_publish.COMMIT_OK_STATUS)
+
+        # Stage 4 — Resolve dataset URL.
+        progress.add_task("Resolving dataset...", total=None)
+        dataset_id: Optional[str] = None
+        if wait:
+            dataset_id = _publish.resolve_dataset_id(sdk.client, job_id)
+
+    dataset_url = _publish.construct_dataset_url(
+        instance,
+        dataset_id=dataset_id,
+        job_id=str(job_id),
+    )
+
+    payload = {
+        "dataset_url": dataset_url,
+        "job_id": str(job_id),
+        "dataset_id": str(dataset_id) if dataset_id else None,
+        "status": getattr(commit, "status", None),
+    }
+
+    if state.json_mode:
+        state.output.json(payload)
+    else:
+        state.output.success(f"Published: {dataset_url}")
 
 
 @export_app.command("stac")

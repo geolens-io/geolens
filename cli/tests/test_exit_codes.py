@@ -5,8 +5,9 @@ with real implementations whose exit codes depend on state:
 - whoami with no instance configured → EXIT_AUTH (3)
 - login --token + --api-key together → EXIT_USAGE (2)
 Plan 03 wires scan to walk + classify (exits 0 even on all-ingest:no per
-D-17); the remaining stub commands (publish, export stac) still exit 2
-until Plans 04-05 land.
+D-17). Plan 04 wires publish to the 3-step ingest flow (per-command
+behavior in test_publish_unit.py::TestPublishCli). The remaining stub
+command (export stac) still exits 2 until Plan 05 lands.
 """
 from __future__ import annotations
 
@@ -32,18 +33,14 @@ class TestExitCodeConstants:
 
 
 class TestRemainingStubsExitWithUsage:
-    """Plans 04-05 still ship stubs that exit 2 until they land.
+    """Plan 05 still ships an export stac stub that exits 2 until it lands.
 
     Plan 03 replaced the scan stub with a real walker (exits 0 on dry-run
-    per D-17); the per-command exit-code behavior for scan is asserted in
-    test_scan.py::TestCliInvocation.
+    per D-17); per-command exit-code behavior for scan is asserted in
+    test_scan.py::TestCliInvocation. Plan 04 replaced the publish stub
+    with the 3-step ingest flow; per-command exit-code behavior for
+    publish is asserted in test_publish_unit.py::TestPublishCli.
     """
-
-    def test_publish_stub_exits_2(self, runner, tmp_path) -> None:
-        f = tmp_path / "x.geojson"
-        f.write_text("{}")
-        result = runner.invoke(app, ["publish", str(f)])
-        assert result.exit_code == 2
 
     def test_export_stac_stub_exits_2(self, runner) -> None:
         result = runner.invoke(app, ["export", "stac", "abc"])
