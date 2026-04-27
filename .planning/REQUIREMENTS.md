@@ -41,7 +41,7 @@ The strategy's adoption wedge. Apache-2.0 standalone tool that exercises the SDK
 - [x] **OCCLI-02**: `geolens login <instance-url>` authenticates against the instance and stores the resulting token in the OS keyring (or equivalent secure store), with a fallback for headless/CI environments.
 - [x] **OCCLI-03**: `geolens scan <dir>` walks a local directory, identifies spatial files (vector + raster), and reports what would be ingested without uploading.
 - [x] **OCCLI-04**: `geolens publish <file>` uploads a vector or raster file to a configured GeoLens instance via the generated Python SDK and reports the resulting dataset URL.
-- [ ] **OCCLI-05**: `geolens export stac <dataset-id>` exports STAC 1.1 metadata for a raster dataset to stdout or a chosen file.
+- [x] **OCCLI-05**: `geolens export stac <dataset-id>` exports STAC 1.1 metadata for a raster dataset to stdout or a chosen file.
 - [x] **OCCLI-06**: CLI consumes the generated Python SDK (depends on OCSDK-01) — there is no hand-rolled HTTP client inside the CLI.
 
 ### Enterprise Auth — SAML Overlay
@@ -132,7 +132,7 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 | OCCLI-02 | 216 (geolens-cli-mvp) | Complete |
 | OCCLI-03 | 216 (geolens-cli-mvp) | Complete |
 | OCCLI-04 | 216 (geolens-cli-mvp) | Complete |
-| OCCLI-05 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-05 | 216 (geolens-cli-mvp) | Complete |
 | OCCLI-06 | 216 (geolens-cli-mvp) | Complete |
 | SAML-08 | 217 (auth-saml-enterprise) | Pending |
 | SAML-09 | 217 (auth-saml-enterprise) | Pending |

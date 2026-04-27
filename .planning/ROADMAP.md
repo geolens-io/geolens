@@ -104,14 +104,14 @@ Plans:
   4. `geolens publish <file>` uploads a vector or raster file to the configured instance via the generated Python SDK and prints the resulting dataset URL on success
   5. `geolens export stac <dataset-id>` writes valid STAC 1.1 JSON for a raster dataset to stdout (or a file via `-o`)
   6. The CLI source contains zero direct HTTP/`httpx`/`requests` imports for catalog operations — every API call goes through the generated Python SDK from Phase 215
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 - [x] 216-01-scaffold-cli-package-PLAN.md — Apache-2.0 cli/ package + Typer scaffold + Wave 0 tests + Makefile recipes
 - [x] 216-02-auth-and-config-PLAN.md — XDG config + keyring with file fallback + login/logout/whoami + AppState.sdk()
 - [x] 216-03-scan-command-PLAN.md — directory walk + extension classification + shapefile sibling-grouping
 - [x] 216-04-publish-command-PLAN.md — 3-step ingest with multipart workaround + progress UI + dataset URL
-- [ ] 216-05-export-stac-command-PLAN.md — STAC 1.1 pass-through with vector guard + atomic file write
+- [x] 216-05-export-stac-command-PLAN.md — STAC 1.1 pass-through with vector guard + atomic file write
 - [ ] 216-06-roundtrip-ci-docs-PLAN.md — round-trip integration test + sync_sdk_versions ext + CI cli-test job + publish-cli.yml + docs/cli.md + verification gate
 
 ### Phase 217: auth-saml-enterprise

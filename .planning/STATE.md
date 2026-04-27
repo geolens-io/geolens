@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
-stopped_at: Phase 216 context gathered
-last_updated: "2026-04-27T22:26:04.168Z"
+stopped_at: Phase 216 Plan 05 complete (export-stac-command)
+last_updated: "2026-04-27T22:37:00.000Z"
 last_activity: 2026-04-27
 progress:
   total_phases: 9
   completed_phases: 4
   total_plans: 23
-  completed_plans: 22
+  completed_plans: 23
   percent: 96
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 ## Current Position
 
 Phase: 216 (geolens-cli-mvp) — EXECUTING
-Plan: 5 of 6
-Status: Ready to execute
+Plan: 6 of 6 (Plan 05 export-stac-command complete; OCCLI-05 closed)
+Status: Plan 05 complete; Plan 06 (round-trip + CI + docs) ready to execute
 Last activity: 2026-04-27
 
 ## Roadmap Snapshot
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T22:25:59.400Z
-Stopped at: Phase 216 context gathered
+Last session: 2026-04-27T22:37:00.000Z
+Stopped at: Phase 216 Plan 05 complete (export-stac-command)
 Resume file: None
