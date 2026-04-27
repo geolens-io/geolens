@@ -119,7 +119,10 @@ async def check_dataset_access_or_anonymous(
     """
     if user is None:
         record = dataset.record
-        if record.visibility != "public" or record.record_status != "published":
+        if (
+            record.visibility != DatasetVisibility.PUBLIC.value
+            or record.record_status != "published"
+        ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
