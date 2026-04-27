@@ -67,12 +67,12 @@ Plans:
   3. The extension system exposes a registration hook (typed accessor + entry_point seam, mirroring `get_branding_extension()` / `get_audit_extension()`) so an enterprise overlay can supply an alternate identity backend without core changes
   4. Existing JWT, OAuth/OIDC, API key, and refresh-token flows operate unchanged against the concrete model; the 1965-test backend baseline stays green
   5. `pyright`/`mypy` (per project convention) reports no new typing regressions introduced by the Protocol migration
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [x] 214-01-introduce-core-identity-PLAN.md — Create core/identity.py (IdentityProtocol, RoleProtocol, IdentityExtension, Identity alias) + DefaultIdentityExtension + get_identity_extension() typed accessor
 - [x] 214-02-retype-deps-and-wire-extension-PLAN.md — Retype get_optional_user/get_current_user/get_current_active_user to return Identity; wire extension between API-key and JWT paths in both deps (Pitfall 9 duplication preserves expired-token UX)
-- [ ] 214-03-migrate-cross-domain-callers-PLAN.md — Migrate ~33 cross-domain caller files: swap User import for Identity; rewrite parameter annotations; 7 Pitfall-1 SQL-attribute files keep concrete User and join allowlist
+- [x] 214-03-migrate-cross-domain-callers-PLAN.md — Migrate ~33 cross-domain caller files: swap User import for Identity; rewrite parameter annotations; 7 Pitfall-1 SQL-attribute files keep concrete User and join allowlist
 - [ ] 214-04-architecture-guard-and-verification-gate-PLAN.md — Extend test_layering.py with broadened core/ guard + cross-domain User-import allowlist test (13 :! pathspec exclusions); replace narrow Phase 212-03 test; phase verification gate (alembic check + full pytest + ruff + ROADMAP SC verification)
 
 ### Phase 215: sdks-from-openapi
@@ -132,7 +132,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 |-------|----------------|--------|-----------|
 | 212. core-settings-decouple | 4/4 | Complete    | 2026-04-27 |
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
-| 214. identity-protocol-extract | 2/4 | In Progress|  |
+| 214. identity-protocol-extract | 3/4 | In Progress|  |
 | 215. sdks-from-openapi | 0/TBD | Not started | - |
 | 216. geolens-cli-mvp | 0/TBD | Not started | - |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
