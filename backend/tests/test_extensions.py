@@ -197,3 +197,42 @@ class TestProtocolDefaults:
         from app.platform.extensions.defaults import DefaultAuditExtension
 
         assert DefaultAuditExtension().get_export_formats() == []
+
+
+class TestGetIdentityExtension:
+    """Tests for the get_identity_extension() typed accessor (Phase 214 D-13)."""
+
+    def test_get_identity_extension_returns_default_when_unregistered(self):
+        """No enterprise overlay registered -> returns DefaultIdentityExtension."""
+        from app.platform.extensions import get_identity_extension
+        from app.platform.extensions.defaults import DefaultIdentityExtension
+
+        ext = get_identity_extension()
+
+        assert isinstance(ext, DefaultIdentityExtension)
+
+    def test_get_identity_extension_returns_registered_when_present(self):
+        """An overlay registered under 'identity' is returned by the accessor."""
+        from app.platform.extensions import _extensions, get_identity_extension
+
+        sentinel = object()
+        _extensions["identity"] = sentinel
+
+        ext = get_identity_extension()
+
+        assert ext is sentinel
+
+    @pytest.mark.asyncio
+    async def test_default_identity_extension_resolve_returns_none(self):
+        """DefaultIdentityExtension.resolve_identity_from_token returns None for any input.
+
+        Enforces Pitfall 8: the method MUST be async — calling `await` on it
+        must not raise TypeError. Phase 217's SAML overlay relies on this
+        contract for its DB-lookup wire-in.
+        """
+        from app.platform.extensions.defaults import DefaultIdentityExtension
+
+        ext = DefaultIdentityExtension()
+        result = await ext.resolve_identity_from_token("any-token", None, None)
+
+        assert result is None
