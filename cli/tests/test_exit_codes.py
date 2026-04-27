@@ -4,8 +4,9 @@ Plan 01 stubbed login/logout/whoami exits at 2; Plan 02 replaced those stubs
 with real implementations whose exit codes depend on state:
 - whoami with no instance configured → EXIT_AUTH (3)
 - login --token + --api-key together → EXIT_USAGE (2)
-The remaining stub commands (scan, publish, export stac) still exit 2 until
-Plans 03-05 land.
+Plan 03 wires scan to walk + classify (exits 0 even on all-ingest:no per
+D-17); the remaining stub commands (publish, export stac) still exit 2
+until Plans 04-05 land.
 """
 from __future__ import annotations
 
@@ -31,11 +32,12 @@ class TestExitCodeConstants:
 
 
 class TestRemainingStubsExitWithUsage:
-    """Plans 03-05 still ship stubs that exit 2 until they land."""
+    """Plans 04-05 still ship stubs that exit 2 until they land.
 
-    def test_scan_stub_exits_2(self, runner, tmp_path) -> None:
-        result = runner.invoke(app, ["scan", str(tmp_path)])
-        assert result.exit_code == 2
+    Plan 03 replaced the scan stub with a real walker (exits 0 on dry-run
+    per D-17); the per-command exit-code behavior for scan is asserted in
+    test_scan.py::TestCliInvocation.
+    """
 
     def test_publish_stub_exits_2(self, runner, tmp_path) -> None:
         f = tmp_path / "x.geojson"
