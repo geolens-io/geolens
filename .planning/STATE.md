@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
-stopped_at: Phase 215 context gathered (auto-mode)
-last_updated: "2026-04-27T19:11:35.431Z"
-last_activity: 2026-04-27 -- Phase 215 planning complete
+stopped_at: Phase 215-01 complete (sdks/python and sdks/typescript scaffolded)
+last_updated: "2026-04-27T19:17:26.261Z"
+last_activity: 2026-04-27 -- Phase 215-01 scaffold-sdks complete
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 17
-  completed_plans: 12
-  percent: 71
+  completed_plans: 13
+  percent: 76
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 214 complete — next phase TBD (215 SDKs / 217 SAML / 218 audit-close all unblocked or scheduled)
+**Current focus:** Phase 215 — SDKs from OpenAPI; Plan 01 (scaffold) complete, Plan 02 (Makefile + first generator run) up next
 
 ## Current Position
 
-Phase: 214 (identity-protocol-extract) — COMPLETE (4/4 plans)
-Plan: — (no active plan)
-Status: Ready to execute
-Last activity: 2026-04-27 -- Phase 215 planning complete
+Phase: 215 (sdks-from-openapi) — IN PROGRESS (1/5 plans)
+Plan: 215-01 — COMPLETE (sdks/python and sdks/typescript scaffolded)
+Status: Ready to execute Plan 215-02 (Makefile + version-sync + first generator run)
+Last activity: 2026-04-27 -- Phase 215-01 scaffold-sdks complete
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T18:36:32.994Z
-Stopped at: Phase 215 context gathered (auto-mode)
-Resume file: .planning/phases/215-sdks-from-openapi/215-CONTEXT.md
+Last session: 2026-04-27T19:17:26.257Z
+Stopped at: Phase 215-01 complete (sdks/python and sdks/typescript scaffolded)
+Resume file: .planning/phases/215-sdks-from-openapi/215-02-PLAN.md
