@@ -4,14 +4,14 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 212 context gathered
-last_updated: "2026-04-27T01:10:09.056Z"
-last_activity: 2026-04-27 -- Phase 212 planning complete
+last_updated: "2026-04-27T01:12:50.107Z"
+last_activity: 2026-04-27
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.1 Open-Core Separation P1 — closing 6 boundary/seam debts from `docs-internal/audits/oc-separation-deferred-items-20260426.md` before the first paid customer.
+**Current focus:** Phase 212 — core-settings-decouple
 
 ## Current Position
 
-Phase: 212 — core-settings-decouple
-Plan: — (planning pending; run `/gsd-plan-phase 212`)
+Phase: 212 (core-settings-decouple) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-04-27 -- Phase 212 planning complete
+Last activity: 2026-04-27
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T00:42:47.741Z
+Last session: 2026-04-27T01:12:50.103Z
 Stopped at: Phase 212 context gathered
-Resume file: .planning/phases/212-core-settings-decouple/212-CONTEXT.md
+Resume file: None

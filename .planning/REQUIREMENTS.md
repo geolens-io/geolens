@@ -13,7 +13,7 @@ Requirements for v13.1. Each maps to exactly one phase in `.planning/ROADMAP.md`
 
 Two mechanical refactors that fix illegal dependencies between modules.
 
-- [ ] **LAYER-01**: `core/persistent_config.py` and `core/public_urls.py` no longer import `AppSetting` from `modules/settings` — the layering inversion is broken (either by relocating `AppSetting` to `core/db/models.py` or by registering a config provider into core at startup).
+- [x] **LAYER-01**: `core/persistent_config.py` and `core/public_urls.py` no longer import `AppSetting` from `modules/settings` — the layering inversion is broken (either by relocating `AppSetting` to `core/db/models.py` or by registering a config provider into core at startup).
 - [ ] **LAYER-02**: `auth/visibility.py` is removed; all 23 inbound callers (15 visibility imports + 8 deferred-import callers) migrated to `catalog/authorization.py` with no behavior change to dataset-visibility semantics.
 
 ### Identity Protocol
@@ -119,7 +119,7 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LAYER-01 | 212 (core-settings-decouple) | Pending |
+| LAYER-01 | 212 (core-settings-decouple) | Complete |
 | LAYER-02 | 213 (catalog-authz-relocate) | Pending |
 | IDENT-01 | 214 (identity-protocol-extract) | Pending |
 | IDENT-02 | 214 (identity-protocol-extract) | Pending |
