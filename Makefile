@@ -72,6 +72,7 @@ sdks:
 	  --input backend/openapi.json \
 	  --output /tmp/openapi-flat.json
 	-cp sdks/python/geolens_sdk/auth.py /tmp/_geolens_auth.py 2>/dev/null
+	-cp sdks/python/geolens_sdk/__init__.py /tmp/_geolens_init.py 2>/dev/null
 	-cp sdks/typescript/src/auth.ts /tmp/_geolens_auth.ts 2>/dev/null
 	-cp sdks/typescript/src/index.ts /tmp/_geolens_index.ts 2>/dev/null
 	uvx openapi-python-client@0.28.3 generate \
@@ -84,6 +85,7 @@ sdks:
 	touch sdks/python/geolens_sdk/py.typed
 	cd sdks/typescript && npm install --silent && npx --yes @hey-api/openapi-ts@0.96.1 -i /tmp/openapi-flat.json
 	-cp /tmp/_geolens_auth.py sdks/python/geolens_sdk/auth.py 2>/dev/null
+	-cp /tmp/_geolens_init.py sdks/python/geolens_sdk/__init__.py 2>/dev/null
 	-cp /tmp/_geolens_auth.ts sdks/typescript/src/auth.ts 2>/dev/null
 	-cp /tmp/_geolens_index.ts sdks/typescript/src/index.ts 2>/dev/null
 	uv run --no-project python scripts/sync_sdk_versions.py
@@ -94,6 +96,7 @@ sdks-check:
 	$(MAKE) sdks
 	git diff --exit-code -- sdks/ \
 	  ':!sdks/python/geolens_sdk/auth.py' \
+	  ':!sdks/python/geolens_sdk/__init__.py' \
 	  ':!sdks/typescript/src/auth.ts' \
 	  ':!sdks/typescript/src/index.ts' \
 	  ':!sdks/python/README.md' \
