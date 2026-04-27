@@ -13,7 +13,7 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 ## Phases
 
 - [ ] **Phase 212: core-settings-decouple** — Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`)
-- [ ] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change
+- [x] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change (completed 2026-04-27)
 - [ ] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends
 - [ ] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate
 - [ ] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK
@@ -49,13 +49,13 @@ Plans:
   2. RBAC-filtered search, tile, feature, STAC, and OGC Records endpoints return identical results for the same user/role pairs as before the relocation
   3. The 1965-test backend baseline stays green, including the visibility/authorization unit tests
   4. `git grep "auth.visibility\|from app.modules.auth.visibility"` returns zero matches across the whole repo
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 
 Plans:
-- [ ] 213-01-introduce-catalog-authorization-PLAN.md — Create new catalog/authorization.py (verbatim copy of auth/visibility.py with module docstring + DatasetGrant import promoted to module level)
-- [ ] 213-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 26 import lines across 23 files to app.modules.catalog.authorization, delete auth/visibility.py, run full pytest for RBAC parity
-- [ ] 213-03-architecture-guard-PLAN.md — Extend backend/tests/test_layering.py with two new architecture guard tests + update module docstring (Phase 212 marker reused)
-- [ ] 213-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC#1-#4 verification gate
+- [x] 213-01-introduce-catalog-authorization-PLAN.md — Create new catalog/authorization.py (verbatim copy of auth/visibility.py with module docstring + DatasetGrant import promoted to module level)
+- [x] 213-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 26 import lines across 23 files to app.modules.catalog.authorization, delete auth/visibility.py, run full pytest for RBAC parity
+- [x] 213-03-architecture-guard-PLAN.md — Extend backend/tests/test_layering.py with two new architecture guard tests + update module docstring (Phase 212 marker reused)
+- [x] 213-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC#1-#4 verification gate
 
 ### Phase 214: identity-protocol-extract
 **Goal**: Cross-domain code depends on an `IdentityProtocol` abstraction rather than the concrete `User` SQLAlchemy model, and the extension system can register alternate identity backends — unblocking enterprise auth overlays without modifying core
@@ -125,7 +125,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 212. core-settings-decouple | 3/4 | In Progress|  |
-| 213. catalog-authz-relocate | 0/TBD | Not started | - |
+| 213. catalog-authz-relocate | 4/4 | Complete   | 2026-04-27 |
 | 214. identity-protocol-extract | 0/TBD | Not started | - |
 | 215. sdks-from-openapi | 0/TBD | Not started | - |
 | 216. geolens-cli-mvp | 0/TBD | Not started | - |
