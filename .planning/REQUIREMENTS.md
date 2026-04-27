@@ -20,9 +20,9 @@ Two mechanical refactors that fix illegal dependencies between modules.
 
 Prerequisite for any clean enterprise auth overlay (SAML, SCIM, multi-org).
 
-- [ ] **IDENT-01**: `IdentityProtocol` is defined in `core/identity.py` capturing the surface 51 `User` import sites across 11 domains depend on (id, email, role, tenant context, etc.).
+- [x] **IDENT-01**: `IdentityProtocol` is defined in `core/identity.py` capturing the surface 51 `User` import sites across 11 domains depend on (id, email, role, tenant context, etc.).
 - [ ] **IDENT-02**: Concrete `User` SQLAlchemy model satisfies `IdentityProtocol`; all 51 cross-domain import sites depend on the Protocol rather than the concrete model. Existing test suite passes (1965/1965 baseline).
-- [ ] **IDENT-03**: Enterprise auth overlays can register custom identity backends through the extension system without modifying core code.
+- [x] **IDENT-03**: Enterprise auth overlays can register custom identity backends through the extension system without modifying core code.
 
 ### Public Surface — SDKs
 
@@ -121,9 +121,9 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 |-------------|-------|--------|
 | LAYER-01 | 212 (core-settings-decouple) | Complete |
 | LAYER-02 | 213 (catalog-authz-relocate) | Complete |
-| IDENT-01 | 214 (identity-protocol-extract) | Pending |
+| IDENT-01 | 214 (identity-protocol-extract) | Complete |
 | IDENT-02 | 214 (identity-protocol-extract) | Pending |
-| IDENT-03 | 214 (identity-protocol-extract) | Pending |
+| IDENT-03 | 214 (identity-protocol-extract) | Complete |
 | OCSDK-01 | 215 (sdks-from-openapi) | Pending |
 | OCSDK-02 | 215 (sdks-from-openapi) | Pending |
 | OCSDK-03 | 215 (sdks-from-openapi) | Pending |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
-stopped_at: Phase 214 context gathered + research complete
-last_updated: "2026-04-27T17:17:25.920Z"
-last_activity: 2026-04-27 -- Phase 214 planning complete
+stopped_at: Phase 214 Plan 01 complete; Plan 02 next
+last_updated: "2026-04-27T17:33:13.611Z"
+last_activity: 2026-04-27
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 12
-  completed_plans: 8
-  percent: 67
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 214 — identity-protocol-extract (next; 212+213 complete)
+**Current focus:** Phase 214 — identity-protocol-extract
 
 ## Current Position
 
-Phase: 999.5
-Plan: Not started
+Phase: 214 (identity-protocol-extract) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-04-27 -- Phase 214 planning complete
+Last activity: 2026-04-27
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T16:43:29.297Z
-Stopped at: Phase 214 context gathered + research complete
-Resume file: .planning/phases/214-identity-protocol-extract/214-RESEARCH.md
+Last session: 2026-04-27T17:33:08.246Z
+Stopped at: Phase 214 Plan 01 complete (3/3 tasks committed); Plan 02 next
+Resume file: .planning/phases/214-identity-protocol-extract/214-02-retype-deps-and-wire-extension-PLAN.md
