@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: planning
-last_updated: "2026-04-27T00:27:22.029Z"
-last_activity: 2026-04-27
+stopped_at: Phase 212 context gathered
+last_updated: "2026-04-27T00:42:47.745Z"
+last_activity: "2026-04-27 — v13.1 roadmap created (7 phases: 212–218)"
 progress:
-  total_phases: 7
+  total_phases: 9
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 0
 ---
 
 # Project State
@@ -74,6 +74,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27
-Stopped at: v13.1 roadmap created (phases 212–218). Next: `/gsd-plan-phase 212` to expand the first phase into executable plans. Backend-test baseline at 1965/1965 from 260425-sl1 cleanup.
-Resume file: None
+Last session: 2026-04-27T00:42:47.741Z
+Stopped at: Phase 212 context gathered
+Resume file: .planning/phases/212-core-settings-decouple/212-CONTEXT.md
