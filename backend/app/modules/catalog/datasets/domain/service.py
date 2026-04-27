@@ -25,7 +25,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
@@ -77,7 +77,7 @@ _TYPE_MAP = {
 async def create_empty_dataset(
     session: AsyncSession,
     request: "CreateEmptyDatasetRequest",
-    user: User,
+    user: Identity,
 ) -> Dataset:
     """Create an empty PostGIS table with user-defined columns and a catalog record.
 
@@ -270,7 +270,7 @@ async def get_dataset(session: AsyncSession, dataset_id: uuid.UUID) -> Dataset |
 
 async def list_datasets(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     *,
     skip: int = 0,
@@ -307,7 +307,7 @@ async def list_datasets(
 
 async def get_datasets_list(
     db: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     *,
     skip: int = 0,
@@ -385,7 +385,7 @@ async def get_datasets_list(
 async def get_dataset_detail(
     db: AsyncSession,
     dataset_id: uuid.UUID,
-    user: User | None,
+    user: Identity | None,
     *,
     base_url: str | None = None,
     collections_data: list[dict] | None = None,
@@ -445,7 +445,9 @@ async def get_dataset_detail(
     raster_asset = None
     source_count = None
     if ra_coro is not None and sc_coro is not None:
-        ra_result, sc_result, da_result = await asyncio.gather(ra_coro, sc_coro, da_coro)
+        ra_result, sc_result, da_result = await asyncio.gather(
+            ra_coro, sc_coro, da_coro
+        )
         raster_asset = ra_result.scalar_one_or_none()
         source_count = sc_result.scalar()
     elif ra_coro is not None:
@@ -1029,7 +1031,7 @@ async def reset_attribute(
 async def get_related_datasets(
     db: AsyncSession,
     dataset_id: uuid.UUID,
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
     *,
     limit: int = 5,

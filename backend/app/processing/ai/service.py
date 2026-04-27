@@ -28,7 +28,7 @@ from app.processing.ai.tools import (
     _SEARCH_DATASETS_DESC,
     _SEARCH_DATASETS_SCHEMA,
 )
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.core.config import settings
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -258,7 +258,7 @@ OPENAI_TOOLS = [
 
 async def _execute_search_tool(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     tool_input: dict,
     *,
@@ -314,7 +314,7 @@ async def _execute_search_tool(
 
 async def _execute_get_dataset_details(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     tool_input: dict,
     *,
@@ -408,7 +408,7 @@ async def _retry_parse_map_spec(
 
 async def _validate_and_persist_map(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     spec: LLMMapSpec,
     basemap_ids: list[str] | None = None,
@@ -596,7 +596,7 @@ async def _validate_and_persist_map(
 
 def _build_tool_executor(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     send_sample_values: bool,
 ) -> "Callable[[str, dict], Awaitable[dict]]":
@@ -629,7 +629,7 @@ def _build_tool_executor(
 
 async def generate_map_from_prompt(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     prompt: str,
     language: str | None = None,
@@ -704,7 +704,7 @@ async def generate_map_from_prompt(
 
 async def stream_generate_map(
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     prompt: str,
     language: str | None = None,

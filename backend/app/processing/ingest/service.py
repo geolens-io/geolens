@@ -16,7 +16,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -82,7 +82,9 @@ async def discover_unregistered_tables(
     return [DiscoveredTable(**dict(row)) for row in result.mappings().all()]
 
 
-async def get_job_or_404(db: AsyncSession, job_id: uuid.UUID, user: User) -> IngestJob:
+async def get_job_or_404(
+    db: AsyncSession, job_id: uuid.UUID, user: Identity
+) -> IngestJob:
     """Load an IngestJob, checking existence and ownership/admin role.
 
     Raises:
@@ -190,7 +192,7 @@ async def resolve_file_path(file_path: str, job_id: str | None = None) -> str:
             # surface as ClientError with specific codes; OSError is the transient bucket.
             last_exc = exc
             if attempt < 2:
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s
+                await asyncio.sleep(2**attempt)  # 1s, 2s
                 continue
             raise
     if last_exc is not None:  # pragma: no cover - unreachable, satisfies type checker
@@ -285,7 +287,7 @@ async def create_ingest_job(
 async def register_existing_table(
     session: AsyncSession,
     request: RegisterRequest,
-    user: User,
+    user: Identity,
 ) -> "Dataset":
     """Register an existing data-schema table into the dataset catalog.
 
@@ -384,7 +386,7 @@ async def register_existing_table(
 async def create_vrt_job(
     db: AsyncSession,
     request: VrtCreateRequest,
-    user: User,
+    user: Identity,
 ) -> IngestJob:
     """Validate source raster datasets, then create + defer a VRT creation job.
 

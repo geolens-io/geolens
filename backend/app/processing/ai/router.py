@@ -37,8 +37,8 @@ from app.processing.ai.metadata_service import (
     generate_summary_draft,
 )
 from app.processing.ai.service import generate_map_from_prompt, stream_generate_map
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -88,7 +88,7 @@ async def _check_ai_available(db: AsyncSession) -> None:
 
 async def _validate_chat_layers(
     db: AsyncSession,
-    user: User,
+    user: Identity,
     map_id: str,
     layers: list[ChatMapLayer],
 ) -> tuple[list[ChatMapLayer], str | None]:
@@ -172,7 +172,7 @@ async def _validate_chat_layers(
 async def generate_map_endpoint(
     request: Request,
     body: MapGenerateRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> MapGenerateResponse:
     """Generate a map from a natural language prompt using an LLM."""
@@ -206,7 +206,7 @@ async def generate_map_endpoint(
 async def generate_map_stream_endpoint(
     request: Request,
     body: MapGenerateRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """Generate a map from a natural language prompt with streaming progress events."""
@@ -260,7 +260,7 @@ async def generate_map_stream_endpoint(
 async def chat_endpoint(
     request: Request,
     body: ChatRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponse:
     """Chat-based map editing: send a message and get back edit actions."""
@@ -301,7 +301,7 @@ async def chat_endpoint(
 async def chat_stream_endpoint(
     request: Request,
     body: ChatRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """Chat-based map editing with server-sent event streaming."""
@@ -434,7 +434,7 @@ async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
 async def generate_metadata_summary(
     request: Request,
     body: MetadataAssistRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
@@ -450,7 +450,7 @@ async def generate_metadata_summary(
 async def generate_metadata_keywords(
     request: Request,
     body: MetadataAssistRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
@@ -466,7 +466,7 @@ async def generate_metadata_keywords(
 async def generate_metadata_lineage(
     request: Request,
     body: MetadataAssistRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
@@ -484,7 +484,7 @@ async def generate_metadata_lineage(
 async def generate_metadata_quality_statement(
     request: Request,
     body: MetadataAssistRequest,
-    user: User = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""

@@ -16,8 +16,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import check_dataset_access, get_user_roles
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant
@@ -120,7 +120,7 @@ async def _resolve_raster_access(
     db: AsyncSession,
     dataset_id: uuid.UUID,
     request: Request,
-    user: User | None,
+    user: Identity | None,
 ) -> tuple[dict, str]:
     """Validate RBAC access to a raster dataset and return row metadata + storage backend.
 
@@ -248,7 +248,7 @@ async def _resolve_raster_access(
 async def raster_auth_check(
     request: Request,
     dataset_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Auth-check endpoint called by nginx auth_request for raster tile serving.
@@ -315,7 +315,7 @@ async def raster_tile_proxy(
     x: int,
     y: int,
     fmt: str,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """API-side raster tile proxy: auth check + fetch from Titiler.
@@ -470,7 +470,7 @@ def _build_tile_token_for_dataset(
 @limiter.exempt
 async def get_tile_token(
     dataset_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> VectorTileToken | RasterTileToken:
     """Generate a tile token for a dataset.
@@ -512,7 +512,7 @@ async def get_tile_token(
 @limiter.exempt
 async def get_tile_tokens_batch(
     body: TileTokenBatchRequest,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> TileTokenBatchResponse:
     """Batch-generate tile tokens for up to 50 datasets in one request.

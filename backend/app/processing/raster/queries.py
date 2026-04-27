@@ -65,7 +65,9 @@ async def fetch_raster_meta_one(
     row = result.one_or_none()
     if row is None:
         return None
-    return _row_to_meta(row, include_vrt=include_vrt, include_generation_id=include_generation_id)
+    return _row_to_meta(
+        row, include_vrt=include_vrt, include_generation_id=include_generation_id
+    )
 
 
 async def fetch_raster_meta_bulk(

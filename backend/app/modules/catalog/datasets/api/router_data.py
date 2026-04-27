@@ -15,11 +15,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_optional_user,
     require_permission,
 )
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     get_user_roles,
@@ -54,7 +54,7 @@ router = APIRouter(
 @router.get("/{dataset_id}/related/", response_model=RelatedDatasetsResponse)
 async def list_related_datasets(
     dataset_id: uuid.UUID,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> RelatedDatasetsResponse:
     """Return top-5 datasets similar to this one by embedding cosine similarity."""
@@ -69,7 +69,7 @@ async def get_dataset_rows_endpoint(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRowsResponse:
     """Get keyset-paginated rows from a dataset's data table.
@@ -125,7 +125,7 @@ async def validate_dataset(
         False,
         description="Recompute the quality score instead of returning the cached value.",
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ValidationResultResponse:
     """Get validation status for a dataset. Shows hard errors and soft warnings.
@@ -184,7 +184,7 @@ async def dataset_maps(
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
 ) -> MapListResponse:
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.modules.catalog.maps.service import get_maps_for_dataset
@@ -220,7 +220,7 @@ async def update_publication_status(
     dataset_id: uuid.UUID,
     body: StatusUpdate,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StatusUpdateResponse:
     """Transition a dataset's publication status following allowed paths.
@@ -265,7 +265,7 @@ async def set_target_status(
     dataset_id: uuid.UUID,
     body: StatusUpdate,
     request: Request,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> StatusUpdateResponse:
     """Walk the publication chain from current status to target in one request.

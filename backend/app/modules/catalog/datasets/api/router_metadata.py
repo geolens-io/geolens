@@ -13,12 +13,12 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
     require_permission,
 )
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
@@ -60,7 +60,7 @@ async def get_dataset_versions_endpoint(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetVersionListResponse:
     """Get paginated version history for a dataset."""
@@ -91,7 +91,7 @@ async def get_dataset_versions_endpoint(
 async def list_attributes_endpoint(
     dataset_id: uuid.UUID,
     include_removed: bool = Query(False),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> AttributeMetadataListResponse:
     """List all attribute metadata for a dataset."""
@@ -116,7 +116,7 @@ async def list_attributes_endpoint(
 async def get_attribute_endpoint(
     dataset_id: uuid.UUID,
     attribute_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> AttributeMetadataResponse:
     """Get a single attribute metadata entry."""
@@ -143,7 +143,7 @@ async def update_attribute_endpoint(
     dataset_id: uuid.UUID,
     attribute_id: uuid.UUID,
     body: AttributeMetadataUpdate,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> AttributeMetadataResponse:
     """Update user-editable attribute metadata fields."""
@@ -197,7 +197,7 @@ async def update_attribute_endpoint(
 async def reset_attribute_endpoint(
     dataset_id: uuid.UUID,
     attribute_id: uuid.UUID,
-    user: User = Depends(require_permission("edit_metadata")),
+    user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> AttributeMetadataResponse:
     """Reset attribute metadata to auto-populated values, clearing user_modified_fields."""
@@ -261,7 +261,7 @@ async def get_column_values(
     dataset_id: uuid.UUID,
     column_name: str,
     limit: int = Query(100, ge=1, le=500),
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnValuesResponse:
     """Get distinct values for a dataset column (for categorical styling)."""
@@ -294,7 +294,7 @@ async def get_column_values(
 async def get_column_stats_endpoint(
     dataset_id: uuid.UUID,
     column_name: str,
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ColumnStatsResponse:
     """Get statistics for a numeric dataset column (for graduated styling)."""
@@ -339,7 +339,7 @@ async def list_dataset_relationships(
         le=1000,
         description="Maximum number of relationships to return (PERF-N16).",
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[DatasetRelationshipResponse]:
     """List FK relationships for a dataset.
@@ -369,7 +369,7 @@ async def create_dataset_relationship(
     dataset_id: uuid.UUID,
     body: DatasetRelationshipCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("edit_metadata")),
+    current_user: Identity = Depends(require_permission("edit_metadata")),
 ) -> DatasetRelationshipResponse:
     """Create a new FK relationship. Editor+ required."""
     from app.modules.catalog.datasets.domain.service import create_relationship
@@ -390,7 +390,7 @@ async def create_dataset_relationship(
 async def delete_dataset_relationship(
     relationship_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission("edit_metadata")),
+    current_user: Identity = Depends(require_permission("edit_metadata")),
 ) -> Response:
     """Delete a FK relationship. Editor+ required."""
     from app.modules.catalog.datasets.domain.service import delete_relationship
@@ -415,7 +415,7 @@ async def get_feature_related_records(
     relationship_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=500),
     after: int = Query(0, ge=0),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRowsResponse:
     """Get related records for a feature via FK relationship."""

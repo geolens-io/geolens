@@ -23,7 +23,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -192,7 +192,7 @@ async def remove_dataset_from_collection(
 async def get_collection_datasets(
     session: AsyncSession,
     collection_id: uuid.UUID,
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
     skip: int = 0,
     limit: int = 50,
@@ -250,7 +250,7 @@ async def get_dataset_collections(
 async def batch_collection_extents(
     session: AsyncSession,
     collection_ids: list[uuid.UUID],
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
 ) -> dict[uuid.UUID, dict]:
     """Compute aggregated spatial and temporal extents for multiple collections in one query.
@@ -302,7 +302,7 @@ async def batch_collection_extents(
 async def batch_collection_dataset_counts(
     session: AsyncSession,
     collection_ids: list[uuid.UUID],
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
 ) -> dict[uuid.UUID, int]:
     """Count visible datasets for multiple collections in one query.

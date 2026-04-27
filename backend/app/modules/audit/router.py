@@ -27,8 +27,8 @@ from starlette.responses import StreamingResponse
 
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import query_audit_logs, stream_audit_logs
+from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.models import User
 from app.core.dependencies import get_db
 from app.platform.extensions import get_audit_extension
 from app.platform.extensions.guards import require_enterprise
@@ -49,7 +49,7 @@ async def list_audit_logs(
     search: str | None = Query(None, max_length=200),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> AuditLogListResponse:
     """Query audit logs with optional filters (admin only)."""
@@ -92,7 +92,7 @@ async def export_audit_logs(
     date_to: datetime | None = Query(None),
     search: str | None = Query(None),
     max_rows: int = Query(100_000, ge=1, le=1_000_000),
-    user: User = Depends(require_permission("manage_settings")),
+    user: Identity = Depends(require_permission("manage_settings")),
     _ent: None = Depends(require_enterprise),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:

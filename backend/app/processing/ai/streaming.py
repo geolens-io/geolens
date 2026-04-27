@@ -29,7 +29,7 @@ from app.processing.ai.llm_loop import (
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
-from app.modules.auth.models import User
+from app.core.identity import Identity
 from app.core.config import settings
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -47,7 +47,7 @@ def _make_stage_callback(tool_name: str, stage_events: list[dict]):
 async def _execute_and_yield_tools(
     tool_calls: list[tuple[str, dict]],
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     layers: list,
     collected_actions: list[dict],
@@ -93,7 +93,7 @@ async def _stream_anthropic_chat(
     message: str,
     system_prompt: str,
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     layers: list,
     *,
@@ -256,7 +256,7 @@ async def _stream_openai_chat(
     message: str,
     system_prompt: str,
     session: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     layers: list,
     *,
@@ -481,7 +481,7 @@ async def _stream_openai_chat(
 
 async def stream_chat_edit(
     db: AsyncSession,
-    user: User,
+    user: Identity,
     user_roles: set[str],
     message: str,
     layers: list,

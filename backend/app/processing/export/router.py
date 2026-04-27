@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import check_dataset_access
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.features.service import parse_bbox
@@ -42,7 +42,7 @@ async def export_dataset_endpoint(
     where: str | None = Query(
         None, description="Attribute filter expression, e.g. pop > 1000"
     ),
-    user: User = Depends(get_current_active_user),
+    user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Export a dataset as a downloadable file.

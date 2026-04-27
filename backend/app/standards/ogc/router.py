@@ -6,8 +6,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
-from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.core.dependencies import get_db
@@ -47,7 +47,7 @@ def _validate_f_param(f: str | None) -> None:
 
 
 async def _get_visible_dataset(
-    db: AsyncSession, user: User | None, dataset_id: uuid.UUID
+    db: AsyncSession, user: Identity | None, dataset_id: uuid.UUID
 ) -> Dataset:
     """Fetch a dataset with visibility enforcement. Raises 404 if not found or not accessible."""
     from sqlalchemy.orm import joinedload
@@ -171,7 +171,7 @@ async def get_dataset_collection(
     request: Request,
     dataset_id: uuid.UUID,
     f: str | None = Query(None),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCCollectionMetadata:
     """Per-dataset OGC collection metadata with extent, CRS, and items link."""
@@ -271,7 +271,7 @@ async def get_collection_items(
         True,
         description="Include geometry in response. Set to false for attribute-only queries.",
     ),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
@@ -429,7 +429,7 @@ async def get_collection_item_feature(
     dataset_id: uuid.UUID,
     feature_id: int,
     f: str | None = Query(None),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """OGC API Features single feature endpoint -- returns a GeoJSON Feature."""
