@@ -22,6 +22,14 @@ cp .env.example .env && docker compose up -d
   <em>Upload a shapefile, get a searchable, previewable, exportable dataset in minutes</em>
 </p>
 
+## Documentation
+
+Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**.
+
+- **Install & quickstart:** [docs.getgeolens.com/guides/quickstart](https://docs.getgeolens.com/guides/quickstart/)
+- **Admin guide:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
+- **API reference:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
+
 ## Try the Themed Demo
 
 GeoLens ships with three themed demo collections — **Planet Earth** (raster + VRT mosaics), **Global Development & People** (indicator choropleths), and **Borders, Boundaries & Contested Space** (geopolitics done carefully) — and nine signature maps that load deterministically with one command:
@@ -152,7 +160,7 @@ See [FEATURES.md](FEATURES.md) for a detailed feature overview.
 
 ## Quick Start
 
-**Prerequisites:** Docker Engine 24+ and Docker Compose v2. Minimum host: 4 GB RAM and 10 GB free disk for the base stack and a small dataset; 8 GB+ RAM recommended for raster work or catalogs above ~100 datasets. See [Resource Sizing](docs/resource-sizing.md) for production sizing.
+**Prerequisites:** Docker Engine 24+ and Docker Compose v2. Minimum host: 4 GB RAM and 10 GB free disk for the base stack and a small dataset; 8 GB+ RAM recommended for raster work or catalogs above ~100 datasets. See [Resource Sizing](https://docs.getgeolens.com/guides/quickstart/resource-sizing/) for production sizing.
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git
@@ -169,7 +177,7 @@ Verify all services are healthy:
 docker compose ps
 ```
 
-For production deployment, see the [Install Guide](docs/install-guide.md). For upgrading, see the [Upgrade Guide](docs/upgrade-guide.md).
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
 ### Demo Mode
 
@@ -207,17 +215,17 @@ The script downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), s
 
 ## Configuration
 
-All configuration is managed through environment variables in `.env`. See the [Configuration Reference](docs/configuration-reference.md) for the full list of options with defaults and descriptions.
+All configuration is managed through environment variables in `.env`. See the [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) for the full list of options with defaults and descriptions.
 
-## Documentation
+## Reference
 
 | Guide | Description |
 |-------|-------------|
-| [Install Guide](docs/install-guide.md) | Step-by-step deployment with Docker Compose |
-| [Upgrade Guide](docs/upgrade-guide.md) | Upgrading between versions with rollback procedures |
-| [Configuration Reference](docs/configuration-reference.md) | All environment variables and their defaults |
-| [Admin Guide](docs/admin-guide.md) | User management, datasets, system health |
-| [Cloud Deployment](docs/cloud-deployment.md) | AWS, GCP, and DigitalOcean deployment guides |
+| [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/) | Step-by-step deployment with Docker Compose |
+| [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) | Upgrading between versions with rollback procedures |
+| [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
+| [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
+| [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
 | [Widget Development](docs/widget-development.md) | Build custom map builder widgets |
 | [API Reference](#see-it-in-action) | Interactive Swagger UI at `/api/docs` when running |
 
