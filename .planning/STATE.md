@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
-stopped_at: Phase 215-04 complete (SDK round-trip test + sdks-check CI job + manual publish workflow)
-last_updated: "2026-04-27T19:55:47Z"
-last_activity: 2026-04-27 -- Phase 215-04 round-trip + CI wiring complete
+status: Phase 215 shipped 2026-04-27; ready to start Phase 216 (geolens-cli-mvp)
+stopped_at: Phase 215 complete; ready for Phase 216
+last_updated: "2026-04-27T20:30:00Z"
+last_activity: 2026-04-27 -- Phase 215 complete (SDKs from OpenAPI; OCSDK-01..04 closed)
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
+  completed_phases: 4
+  total_plans: 22
+  completed_plans: 22
+  percent: 44
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 215 — SDKs from OpenAPI; Plans 01–04 complete; Plan 05 (docs/sdks.md + phase verification gate) up next
+**Current focus:** Phase 215 complete (5/5 plans, OCSDK-01..04 closed); ready to start Phase 216 (geolens-cli-mvp)
 
 ## Current Position
 
-Phase: 215 (sdks-from-openapi) — IN PROGRESS (4/5 plans)
-Plan: 215-04 — COMPLETE (round-trip integration test [12/12 pass] + sdks-check CI job mirroring openapi-snapshot + publish-sdks.yml workflow_dispatch-only manual workflow with target/dry_run inputs)
-Status: Ready to execute Plan 215-05 (docs/sdks.md + phase verification gate; closes OCSDK-04)
-Last activity: 2026-04-27 -- Phase 215-04 round-trip + CI wiring complete
+Phase: 215 (sdks-from-openapi) — COMPLETE (5/5 plans)
+Plan: 215-05 — COMPLETE (docs/sdks.md written [305 lines, 213 non-blank]; __init__.py cp-stash gap closed; SDK round-trip module guarded for container runs; phase verification gate PASS — alembic clean / 2001 pytest / sdks-check 0 / 12 round-trip / both SDKs build / 4 ROADMAP SC verified)
+Status: Phase 215 shipped 2026-04-27; ready to start Phase 216 (geolens-cli-mvp consuming Python SDK per CONTEXT D-17)
+Last activity: 2026-04-27 -- Phase 215-05 docs + verification gate complete
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T19:55:47Z
-Stopped at: Phase 215-04 complete (SDK round-trip test + sdks-check CI job + manual publish workflow)
-Resume file: .planning/phases/215-sdks-from-openapi/215-05-PLAN.md
+Last session: 2026-04-27T20:30:00Z
+Stopped at: Phase 215 complete; ready for Phase 216
+Resume file: None

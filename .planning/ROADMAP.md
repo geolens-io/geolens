@@ -15,7 +15,7 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 - [x] **Phase 212: core-settings-decouple** — Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`) (completed 2026-04-27)
 - [x] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change (completed 2026-04-27)
 - [x] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends (completed 2026-04-27)
-- [ ] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate
+- [x] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate (completed 2026-04-27)
 - [ ] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK
 - [ ] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping
 - [ ] **Phase 218: oc-audit-close-v13.1** — Re-run `/oc-audit`; commit closing audit at `docs-internal/audits/oc-separation-audit-v13.1-close.md` showing Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C
@@ -84,14 +84,14 @@ Plans:
   2. `npm install @geolens/sdk` (Apache-2.0) yields a typed TypeScript client with the same auth helpers and request/response models; round-trip against a running instance succeeds for the same three endpoints
   3. `make sdks` regenerates both SDKs from `backend/openapi.json` in a single shot; `make sdks-check` fails CI when generated code drifts from the committed sources (mirrors `make openapi-check`)
   4. Each SDK package version pins to the OpenAPI snapshot version it was generated from; `docs/sdks.md` documents the chosen generators (Python + TS) with rationale and the publish/release process
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete (2026-04-27 — all 4 ROADMAP SC verified PASS)
 
 Plans:
 - [x] 215-01-PLAN.md — Scaffold sdks/python/ + sdks/typescript/ directories with hand-maintained tooling, license, and gitignores (no generated code yet)
 - [x] 215-02-PLAN.md — Wire Makefile targets (sdks/sdks-check/sdks-test/publish-sdks-py/publish-sdks-ts), scripts/sync_sdk_versions.py, scripts/flatten_openapi_defs.py preprocessor (research-extension finding), and run first regeneration to commit baseline generated code
 - [x] 215-03-PLAN.md — Add hand-written auth wrappers (Python GeolensClient + TypeScript createGeolensClient) with bearer + api-key + anonymous + ValueError-on-both behaviors
 - [x] 215-04-PLAN.md — Add round-trip integration test (12 tests), wire sdks-check job into ci.yml, and create publish-sdks.yml workflow scaffold (manual-trigger only)
-- [ ] 215-05-PLAN.md — Write docs/sdks.md (generators, regen flow, publish runbook); run phase verification gate (alembic + full pytest + sdks-check + actionlint + 4 ROADMAP SC); update REQUIREMENTS/ROADMAP/STATE
+- [x] 215-05-PLAN.md — Wrote docs/sdks.md (305 lines), closed __init__.py cp-stash gap from Plan 04, added module-level skip for SDK round-trip when sdks/ absent in container, ran phase verification gate (alembic clean / 2001 passed / sdks-check 0 / 12 round-trip pass / actionlint clean for Phase 215 workflows / both SDKs build) — all 4 ROADMAP SC PASS
 
 ### Phase 216: geolens-cli-mvp
 **Goal**: An end user can install the Apache-2.0 `geolens` CLI from PyPI, log into any GeoLens instance, scan a directory of spatial data, publish a dataset, and export STAC metadata — without writing a line of HTTP code or touching the GeoLens UI
@@ -139,8 +139,8 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 |-------|----------------|--------|-----------|
 | 212. core-settings-decouple | 4/4 | Complete    | 2026-04-27 |
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
-| 214. identity-protocol-extract | 3/4 | In Progress|  |
-| 215. sdks-from-openapi | 4/5 | In Progress|  |
+| 214. identity-protocol-extract | 4/4 | Complete    | 2026-04-27 |
+| 215. sdks-from-openapi | 5/5 | Complete    | 2026-04-27 |
 | 216. geolens-cli-mvp | 0/TBD | Not started | - |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
 | 218. oc-audit-close-v13.1 | 0/TBD | Not started | - |

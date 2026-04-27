@@ -31,7 +31,7 @@ Auto-generated client libraries unblock external integrators and the CLI. The Op
 - [x] **OCSDK-01**: Python SDK auto-generated from `backend/openapi.json`, packaged with proper auth helpers (Bearer token + API key), published to PyPI under an Apache-2.0 license.
 - [x] **OCSDK-02**: TypeScript SDK auto-generated from `backend/openapi.json` with typed request/response models, published to npm under an Apache-2.0 license.
 - [x] **OCSDK-03**: SDK regeneration is one-shot (`make sdks` or equivalent); CI gates drift via `make sdks-check` analogous to the existing `make openapi-check`.
-- [ ] **OCSDK-04**: SDK version pins to the OpenAPI snapshot version; release process documented in `docs/sdks.md` (or chosen path) including which generator was selected and why.
+- [x] **OCSDK-04**: SDK version pins to the OpenAPI snapshot version; release process documented in `docs/sdks.md` (or chosen path) including which generator was selected and why.
 
 ### Public Surface — CLI
 
@@ -127,7 +127,7 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 | OCSDK-01 | 215 (sdks-from-openapi) | Complete |
 | OCSDK-02 | 215 (sdks-from-openapi) | Complete |
 | OCSDK-03 | 215 (sdks-from-openapi) | Complete |
-| OCSDK-04 | 215 (sdks-from-openapi) | Pending |
+| OCSDK-04 | 215 (sdks-from-openapi) | Complete |
 | OCCLI-01 | 216 (geolens-cli-mvp) | Pending |
 | OCCLI-02 | 216 (geolens-cli-mvp) | Pending |
 | OCCLI-03 | 216 (geolens-cli-mvp) | Pending |
