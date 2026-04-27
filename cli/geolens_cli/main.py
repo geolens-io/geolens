@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import getpass
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
+from rich.table import Table
 
 from . import auth as _auth
 from . import config as _config
 from . import output as _output
+from . import scan as _scan
 from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
@@ -221,11 +224,70 @@ def whoami(ctx: typer.Context) -> None:
 @app.command()
 def scan(
     ctx: typer.Context,
-    directory: Annotated[str, typer.Argument(help="Directory to scan")],
+    directory: Annotated[
+        Path,
+        typer.Argument(
+            help="Directory to scan",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+        ),
+    ],
+    max_depth: Annotated[
+        Optional[int],
+        typer.Option("--max-depth", help="Cap recursion at N levels below root", min=0),
+    ] = None,
+    include_ext: Annotated[
+        Optional[str],
+        typer.Option(
+            "--include-ext",
+            help="Comma-separated extension allowlist, e.g. .gpkg,.tif",
+        ),
+    ] = None,
+    json_local: Annotated[
+        bool,
+        typer.Option("--json", help="Emit JSON array (overrides global --json setting)"),
+    ] = False,
 ) -> None:
-    """Walk a directory and report what would be ingested (stub — Plan 03)."""
-    ctx.obj.output.error("scan not yet implemented (Plan 03)")
-    raise typer.Exit(2)
+    """Walk a directory and report what would be ingested (no upload)."""
+    state: AppState = ctx.obj
+    include_exts: Optional[set[str]] = None
+    if include_ext:
+        include_exts = {e.strip().lower() for e in include_ext.split(",") if e.strip()}
+        # Add the leading dot if missing.
+        include_exts = {e if e.startswith(".") else f".{e}" for e in include_exts}
+
+    items = list(_scan.walk(directory, max_depth=max_depth, include_exts=include_exts))
+
+    json_mode = state.json_mode or json_local
+    if json_mode:
+        payload = [item.to_dict() for item in items]
+        state.output.json(payload)
+        return
+
+    # Human-readable rich Table
+    table = Table(title=f"Scan: {directory}")
+    table.add_column("PATH", overflow="fold")
+    table.add_column("FORMAT")
+    table.add_column("INGEST?")
+    for item in items:
+        ingest_marker = "yes" if item.ingest else "no"
+        if not item.ingest and item.reason:
+            ingest_marker = f"no ({item.reason})"
+        try:
+            rel = item.path.relative_to(directory)
+        except ValueError:
+            rel = item.path
+        table.add_row(str(rel), item.format, ingest_marker)
+
+    # Use the Formatter's public stdout console so NO_COLOR / quiet are honored.
+    # Direct rich.Console.print is fine for tables — Formatter.success is for messages.
+    # Plan 01 exposes `console_stdout` as a public property; do NOT touch the
+    # underscored `_stdout` attribute (private to Formatter).
+    state.output.console_stdout.print(table)
+    if not items:
+        state.output.info("(no files found)")
 
 
 @app.command()
