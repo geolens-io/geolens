@@ -87,16 +87,17 @@ def test_app_settings_imports_only_via_core_db_models() -> None:
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
 
+    # Match only import-shaped lines so docstrings/error messages in this
+    # file that reference the deleted path do not trigger a self-positive.
     result = _git_grep(
-        r"app\.modules\.settings\.models",
+        r"^\s*(from|import)\s+app\.modules\.settings\.models",
         "backend/",
     )
 
     if result.returncode == 0:
         pytest.fail(
-            "Regression: `app.modules.settings.models` is referenced after "
-            "Phase 212 deleted it. Use `app.core.db.models` instead. "
-            "Offending lines:\n" + result.stdout
+            "Regression: a deleted import path is referenced. Use "
+            "`app.core.db.models` instead. Offending lines:\n" + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
