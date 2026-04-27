@@ -88,17 +88,20 @@ def _get_registry_map() -> dict[str, object]:
 
 
 def _require_enterprise_for_key(key: str) -> None:
-    """Raise 403 if a setting key belongs to an enterprise-only tab."""
+    """Raise 404 if a setting key belongs to an enterprise-only tab.
+
+    Returns 404 (not 403, no detail body) to match the ``require_enterprise()``
+    guard contract — community callers cannot distinguish between "key does
+    not exist" and "key requires enterprise edition", which prevents both
+    feature leakage and trivial enumeration of paid keys.
+    """
     from app.core.edition import is_enterprise
 
     if is_enterprise():
         return
     cfg = _get_registry_map().get(key)
     if cfg is not None and cfg.tab in _ENTERPRISE_ONLY_TABS:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Setting '{key}' requires enterprise edition",
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
 
 async def _auto_detect_embedding_dims(
@@ -483,8 +486,20 @@ async def get_feature_flags(
 async def get_branding(
     db: AsyncSession = Depends(get_db),
 ) -> BrandingResponse:
-    """Return branding configuration (public, no auth required)."""
-    show_badge = await BRANDING_SHOW_BADGE.get(db)
+    """Return branding configuration (public, no auth required).
+
+    The active ``BrandingExtension`` provides initial defaults for branding
+    keys. PersistentConfig overrides take precedence when set. Community
+    advertises ``show_badge`` only; enterprise overlays may extend the
+    extension to advertise additional keys (logo, colors, favicon, ...).
+    """
+    from app.platform.extensions import get_branding_extension
+
+    defaults = get_branding_extension().get_branding_defaults()
+    persisted = await BRANDING_SHOW_BADGE.get(db)
+    show_badge = (
+        persisted if persisted is not None else bool(defaults.get("show_badge", True))
+    )
     return BrandingResponse(show_badge=show_badge)
 
 

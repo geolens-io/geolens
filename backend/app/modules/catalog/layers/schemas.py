@@ -65,6 +65,39 @@ class ColumnListResponse(BaseModel):
     columns: list[dict]
 
 
+class RenameColumnRequest(BaseModel):
+    new_name: str = Field(description="New column name (lowercase identifier).")
+
+    @field_validator("new_name")
+    @classmethod
+    def validate_new_name(cls, v: str) -> str:
+        if not COLUMN_NAME_RE.match(v):
+            raise ValueError(
+                f"Column name {v!r} must start with a lowercase letter "
+                "and contain only lowercase letters, digits, and underscores "
+                "(max 63 chars)."
+            )
+        if v in RESERVED_COLUMNS:
+            raise ValueError(f"Column name {v!r} is reserved and cannot be used.")
+        return v
+
+
+class AlterColumnTypeRequest(BaseModel):
+    new_type: str = Field(
+        description="New column type: text/integer/real/boolean/date/timestamp."
+    )
+
+    @field_validator("new_type")
+    @classmethod
+    def validate_new_type(cls, v: str) -> str:
+        if v not in ALLOWED_COLUMN_TYPES:
+            raise ValueError(
+                f"Column type {v!r} is not allowed. "
+                f"Allowed types: {sorted(ALLOWED_COLUMN_TYPES.keys())}"
+            )
+        return v
+
+
 class CreateLayerRequest(BaseModel):
     title: str = Field(
         min_length=1,

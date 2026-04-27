@@ -1,4 +1,4 @@
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api
+.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check
 
 dev:
 	docker compose up --build
@@ -33,3 +33,11 @@ logs-db:
 
 logs-api:
 	docker compose logs -f api
+
+# Snapshot the OpenAPI schema. Commit backend/openapi.json with the route changes;
+# CI runs `openapi-check` to fail builds when the snapshot drifts from runtime.
+openapi:
+	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py
+
+openapi-check:
+	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py --check

@@ -177,6 +177,123 @@ async def add_column(
     return column_info
 
 
+async def rename_column(
+    session: AsyncSession,
+    dataset: Dataset,
+    column_name: str,
+    new_name: str,
+) -> list[dict]:
+    """Rename a column on an existing layer's PostGIS table.
+
+    Validates names, rejects reserved columns, and ensures the destination
+    name is not already in use. Refreshes ``column_info`` and migrates the
+    matching ``AttributeMetadata`` row to the new name afterwards.
+    """
+    _validate_table_name(dataset.table_name)
+
+    if not COLUMN_NAME_RE.match(column_name):
+        raise ValueError(f"Column name {column_name!r} is not a valid column name.")
+    if not COLUMN_NAME_RE.match(new_name):
+        raise ValueError(f"Column name {new_name!r} is not a valid column name.")
+    if column_name in RESERVED_COLUMNS:
+        raise ValueError(f"Column {column_name!r} is reserved and cannot be renamed.")
+    if new_name in RESERVED_COLUMNS:
+        raise ValueError(f"Column {new_name!r} is reserved and cannot be used.")
+    if column_name == new_name:
+        raise ValueError("New column name must differ from the current name.")
+
+    existing_names = {c["name"] for c in (dataset.column_info or [])}
+    if column_name not in existing_names:
+        raise ValueError(f"Column {column_name!r} does not exist on this layer.")
+    if new_name in existing_names:
+        raise ValueError(f"Column {new_name!r} already exists on this layer.")
+
+    ddl = (
+        f"ALTER TABLE data.{dataset.table_name} "
+        f"RENAME COLUMN {column_name} TO {new_name}"
+    )
+    await session.execute(text(ddl))
+
+    column_info = await get_column_info(session, dataset.table_name)
+    dataset.column_info = column_info
+
+    # Migrate the AttributeMetadata row in place so attribute history follows
+    # the rename instead of being orphaned.
+    result = await session.execute(
+        select(AttributeMetadata).where(
+            AttributeMetadata.dataset_id == dataset.id,
+            AttributeMetadata.field_name == column_name,
+            AttributeMetadata.is_current.is_(True),
+        )
+    )
+    am = result.scalar_one_or_none()
+    if am:
+        am.field_name = new_name
+
+    await session.flush()
+    return column_info
+
+
+async def alter_column_type(
+    session: AsyncSession,
+    dataset: Dataset,
+    column_name: str,
+    new_type: str,
+) -> list[dict]:
+    """Change a column's type on an existing layer's PostGIS table.
+
+    Uses ``ALTER COLUMN ... TYPE ... USING column::TYPE`` so PostgreSQL applies
+    the standard cast — incompatible existing values raise the underlying
+    Postgres error and abort the transaction.
+    """
+    _validate_table_name(dataset.table_name)
+
+    if not COLUMN_NAME_RE.match(column_name):
+        raise ValueError(f"Column name {column_name!r} is not a valid column name.")
+    if column_name in RESERVED_COLUMNS:
+        raise ValueError(
+            f"Column {column_name!r} is reserved and its type cannot be altered."
+        )
+    if new_type not in ALLOWED_COLUMN_TYPES:
+        raise ValueError(
+            f"Column type {new_type!r} is not allowed. "
+            f"Allowed types: {sorted(ALLOWED_COLUMN_TYPES.keys())}"
+        )
+
+    existing = {c["name"]: c for c in (dataset.column_info or [])}
+    if column_name not in existing:
+        raise ValueError(f"Column {column_name!r} does not exist on this layer.")
+
+    pg_type = ALLOWED_COLUMN_TYPES[new_type]
+    ddl = (
+        f"ALTER TABLE data.{dataset.table_name} "
+        f"ALTER COLUMN {column_name} TYPE {pg_type} "
+        f"USING {column_name}::{pg_type}"
+    )
+    await session.execute(text(ddl))
+
+    column_info = await get_column_info(session, dataset.table_name)
+    dataset.column_info = column_info
+
+    # Refresh AttributeMetadata.data_type so quality metrics + UI labels match.
+    result = await session.execute(
+        select(AttributeMetadata).where(
+            AttributeMetadata.dataset_id == dataset.id,
+            AttributeMetadata.field_name == column_name,
+            AttributeMetadata.is_current.is_(True),
+        )
+    )
+    am = result.scalar_one_or_none()
+    if am:
+        new_col = next((c for c in column_info if c["name"] == column_name), None)
+        if new_col:
+            am.data_type = new_col.get("type", am.data_type)
+            am.domain_type = _infer_domain_type(am.data_type)
+
+    await session.flush()
+    return column_info
+
+
 async def drop_column(
     session: AsyncSession,
     dataset: Dataset,

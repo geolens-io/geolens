@@ -11,6 +11,17 @@ from importlib.metadata import entry_points
 
 import structlog
 
+from app.platform.extensions.defaults import (
+    DefaultAuditExtension,
+    DefaultAuthExtension,
+    DefaultBrandingExtension,
+)
+from app.platform.extensions.protocols import (
+    AuditExtension,
+    AuthExtension,
+    BrandingExtension,
+)
+
 logger = structlog.stdlib.get_logger(__name__)
 
 _extensions: dict[str, object] = {}
@@ -59,3 +70,34 @@ def list_extensions() -> list[str]:
 def get_extension_routers() -> list:
     """Return FastAPI routers registered by extensions."""
     return list(_routers)
+
+
+# ---------------------------------------------------------------------------
+# Typed accessors — return the registered extension or a community default.
+# Call sites use these instead of get_extension(...) so the protocol contract
+# is always satisfied (community can never be `None`).
+# ---------------------------------------------------------------------------
+
+
+def get_branding_extension() -> BrandingExtension:
+    """Return the registered BrandingExtension or the community default."""
+    ext = _extensions.get("branding")
+    if ext is None:
+        return DefaultBrandingExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_audit_extension() -> AuditExtension:
+    """Return the registered AuditExtension or the community default."""
+    ext = _extensions.get("audit")
+    if ext is None:
+        return DefaultAuditExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_auth_extension() -> AuthExtension:
+    """Return the registered AuthExtension or the community default."""
+    ext = _extensions.get("auth")
+    if ext is None:
+        return DefaultAuthExtension()
+    return ext  # type: ignore[return-value]
