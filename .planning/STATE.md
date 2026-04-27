@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
-stopped_at: Phase 216 Plan 05 complete (export-stac-command)
-last_updated: "2026-04-27T22:37:00.000Z"
-last_activity: 2026-04-27
+status: Phase 216 shipped 2026-04-27; ready to start Phase 217 (auth-saml-enterprise)
+stopped_at: Phase 216 complete
+last_updated: "2026-04-27T23:15:00.000Z"
+last_activity: 2026-04-27 -- Phase 216-06 round-trip + CI + docs + verification gate complete
 progress:
   total_phases: 9
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 23
   completed_plans: 23
-  percent: 96
+  percent: 56
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 216 — geolens-cli-mvp
+**Current focus:** Phase 217 — auth-saml-enterprise (next; depends on 214 which is complete)
 
 ## Current Position
 
-Phase: 216 (geolens-cli-mvp) — EXECUTING
-Plan: 6 of 6 (Plan 05 export-stac-command complete; OCCLI-05 closed)
-Status: Plan 05 complete; Plan 06 (round-trip + CI + docs) ready to execute
-Last activity: 2026-04-27
+Phase: 216 (geolens-cli-mvp) — COMPLETE 2026-04-27
+Plans complete: 6 of 6 (OCCLI-01..06 all closed; round-trip green; CI cli-test gate live; docs/cli.md shipped)
+Status: Phase 216 shipped; ready to start Phase 217 (auth-saml-enterprise)
+Last activity: 2026-04-27 — Phase 216-06 round-trip + CI + docs + verification gate complete
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T22:37:00.000Z
-Stopped at: Phase 216 Plan 05 complete (export-stac-command)
+Last session: 2026-04-27T23:15:00.000Z
+Stopped at: Phase 216 complete; Phase 217 (auth-saml-enterprise) is next
 Resume file: None

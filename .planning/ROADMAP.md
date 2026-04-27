@@ -16,7 +16,7 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 - [x] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change (completed 2026-04-27)
 - [x] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends (completed 2026-04-27)
 - [x] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate (completed 2026-04-27)
-- [ ] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK
+- [x] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK (completed 2026-04-27)
 - [ ] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping
 - [ ] **Phase 218: oc-audit-close-v13.1** — Re-run `/oc-audit`; commit closing audit at `docs-internal/audits/oc-separation-audit-v13.1-close.md` showing Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C
 
@@ -104,7 +104,7 @@ Plans:
   4. `geolens publish <file>` uploads a vector or raster file to the configured instance via the generated Python SDK and prints the resulting dataset URL on success
   5. `geolens export stac <dataset-id>` writes valid STAC 1.1 JSON for a raster dataset to stdout (or a file via `-o`)
   6. The CLI source contains zero direct HTTP/`httpx`/`requests` imports for catalog operations — every API call goes through the generated Python SDK from Phase 215
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete (verified 2026-04-27)
 
 Plans:
 - [x] 216-01-scaffold-cli-package-PLAN.md — Apache-2.0 cli/ package + Typer scaffold + Wave 0 tests + Makefile recipes
@@ -112,7 +112,7 @@ Plans:
 - [x] 216-03-scan-command-PLAN.md — directory walk + extension classification + shapefile sibling-grouping
 - [x] 216-04-publish-command-PLAN.md — 3-step ingest with multipart workaround + progress UI + dataset URL
 - [x] 216-05-export-stac-command-PLAN.md — STAC 1.1 pass-through with vector guard + atomic file write
-- [ ] 216-06-roundtrip-ci-docs-PLAN.md — round-trip integration test + sync_sdk_versions ext + CI cli-test job + publish-cli.yml + docs/cli.md + verification gate
+- [x] 216-06-roundtrip-ci-docs-PLAN.md — round-trip integration test + sync_sdk_versions ext + CI cli-test job + publish-cli.yml + docs/cli.md + verification gate
 
 ### Phase 217: auth-saml-enterprise
 **Goal**: A government/enterprise buyer with a SAML IdP can install `geolens-enterprise`, configure SAML in the admin UI, and have their users log in via SP-initiated SSO with attribute-driven role mapping — and the core repo contains no SAML code
@@ -149,7 +149,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
 | 214. identity-protocol-extract | 4/4 | Complete    | 2026-04-27 |
 | 215. sdks-from-openapi | 5/5 | Complete   | 2026-04-27 |
-| 216. geolens-cli-mvp | 4/6 | In Progress|  |
+| 216. geolens-cli-mvp | 6/6 | Complete | 2026-04-27 |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
 | 218. oc-audit-close-v13.1 | 0/TBD | Not started | - |
 
