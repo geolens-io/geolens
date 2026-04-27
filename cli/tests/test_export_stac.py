@@ -55,8 +55,9 @@ class TestRenderStacJson:
     def test_compact_single_line(self) -> None:
         from geolens_cli.export_stac import render_stac_json
 
+        # Sorted keys: input {"b": 1, "a": 2} → output starts with "a":2.
         out = render_stac_json({"b": 1, "a": 2}, compact=True)
-        assert out == '{"a":1,"b":2}'
+        assert out == '{"a":2,"b":1}'
 
     def test_pretty_emits_trailing_newline(self) -> None:
         from geolens_cli.export_stac import render_stac_json
