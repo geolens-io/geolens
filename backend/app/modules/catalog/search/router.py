@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies import get_current_active_user, get_optional_user
 from app.modules.auth.models import User
-from app.modules.auth.visibility import (
+from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access_or_anonymous,
     get_user_roles,

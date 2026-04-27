@@ -17,7 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
-from app.modules.auth.visibility import get_user_roles
+from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import create_dataset

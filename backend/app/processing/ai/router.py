@@ -39,7 +39,7 @@ from app.processing.ai.metadata_service import (
 from app.processing.ai.service import generate_map_from_prompt, stream_generate_map
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import User
-from app.modules.auth.visibility import get_user_roles
+from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.core.dependencies import get_db
