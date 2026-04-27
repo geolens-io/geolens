@@ -126,3 +126,11 @@ None — test-only addition with no impact on production runtime trust boundarie
 ---
 *Phase: 213-catalog-authz-relocate*
 *Completed: 2026-04-27*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/213-catalog-authz-relocate/213-03-SUMMARY.md`
+- FOUND: `backend/tests/test_layering.py`
+- FOUND: commit `f78b0981`
+- 4/4 def test_ functions in test_layering.py
+- All 4 acceptance criteria file checks pass
