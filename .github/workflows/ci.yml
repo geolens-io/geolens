@@ -72,6 +72,36 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+  openapi-snapshot:
+    name: OpenAPI Snapshot Drift
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      JWT_SECRET_KEY: openapi-snapshot-padding-key-32chars
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Verify openapi.json is up to date
+        run: uv run python scripts/dump_openapi.py --check
+
   backend-test:
     name: Backend Tests
     needs: changes

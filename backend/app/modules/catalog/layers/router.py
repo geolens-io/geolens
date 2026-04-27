@@ -13,11 +13,19 @@ from app.core.dependencies import get_db
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.layers.schemas import (
     AddColumnRequest,
+    AlterColumnTypeRequest,
     ColumnListResponse,
     CreateLayerRequest,
     CreateLayerResponse,
+    RenameColumnRequest,
 )
-from app.modules.catalog.layers.service import add_column, create_layer, drop_column
+from app.modules.catalog.layers.service import (
+    add_column,
+    alter_column_type,
+    create_layer,
+    drop_column,
+    rename_column,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -127,6 +135,114 @@ async def add_column_endpoint(
     )
     await db.commit()
 
+    return ColumnListResponse(columns=columns)
+
+
+@layers_router.patch(
+    "/{dataset_id}/columns/{column_name}/name",
+    response_model=ColumnListResponse,
+)
+async def rename_column_endpoint(
+    dataset_id: uuid.UUID,
+    column_name: str,
+    body: RenameColumnRequest,
+    user: User = Depends(require_permission("create_layers")),
+    db: AsyncSession = Depends(get_db),
+) -> ColumnListResponse:
+    """Rename a column on an existing layer."""
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    try:
+        columns = await rename_column(db, dataset, column_name, body.new_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    logger.info(
+        "layer.rename_column",
+        table_name=dataset.table_name,
+        old_name=column_name,
+        new_name=body.new_name,
+        user_id=str(user.id),
+    )
+
+    dataset.record.updated_by = user.id
+    await log_action(
+        db,
+        user_id=user.id,
+        action="layer.rename_column",
+        resource_type="dataset",
+        resource_id=dataset_id,
+        details={"old_name": column_name, "new_name": body.new_name},
+    )
+    await db.commit()
+    return ColumnListResponse(columns=columns)
+
+
+@layers_router.patch(
+    "/{dataset_id}/columns/{column_name}/type",
+    response_model=ColumnListResponse,
+)
+async def alter_column_type_endpoint(
+    dataset_id: uuid.UUID,
+    column_name: str,
+    body: AlterColumnTypeRequest,
+    user: User = Depends(require_permission("create_layers")),
+    db: AsyncSession = Depends(get_db),
+) -> ColumnListResponse:
+    """Change a column's type on an existing layer.
+
+    Postgres performs an implicit ``column::TYPE`` cast; values that cannot be
+    cast cause the request to fail and roll back.
+    """
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    try:
+        columns = await alter_column_type(db, dataset, column_name, body.new_type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        # Cast failures (e.g. "abc" → integer) surface as Postgres DataError;
+        # turn them into 400s instead of 500s so the UI can render the message.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Type change failed: {exc}",
+        )
+
+    logger.info(
+        "layer.alter_column_type",
+        table_name=dataset.table_name,
+        column_name=column_name,
+        new_type=body.new_type,
+        user_id=str(user.id),
+    )
+
+    dataset.record.updated_by = user.id
+    await log_action(
+        db,
+        user_id=user.id,
+        action="layer.alter_column_type",
+        resource_type="dataset",
+        resource_id=dataset_id,
+        details={"column_name": column_name, "new_type": body.new_type},
+    )
+    await db.commit()
     return ColumnListResponse(columns=columns)
 
 

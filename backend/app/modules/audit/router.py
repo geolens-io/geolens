@@ -20,9 +20,8 @@ import io
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -31,6 +30,8 @@ from app.modules.audit.service import query_audit_logs, stream_audit_logs
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import User
 from app.core.dependencies import get_db
+from app.platform.extensions import get_audit_extension
+from app.platform.extensions.guards import require_enterprise
 from app.processing.export.service import safe_content_disposition
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
@@ -84,7 +85,7 @@ async def list_audit_logs(
 
 @router.get("/audit-logs/export/{format}", response_class=StreamingResponse)
 async def export_audit_logs(
-    format: Literal["csv", "json"],
+    format: str,
     action: str | None = Query(None),
     resource_type: str | None = Query(None),
     date_from: datetime | None = Query(None),
@@ -92,9 +93,25 @@ async def export_audit_logs(
     search: str | None = Query(None),
     max_rows: int = Query(100_000, ge=1, le=1_000_000),
     user: User = Depends(require_permission("manage_settings")),
+    _ent: None = Depends(require_enterprise),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Export audit logs as CSV or JSON (admin only)."""
+    """Export audit logs as CSV or JSON.
+
+    Available formats are defined by the active ``AuditExtension`` — community
+    advertises none (404 via ``require_enterprise``); enterprise overlays
+    advertise ``csv``/``json`` (or additional formats) by registering an
+    extension whose ``get_export_formats()`` returns the format list. Unknown
+    formats also 404 to prevent leaking which formats exist in other editions.
+    """
+    allowed = set(get_audit_extension().get_export_formats())
+    if format not in allowed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if format not in ("csv", "json"):
+        # Format advertised by extension but not implemented in core core. The
+        # enterprise extension is responsible for serving non-default formats
+        # via its own router.
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"audit-export-{timestamp}.{format}"
