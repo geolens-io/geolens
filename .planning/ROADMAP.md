@@ -14,7 +14,7 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 
 - [x] **Phase 212: core-settings-decouple** — Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`) (completed 2026-04-27)
 - [x] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change (completed 2026-04-27)
-- [ ] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends
+- [x] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends (completed 2026-04-27)
 - [ ] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate
 - [ ] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK
 - [ ] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping
@@ -67,13 +67,13 @@ Plans:
   3. The extension system exposes a registration hook (typed accessor + entry_point seam, mirroring `get_branding_extension()` / `get_audit_extension()`) so an enterprise overlay can supply an alternate identity backend without core changes
   4. Existing JWT, OAuth/OIDC, API key, and refresh-token flows operate unchanged against the concrete model; the 1965-test backend baseline stays green
   5. `pyright`/`mypy` (per project convention) reports no new typing regressions introduced by the Protocol migration
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete (2026-04-27 — all 5 ROADMAP SC verified PASS)
 
 Plans:
 - [x] 214-01-introduce-core-identity-PLAN.md — Create core/identity.py (IdentityProtocol, RoleProtocol, IdentityExtension, Identity alias) + DefaultIdentityExtension + get_identity_extension() typed accessor
 - [x] 214-02-retype-deps-and-wire-extension-PLAN.md — Retype get_optional_user/get_current_user/get_current_active_user to return Identity; wire extension between API-key and JWT paths in both deps (Pitfall 9 duplication preserves expired-token UX)
 - [x] 214-03-migrate-cross-domain-callers-PLAN.md — Migrate ~33 cross-domain caller files: swap User import for Identity; rewrite parameter annotations; 7 Pitfall-1 SQL-attribute files keep concrete User and join allowlist
-- [ ] 214-04-architecture-guard-and-verification-gate-PLAN.md — Extend test_layering.py with broadened core/ guard + cross-domain User-import allowlist test (13 :! pathspec exclusions); replace narrow Phase 212-03 test; phase verification gate (alembic check + full pytest + ruff + ROADMAP SC verification)
+- [x] 214-04-architecture-guard-and-verification-gate-PLAN.md — Extended test_layering.py with broadened core/ guard + cross-domain User-import allowlist test (13 :! pathspec exclusions); replaced narrow Phase 212-03 test; phase verification gate confirmed alembic clean (pre-existing drift only) + 2001 passing tests in container + ruff clean + 5 SC PASS
 
 ### Phase 215: sdks-from-openapi
 **Goal**: External integrators (and the v13.1 CLI) consume GeoLens through auto-generated, version-pinned Python and TypeScript SDKs; SDK drift against the OpenAPI snapshot is impossible to merge accidentally

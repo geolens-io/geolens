@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
-stopped_at: Phase 214 Plan 03 complete (cross-domain caller migration); Plan 04 next (architecture guard + verification gate)
-last_updated: "2026-04-27T18:14:11.417Z"
+stopped_at: Phase 214 complete (identity-protocol-extract); next phase 215 (sdks-from-openapi) or 217 (auth-saml-enterprise)
+last_updated: "2026-04-27T18:30:37.000Z"
 last_activity: 2026-04-27
 progress:
   total_phases: 9
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
-  completed_plans: 12
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 214 — identity-protocol-extract
+**Current focus:** Phase 214 complete — next phase TBD (215 SDKs / 217 SAML / 218 audit-close all unblocked or scheduled)
 
 ## Current Position
 
-Phase: 214 (identity-protocol-extract) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
+Phase: 214 (identity-protocol-extract) — COMPLETE (4/4 plans)
+Plan: — (no active plan)
+Status: Phase 214 shipped 2026-04-27; ready to start Phase 215 / 217 / 218
 Last activity: 2026-04-27
 
 ## Roadmap Snapshot
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T18:13:51.978Z
-Stopped at: Phase 214 Plan 03 complete (cross-domain caller migration); Plan 04 next (architecture guard + verification gate)
+Last session: 2026-04-27T18:30:37.000Z
+Stopped at: Phase 214 complete — 4/4 plans shipped (core/identity.py + extension seam + 33 caller migrations + architecture-guard regression seal); IDENT-01/02/03 closed; ROADMAP SC#1-#5 all PASS. Ready for Phase 215 (sdks-from-openapi) or Phase 217 (auth-saml-enterprise) which now has its prerequisite seam.
 Resume file: None
