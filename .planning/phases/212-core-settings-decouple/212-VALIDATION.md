@@ -1,10 +1,11 @@
 ---
 phase: 212
 slug: core-settings-decouple
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-27
+approved: 2026-04-27
 ---
 
 # Phase 212 — Validation Strategy
@@ -49,7 +50,7 @@ Notes:
 | V-02 | Old `modules/settings/models.py` deleted | 02 | 2 | LAYER-01 | — | N/A | unit | `test ! -e backend/app/modules/settings/models.py` | ✅ | ⬜ pending |
 | V-03 | Zero `from app.modules.settings` imports under `backend/app/core/` | 02/03 | 2/3 | LAYER-01 | — | N/A | unit | `! git grep -n 'from app\.modules\.settings' -- backend/app/core/` | ✅ | ⬜ pending |
 | V-04 | All 9 caller files migrated (RESEARCH.md §1) | 02 | 2 | LAYER-01 | — | N/A | unit | `! git grep -n 'from app\.modules\.settings\.models import AppSetting' -- backend/` | ✅ | ⬜ pending |
-| V-05 | `backend/alembic/env.py` imports `AppSetting` from `app.core.db.models` | 02 | 2 | LAYER-01 | — | Migration metadata still includes `app_settings` after relocation | unit | `git grep -n 'from app\.core\.db\.models import' -- backend/alembic/env.py` | ✅ | ⬜ pending |
+| V-05 | `backend/alembic/env.py` registers `app.core.db.models` for `Base.metadata` (bare-import side-effect form) | 02 | 2 | LAYER-01 | — | Migration metadata still includes `app_settings` after relocation | unit | `grep -n "^import app\.core\.db\.models" backend/alembic/env.py` (1 match expected) | ✅ | ⬜ pending |
 | V-06 | PersistentConfig get/set/reset behavior preserved | 03 | 3 | LAYER-01 | — | DB override → cache → env-default precedence unchanged | unit | `cd backend && uv run pytest tests/test_persistent_config.py -x` | ✅ existing | ⬜ pending |
 | V-07 | Public URL precedence preserved (request → DB override → env) | 03 | 3 | LAYER-01 | — | URL builder unchanged | unit/integration | `cd backend && uv run pytest tests/test_public_urls.py -x` (or full search if name differs — see RESEARCH.md §7) | ✅ existing | ⬜ pending |
 | V-08 | Settings router round-trips all 16 PersistentConfig keys | 03 | 3 | LAYER-01 | — | Admin Settings UI loads/saves preserved (API-level proof) | integration | `cd backend && uv run pytest tests/test_settings_router.py tests/test_settings_admin.py -x` | ✅ existing | ⬜ pending |
@@ -95,4 +96,4 @@ Notes:
 - [ ] Feedback latency < 60s (quick) / 480s (full)
 - [ ] `nyquist_compliant: true` set in frontmatter (planner sets after writing plans)
 
-**Approval:** pending
+**Approval:** approved 2026-04-27

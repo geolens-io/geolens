@@ -444,9 +444,9 @@ cd /Users/ishiland/Code/geolens/backend && uv run ruff check . && uv run ruff fo
 **If this table is empty:** All claims in this research were verified or cited — no user confirmation needed.
 **Three claims need confirmation; planner should check `.dockerignore` (A1), re-baseline test count if planning is delayed (A2), and grep the enterprise overlay repo for `app.modules.settings` (A3).**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should the architecture guard also forbid `from app.modules.<anything>` (broader rule), or just `from app.modules.settings` (narrow rule that maps 1:1 to LAYER-01)?**
+1. **RESOLVED — Narrow rule (`from app.modules.settings` only).** Should the architecture guard also forbid `from app.modules.<anything>` (broader rule), or just `from app.modules.settings` (narrow rule that maps 1:1 to LAYER-01)?
    - What we know: D-06 says "no module under `backend/app/core/` does `from app.modules.<anything>` at import time" — that's the broader rule, and CONTEXT.md endorses it.
    - What's unclear: Phase 213 (catalog-authz-relocate) and Phase 214 (identity-protocol-extract) will further reduce `core` → `modules` coupling, but it's not zero today. If we enforce the broader rule now, Phase 212 might pull in violations that belong to 213/214's scope. (Audit-grade item that's scoped to LAYER-01 should not break CI for unrelated reasons.)
    - Recommendation: **Implement the broader rule in code** (better long-term posture), **but first** run the `git grep` manually to discover any remaining `core` → `modules` imports today. If others exist, the planner has two options:
@@ -454,12 +454,12 @@ cd /Users/ishiland/Code/geolens/backend && uv run ruff check . && uv run ruff fo
      - (b) Have the test enumerate known-tolerated exceptions explicitly (worst — adds bookkeeping).
    - Strong default: option (a). Verify by running `grep -rn "^\s*\(from\|import\)\s\+app\.modules" backend/app/core/` after the relocation; if it returns ONLY the lines this phase removes, broaden to `from app.modules.<anything>`.
 
-2. **Add a `make migrations-check` Makefile target for ergonomic invocation, or just document the `cd backend && uv run alembic check` command?**
+2. **RESOLVED — Document the raw `cd backend && uv run alembic check` command; no Makefile target.** Add a `make migrations-check` Makefile target for ergonomic invocation, or just document the `cd backend && uv run alembic check` command?
    - What we know: No `make migrations-check` target exists today. CONTEXT.md D-08 mentions it as "(or the project's equivalent — `make migrations-check` if defined)" — i.e., already anticipates that it doesn't exist.
    - What's unclear: Phase 218 (oc-audit close) re-runs the audit; if `alembic check` is well-trodden, it's worth a Makefile target, but adding it is technically scope creep into "tooling." 
    - Recommendation: **Out of scope for this phase**. Document the raw command in the plan's verification step. If the team wants the target, that's a one-line follow-up (a `migrations-check` Makefile target) and not blocking.
 
-3. **Should the new `core/db/models.py` include a module-level docstring describing what belongs there?**
+3. **RESOLVED — Yes, include a 3-line module-level docstring establishing the convention.** Should the new `core/db/models.py` include a module-level docstring describing what belongs there?
    - What we know: D-02 says the file holds only `AppSetting` for now; future "core-owned ORM models can land here."
    - What's unclear: Without a docstring saying "core-owned platform models only," the next contributor might dump unrelated catalog models in here.
    - Recommendation: **Yes — add a 3-line docstring** establishing the convention. Cheap, prevents drift. Suggested: `"""Core-owned ORM models. Place here only models the open-core layer owns directly (e.g., DB-backed configuration). Domain-specific models stay in their domain package."""`

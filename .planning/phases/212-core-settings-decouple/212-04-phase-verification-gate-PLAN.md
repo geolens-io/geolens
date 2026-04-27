@@ -12,8 +12,10 @@ tags: [verification, alembic, pytest, ruff, open-core]
 
 must_haves:
   truths:
-    - "Alembic reports no schema drift after the relocation (`alembic check` exits 0 with `No new upgrade operations.` or equivalent)."
-    - "The full backend test suite (excluding `perf`) passes — at least 1965 tests collected, all green."
+    - "D-03: The `app_settings` table schema is unchanged after relocation — `alembic check` reports no diff between the live DB and `Base.metadata`, proving the Python class moved but the table did not."
+    - "D-08: Alembic reports no schema drift after the relocation (`alembic check` exits 0 with `No new upgrade operations.` or equivalent)."
+    - "D-09: The full backend test suite (excluding `perf`) passes against the 1965-test baseline — at least 1965 tests collected, all green."
+    - "D-10: No frontend files were modified in this phase — `git diff --name-only` against the merge-base shows zero entries under `frontend/`; the admin Settings UI smoke check is documented in SUMMARY for the manual reviewer step (≤3 min) and is not a blocking automated gate."
     - "Ruff lint and format checks pass cleanly across `app/`, `tests/`, and `alembic/`."
     - "All five ROADMAP.md success criteria for Phase 212 are met (zero core->settings imports; PersistentConfig + admin Settings UI behaviors preserved; public URL precedence preserved; baseline green; audit findings closed)."
     - "The phase exit gate is unambiguous: every command in `<verification>` exits 0."
@@ -254,8 +256,10 @@ This plan is a verification gate. It runs read-only checks (alembic check, pytes
 - ROADMAP SC #3 verified by `test_public_urls.py` passing within the full suite (Step 2).
 - ROADMAP SC #4 verified by ≥1965 tests passing in the full suite (Step 2).
 - ROADMAP SC #5 verified by Step 4a (zero matches) AND Step 5 (architecture guard test passes — proving any reintroduction would be caught).
-- D-08 (no migration generated) verified by `alembic check` exit 0 with no schema diff (Step 1).
-- D-09 (1965-test baseline) verified by Step 2.
+- D-03: `app_settings` table schema is unchanged — verified by `alembic check` (Step 1) reporting no diff against the live DB; no new migration generated.
+- D-08: no migration generated — verified by `alembic check` exit 0 with no schema diff (Step 1).
+- D-09: 1965-test backend baseline holds — verified by Step 2 collecting ≥1965 tests with exit 0.
+- D-10: no frontend work performed in this phase — verified by `git diff --name-only` against the merge-base showing zero files under `frontend/`; the admin Settings UI smoke check is manual (≤3 min, documented in SUMMARY) per CONTEXT.md, and the API-level coverage in Step 2 is the automated gate.
 </verification>
 
 <success_criteria>
