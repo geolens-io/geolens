@@ -49,7 +49,13 @@ Plans:
   2. RBAC-filtered search, tile, feature, STAC, and OGC Records endpoints return identical results for the same user/role pairs as before the relocation
   3. The 1965-test backend baseline stays green, including the visibility/authorization unit tests
   4. `git grep "auth.visibility\|from app.modules.auth.visibility"` returns zero matches across the whole repo
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 213-01-introduce-catalog-authorization-PLAN.md — Create new catalog/authorization.py (verbatim copy of auth/visibility.py with module docstring + DatasetGrant import promoted to module level)
+- [ ] 213-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 26 import lines across 23 files to app.modules.catalog.authorization, delete auth/visibility.py, run full pytest for RBAC parity
+- [ ] 213-03-architecture-guard-PLAN.md — Extend backend/tests/test_layering.py with two new architecture guard tests + update module docstring (Phase 212 marker reused)
+- [ ] 213-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC#1-#4 verification gate
 
 ### Phase 214: identity-protocol-extract
 **Goal**: Cross-domain code depends on an `IdentityProtocol` abstraction rather than the concrete `User` SQLAlchemy model, and the extension system can register alternate identity backends — unblocking enterprise auth overlays without modifying core

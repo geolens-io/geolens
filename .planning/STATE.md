@@ -4,14 +4,14 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 213 context gathered
-last_updated: "2026-04-27T12:36:06.730Z"
-last_activity: 2026-04-27
+last_updated: "2026-04-27T13:06:46.859Z"
+last_activity: 2026-04-27 -- Phase 213 planning complete
 progress:
   total_phases: 9
   completed_phases: 1
-  total_plans: 4
+  total_plans: 8
   completed_plans: 4
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 Phase: 212 (core-settings-decouple) — EXECUTING
 Plan: 4 of 4
 Status: Ready to execute
-Last activity: 2026-04-27
+Last activity: 2026-04-27 -- Phase 213 planning complete
 
 ## Roadmap Snapshot
 
