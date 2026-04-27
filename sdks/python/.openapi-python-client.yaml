@@ -1,0 +1,18 @@
+# Source: github.com/openapi-generators/openapi-python-client README §Configuration
+# Hand-maintained — read by `uvx openapi-python-client@0.28.3 generate --config ...`
+project_name_override: geolens-sdk
+package_name_override: geolens_sdk
+# Rewritten on every `make sdks` run by scripts/sync_sdk_versions.py to match
+# backend/openapi.json info.version. Do not edit by hand.
+package_version_override: 1.0.0
+
+# Cleaner enum output (matches our pydantic v2 backend's enum emission).
+literal_enums: true
+
+# Generate endpoints for ALL FastAPI tags rather than only the first tag.
+generate_all_tags: true
+
+# Format generated code with ruff so it matches project style.
+post_hooks:
+  - "ruff check . --fix-only"
+  - "ruff format ."

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "geolens-sdk"
+version = "1.0.0"
+description = "Auto-generated Python SDK for the GeoLens API. Typed clients with Bearer + API-key auth helpers."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "GeoLens", email = "noreply@geolens.io" }]
+keywords = ["geolens", "geospatial", "openapi", "sdk"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+  "httpx >=0.23.0,<0.29.0",
+  "attrs >=22.2.0",
+  "python-dateutil >=2.8.0,<3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/geolens-io/geolens"
+Repository = "https://github.com/geolens-io/geolens"
+Documentation = "https://github.com/geolens-io/geolens/blob/main/docs/sdks.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["geolens_sdk"]
