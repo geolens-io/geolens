@@ -18,7 +18,7 @@ from sqlalchemy.orm import joinedload
 
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.models import User
-from app.modules.auth.visibility import check_dataset_access, get_user_roles
+from app.modules.catalog.authorization import check_dataset_access, get_user_roles
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant
 from app.core.dependencies import get_db

@@ -19,7 +19,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.auth.models import User
-from app.modules.auth.visibility import (
+from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
 )

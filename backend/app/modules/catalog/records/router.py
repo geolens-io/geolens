@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
-from app.modules.auth.visibility import get_user_roles
+from app.modules.catalog.authorization import get_user_roles
 from app.core.dependencies import get_db
 from app.modules.catalog.datasets.domain.models import Record
 from app.modules.catalog.records.schemas import (
