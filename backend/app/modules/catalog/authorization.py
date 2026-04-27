@@ -7,7 +7,7 @@ Provides:
 - check_dataset_access() for per-endpoint visibility checks
 
 SEC-04: All dataset access paths use these shared functions.
-Relocated from app.modules.auth.visibility (Phase 213).
+Relocated from the deleted auth visibility module (Phase 213).
 """
 
 import enum
