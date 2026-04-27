@@ -1,0 +1,248 @@
+# GeoLens CLI
+
+`geolens` is the Apache-2.0 command-line interface for the GeoLens API. Log in, scan local directories, publish vector and raster files, and export STAC metadata against any GeoLens instance — community or enterprise — without writing a line of HTTP code.
+
+| | Value |
+|---|---|
+| Package | `geolens` (PyPI) |
+| License | Apache-2.0 |
+| Source | `cli/` in [geolens-io/geolens](https://github.com/geolens-io/geolens) |
+| SDK | Built on [`geolens-sdk`](sdks.md) — no hand-rolled HTTP client (OCCLI-06) |
+| Python | ≥ 3.11 |
+
+## Installation
+
+```bash
+pip install geolens
+# or:
+uv add geolens
+# or one-shot, no install:
+uvx geolens --help
+```
+
+Verify the install:
+
+```bash
+geolens --version
+```
+
+If the version reads `0.0.0+dev`, you are running from a source checkout without an editable install — `pip install -e cli/` from the repo root or `pip install geolens` from PyPI.
+
+## Quickstart
+
+```bash
+# Log in (prompts for username + password)
+geolens login https://geolens.example.com
+
+# Inventory a directory before publishing
+geolens scan ./data --json | jq
+
+# Publish a vector or raster file
+geolens publish ./data/cities.geojson
+geolens publish ./data/elevation.tif --name "Bay Area DEM"
+
+# Export STAC 1.1 metadata for a raster dataset
+geolens export stac <dataset-id> -o cities.stac.json
+```
+
+## Commands
+
+### `geolens login <instance-url>`
+
+Authenticates against the instance and stores the resulting token.
+
+| Flag | Purpose |
+|---|---|
+| `--token <jwt>` | Skip prompt; store this JWT directly. Useful after a browser-based SAML/OAuth flow. **Security: avoid passing tokens on the command line where shell history may persist them.** A `--token-stdin` follow-up is captured as a deferred enhancement (T-216-05). |
+| `--api-key <key>` | Store an API key instead of a bearer token. Mutually exclusive with `--token`; passing both exits with code 2. |
+| `--no-keyring` | Write to `~/.config/geolens/credentials.toml` (mode 0600) instead of the OS keyring. Useful for CI or headless boxes without dbus. |
+
+The interactive flow:
+
+1. Validates the URL (https/http scheme, normalized trailing slash).
+2. Prompts for **username** (visible) and **password** (via `getpass`, hidden).
+3. POSTs to `/auth/login` via the SDK; stores the access token in the keyring under service `geolens`, account `<instance_url>`. The refresh token, if returned, lands under account `<instance_url>:refresh`.
+4. Updates `~/.config/geolens/config.toml` with the active instance and username for `whoami` display. **Tokens are never written to `config.toml`.**
+
+### `geolens logout`
+
+Clears credentials for the active instance from both the keyring and `credentials.toml`. Idempotent — missing entries are silently ignored.
+
+### `geolens whoami`
+
+Calls `GET /auth/me` and prints the current user. Refreshes the access token once on a 401 if a refresh token is stored; if refresh fails, prints `Session expired — run \`geolens login\` again` and exits with code 3 (auth failure).
+
+### `geolens scan <dir>`
+
+Walks a directory and reports what would be ingested.
+
+| Flag | Purpose |
+|---|---|
+| `--json` | Emit a machine-readable JSON array instead of a `rich` table |
+| `--max-depth N` | Cap recursion at N levels below the root |
+| `--include-ext .gpkg,.tif` | Filter to specific extensions (case-insensitive; leading dot optional) |
+
+Vector formats detected: `.geojson`, `.json` (parsed as GeoJSON), `.gpkg`, `.shp` (with sibling-grouping for `.dbf`/`.shx`/`.prj`/`.cpg`).
+Raster formats: `.tif`, `.tiff` (treated as candidate COG; the server validates).
+
+The CLI's allowlist is informational — the GeoLens server validates content via `puremagic` on upload, so file-type spoofing is caught server-side. `geolens scan` is a pure-local dry-run; it never uploads anything and exits with code 0 even when every entry is `ingest: no`.
+
+Shapefile sibling-grouping: when a `.shp` is detected, the scan emits a single row for the dataset and lists the sidecars under `sidecar_files` in the JSON output. Missing required sidecars produce `ingest: no, reason: "missing .dbf"` (or `.shx`, `.prj`).
+
+### `geolens publish <file>`
+
+Uploads a vector or raster file via the 3-step ingest flow (upload → preview → commit) and prints the resulting dataset URL.
+
+| Flag | Purpose |
+|---|---|
+| `--name STR` | Override dataset name (default: filename stem) |
+| `--description STR` | Set description |
+| `--tags a,b,c` | Comma-separated keyword tags. **Currently a no-op pending a `tags`/`keywords` field on `CommitRequest`** — captured as Phase 216 Open Question 4. |
+| `--collection ID` | Add to a collection after commit. **Currently a no-op pending an add-to-collection endpoint in the SDK** — captured in Phase 216 Deferred Ideas. |
+| `--wait/--no-wait` | Wait for ingestion to resolve the dataset id (default: `--wait`). With `--no-wait`, the URL falls back to a job-search form. |
+
+Successful output prints `https://<instance>/datasets/<dataset_id>`. With `--no-wait` and a still-pending commit, the URL is `<instance>/datasets?job_id=<id>`.
+
+The CLI uses a **multipart-upload workaround** for the broken generated `BodyUploadFileIngestUploadPost.to_multipart()` (RESEARCH Pitfall 1): it calls the SDK's underlying httpx client directly via `client.get_httpx_client()`. OCCLI-06 still holds — the httpx instance comes from the SDK and `cli/pyproject.toml` declares no httpx direct dependency.
+
+Commit is **not idempotent** (RESEARCH Pitfall 6): re-running publish on a job that has already committed prints "already committed" and exits with code 1.
+
+### `geolens export stac <dataset-id>`
+
+Exports STAC 1.1 JSON for a raster dataset. STAC export is **raster-only** in v13.x; vector datasets exit with code 2 and a clear error message.
+
+| Flag | Purpose |
+|---|---|
+| `-o FILE` / `--output FILE` | Write to file (default: stdout). Atomic write — Ctrl+C never leaves a half-written file. Mode 0o644 (STAC payloads are not secrets per the threat model). |
+| `--compact` | Single-line JSON for piping into `jq` or `curl --data` (no trailing newline). |
+
+Default output is pretty-printed (`indent=2`, sorted keys, trailing newline) for diff stability.
+
+Pre-flight: the CLI fetches `GET /datasets/{id}` first to confirm `record_type`, so non-raster types yield a clean message instead of a confusing 404/422 from `/stac/items/{id}`.
+
+## Auth Modes
+
+1. **Interactive (default)** — `geolens login <url>` prompts for username + password.
+2. **Paste a JWT** — after a browser SSO flow (Google, Microsoft, SAML), copy the JWT from the GeoLens UI and run `geolens login <url> --token <jwt>`. SAML and OAuth interactive CLI flows are deferred; the paste-token path covers them.
+3. **API key** — `geolens login <url> --api-key <key>`. Stored separately from JWTs in the keyring under account `<url>:api_key`.
+4. **Headless / CI** — `geolens login <url> --token <jwt> --no-keyring`. The token lands in `~/.config/geolens/credentials.toml` (mode 0600) instead of the OS keyring.
+5. **Env var override** — `GEOLENS_INSTANCE` and `GEOLENS_TOKEN` override config-file values for one-off runs.
+
+## Configuration
+
+### XDG-compliant paths
+
+| OS | Config location |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME/geolens/` (default `~/.config/geolens/`) |
+| macOS | `~/Library/Application Support/geolens/` |
+| Windows | `%LOCALAPPDATA%\geolens\geolens\` |
+
+Two files (only the first always exists):
+
+- `config.toml` — instance URL, default profile, username (no secrets).
+- `credentials.toml` — only created when `--no-keyring` is set or the keyring is unavailable. Mode 0600; parent directory mode 0700.
+
+### Environment variables
+
+| Var | Purpose |
+|---|---|
+| `GEOLENS_INSTANCE` | Override the active instance URL |
+| `GEOLENS_TOKEN` | Override the stored bearer token |
+| `XDG_CONFIG_HOME` | Move the config directory off `~/.config/` |
+| `NO_COLOR` | Disable ANSI colors (also auto-detected when stdout is not a TTY) |
+
+Precedence: **CLI flag > env var > `credentials.toml` > keyring**.
+
+## Lockstep Version Policy
+
+The CLI version is bound to the GeoLens backend's OpenAPI version. `geolens` v1.4.0 ships against the backend's v1.4.x OpenAPI snapshot; the CLI's `geolens-sdk` dependency pins to `>=1.4.0,<2.0.0` (lockstep across patch + minor of the same OpenAPI version).
+
+On a backend major-version bump, the CLI gets a coordinated bump too. `make sdks-check` catches version skew in CI on every PR — the `scripts/sync_sdk_versions.py` extension landed in Phase 216 / Plan 06 writes `cli/pyproject.toml`'s version field along with the two SDK targets, so the existing drift gate now covers the CLI automatically (CONTEXT.md D-39).
+
+See [`docs/sdks.md`](sdks.md#lockstep-version-policy) for the full SDK policy this inherits from.
+
+## Drift Gate
+
+`make sdks-check` regenerates the SDKs and verifies that:
+
+- Generated source under `sdks/python/geolens_sdk/`, `sdks/typescript/src/`, and `sdks/typescript/test/` matches the committed copies (modulo the hand-written wrapper carve-outs).
+- `sdks/python/pyproject.toml`, `sdks/typescript/package.json`, **and `cli/pyproject.toml`** all have the same `version` value as `backend/openapi.json`'s `info.version`.
+
+The CLI is fully hand-maintained — there is no generator that touches `cli/geolens_cli/*.py` — but version drift is caught by the same gate that catches SDK drift.
+
+The CI `cli-test` job adds two further structural gates:
+
+1. `grep -rE '^(import|from) (httpx|requests)' cli/geolens_cli/` returns no matches (OCCLI-06: zero direct HTTP imports).
+2. A `tomllib` assertion that `cli/pyproject.toml` declares no `httpx`/`requests` direct dep (transitive via `geolens-sdk` is fine).
+
+Both gates fire on every PR that touches `cli/**` or `sdks/python/**`, so a regression cannot land silently.
+
+## Publishing
+
+First-publish runbook (one-time setup; mirrors `docs/sdks.md`):
+
+1. Claim the `geolens` PyPI name.
+2. Create a PyPI API token (initially "Entire account" scope; rescope to project after the first publish).
+3. Add the token as repo secret `PYPI_TOKEN`.
+4. Trigger the **Publish CLI** workflow from the GitHub Actions UI:
+   - Select `dry_run: true` for the first run (builds the wheel + sdist but does not upload).
+   - Select `dry_run: false` for the real publish.
+
+The first publish is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). After the first publish, future migration to PyPI Trusted Publishing is wired into `permissions: id-token: write` on `.github/workflows/publish-cli.yml`.
+
+## Known Rough Edges
+
+### Multipart upload generator quirk
+
+The generated `BodyUploadFileIngestUploadPost.to_multipart()` in `geolens-sdk` is broken — it sends `(None, str(path).encode(), 'text/plain')` instead of the file bytes. The CLI bypasses this by calling the SDK's underlying httpx client directly (`client.get_httpx_client().post('/ingest/upload', files={...})`). OCCLI-06 still holds: the httpx instance comes from the SDK, and `cli/pyproject.toml` declares no httpx direct dep.
+
+### Keyring on headless Linux
+
+Linux's keyring backends (GNOME Keyring, KWallet) require a desktop session with dbus. CI runners and SSH sessions typically lack this. The CLI auto-falls back to `credentials.toml` with a warning; `--no-keyring` makes the choice explicit.
+
+### Refresh-token rotation
+
+The CLI rotates the refresh token whenever `/auth/refresh` returns a new one. If you copy `credentials.toml` to another machine after a refresh, the old machine's refresh token is invalid.
+
+### `--token` and shell history (T-216-05)
+
+`geolens login <url> --token <jwt>` is convenient but the JWT lands in shell history. For production CI use, prefer the env-var path (`GEOLENS_TOKEN=<jwt> geolens whoami`) which leaves no flag in history. A `--token-stdin` enhancement is captured for a future phase as the structural fix.
+
+### Commit is not idempotent
+
+Re-running `geolens publish` on a job that has already committed prints `Job <id> was already committed` and exits 1. There is no resume of in-flight commits — each publish starts a new job.
+
+### STAC for vector datasets
+
+STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` exits with code 2 and the clear message `STAC export is supported for raster datasets only — got record_type=<...>`. Vector dataset metadata is exposed via `GET /datasets/{id}` and the OGC API Records endpoints.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `geolens --version` shows `0.0.0+dev` | Not installed (running from a source checkout) | `pip install -e cli/` or `pip install geolens` |
+| `keyring.errors.NoKeyringError` traceback | Headless Linux without dbus | Use `--no-keyring` or set `GEOLENS_TOKEN` env var |
+| `Authentication required. Run \`geolens login\` first.` (exit 3) | Token missing or expired | `geolens login <url>` to refresh credentials |
+| `Session expired — run \`geolens login\` again` (exit 3) | Refresh token also expired | Re-login |
+| `Job <id> was already committed` (exit 1) | Re-running publish on a job that completed | Each `geolens publish` starts a new job; resume of in-flight commits is not supported |
+| `STAC export is supported for raster datasets only` (exit 2) | Trying STAC export on a vector dataset | Use `GET /datasets/{id}` for vector metadata |
+| OCCLI-06 violation in CI | A PR added `import httpx` or `import requests` to `cli/geolens_cli/`, or added an httpx/requests dep to `cli/pyproject.toml` | Re-run `make cli-check` locally; the only legitimate path to httpx is via the SDK's `client.get_httpx_client()` |
+
+## Exit Codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Generic command failure |
+| 2 | Invalid arguments / misuse (Typer/Click default) |
+| 3 | Auth failure (401, expired token, missing credentials) |
+| 4 | Network error (timeout, connection refused, DNS) |
+| 5 | Server-side error (5xx from backend) |
+
+## References
+
+- [`docs/sdks.md`](sdks.md) — the underlying Python SDK (`geolens-sdk`)
+- [`docs/install-guide.md`](install-guide.md) — running a GeoLens instance
+- [GitHub repository](https://github.com/geolens-io/geolens) — source for the CLI under `cli/`
+- [PyPI](https://pypi.org/project/geolens/) — the published package (after the first publish lands)
