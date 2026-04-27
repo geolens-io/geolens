@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
+status: ready_to_plan
 stopped_at: Phase 213 context gathered
 last_updated: "2026-04-27T13:07:26.063Z"
 last_activity: 2026-04-27 -- Phase 213 execution started
 progress:
   total_phases: 9
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
   completed_plans: 4
-  percent: 50
+  percent: 22
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 ## Current Position
 
-Phase: 213 (catalog-authz-relocate) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 213
-Last activity: 2026-04-27 -- Phase 213 execution started
+Phase: 999.5
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-04-27
 
 ## Roadmap Snapshot
 

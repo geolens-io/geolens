@@ -125,7 +125,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 212. core-settings-decouple | 3/4 | In Progress|  |
-| 213. catalog-authz-relocate | 4/4 | Complete   | 2026-04-27 |
+| 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
 | 214. identity-protocol-extract | 0/TBD | Not started | - |
 | 215. sdks-from-openapi | 0/TBD | Not started | - |
 | 216. geolens-cli-mvp | 0/TBD | Not started | - |
