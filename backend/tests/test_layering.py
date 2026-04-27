@@ -1,17 +1,22 @@
-"""Layering rules: core/ must not depend on modules/settings/.
+"""Layering rules: core/ must not depend on modules/settings/, and modules/auth/visibility.py is gone.
 
-Enforces the open-core boundary closed by Phase 212. If this test fails, a
-`from app.modules.settings.<...>` import (or `import app.modules.settings.<...>`)
-was introduced under `backend/app/core/`, which violates the rule that modules
-depend on core, not the reverse.
+Enforces open-core boundaries closed by Phases 212 and 213. If a test in this
+file fails, a forbidden import (`from app.modules.settings.<...>` under
+`backend/app/core/`, OR `from app.modules.auth.visibility import ...` anywhere
+under `backend/`) was reintroduced, which violates the layering rules that
+modules depend on core (not the reverse) and that catalog authorization lives
+in `app.modules.catalog.authorization` (not `app.modules.auth.visibility`).
 
-Scope (Phase 212): NARROW — only `from app.modules.settings`. Phases 213
-(catalog-authz-relocate) and 214 (identity-protocol-extract) close additional
-core->modules edges; Phase 218 will broaden this guard to `from app.modules.<*>`
-once those phases land.
+Scope (Phases 212-213):
+- `from app.modules.settings` under `backend/app/core/` (Phase 212 LAYER-01)
+- `from app.modules.auth.visibility` anywhere under `backend/` (Phase 213 LAYER-02)
+- Broader `auth.visibility` reference catch (Phase 213 LAYER-02; pathspec excludes this test file to avoid the self-positive bug from Phase 212-03 commit b0bd0c2c)
+
+Phase 214 (identity-protocol-extract) closes additional core->modules edges;
+Phase 218 will broaden this guard to `from app.modules.<*>` once those phases land.
 
 Markers:
-- `@pytest.mark.architecture` — opt-out locally with `pytest -m 'not architecture'`
+- `@pytest.mark.architecture` - opt-out locally with `pytest -m 'not architecture'`
   (D-07). Runs by default in CI because `addopts` does not exclude it.
 """
 
@@ -98,6 +103,78 @@ def test_app_settings_imports_only_via_core_db_models() -> None:
         pytest.fail(
             "Regression: a deleted import path is referenced. Use "
             "`app.core.db.models` instead. Offending lines:\n" + result.stdout
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_imports_from_auth_visibility() -> None:
+    """`auth.visibility` import path must not appear anywhere under `backend/`.
+
+    Closes Phase 213 LAYER-02: the deleted `app.modules.auth.visibility` path
+    becomes a hard ModuleNotFoundError after this phase - any surviving import
+    is a migration miss. Maps directly to ROADMAP SC#4.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+
+    result = _git_grep(
+        r"^\s*(from|import)\s+app\.modules\.auth\.visibility",
+        "backend/",
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Regression: deleted import path `app.modules.auth.visibility` is still "
+            "referenced. Migrate to `app.modules.catalog.authorization`. "
+            "Offending lines:\n" + result.stdout
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_auth_visibility_module_referenced() -> None:
+    """Broader guard: `auth.visibility` string must not appear as a module reference.
+
+    Catches re-exports in `__init__.py` files or indirect references that the
+    import-shaped guard above would miss. Excludes this test file itself via
+    a `:!` pathspec so the regex literal in the guard does not produce a
+    self-positive (Phase 212-03 bug, commit b0bd0c2c — fixed there with an
+    import-anchor; here we use the broader regex deliberately and rely on the
+    pathspec exclusion instead).
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"app\.modules\.auth\.visibility|auth\.visibility",
+            "--",
+            "backend/",
+            ":!backend/tests/test_layering.py",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Regression: `auth.visibility` is referenced outside test_layering.py. "
+            "Offending lines:\n" + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
