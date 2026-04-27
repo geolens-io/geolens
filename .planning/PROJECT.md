@@ -20,9 +20,23 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - v14.0 Marketing Site (phases 212-217, executed in the `getgeolens.com` repo, shipped 2026-04-13). Phase artifacts archived during cleanup; only milestone summary persisted, now relocated.
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
+## Current Milestone: v13.1 Open-Core Separation P1
+
+**Goal:** Close the six P1 boundary/seam debts surfaced in `docs-internal/audits/oc-separation-deferred-items-20260426.md` so the open-core architecture is demonstrably ship-ready before the first paid customer (audit grades target: Boundary B → A−, Seam Quality C → B, OSS Surface D → C).
+
+**Target features:**
+- Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`)
+- Refactor `auth/visibility.py` → `catalog/authorization.py` (23 inbound files, mechanical relocation)
+- Extract `IdentityProtocol` in `core/identity.py` (51 `User` import sites across 11 domains — prerequisite for enterprise auth overlays)
+- Auto-generate Python + TypeScript SDKs from snapshotted `backend/openapi.json` with publish targets
+- Ship `geolens` CLI MVP (Apache-2.0): `scan`, `publish`, `export stac`, `login` — strategy's adoption wedge
+- Reintroduce SAML auth properly as `auth-saml-enterprise` overlay (government-buyer mandate; lives in enterprise repo, not core)
+
+**Key context:** Internal refactor + enterprise-overlay milestone driven by the open-core audit. Public app version stays at 1.0.0; planning milestone numbering continues from v13.0 (Open-Core Pre-Release, shipped 2026-03-27). Audit doc is the spec — no separate domain research needed.
+
 ## Current Position
 
-No active milestone in the geolens repo. Backlog phases 999.1–999.4 (3D viewer, PostGIS 3D detection, GeoJSON-Z delivery, shared vector staging pipeline) are completed work tracked here. New geolens-app milestones (v16.0+) would land in this repo. Documentation-site work (v15.0) is being executed in the getgeolens.com repo.
+v13.1 active. Last shipped milestone in this repo was v13.0 Open-Core Pre-Release (2026-03-27). Backlog phases 999.1–999.4 are completed standalone work tracked separately. Documentation-site work (v15.0) is being executed in the getgeolens.com repo.
 
 ## Core Value
 
@@ -278,14 +292,9 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-- [ ] Public marketing site at getgeolens.com with hero, value proposition, and product previews
-- [ ] Features page showcasing GeoLens capabilities for GIS analysts and IT managers
-- [ ] Editions comparison page (Community vs Enterprise) with feature matrix
-- [ ] Quickstart page guiding users from zero to running GeoLens via docker compose
-- [ ] Enterprise contact path (demo request / contact form)
-- [ ] Stylized product preview assets (search, map builder, detail pages)
-- [ ] Responsive design with dark/light mode matching GeoLens brand identity
-- [ ] SEO fundamentals (meta tags, OG images, structured data)
+_v13.1 Open-Core Separation P1 — populated from `.planning/REQUIREMENTS.md` after requirements are defined._
+
+(Marketing-site Active items previously listed here moved with v14.0 to the `getgeolens.com` repo on 2026-04-26.)
 
 ### Out of Scope
 
@@ -533,4 +542,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-25 — milestone v15.0 Documentation Site, Phase 223 (Bootstrap & Infrastructure Lock) complete*
+*Last updated: 2026-04-26 — milestone v13.1 Open-Core Separation P1 started (audit-driven; spans phases 212–217)*

@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: idle
-status: idle
-stopped_at: Cross-repo planning split — v14.0/v15.0/999.5 relocated to getgeolens.com repo
-last_updated: "2026-04-26T22:30:00.000Z"
-last_activity: 2026-04-26 - Completed quick task 260426-m5d: PR2 search/maps function decomposition (KISS-1, KISS-2, PERF-6)
+milestone: v13.1
+milestone_name: Open-Core Separation P1
+status: planning
+last_updated: "2026-04-27T00:27:22.029Z"
+last_activity: 2026-04-27
 progress:
   total_phases: 0
   completed_phases: 0
@@ -21,13 +20,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone in this repo. Documentation-site work (v15.0) is being executed in the `getgeolens.com` repo. See `~/Code/getgeolens.com/.planning/STATE.md`.
+**Current focus:** v13.1 Open-Core Separation P1 — closing 6 boundary/seam debts from `docs-internal/audits/oc-separation-deferred-items-20260426.md` before the first paid customer.
 
 ## Current Position
 
-No active milestone. Last shipped milestone here was v13.0 Open-Core Pre-Release (2026-03-27).
-
-The next geolens-application milestone is TBD — candidates surface from the backlog (999.x phases) or from open-core feature backlog. New milestones for the geolens app land here. Marketing/docs site work lands in the `getgeolens.com` repo.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-27 — Milestone v13.1 started
 
 ## Cross-Repo Note (2026-04-26)
 
