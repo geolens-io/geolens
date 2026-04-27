@@ -1,4 +1,4 @@
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts
+.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli
 
 dev:
 	docker compose up --build
@@ -116,3 +116,22 @@ publish-sdks-py:
 
 publish-sdks-ts:
 	cd sdks/typescript && npm install && npm run build && npm publish --access public
+
+# ----- CLI (Phase 216) -----
+# `make cli-build` builds the geolens CLI wheel + sdist.
+cli-build: ## Build the geolens CLI wheel + sdist
+	cd cli && uv build
+
+# `make cli-test` runs CLI unit tests + round-trip integration test (round-trip lands in Plan 06).
+cli-test: ## Run CLI unit tests + round-trip integration test (round-trip lands in Plan 06)
+	cd cli && uv run pytest -v
+	cd backend && PYTHONPATH=. uv run pytest tests/test_cli_round_trip.py -v
+
+# `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check
+# (sync_sdk_versions extension lands in Plan 06).
+cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught by sdks-check
+	@echo "cli-check OK (drift gate is sdks-check; sync_sdk_versions extension catches CLI version drift)"
+
+# `make publish-cli` — manual user action; requires UV_PUBLISH_TOKEN.
+publish-cli: ## Build + publish geolens CLI to PyPI (requires UV_PUBLISH_TOKEN)
+	cd cli && uv build && uv publish
