@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
-stopped_at: Phase 215-03 complete (hand-written Python + TypeScript auth wrappers)
-last_updated: "2026-04-27T19:45:38.525Z"
-last_activity: 2026-04-27 -- Phase 215-03 auth-wrappers complete
+stopped_at: Phase 215-04 complete (SDK round-trip test + sdks-check CI job + manual publish workflow)
+last_updated: "2026-04-27T19:55:47Z"
+last_activity: 2026-04-27 -- Phase 215-04 round-trip + CI wiring complete
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 17
-  completed_plans: 16
-  percent: 94
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 215 — SDKs from OpenAPI; Plans 01 (scaffold) + 02 (Makefile + first regen) + 03 (auth wrappers) complete; Plan 04 (round-trip integration test + CI + publish workflow) up next
+**Current focus:** Phase 215 — SDKs from OpenAPI; Plans 01–04 complete; Plan 05 (docs/sdks.md + phase verification gate) up next
 
 ## Current Position
 
-Phase: 215 (sdks-from-openapi) — IN PROGRESS (3/5 plans)
-Plan: 215-03 — COMPLETE (hand-written GeolensClient Python wrapper + createGeolensClient TypeScript factory + public package entry; cp-stash + drift gate exemptions validated end-to-end)
-Status: Ready to execute Plan 215-04 (round-trip integration test + CI workflow + publish-sdks.yml scaffold)
-Last activity: 2026-04-27 -- Phase 215-03 auth-wrappers complete
+Phase: 215 (sdks-from-openapi) — IN PROGRESS (4/5 plans)
+Plan: 215-04 — COMPLETE (round-trip integration test [12/12 pass] + sdks-check CI job mirroring openapi-snapshot + publish-sdks.yml workflow_dispatch-only manual workflow with target/dry_run inputs)
+Status: Ready to execute Plan 215-05 (docs/sdks.md + phase verification gate; closes OCSDK-04)
+Last activity: 2026-04-27 -- Phase 215-04 round-trip + CI wiring complete
 
 ## Roadmap Snapshot
 
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T19:41:32Z
-Stopped at: Phase 215-03 complete (hand-written Python + TypeScript auth wrappers)
-Resume file: .planning/phases/215-sdks-from-openapi/215-04-PLAN.md
+Last session: 2026-04-27T19:55:47Z
+Stopped at: Phase 215-04 complete (SDK round-trip test + sdks-check CI job + manual publish workflow)
+Resume file: .planning/phases/215-sdks-from-openapi/215-05-PLAN.md
