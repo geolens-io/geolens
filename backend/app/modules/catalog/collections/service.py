@@ -12,9 +12,8 @@ Handles CRUD operations for collections and collection-dataset membership.
 # # Commit semantics
 # Functions that take a session generally **flush** but do not commit.
 # Callers (router endpoints) own the commit boundary so multiple service
-# calls can be batched into a single transaction. The exception is
-# `update_collection`, which commits internally for legacy reasons — if you
-# add a new write function, prefer the flush-only pattern.
+# calls can be batched into a single transaction. All write functions
+# follow the flush-only pattern — never commit internally.
 """
 
 import json
@@ -54,7 +53,11 @@ async def update_collection(
     name: str | None = None,
     description: str | None = None,
 ) -> Collection:
-    """Update non-None fields. Raise ValueError if not found. Commits and refreshes."""
+    """Update non-None fields. Raise ValueError if not found. Does NOT commit.
+
+    Caller owns the commit boundary so the update batches with the audit-log
+    write in the same transaction.
+    """
     result = await session.execute(
         select(Collection).where(Collection.id == collection_id)
     )
@@ -67,8 +70,7 @@ async def update_collection(
     if description is not None:
         collection.description = description
 
-    await session.commit()
-    await session.refresh(collection)
+    await session.flush()
     return collection
 
 
