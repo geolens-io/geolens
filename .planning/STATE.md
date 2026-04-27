@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: Phase 215 shipped 2026-04-27; ready to start Phase 216 (geolens-cli-mvp consuming Python SDK per CONTEXT D-17)
-stopped_at: Phase 215 complete; ready for Phase 216
-last_updated: "2026-04-27T20:27:46.156Z"
+stopped_at: Phase 216 context gathered
+last_updated: "2026-04-27T20:52:41.333Z"
 last_activity: 2026-04-27 -- Phase 215-05 docs + verification gate complete
 progress:
   total_phases: 9
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T20:30:00Z
-Stopped at: Phase 215 complete; ready for Phase 216
-Resume file: None
+Last session: 2026-04-27T20:52:41.327Z
+Stopped at: Phase 216 context gathered
+Resume file: .planning/phases/216-geolens-cli-mvp/216-CONTEXT.md
