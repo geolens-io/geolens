@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.modules.auth.models import User
-from app.modules.auth.visibility import apply_visibility_filter
+from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -467,7 +467,7 @@ async def get_dataset_detail(
         )
 
     if user_roles is None:
-        from app.modules.auth.visibility import get_user_roles
+        from app.modules.catalog.authorization import get_user_roles
 
         user_roles = await get_user_roles(db, user) if user is not None else set()
     is_admin = "admin" in user_roles

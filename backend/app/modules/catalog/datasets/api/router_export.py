@@ -23,7 +23,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.models import User
 from app.core.config import settings
-from app.modules.auth.visibility import (
+from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access,
     check_dataset_access_or_anonymous,

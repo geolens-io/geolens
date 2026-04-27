@@ -30,7 +30,7 @@ from sqlalchemy.sql.elements import ColumnElement, Label
 
 from app.modules.auth.models import User
 from app.core.config import settings
-from app.modules.auth.visibility import apply_visibility_filter
+from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import (
     Dataset,

@@ -121,7 +121,7 @@ async def get_job_status(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        from app.modules.auth.visibility import get_user_roles
+        from app.modules.catalog.authorization import get_user_roles
 
         user_roles = await get_user_roles(db, user)
         if "admin" not in user_roles:
@@ -251,7 +251,7 @@ async def get_job_status_by_dataset(
     # Visibility check: reuse the dataset detail permission so only users
     # who can see the dataset can see the job warnings. Avoid leaking the
     # existence of jobs via 403 vs 404 divergence.
-    from app.modules.auth.visibility import apply_visibility_filter, get_user_roles
+    from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
         DatasetGrant,
@@ -316,7 +316,7 @@ async def retry_job(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        from app.modules.auth.visibility import get_user_roles
+        from app.modules.catalog.authorization import get_user_roles
 
         user_roles = await get_user_roles(db, user)
         if "admin" not in user_roles:

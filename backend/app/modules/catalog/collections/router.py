@@ -13,7 +13,7 @@ from app.platform.cache import get_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.auth.dependencies import get_optional_user, require_permission
 from app.modules.auth.models import User
-from app.modules.auth.visibility import get_user_roles
+from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.collections.schemas import (
     AddDatasetsResponse,
     CollectionAddDatasetsRequest,

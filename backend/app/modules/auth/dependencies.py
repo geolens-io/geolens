@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import ApiKey, User
-from app.modules.auth.visibility import get_user_roles
+from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
 from app.core.dependencies import get_db
 
