@@ -8,6 +8,7 @@ register themselves by providing entry points that populate the registry dict.
 from __future__ import annotations
 
 from importlib.metadata import entry_points
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -15,12 +16,16 @@ from app.platform.extensions.defaults import (
     DefaultAuditExtension,
     DefaultAuthExtension,
     DefaultBrandingExtension,
+    DefaultIdentityExtension,
 )
 from app.platform.extensions.protocols import (
     AuditExtension,
     AuthExtension,
     BrandingExtension,
 )
+
+if TYPE_CHECKING:
+    from app.core.identity import IdentityExtension
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -100,4 +105,21 @@ def get_auth_extension() -> AuthExtension:
     ext = _extensions.get("auth")
     if ext is None:
         return DefaultAuthExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_identity_extension() -> "IdentityExtension":
+    """Return the registered IdentityExtension or the community default.
+
+    Phase 214 / IDENT-03 — mirrors ``get_branding_extension()``,
+    ``get_audit_extension()``, and ``get_auth_extension()`` exactly.
+    Enterprise overlays register an implementation under the ``"identity"``
+    key via the ``geolens.extensions`` entry-point group; community
+    edition gets the no-op ``DefaultIdentityExtension`` whose
+    ``resolve_identity_from_token`` returns ``None`` (existing JWT
+    path runs unchanged).
+    """
+    ext = _extensions.get("identity")
+    if ext is None:
+        return DefaultIdentityExtension()
     return ext  # type: ignore[return-value]
