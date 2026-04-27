@@ -32,11 +32,11 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
   3. `core/public_urls.py` continues to resolve the public base URL with the same precedence (request → DB override → env var)
   4. The 1965-test backend baseline stays green; no test required AppSetting-import shimming
   5. The audit's "Layering" finding for `core/persistent_config.py:30` and `core/public_urls.py:14` no longer reproduces
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 - [x] 212-01-introduce-core-db-models-PLAN.md — Create new core/db/models.py with relocated AppSetting class (verbatim copy + docstring)
-- [ ] 212-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 9 callers to app.core.db.models, update alembic/env.py, delete modules/settings/models.py
+- [x] 212-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 9 callers to app.core.db.models, update alembic/env.py, delete modules/settings/models.py
 - [ ] 212-03-architecture-guard-PLAN.md — Add backend/tests/test_layering.py guard + register architecture pytest marker
 - [ ] 212-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC verification gate
 
@@ -118,7 +118,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 212. core-settings-decouple | 1/4 | In Progress|  |
+| 212. core-settings-decouple | 2/4 | In Progress|  |
 | 213. catalog-authz-relocate | 0/TBD | Not started | - |
 | 214. identity-protocol-extract | 0/TBD | Not started | - |
 | 215. sdks-from-openapi | 0/TBD | Not started | - |
