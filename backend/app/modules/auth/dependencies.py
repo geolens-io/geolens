@@ -11,10 +11,12 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.models import ApiKey, User
-from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.core.identity import Identity
+from app.modules.auth.models import ApiKey, User
+from app.modules.catalog.authorization import get_user_roles
+from app.platform.extensions import get_identity_extension
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -62,7 +64,7 @@ async def get_optional_user(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme_optional)],
     db: AsyncSession = Depends(get_db),
-) -> User | None:
+) -> Identity | None:
     """Try to extract the current user from an API key or JWT token.
 
     Returns None if no credentials are provided or they are invalid.
@@ -73,6 +75,18 @@ async def get_optional_user(
     user = await _resolve_api_key(request, db)
     if user is not None:
         return user
+
+    # IdentityExtension hook (Phase 214 D-15): if an enterprise overlay
+    # registered an alternate identity backend, give it a chance to resolve
+    # the bearer token before the existing JWT decode path. Default impl
+    # returns None -> falls through to JWT below. Extension is bearer-token
+    # only (D-17 — API keys remain a community concern).
+    if token is not None:
+        ext_identity = await get_identity_extension().resolve_identity_from_token(
+            token, request, db
+        )
+        if ext_identity is not None:
+            return ext_identity
 
     if token is None:
         return None
@@ -106,7 +120,7 @@ async def get_current_user(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme_optional)],
     db: AsyncSession = Depends(get_db),
-) -> User:
+) -> Identity:
     """Decode a JWT Bearer token (or API key) and return the corresponding User.
 
     Raises 401 if credentials are invalid, expired, or the user does not exist.
@@ -117,6 +131,18 @@ async def get_current_user(
     user = await _resolve_api_key(request, db)
     if user is not None:
         return user
+
+    # IdentityExtension hook (Phase 214 D-15): same pattern as
+    # get_optional_user. Duplicated across both deps to preserve the
+    # expired-token UX (RFC 6750 silent-refresh hint at lines below)
+    # rather than refactoring get_current_user to delegate to
+    # get_optional_user (Pitfall 9 recommendation).
+    if token is not None:
+        ext_identity = await get_identity_extension().resolve_identity_from_token(
+            token, request, db
+        )
+        if ext_identity is not None:
+            return ext_identity
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -167,8 +193,8 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> User:
+    current_user: Annotated[Identity, Depends(get_current_user)],
+) -> Identity:
     """Ensure the current user is active."""
     if not current_user.is_active:
         raise HTTPException(
@@ -181,7 +207,7 @@ async def get_current_active_user(
 async def get_cached_user_roles(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
 ) -> set[str]:
     """Return user roles, cached for the lifetime of this request.
 
@@ -212,9 +238,9 @@ def require_role(*roles: str):
 
     async def _role_checker(
         request: Request,
-        current_user: Annotated[User, Depends(get_current_active_user)],
+        current_user: Annotated[Identity, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
-    ) -> User:
+    ) -> Identity:
         user_roles = await get_cached_user_roles(request, db, current_user)
 
         if not user_roles.intersection(roles):
@@ -241,9 +267,9 @@ def require_permission(*capabilities: str):
 
     async def _permission_checker(
         request: Request,
-        current_user: Annotated[User, Depends(get_current_active_user)],
+        current_user: Annotated[Identity, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
-    ) -> User:
+    ) -> Identity:
         from app.modules.auth.permissions import get_effective_permissions
 
         # Get user roles (cached per-request)
