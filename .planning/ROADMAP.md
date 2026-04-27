@@ -84,7 +84,7 @@ Plans:
   2. `npm install @geolens/sdk` (Apache-2.0) yields a typed TypeScript client with the same auth helpers and request/response models; round-trip against a running instance succeeds for the same three endpoints
   3. `make sdks` regenerates both SDKs from `backend/openapi.json` in a single shot; `make sdks-check` fails CI when generated code drifts from the committed sources (mirrors `make openapi-check`)
   4. Each SDK package version pins to the OpenAPI snapshot version it was generated from; `docs/sdks.md` documents the chosen generators (Python + TS) with rationale and the publish/release process
-**Plans:** 5/5 plans complete (2026-04-27 — all 4 ROADMAP SC verified PASS)
+**Plans:** 5/5 plans complete
 
 Plans:
 - [x] 215-01-PLAN.md — Scaffold sdks/python/ + sdks/typescript/ directories with hand-maintained tooling, license, and gitignores (no generated code yet)
@@ -140,7 +140,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | 212. core-settings-decouple | 4/4 | Complete    | 2026-04-27 |
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
 | 214. identity-protocol-extract | 4/4 | Complete    | 2026-04-27 |
-| 215. sdks-from-openapi | 5/5 | Complete    | 2026-04-27 |
+| 215. sdks-from-openapi | 5/5 | Complete   | 2026-04-27 |
 | 216. geolens-cli-mvp | 0/TBD | Not started | - |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
 | 218. oc-audit-close-v13.1 | 0/TBD | Not started | - |
