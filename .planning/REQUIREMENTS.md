@@ -38,7 +38,7 @@ Auto-generated client libraries unblock external integrators and the CLI. The Op
 The strategy's adoption wedge. Apache-2.0 standalone tool that exercises the SDK.
 
 - [x] **OCCLI-01**: `geolens` CLI distributed as an Apache-2.0 Python package via PyPI; works against any GeoLens instance (community or enterprise) with the same code path.
-- [ ] **OCCLI-02**: `geolens login <instance-url>` authenticates against the instance and stores the resulting token in the OS keyring (or equivalent secure store), with a fallback for headless/CI environments.
+- [x] **OCCLI-02**: `geolens login <instance-url>` authenticates against the instance and stores the resulting token in the OS keyring (or equivalent secure store), with a fallback for headless/CI environments.
 - [ ] **OCCLI-03**: `geolens scan <dir>` walks a local directory, identifies spatial files (vector + raster), and reports what would be ingested without uploading.
 - [ ] **OCCLI-04**: `geolens publish <file>` uploads a vector or raster file to a configured GeoLens instance via the generated Python SDK and reports the resulting dataset URL.
 - [ ] **OCCLI-05**: `geolens export stac <dataset-id>` exports STAC 1.1 metadata for a raster dataset to stdout or a chosen file.
@@ -129,7 +129,7 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 | OCSDK-03 | 215 (sdks-from-openapi) | Complete |
 | OCSDK-04 | 215 (sdks-from-openapi) | Complete |
 | OCCLI-01 | 216 (geolens-cli-mvp) | Complete |
-| OCCLI-02 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-02 | 216 (geolens-cli-mvp) | Complete |
 | OCCLI-03 | 216 (geolens-cli-mvp) | Pending |
 | OCCLI-04 | 216 (geolens-cli-mvp) | Pending |
 | OCCLI-05 | 216 (geolens-cli-mvp) | Pending |
