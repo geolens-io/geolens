@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.sql.elements import ColumnElement, Label
 
+from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.authorization import apply_visibility_filter
@@ -434,7 +435,7 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
 
 async def get_facet_counts(
     session: AsyncSession,
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
     filters: SearchFilters,
 ) -> FacetCounts:
@@ -565,7 +566,7 @@ async def get_facet_counts(
 async def search_collections(
     session: AsyncSession,
     q: str,
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
     *,
     limit: int = 10,
@@ -827,7 +828,7 @@ async def _run_rrf_merge(
 
 async def search_datasets(
     session: AsyncSession,
-    user: User | None,
+    user: Identity | None,
     user_roles: set[str],
     filters: SearchFilters,
 ) -> tuple[list[Dataset], int]:

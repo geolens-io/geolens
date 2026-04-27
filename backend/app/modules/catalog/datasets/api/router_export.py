@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import log_action
+from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_optional_user,
 )
@@ -57,7 +58,7 @@ router = APIRouter(
 @router.get("/dcat/", response_class=JSONResponse)
 async def get_dcat_catalog(
     request: Request,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """DCAT 3 JSON-LD catalog feed. Respects dataset visibility."""
@@ -102,7 +103,7 @@ async def get_dcat_catalog(
 async def get_dcat_record(
     dataset_id: uuid.UUID,
     request: Request,
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """DCAT 3 JSON-LD for a single dataset."""
@@ -151,7 +152,7 @@ async def get_dcat_record(
 async def _resolve_download_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user),
 ) -> User:
     """Resolve user for download endpoints.
 
@@ -190,7 +191,7 @@ async def _resolve_download_user(
 async def download_cog(
     dataset_id: uuid.UUID,
     request: Request,
-    user: User = Depends(_resolve_download_user),
+    user: Identity = Depends(_resolve_download_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.

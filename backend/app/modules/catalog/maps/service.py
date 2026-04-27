@@ -16,6 +16,7 @@ from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.identity import Identity
 from app.modules.auth.models import User, UserRole
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -60,7 +61,7 @@ class LayerRow(NamedTuple):
     is_3d: bool | None
 
 
-async def check_map_ownership(map_obj: Map, user: User, db: AsyncSession) -> None:
+async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:
     """Verify user owns the map or is admin. Raises 403 if neither."""
     if map_obj.created_by == user.id:
         return
@@ -599,7 +600,7 @@ async def _generate_fork_name(
 async def bulk_check_dataset_access(
     session: AsyncSession,
     dataset_ids: list[uuid.UUID],
-    user: User,
+    user: Identity,
     user_roles: set[str],
 ) -> set[uuid.UUID]:
     """Return the subset of dataset_ids the user can access. Single round-trip."""
@@ -645,7 +646,7 @@ async def bulk_check_dataset_access(
 async def duplicate_map(
     session: AsyncSession,
     map_id: uuid.UUID,
-    user: User,
+    user: Identity,
 ) -> tuple[Map, list[LayerRow], str | None, str | None, int]:
     """Deep-copy a map with RBAC-filtered layers. Does NOT commit.
 
@@ -977,7 +978,7 @@ def _build_shared_layer_dict(
 async def get_shared_map(
     session: AsyncSession,
     token: str,
-    user: User | None = None,
+    user: Identity | None = None,
     user_roles: set[str] | None = None,
 ) -> tuple[dict, list[dict]] | str | None:
     """Fetch a shared map by token.

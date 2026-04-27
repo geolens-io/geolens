@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetResponse,
@@ -24,7 +25,7 @@ from app.core.geo import extent_to_bbox
 async def _load_actor_identities(
     db: AsyncSession,
     actor_ids: Iterable[uuid.UUID | None],
-) -> dict[uuid.UUID, User]:
+) -> dict[uuid.UUID, Identity]:
     ids = {actor_id for actor_id in actor_ids if actor_id is not None}
     if not ids:
         return {}
@@ -113,7 +114,7 @@ def dataset_to_response(
     dataset,
     *,
     collections=None,
-    actors_by_id: Mapping[uuid.UUID, User] | None = None,
+    actors_by_id: Mapping[uuid.UUID, Identity] | None = None,
     raster_asset=None,
     is_admin: bool = False,
     source_count: int | None = None,
