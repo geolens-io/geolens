@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: Phase 215 shipped 2026-04-27; ready to start Phase 216 (geolens-cli-mvp consuming Python SDK per CONTEXT D-17)
+status: executing
 stopped_at: Phase 216 context gathered
-last_updated: "2026-04-27T20:52:41.333Z"
-last_activity: 2026-04-27 -- Phase 215-05 docs + verification gate complete
+last_updated: "2026-04-27T21:50:38.067Z"
+last_activity: 2026-04-27 -- Phase 216 planning complete
 progress:
   total_phases: 9
   completed_phases: 4
-  total_plans: 17
+  total_plans: 23
   completed_plans: 17
-  percent: 100
+  percent: 74
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 Phase: 215 (sdks-from-openapi) — COMPLETE (5/5 plans)
 Plan: 215-05 — COMPLETE (docs/sdks.md written [305 lines, 213 non-blank]; __init__.py cp-stash gap closed; SDK round-trip module guarded for container runs; phase verification gate PASS — alembic clean / 2001 pytest / sdks-check 0 / 12 round-trip / both SDKs build / 4 ROADMAP SC verified)
-Status: Phase 215 shipped 2026-04-27; ready to start Phase 216 (geolens-cli-mvp consuming Python SDK per CONTEXT D-17)
-Last activity: 2026-04-27 -- Phase 215-05 docs + verification gate complete
+Status: Ready to execute
+Last activity: 2026-04-27 -- Phase 216 planning complete
 
 ## Roadmap Snapshot
 

@@ -947,32 +947,37 @@ These translate to research-time guidance: prefer the simpler library or pattern
 
 **Risk-rated:** A2, A3, A5 are pre-implementation **must-verify** items (block plan finalization). A1, A4, A7, A8 are documented-then-verified-via-tests. A6, A9 are low-risk (small lookup, fast confirmation).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `CommitResponse` return enough to construct the dataset URL?**
    - What we know: `CommitResponse` has `job_id`, `message`, `status` (`sdks/python/geolens_sdk/models/commit_response.py:17-28`). No `dataset_id` field on commit response. Backend status code is 202 (Accepted) per `sdks/python/geolens_sdk/api/datasets/commit_import_ingest_commit_job_id_post.py:42`.
    - What's unclear: How does the CLI translate `job_id` → `dataset_id` to print the URL ROADMAP SC#4 requires?
    - Recommendation: Plan-time investigation. Read `backend/app/processing/ingest/router.py:580+` (commit_import) to see whether the response shape needs widening (an OpenAPI change that would re-trigger SDK regen) OR whether the CLI polls a status endpoint until the dataset is created. **If the backend needs widening, that's out of MVP scope** (CONTEXT.md doesn't budget for OpenAPI changes); fall back to printing `https://<instance>/jobs/<job_id>` with a note "dataset URL available after ingestion completes."
+   - **RESOLVED:** Plan 04 Task 0 — spike investigates commit_response.py and backend handler; `construct_dataset_url` defaults to (a) `{instance}/datasets/{commit.dataset_id}` and falls back to (c) `{instance}/datasets?job_id={job_id}` when dataset_id is absent. Final strategy recorded in 216-04 SUMMARY.
 
 2. **Sync vs async transport for round-trip test.**
    - What we know: Phase 215 used `asyncio_detailed` because `ASGITransport` only implements `handle_async_request`.
    - What's unclear: Does httpx 0.28+ (within the SDK's `<0.29.0` cap) support sync ASGI?
    - Recommendation: Plan-time spike. Easiest path: copy the TS half's uvicorn-on-free-port pattern (already shipped, already tested). If Python-only sync ASGI works on the pinned httpx, the test is simpler.
+   - **RESOLVED:** Plan 06 Task 0 — sync ASGI spike runs the verification snippet; if it succeeds (Option B), the round-trip uses `httpx.Client(transport=ASGITransport(...))`; otherwise (Option C) falls back to uvicorn-on-free-port copied from `test_sdks_round_trip.py`. Final transport recorded in 216-06 SUMMARY.
 
 3. **Where does the CLI pick up the user's username for `whoami`?**
    - What we know: `D-08 step 6` says config.toml records the username. `me_auth_me_get` returns the live `UserResponse` from the server.
    - What's unclear: Does `whoami` show the cached config username (offline-friendly) or call `/auth/me` always (canonical)?
    - Recommendation: Always call `/auth/me`; on network error, fall back to cached value with a warning. Explicit, testable, matches the principle that the server is the source of truth.
+   - **RESOLVED:** Plan 02 Task 3 — `whoami` always calls `me_auth_me_get.sync_detailed`; on 401 calls `try_refresh` once then retries; on second 401 exits EXIT_AUTH (3) with "Session expired".
 
 4. **Tags shape on `CommitRequest`.**
    - What we know: `CommitRequest` has many fields (`title`, `summary`, `temporal_start`, `srid_override`, ...) but no `tags` field is visible in `commit_request.py:62-75`.
    - What's unclear: Where do CLI `--tags a,b,c` end up? Are tags set via a separate post-commit endpoint?
    - Recommendation: Plan-time investigation — grep `backend/app/processing/ingest/schemas.py` for tag handling. If tags are a server-managed addition (e.g., `PATCH /datasets/{id}` after commit), the CLI does that as a follow-up call; if MVP can ship without `--tags`, defer the flag.
+   - **RESOLVED:** Plan 04 Task 0 + Task 2 — spike inspects `commit_request.py`; `build_commit_request` uses `inspect.signature` to drop unsupported kwargs at construction time; if `tags` field is absent, `--tags` flag is accepted but logged as deferred (verbose-mode message). Final wiring recorded in 216-04 SUMMARY.
 
 5. **Round-trip test fixture for STAC export.**
    - What we know: `backend/tests/fixtures/ingest/` has 3 GeoJSONs and 0 rasters. STAC items only exist for raster datasets.
    - What's unclear: Does the round-trip test need to create a tiny COG inline (rasterio is installed in dev), or skip with a clear reason?
    - Recommendation: Skip with a clear reason (matches Phase 215 D-37 fallback for "raster fixture if available"). Adding `pystac` or `rasterio` to the test path inflates the dev-dependency surface; the unit test in `cli/tests/test_export_stac.py` covers the formatter logic with a mocked SDK.
+   - **RESOLVED:** Plan 06 Task 1 — `TestExportStacRoundTrip::test_raster_export_round_trip` is decorated with `@pytest.mark.skip(reason="No raster fixture in backend/tests/fixtures/; cli/tests/test_export_stac.py covers formatter logic with mocked SDK")`. Vector rejection (exit 2) IS exercised end-to-end via `test_vector_export_rejected_with_exit_2`.
 
 ## Environment Availability
 
