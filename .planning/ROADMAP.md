@@ -84,7 +84,14 @@ Plans:
   2. `npm install @geolens/sdk` (Apache-2.0) yields a typed TypeScript client with the same auth helpers and request/response models; round-trip against a running instance succeeds for the same three endpoints
   3. `make sdks` regenerates both SDKs from `backend/openapi.json` in a single shot; `make sdks-check` fails CI when generated code drifts from the committed sources (mirrors `make openapi-check`)
   4. Each SDK package version pins to the OpenAPI snapshot version it was generated from; `docs/sdks.md` documents the chosen generators (Python + TS) with rationale and the publish/release process
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 215-01-PLAN.md — Scaffold sdks/python/ + sdks/typescript/ directories with hand-maintained tooling, license, and gitignores (no generated code yet)
+- [ ] 215-02-PLAN.md — Wire Makefile targets (sdks/sdks-check/sdks-test/publish-sdks-py/publish-sdks-ts), scripts/sync_sdk_versions.py, and run first regeneration to commit baseline generated code
+- [ ] 215-03-PLAN.md — Add hand-written auth wrappers (Python GeolensClient + TypeScript createGeolensClient) with bearer + api-key + anonymous + ValueError-on-both behaviors
+- [ ] 215-04-PLAN.md — Add round-trip integration test (12 tests), wire sdks-check job into ci.yml, and create publish-sdks.yml workflow scaffold (manual-trigger only)
+- [ ] 215-05-PLAN.md — Write docs/sdks.md (generators, regen flow, publish runbook); run phase verification gate (alembic + full pytest + sdks-check + actionlint + 4 ROADMAP SC); update REQUIREMENTS/ROADMAP/STATE
 
 ### Phase 216: geolens-cli-mvp
 **Goal**: An end user can install the Apache-2.0 `geolens` CLI from PyPI, log into any GeoLens instance, scan a directory of spatial data, publish a dataset, and export STAC metadata — without writing a line of HTTP code or touching the GeoLens UI
@@ -133,7 +140,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | 212. core-settings-decouple | 4/4 | Complete    | 2026-04-27 |
 | 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
 | 214. identity-protocol-extract | 3/4 | In Progress|  |
-| 215. sdks-from-openapi | 0/TBD | Not started | - |
+| 215. sdks-from-openapi | 0/5 | Not started | - |
 | 216. geolens-cli-mvp | 0/TBD | Not started | - |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
 | 218. oc-audit-close-v13.1 | 0/TBD | Not started | - |
