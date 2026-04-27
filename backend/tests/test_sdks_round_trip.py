@@ -23,11 +23,10 @@ operationIds in the OpenAPI snapshot (verified 2026-04-27) are:
 (Single-underscore separators per generator naming, NOT the double-underscore
 prose paths from the ROADMAP — RESEARCH Pitfall 5.)
 
-Note: Plan 03's ``__init__.py`` was reset to the bare generator default by
-``--overwrite``, so ``GeolensClient`` is imported from ``geolens_sdk.auth``
-(the module always exists) rather than the bare-package path. Plan 04 documents
-this as a Rule 3 finding; Plan 05 (or a follow-up) can stash the ``__init__.py``
-in the Makefile to expose the bare-package import.
+Note: ``GeolensClient`` is imported from ``geolens_sdk.auth`` (its definition
+module). Plan 05 also added ``__init__.py`` to the Makefile cp-stash so
+``from geolens_sdk import GeolensClient`` works for SDK consumers; the
+explicit submodule path is kept here for test stability across regenerations.
 """
 from __future__ import annotations
 
@@ -49,8 +48,22 @@ from httpx import ASGITransport
 # The sdks/python tree is NOT a uv workspace member; it's a sibling distribution
 # whose contents are committed for consumer inspection. Adding it to sys.path
 # is the smallest mechanism to import it from a backend test.
+#
+# Skip the entire module gracefully when sdks/python is not available on the
+# filesystem. This is the case inside the docker `api` container — its volume
+# mounts include backend/{app,alembic,tests} but NOT sdks/. The host pytest
+# (and any CI runner that checks out the full repo) finds the SDK and runs
+# all tests; container runs see "skipped: SDK source tree not present", and
+# CI's dedicated `sdks-check` job catches generation drift independently.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _SDK_PY_PATH = _REPO_ROOT / "sdks" / "python"
+if not (_SDK_PY_PATH / "geolens_sdk" / "auth.py").is_file():
+    pytest.skip(
+        "geolens_sdk source tree not present at "
+        f"{_SDK_PY_PATH} (expected when running inside the api container; "
+        "host pytest and full-checkout CI runners exercise this module)",
+        allow_module_level=True,
+    )
 if str(_SDK_PY_PATH) not in _sys.path:
     _sys.path.insert(0, str(_SDK_PY_PATH))
 
