@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-04-27T00:27:22.029Z"
 last_activity: 2026-04-27
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -24,10 +24,24 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-04-27 — Milestone v13.1 started
+Phase: 212 — core-settings-decouple
+Plan: — (planning pending; run `/gsd-plan-phase 212`)
+Status: Roadmap drafted; ready to plan Phase 212
+Last activity: 2026-04-27 — v13.1 roadmap created (7 phases: 212–218)
+
+## Roadmap Snapshot
+
+| Phase | Name | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 212 | core-settings-decouple | LAYER-01 | — |
+| 213 | catalog-authz-relocate | LAYER-02 | — |
+| 214 | identity-protocol-extract | IDENT-01, IDENT-02, IDENT-03 | — |
+| 215 | sdks-from-openapi | OCSDK-01, OCSDK-02, OCSDK-03, OCSDK-04 | — |
+| 216 | geolens-cli-mvp | OCCLI-01..06 | 215 |
+| 217 | auth-saml-enterprise | SAML-08..12 | 214 |
+| 218 | oc-audit-close-v13.1 | AUDIT-V1 | 212–217 |
+
+Coverage: 21/21 v13.1 requirements mapped.
 
 ## Cross-Repo Note (2026-04-26)
 
@@ -60,6 +74,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-26
-Stopped at: Completed quick task 260426-m5d (PR2 search/maps function decomposition). Remaining post-impl-20260426 deferred items: PR3 (PERF-1/PERF-10/CLEANUP-2 ops), KISS-7/KISS-8 small refactors. Audit-router enterprise-gating WIP parked on `wip/audit-enterprise-gate` branch (3 export tests need community/enterprise mode split before that ships).
+Last session: 2026-04-27
+Stopped at: v13.1 roadmap created (phases 212–218). Next: `/gsd-plan-phase 212` to expand the first phase into executable plans. Backend-test baseline at 1965/1965 from 260425-sl1 cleanup.
 Resume file: None

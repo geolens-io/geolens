@@ -115,37 +115,37 @@ Explicitly excluded from v13.1.
 
 ## Traceability
 
-Empty initially. Populated by the roadmapper during `## 10. Create Roadmap`.
+Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exactly one phase in `.planning/ROADMAP.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LAYER-01 | TBD | Pending |
-| LAYER-02 | TBD | Pending |
-| IDENT-01 | TBD | Pending |
-| IDENT-02 | TBD | Pending |
-| IDENT-03 | TBD | Pending |
-| OCSDK-01 | TBD | Pending |
-| OCSDK-02 | TBD | Pending |
-| OCSDK-03 | TBD | Pending |
-| OCSDK-04 | TBD | Pending |
-| OCCLI-01 | TBD | Pending |
-| OCCLI-02 | TBD | Pending |
-| OCCLI-03 | TBD | Pending |
-| OCCLI-04 | TBD | Pending |
-| OCCLI-05 | TBD | Pending |
-| OCCLI-06 | TBD | Pending |
-| SAML-08 | TBD | Pending |
-| SAML-09 | TBD | Pending |
-| SAML-10 | TBD | Pending |
-| SAML-11 | TBD | Pending |
-| SAML-12 | TBD | Pending |
-| AUDIT-V1 | TBD (final) | Pending |
+| LAYER-01 | 212 (core-settings-decouple) | Pending |
+| LAYER-02 | 213 (catalog-authz-relocate) | Pending |
+| IDENT-01 | 214 (identity-protocol-extract) | Pending |
+| IDENT-02 | 214 (identity-protocol-extract) | Pending |
+| IDENT-03 | 214 (identity-protocol-extract) | Pending |
+| OCSDK-01 | 215 (sdks-from-openapi) | Pending |
+| OCSDK-02 | 215 (sdks-from-openapi) | Pending |
+| OCSDK-03 | 215 (sdks-from-openapi) | Pending |
+| OCSDK-04 | 215 (sdks-from-openapi) | Pending |
+| OCCLI-01 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-02 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-03 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-04 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-05 | 216 (geolens-cli-mvp) | Pending |
+| OCCLI-06 | 216 (geolens-cli-mvp) | Pending |
+| SAML-08 | 217 (auth-saml-enterprise) | Pending |
+| SAML-09 | 217 (auth-saml-enterprise) | Pending |
+| SAML-10 | 217 (auth-saml-enterprise) | Pending |
+| SAML-11 | 217 (auth-saml-enterprise) | Pending |
+| SAML-12 | 217 (auth-saml-enterprise) | Pending |
+| AUDIT-V1 | 218 (oc-audit-close-v13.1) | Pending |
 
 **Coverage:**
 - v13.1 requirements: 21 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 21 ⚠️ (filled by roadmapper)
+- Mapped to phases: 21 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-26*
-*Last updated: 2026-04-26 after initial definition*
+*Last updated: 2026-04-27 — traceability populated; 21/21 requirements mapped to phases 212–218*
