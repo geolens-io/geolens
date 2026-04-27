@@ -6,3 +6,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# Development artifacts (the SDK is a library; consumers manage their own envs)
+.venv/
+uv.lock
