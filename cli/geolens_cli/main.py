@@ -17,10 +17,11 @@ from rich.table import Table
 
 from . import auth as _auth
 from . import config as _config
+from . import export_stac as _export_stac
 from . import output as _output
 from . import publish as _publish
 from . import scan as _scan
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, call_sdk, unwrap
+from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
 export_app = typer.Typer(no_args_is_help=True, help="Export commands")
@@ -432,7 +433,59 @@ def publish(
 def export_stac(
     ctx: typer.Context,
     dataset_id: Annotated[str, typer.Argument(help="Dataset id")],
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "-o",
+            "--output",
+            help="Write STAC JSON to FILE (default: stdout)",
+        ),
+    ] = None,
+    compact: Annotated[
+        bool,
+        typer.Option("--compact", help="Single-line JSON for piping to jq / curl --data"),
+    ] = False,
 ) -> None:
-    """Export STAC 1.1 metadata for a raster dataset (stub — Plan 05)."""
-    ctx.obj.output.error("export stac not yet implemented (Plan 05)")
-    raise typer.Exit(2)
+    """Export STAC 1.1 metadata for a raster dataset.
+
+    Pre-flight (D-26): GET /datasets/{id} — non-raster record_types are
+    rejected with EXIT_USAGE (2) and a clear message before we ever touch
+    /stac/items/{id}, so users see "STAC export is supported for raster
+    datasets only" instead of a confusing 404 / 422.
+
+    Output (D-27):
+      * Default — pretty-printed JSON (indent=2, sorted keys, trailing
+        newline) emitted to stdout.
+      * ``-o FILE`` — atomic write (tempfile + os.replace) at mode 0o644.
+      * ``--compact`` — single-line JSON suitable for piping into ``jq``
+        or ``curl --data @-``.
+
+    No client-side STAC validation (D-28) — the backend already produces
+    conformant STAC 1.1.
+    """
+    state: AppState = ctx.obj
+    sdk = state.sdk()
+
+    # Pre-flight: verify the dataset is a raster.
+    record_type = _export_stac.fetch_record_type(sdk.client, dataset_id)
+    if record_type == "not_found":
+        state.output.error(f"Dataset not found: {dataset_id}")
+        raise typer.Exit(EXIT_GENERIC)
+    if not _export_stac.is_raster(record_type):
+        state.output.error(_export_stac.vector_rejection_message(record_type))
+        raise typer.Exit(EXIT_USAGE)
+
+    # Fetch the STAC item (caller pre-checked record_type).
+    stac_item = _export_stac.fetch_stac_item(sdk.client, dataset_id)
+
+    # Render & emit.
+    if output is not None:
+        _export_stac.write_stac_to_file(stac_item, output, compact=compact)
+        state.output.success(f"Wrote STAC item to {output}")
+    else:
+        # Direct stdout — use typer.echo to bypass rich's line-wrapping on
+        # long lines and to honor --compact's "no trailing newline" contract.
+        typer.echo(
+            _export_stac.render_stac_json(stac_item, compact=compact),
+            nl=False,
+        )
