@@ -22,6 +22,7 @@ Markers:
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -39,6 +40,26 @@ def _has_git_metadata() -> bool:
     rather than fail (RESEARCH.md Pitfall 4).
     """
     return (REPO_ROOT / ".git").exists()
+
+
+def _has_pathspec_magic() -> bool:
+    """Return True if git supports `:!` pathspec exclusion (git >= 2.13).
+
+    Older git versions reject the `:!` exclusion syntax with a non-zero
+    exit code that is not the standard "no matches" rc=1. In containers
+    pinned to ancient git, fall back to skipping rather than failing.
+    """
+    result = subprocess.run(
+        ["git", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    # `git version 2.X.Y` -> extract minor X
+    match = re.search(r"git version 2\.(\d+)", result.stdout)
+    return match is not None and int(match.group(1)) >= 13
 
 
 def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
@@ -153,6 +174,11 @@ def test_no_auth_visibility_module_referenced() -> None:
     """
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; rely on the import-shaped "
+            "guard above (test_no_imports_from_auth_visibility) instead"
+        )
 
     result = subprocess.run(
         [
