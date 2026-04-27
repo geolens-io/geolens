@@ -1,0 +1,49 @@
+# Manual-trigger publish workflow for the GeoLens CLI.
+# Phase 216 ships the workflow; running it requires:
+#   1. PyPI token in repo secret PYPI_TOKEN (or per-project token after first publish)
+#   2. Builder/maintainer claims the `geolens` PyPI name
+# See docs/cli.md (§Publishing) for the full first-publish runbook.
+name: Publish CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build only, do not publish'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write  # for PyPI Trusted Publishing (future migration)
+
+jobs:
+  publish-cli:
+    name: Publish geolens CLI to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.2"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel + sdist
+        working-directory: cli
+        run: uv build
+
+      - name: List built artifacts
+        working-directory: cli
+        run: ls -la dist/
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        working-directory: cli
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: uv publish
