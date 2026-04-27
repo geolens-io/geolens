@@ -218,7 +218,7 @@ async def test_publish_blocked_when_hard_validation_fails(
     test_db_session,
 ):
     """PATCH with record_status=published on incomplete record returns 422 when require_metadata is ON."""
-    from app.modules.settings.models import AppSetting
+    from app.core.db.models import AppSetting
 
     admin_id = await get_user_id(test_db_session, "admin")
 

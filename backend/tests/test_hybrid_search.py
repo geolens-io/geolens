@@ -21,7 +21,7 @@ from sqlalchemy import select, text
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 from app.processing.embeddings.models import RecordEmbedding
-from app.modules.settings.models import AppSetting
+from app.core.db.models import AppSetting
 
 from tests.factories import get_user_id
 

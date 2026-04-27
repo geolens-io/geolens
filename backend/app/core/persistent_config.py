@@ -27,7 +27,7 @@ from app.core.public_urls import (
     resolve_public_api_url,
     resolve_public_app_url,
 )
-from app.modules.settings.models import AppSetting
+from app.core.db.models import AppSetting
 
 logger = structlog.stdlib.get_logger(__name__)
 
