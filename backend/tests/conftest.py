@@ -382,6 +382,39 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
 
 
 @pytest.fixture
+def saml_overlay_registered():
+    """Programmatically register EnterpriseSamlExtension into the live extension
+    registry for the duration of a single test. Restores prior state on
+    teardown so other tests that expect community edition still see their
+    default.
+
+    The ``geolens_enterprise`` import is deferred (inside the fixture body)
+    so test collection does not require the enterprise package to be
+    installed -- collection still succeeds in community-only environments;
+    only tests that actually request this fixture will fail with ImportError.
+    """
+    from app.platform.extensions import _extensions, _routers
+
+    saved_ext = dict(_extensions)
+    saved_routers = list(_routers)
+    try:
+        # Deferred import so collection does not require the enterprise package
+        from geolens_enterprise.auth.saml import EnterpriseSamlExtension
+        from geolens_enterprise.auth.saml.router import router as saml_router
+
+        ext = EnterpriseSamlExtension()
+        _extensions["auth"] = ext
+        _extensions["identity"] = ext
+        _routers.append(saml_router)
+        yield ext
+    finally:
+        _extensions.clear()
+        _extensions.update(saved_ext)
+        _routers.clear()
+        _routers.extend(saved_routers)
+
+
+@pytest.fixture
 async def clean_tables(test_db_session):
     """Opt-in fixture: truncate user-level tables after the test.
 
