@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
-stopped_at: Phase 219 context gathered
-last_updated: "2026-04-29T18:43:53.702Z"
-last_activity: 2026-04-29 -- Phase 219 execution started
+status: ready-to-close
+stopped_at: Phase 219 complete -- v13.1 milestone close VERIFIED
+last_updated: "2026-04-29T19:00:00.000Z"
+last_activity: 2026-04-29 -- Phase 219 closed Boundary Integrity gap (B- -> A); audit re-run + v13.1-close.md amended in place; AUDIT-V1 satisfied; ready for /gsd-complete-milestone
 progress:
   total_phases: 10
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 30
-  completed_plans: 29
-  percent: 97
+  completed_plans: 30
+  percent: 100
 ---
 
 # Project State
@@ -21,32 +21,32 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 219 — oc-audit-remediate-idp-mapping
+**Current focus:** v13.1 milestone close — Phase 219 verified; ready for `/gsd-complete-milestone`.
 
 ## Current Position
 
-Phase: 219 (oc-audit-remediate-idp-mapping) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 219
-Last activity: 2026-04-29 -- Phase 219 execution started
+Phase: 219 (oc-audit-remediate-idp-mapping) — **COMPLETE**
+Plan: 1 of 1 (4 of 4 atomic commits landed: d0e09c17 schema gate, dcbb86af service gate, 1cb06324 tests, 6a79e1e5 doc amendment)
+Status: v13.1 milestone close VERIFIED — Boundary Integrity A (≥ A− target) + Seam Quality B (≥ B target) + OSS Surface A− (≥ C target). All three close-gate dimensions met or exceeded.
+Last activity: 2026-04-29 -- Phase 219 verified; AUDIT-V1 satisfied; v13.1 close artifact amended in place
 
-## Phase 218 BLOCKED-state record
+## Phase 218 / 219 close-gate record
 
-**Closing audit:** `docs-internal/audits/oc-separation-audit-v13.1-close.md` — `## ⚠ MILESTONE CLOSE BLOCKED` banner; B (3.06/4.0) overall.
+**Pre-219 (BLOCKED):** Phase 218 closing audit graded Boundary Integrity B− vs target A− because of one architectural P0 — OAuth IdP→role mapping (`oauth/{schemas,service,models}.py`) executed unconditionally in community despite `repo-split.md` classing it as Enterprise. Phase 217 documented this gating as out-of-scope; Phase 218 (scoped audit-close only) surfaced it as the v13.1 close blocker.
 
-**Grade results vs v13.1 close targets:**
+**Post-219 (VERIFIED):** Phase 219 (`oc-audit-remediate-idp-mapping`) closed the cluster on 2026-04-29 in three code commits + one doc amendment. The 2026-04-29 audit re-run confirmed Boundary Integrity grade A (zero 🔴 violations under the OAuth IdP cluster).
 
-| Dimension | v13.1 Close | Target | Met? |
-|-----------|-------------|--------|------|
-| Boundary Integrity | B- | A- | ❌ NO |
+**Final grade results vs v13.1 close targets:**
+
+| Dimension | v13.1 Close (post-219) | Target | Met? |
+|-----------|------------------------|--------|------|
+| Boundary Integrity | A | A- | ✅ YES (exceeds) |
 | Seam Quality | B | B | ✅ YES |
-| OSS Surface Readiness | A- | C | ✅ YES |
+| OSS Surface Readiness | A- | C | ✅ YES (exceeds) |
 
-**Single P0 root cause:** OAuth IdP→role mapping in core (`oauth/{schemas,service,models}.py`) — Phase 217's documented deferral that Phase 218 (scoped as audit-close only) did not implement.
+**v13.1 close artifact:** `docs-internal/audits/oc-separation-audit-v13.1-close.md` — amended in place per Phase 219 D-12. `## ⚠ MILESTONE CLOSE BLOCKED` replaced with `## ✅ MILESTONE CLOSE VERIFIED — Phase 219 closed boundary gap`. Pre-remediation BLOCKED narrative preserved as `### Pre-remediation state (2026-04-29)` subsection for audit-trail traceability.
 
-**Recommended path:** Plan and execute Phase 219 (`oc-audit-remediate-idp-mapping`, ~1d). Scope: 2× `model_validator(mode="after")` in `oauth/schemas.py` + 1× runtime branch in `oauth/service.py:261-263`. After remediation, re-run audit; if Boundary ≥ A−, finalize v13.1 close.
-
-**Alternative path:** Slip v13.1 → v13.2 (move AUDIT-V1 forward; mark Phase 218 deferred).
+**Next step:** `/gsd-complete-milestone` to archive v13.1 and roll forward to v13.2.
 
 ## Roadmap Snapshot
 
