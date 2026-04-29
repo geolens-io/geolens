@@ -6,31 +6,46 @@
 
 | Dimension | Grade | Rationale |
 |-----------|-------|-----------|
-| **Boundary Integrity** | **B−** | Three 🔴 violations all collapse to one architectural P0: OAuth IdP→role mapping (`oauth/models.py:82-84` columns + `oauth/schemas.py:116-129, 237-248` write API + `oauth/service.py:169-179, 261-263` runtime) executes unconditionally in community, despite `repo-split.md` classing IdP role mapping as Enterprise. Phase 217 explicitly deferred this gate to Phase 218 (`217-CONTEXT.md` "Out of scope" → "gating OAuth `group_claim`/`group_role_mapping` behind `require_enterprise()`"); no implementation followed in 218. Three 🟡 risks all trace to AWS Marketplace billing in core runtime (`docker-compose.yml:128-129` + `core/config.py:87-88, 108` + `core/marketplace.py:1-30` + `api/main.py:184-203`). Audit-export gate intact at `audit/router.py:96`. SAML carve-out is pristine — all four documented files (`oauth/{models,schemas,service}.py`, `settings/router.py`) contain only enum literals, deferred-column scaffolding, and audit-snapshot helpers. Standards (OGC/STAC/DCAT) HARD-FREE preserved. Multi-tenant, SCIM, federation, airgap, govcloud, AI policy, approval-workflow, white-label-toggle: zero hits. |
+| **Boundary Integrity** | **A** *(post-Phase-219, amended 2026-04-29; previously **B−**)* | Zero 🔴 violations remaining. Phase 219 closed the OAuth IdP→role mapping cluster on 2026-04-29: write-path schema validators reject `group_claim` set or non-empty `group_role_mapping` in community (`oauth/schemas.py:174-190, 286-300` — commit d0e09c17); runtime call site at `oauth/service.py:265-270` wraps `_resolve_role()` in `if is_enterprise():` so community users always get `default_role` (commit dcbb86af); `oauth/models.py:82-84` columns retained as forward-compat scaffolding for the SAML enterprise overlay (writes gated above). Three 🟡 risks all trace to AWS Marketplace billing in core runtime (`docker-compose.yml:128-129` + `core/config.py:87-88, 108` + `core/marketplace.py:1-30` + `api/main.py:184-203`) — demoted to P2 per §"P1 Residual Triage" row 2; not a v13.1 close blocker. Audit-export gate intact at `audit/router.py:96`. SAML carve-out remains pristine — all four documented files (`oauth/{models,schemas,service}.py`, `settings/router.py`) contain only enum literals, deferred-column scaffolding, and audit-snapshot helpers. Standards (OGC/STAC/DCAT) HARD-FREE preserved. Multi-tenant, SCIM, federation, airgap, govcloud, AI policy, approval-workflow, white-label-toggle: zero hits. |
 | **Seam Quality** | **B** | 3🟢 / 1🟡 / 4🔴 — significant movement vs the baseline distribution of 0🟢 / 3🟡 / 5🔴. Three seams advanced to 🟢 in v13.1: **Auth provider** (Phase 214 wired `IdentityExtension` into BOTH `auth/dependencies.py:85` and `:141`; Phase 217 SAML overlay proved the seam end-to-end), **Audit export** (`audit/router.py:107` consults `get_audit_extension().get_export_formats()`; `require_enterprise` 404 gate), and **Branding** (`settings/router.py:630` consults extension defaults). Policy/permissions stays 🟡 (Phase 213 cleaned the visibility chokepoint at `catalog/authorization.py:34` but no `PermissionExtension` Protocol). Workflow, AI providers, persistent connectors, and tenant scoping remain 🔴 — untouched in v13.1. `AuthExtension.get_auth_methods()` (`protocols.py:29`) is wired through the registry but has zero call sites. |
 | **Inventory Accuracy** | **B+** | All 17 claimed community features verified in code with file:line evidence. CLI (`cli/geolens_cli/`) ships 7 commands (login, logout, whoami, scan, publish, export stac), exceeding the 4-command MVP target from Phase 216. Python + TypeScript SDKs present (`sdks/python/`, `sdks/typescript/`). SAML correctly carved out per Phase 217 — backend retains only enum-string scaffolding. **Three undocumented capabilities flagged:** AI streaming + tool-calling loop (`processing/ai/{streaming.py, llm_loop.py, tool_call_parser.py}`) contradicts GTM's "single-shot only" claim at `free-vs-enterprise.md:70`; pgvector semantic search shipped in v7.2 not in CE feature list; AWS Marketplace metering wired into core lifespan unconditionally. **One frontend gap:** `frontend/src/pages/admin/AdminSamlPage.tsx` ships in the CE bundle (gated at runtime via `useEdition()` redirect at `:28-33`, but the page lives in core code). |
 | **Deployment Separation** | **B** | Unchanged from 2026-04-27 baseline. `docker-compose.enterprise.yml` is a clean 29-line additive overlay (volume mounts + env injection, no image rebuild, graceful degradation when `/enterprise/` absent). `_ENTERPRISE_ONLY_TABS` gate at `settings/router.py:62, 90-104` correctly returns **404** with no detail body — **the 2026-04-27 P1 finding (revealing 403 detail string) is RESOLVED**. AWS Marketplace billing P1 still present in base runtime (same loci as Boundary §1). No `deployment/` directory, no Helm chart, `GEOLENS_EDITION` and `GEOLENS_ENTERPRISE_PATH` undocumented in `.env.example`. |
 | **Coupling Health** | **B−** | Major v13.1 wins verified: **`User` import sites cut from 51 → 20 (−61%)** via `IdentityProtocol` (41 files now type against the protocol); `core ↔ settings` layering inversion eliminated (Phase 212 — 0 hits in `backend/app/core/`); `auth/visibility.py` relocation to `catalog/authorization.py` complete (Phase 213 — 0 callers of old path, no deferred-import shims). Remaining debt: `catalog/datasets/domain/service.py` is 1407 LOC with 29 function-scoped imports — the de-facto orchestration god-module. Function-scoped imports across `modules/` unchanged at 106 (still cycle-workaround tape). `log_action` decentralized further (14 → 19 call sites; needs `AuditSink` Protocol). `embed_tokens` reaches into `catalog.maps` internals. catalog ↔ processing two-way coupling persists (16 files in `processing/`+`standards/` import `catalog.datasets.domain.models`; catalog imports 10+ symbols from `processing.*`). |
 | **OSS Surface Readiness** | **A−** | All four LICENSE files Apache-2.0 (root, `cli/`, `sdks/python/`, `sdks/typescript/`); package metadata consistent in 5 manifests. Zero copyleft contamination (`grep -ln "GPL\|AGPL\|copyleft"` returns no matches across `backend/app/`, `frontend/src/`, `cli/`, `sdks/`). OpenAPI snapshot at `backend/openapi.json` (1,057,614 bytes) with **enforced CI drift gate** (`.github/workflows/ci.yml` `openapi-snapshot` + `sdks-check` jobs). CLI + 2 SDKs built locally as wheels. **Holding short of A on:** (a) `geolens.yaml` catalog manifest spec — zero hits — the largest unshipped open-core enabler; (b) live PyPI/npm publishes — workflows wired but never run; (c) standalone `geolens-schemas` package not extracted; (d) no per-file SPDX headers. |
 
-**Overall Readiness: B (3.06 / 4.0)** — up from B− (2.61 / 4.0) at the 2026-04-26 baseline.
+**Overall Readiness: B+ (3.34 / 4.0)** *(post-Phase-219, amended 2026-04-29; previously B at 3.06 / 4.0)* — up from B− (2.61 / 4.0) at the 2026-04-26 baseline.
 
 ---
 
-## ⚠ MILESTONE CLOSE BLOCKED
+## ✅ MILESTONE CLOSE VERIFIED — Phase 219 closed boundary gap
 
-**Boundary Integrity grade B− does NOT meet the v13.1 close target of A−.**
+**Boundary Integrity grade A meets and exceeds the v13.1 close target of A−.**
 
-The shortfall traces to a **single architectural P0** that Phase 217 documented as deferred to Phase 218 in its CONTEXT.md "Out of scope" section: gating OAuth `group_claim` / `group_role_mapping` behind `require_enterprise()`. Phase 218 was scoped as the closing-audit phase, not the gating phase, so the deferral was never closed.
+Phase 219 (`oc-audit-remediate-idp-mapping`) landed on 2026-04-29 in three atomic commits (d0e09c17 schema gate, dcbb86af service gate, 1cb06324 tests) that close the Phase 217 deferral that Phase 218 surfaced. The OAuth IdP→role mapping cluster — the sole architectural P0 from the pre-219 BLOCKED state — is now gated at both write path (Pydantic `model_validator(mode="after")` on `OAuthProviderCreate` and `OAuthProviderUpdate`) and runtime path (`if is_enterprise():` branch at `oauth/service.py:265-270`). The skill re-run on 2026-04-29 confirmed zero 🔴 violations under the OAuth IdP cluster and Boundary Integrity grade **A** (exceeding the A− target).
 
-This is exactly the contingency CONTEXT.md D-06/D-07 was written for. Per Phase 218's discuss-phase decisions:
-- Do NOT auto-spawn a remediation phase.
-- Do NOT silently advance milestone close.
-- Surface the failure for user judgment (Fix-now / Demote / Slip).
+All three v13.1 close-gate dimensions now meet or exceed targets:
+- **Boundary Integrity A** ≥ A− ✅
+- **Seam Quality B** ≥ B ✅
+- **OSS Surface A−** ≥ C ✅
 
-The other two target dimensions (Seam Quality B, OSS Surface A−) **MEET or EXCEED** their thresholds. Boundary is the sole blocker.
+v13.1 milestone close is unblocked. P1 Residual Triage row 1 (the IdP cluster) is **Closed by Phase 219 (2026-04-29)** — see updated triage table after §8.
 
-See **§7 Prioritized Action Items** for the recommended remediation phase scope, and the **P1 Residual Triage** section (after §8) for the full per-finding verdict table.
+### Pre-remediation state (2026-04-29)
+
+> Original BLOCKED-state narrative preserved verbatim for audit-trail traceability. This subsection records the close-gate failure mode that Phase 219 remediated.
+
+> ## ⚠ MILESTONE CLOSE BLOCKED
+>
+> **Boundary Integrity grade B− does NOT meet the v13.1 close target of A−.**
+>
+> The shortfall traces to a **single architectural P0** that Phase 217 documented as deferred to Phase 218 in its CONTEXT.md "Out of scope" section: gating OAuth `group_claim` / `group_role_mapping` behind `require_enterprise()`. Phase 218 was scoped as the closing-audit phase, not the gating phase, so the deferral was never closed.
+>
+> This is exactly the contingency CONTEXT.md D-06/D-07 was written for. Per Phase 218's discuss-phase decisions:
+> - Do NOT auto-spawn a remediation phase.
+> - Do NOT silently advance milestone close.
+> - Surface the failure for user judgment (Fix-now / Demote / Slip).
+>
+> The other two target dimensions (Seam Quality B, OSS Surface A−) **MEET or EXCEED** their thresholds. Boundary is the sole blocker.
 
 ---
 
@@ -38,9 +53,9 @@ See **§7 Prioritized Action Items** for the recommended remediation phase scope
 
 The v13.1 milestone delivered five of six P1 commitments cleanly: the `core ↔ settings` layering inversion is gone, `auth/visibility.py` relocated to `catalog/authorization.py`, `IdentityProtocol` extracted and adopted by 41 files (`User` direct imports cut from 51 → 20), Python + TypeScript SDKs and the `geolens` CLI shipped Apache-2.0 with an enforced OpenAPI drift gate, and the SAML enterprise overlay shipped to a sibling private repo with a clean four-file carve-out in core. Three extension seams advanced from 🟡 to 🟢 (auth provider, audit export, branding) — the seam infrastructure is now exercised by a real overlay rather than a dormant Protocol declaration.
 
-The sixth P1 commitment is unfulfilled. The 2026-04-27 audit's P0 — IdP group-to-role mapping shipping in community via `oauth/models.py` columns, `oauth/schemas.py` write fields, and `oauth/service.py` runtime resolution — was explicitly deferred to Phase 218 by Phase 217's "Out of scope" list. Phase 218 was scoped as a closing-audit phase, not a gating phase, and the deferral was never closed. Three boundary violations all collapse to this single P0; once gated, Boundary moves from B− to A− (or A) and the v13.1 close criterion is met.
+The sixth P1 commitment was unfulfilled in the pre-219 state and **is now closed by Phase 219** (2026-04-29). The 2026-04-27 audit's P0 — IdP group-to-role mapping shipping in community via `oauth/models.py` columns, `oauth/schemas.py` write fields, and `oauth/service.py` runtime resolution — was explicitly deferred to Phase 218 by Phase 217's "Out of scope" list. Phase 218 was scoped as a closing-audit phase, not a gating phase, and surfaced the deferral as the sole reason Boundary Integrity missed the A− target. Phase 219 (`oc-audit-remediate-idp-mapping`) closed all three sites in three atomic commits: write-path schema validators (`schemas.py` — commit d0e09c17), runtime call-site branch (`service.py:265-270` — commit dcbb86af), and test coverage split + new `TestIdpRoleMappingGate` class (commit 1cb06324). With Phase 219 deployed, Boundary Integrity moves from B− to **A** (exceeding the A− target) and the v13.1 close criterion is met.
 
-The unresolved P1 items are AWS Marketplace billing plumbing in the core runtime (dormant when env unset, but the boto3 import and lifespan registration ship to every community deployment), and the missing `geolens.yaml` catalog manifest spec. Coupling debt is concentrated in `catalog/datasets/domain/service.py` (1407 LOC orchestration god-module) and the catalog ↔ processing two-way knot. The recommended next step is a small Phase 219 (oc-audit-remediate-idp-mapping) that gates the three OAuth files behind `is_enterprise()` checks (~1 day of work, two model_validators + one runtime branch), re-runs the audit, and re-attempts v13.1 close. Marketplace billing extraction and manifest spec land in v13.2 or a follow-on cleanup phase.
+The unresolved P1 items as of v13.1 close are AWS Marketplace billing plumbing in the core runtime (dormant when env unset, but the boto3 import and lifespan registration ship to every community deployment) — demoted to P2 — and the missing `geolens.yaml` catalog manifest spec — accepted as OOS. Coupling debt is concentrated in `catalog/datasets/domain/service.py` (1407 LOC orchestration god-module) and the catalog ↔ processing two-way knot — both v13.2+ targets. Marketplace billing extraction and manifest spec land in v13.2 or a follow-on cleanup phase.
 
 ---
 
@@ -50,9 +65,9 @@ The unresolved P1 items are AWS Marketplace billing plumbing in the core runtime
 
 | File:line | Pattern | Class | Recommendation |
 |---|---|---|---|
-| `backend/app/modules/auth/oauth/models.py:82-84` | `default_role` / `group_claim` / `group_role_mapping` columns on OAuthProvider (IdP→role mapping) | 🔴 **Violation (UNRESOLVED — deferred from 2026-04-27)** | Gate at write path: keep columns (forward-compat scaffolding for enterprise) but reject non-default writes in community via `model_validator` + `is_enterprise()` check |
-| `backend/app/modules/auth/oauth/service.py:169-179, 261-263` | `_resolve_role()` applies `group_role_mapping` for ALL OAuth providers in `find_or_create_oauth_user()` | 🔴 **Violation (UNRESOLVED)** | Wrap in edition check at `:261-263`: if `is_enterprise()`, call `_resolve_role(...)`; else `role_name = provider.default_role` |
-| `backend/app/modules/auth/oauth/schemas.py:116-129, 237-248` | `default_role` / `group_claim` / `group_role_mapping` accepted in Create/Update schemas without enterprise gate | 🔴 **Violation (UNRESOLVED)** | Add `model_validator(mode="after")` to `OAuthProviderCreate` and `OAuthProviderUpdate` that raises `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` when `group_claim` is set or `group_role_mapping` is non-empty AND `not is_enterprise()` |
+| `backend/app/modules/auth/oauth/models.py:82-84` | `default_role` / `group_claim` / `group_role_mapping` columns on OAuthProvider (IdP→role mapping) | 🟢 **Clean (Closed by Phase 219, 2026-04-29)** | Columns retained as forward-compat scaffolding for the SAML enterprise overlay (Phase 217 D-04). Writes gated by schema validators below; runtime application gated at `service.py:265-270`. |
+| `backend/app/modules/auth/oauth/service.py:169-179, 265-270` | `_resolve_role()` call site wrapped in `if is_enterprise():` inside `find_or_create_oauth_user()` (community uses `default_role`) | 🟢 **Clean (Closed by Phase 219, 2026-04-29 — commit dcbb86af)** | `_resolve_role()` itself untouched (D-07); orchestration-level edition gate at the call site. Defense-in-depth for legacy/direct-DB rows. |
+| `backend/app/modules/auth/oauth/schemas.py:174-190, 286-300` | `_validate_idp_mapping_gate` model_validators on `OAuthProviderCreate` and `OAuthProviderUpdate` rejecting `group_claim` set or non-empty `group_role_mapping` in community | 🟢 **Clean (Closed by Phase 219, 2026-04-29 — commit d0e09c17)** | Verbatim error message `"Group-based role mapping requires the GeoLens Enterprise overlay"` (per CONTEXT.md D-03). `group_role_mapping={}` and `=None` allowed in community per D-02 clear-mapping carve-out. |
 | `frontend/src/components/admin/saml/SamlProvidersSection.tsx:90-92, 511-528` | UI fields for `group_claim` / `group_role_mapping` | 🟢 Clean | Lives under `admin/saml/`, gated by `AdminSamlPage` `useEdition()` redirect (`AdminSamlPage.tsx:28-33`); enterprise-only by route. No equivalent UI under non-SAML OAuth provider editor — correct posture |
 | `backend/app/api/main.py:184-203` | AWS Marketplace `register_marketplace_usage` runtime call in core startup | 🟡 Risk | Move behind a `BillingExtension.on_startup()` hook registered only by the enterprise overlay; core should not import `app.core.marketplace` |
 | `backend/app/core/marketplace.py:1-30` | AWS Marketplace billing module in core runtime (boto3 dep) | 🟡 Risk | Relocate to `geolens-enterprise/geolens_enterprise/billing/` and register via the extension seam |
@@ -64,21 +79,27 @@ The unresolved P1 items are AWS Marketplace billing plumbing in the core runtime
 | `backend/app/modules/catalog/` | Persistent connector / stored credentials | 🟢 Clean | No `Credential`/`StoredSecret`/`ConnectorConfig` model; `secrets` import is for token generation only (`maps/service.py:852`); source adapters are stateless probes |
 | Repo-wide | Multi-tenant, federation, SCIM, airgap, govcloud, AI policy, approval workflow, white-label-toggle | 🟢 Clean | Greps return zero hits |
 
-### Summary
+### Summary *(post-Phase-219, amended 2026-04-29)*
 
-- 🔴 **Violations: 3** (all collapse to one architectural issue: OAuth IdP→role mapping in core)
-- 🟡 **Risks: 3** (Marketplace billing in core runtime — same defect, three loci)
-- 🟢 **Clean: 9 categories**
+- 🔴 **Violations: 0** (all three OAuth IdP→role mapping sites closed by Phase 219 on 2026-04-29)
+- 🟡 **Risks: 3** (Marketplace billing in core runtime — same defect, three loci; demoted to P2 per Triage row 2)
+- 🟢 **Clean: 12 categories** (now also including all three previously-🔴 OAuth IdP rows)
+
+*Pre-219 totals: 3 🔴 / 3 🟡 / 9 🟢.*
 
 ### Carve-out note (Phase 217 SAML)
 
 All four documented carve-out files contain only enum literals, validation strings, `deferred=True` column scaffolding, audit-snapshot helpers, and comments referencing `e002_add_saml_columns`. No SAML `class`/`def`/instantiation present. **Carve-out is honored.**
 
-### IdP group-mapping note (2026-04-27 P0 — STILL UNRESOLVED)
+### IdP group-mapping note (2026-04-27 P0 — CLOSED BY PHASE 219, 2026-04-29)
 
-Phase 217's `217-CONTEXT.md` "Out of scope" list explicitly defers gating to Phase 218: *"gating OAuth `group_claim`/`group_role_mapping` behind `require_enterprise()` (audit P0 from `oc-separation-audit-20260427.md` — deferred to Phase 218)"*. Phase 218 was scoped as a closing-audit phase only — the deferral was never closed. The columns, schema fields, and `_resolve_role()` runtime path all execute unconditionally in community. A community admin with `manage_settings` can POST to `/settings/oauth-providers/` with `group_role_mapping` populated and have it applied at OAuth login.
+Phase 217's `217-CONTEXT.md` "Out of scope" list deferred gating to Phase 218: *"gating OAuth `group_claim`/`group_role_mapping` behind `require_enterprise()` (audit P0 from `oc-separation-audit-20260427.md` — deferred to Phase 218)"*. Phase 218 was scoped as a closing-audit phase only and surfaced the deferral as the v13.1 close blocker. Phase 219 (`oc-audit-remediate-idp-mapping`) closed all three sites on 2026-04-29 in three atomic commits:
 
-**This is the sole reason Boundary Integrity misses the A− target.** A 1-day Phase 219 closes it.
+- `oauth/schemas.py` (commit d0e09c17): `_validate_idp_mapping_gate` model_validators on `OAuthProviderCreate` and `OAuthProviderUpdate`. Community POST/PATCH to `/settings/oauth-providers/` with `group_claim` set or non-empty `group_role_mapping` returns HTTP 422 with the verbatim error message.
+- `oauth/service.py` (commit dcbb86af): `_resolve_role()` call site at lines 265-270 wrapped in `if is_enterprise():`. Community users always receive `default_role`, never IdP group mapping.
+- `tests/test_oauth.py` (commit 1cb06324): `TestIdpRoleMappingGate` class added (5 schema tests + carve-out test); runtime test split into community/enterprise variants.
+
+The 2026-04-29 audit re-run (this document, amended) confirms zero 🔴 violations under the OAuth IdP cluster and Boundary Integrity grade A — exceeding the A− v13.1 target.
 
 ### Marketplace billing note (2026-04-27 P1 — STILL UNRESOLVED)
 
@@ -361,14 +382,14 @@ Source files do not carry per-file SPDX headers; acceptable for Apache-2.0 with 
 
 ### Grade-delta table
 
-| Dimension | Source (2026-04-26) | v13.1 Close (this run) | Δ | Target | Met? |
-|-----------|---------------------|------------------------|---|--------|------|
-| Boundary Integrity | B | B− | ↓ (vs source); ↑ (vs 2026-04-27 — same) | A− | **❌ NO** |
-| Seam Quality | C | B | ↑ | B | ✅ YES |
-| Inventory Accuracy | A− | B+ | ↓ (more undocumented capabilities surfaced) | — | n/a |
-| Deployment Separation | A | B | ↓ (one new finding: Marketplace + missing deployment/) | — | n/a |
-| Coupling Health | C | B− | ↑ | — | n/a |
-| OSS Surface Readiness | D | A− | ↑↑ (CLI + 2 SDKs + OpenAPI snapshot landed) | C | ✅ YES |
+| Dimension | Source (2026-04-26) | v13.1-close pre-219 | v13.1-close post-219 (this run, amended 2026-04-29) | Δ vs pre-219 | Target | Met? |
+|-----------|---------------------|---------------------|------------------------|---|--------|------|
+| Boundary Integrity | B | B− | **A** | ↑ (Phase 219 closed OAuth IdP cluster) | A− | **✅ YES** |
+| Seam Quality | C | B | B | — | B | ✅ YES |
+| Inventory Accuracy | A− | B+ | B+ | — | — | n/a |
+| Deployment Separation | A | B | B | — | — | n/a |
+| Coupling Health | C | B− | B− | — | — | n/a |
+| OSS Surface Readiness | D | A− | A− | — | C | ✅ YES |
 
 ### What Improved
 
@@ -379,7 +400,7 @@ Source files do not carry per-file SPDX headers; acceptable for Apache-2.0 with 
 
 ### What Regressed (vs source baseline)
 
-- **Boundary Integrity: B → B−.** Source baseline had 1 🔴 (audit-export ungated). This run has 3 🔴 collapsing to 1 architectural P0 (OAuth IdP role mapping) — the audit-export gate is fixed, but a new P0 surfaced in the 2026-04-27 audit was not closed in v13.1. Matches the 2026-04-27 grade exactly; Phase 217 deferred the fix to Phase 218.
+- **Boundary Integrity: B → B− → A (Phase 219).** Source baseline had 1 🔴 (audit-export ungated). The v13.1-close pre-219 state had 3 🔴 collapsing to 1 architectural P0 (OAuth IdP role mapping). Phase 219 closed the IdP gap on 2026-04-29 with two `model_validator(mode="after")` blocks plus one runtime branch — all three IdP rows are now 🟢. Boundary moved B− → A, exceeding the v13.1 A− target.
 - **Deployment Separation: A → B.** Source baseline graded A on "zero blockers". This run keeps that "zero blockers" assessment but adds two negatives the source did not surface: (a) AWS Marketplace billing in core runtime (P1); (b) missing `deployment/` directory and Helm chart. Both are pre-existing conditions not measured in the source baseline.
 - **Inventory Accuracy: A− → B+.** Closer scan in this run surfaced 7 undocumented capabilities (AI streaming/tool-calling, pgvector semantic search, VRT mosaics, records architecture, STAC import, embed-token admin router, config_ops module). The source baseline noted 9 at A−; this run notes 8 (slightly fewer undocumented but the GTM-vs-code single-shot AI contradiction is more severe).
 
@@ -393,7 +414,7 @@ Source files do not carry per-file SPDX headers; acceptable for Apache-2.0 with 
 
 ### Net trajectory
 
-Overall readiness moved from **B− (2.61 / 4.0)** at the source baseline to **B (3.06 / 4.0)** in this run — a meaningful improvement driven by Phase 212-217 work. The single remaining miss (Boundary B− vs target A−) is a deferred P0 from Phase 217 with a well-scoped 1-day fix path (Phase 219). Once gated, the boundary moves to A− or A and the v13.1 milestone-close contract is satisfied.
+Overall readiness moved from **B− (2.61 / 4.0)** at the source baseline to **B (3.06 / 4.0)** in the v13.1-close pre-219 state, then to **B+ (3.34 / 4.0)** after Phase 219 closed the OAuth IdP cluster on 2026-04-29 — a meaningful improvement driven by Phase 212-219 work. All three v13.1 close-gate criteria (Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C) are met or exceeded. The v13.1 milestone-close contract is **satisfied**.
 
 ---
 
@@ -405,7 +426,7 @@ Overall readiness moved from **B− (2.61 / 4.0)** at the source baseline to **B
 
 | # | Finding (audit ref) | File:line | Verdict | Rationale | Follow-up |
 |---|---------------------|-----------|---------|-----------|-----------|
-| 1 | OAuth IdP→role mapping in core (3 🔴 sites — schema + service + model) | `oauth/{schemas,service,models}.py` (§1) | **Fix-now** | Sole cause of Boundary B− vs A− target. Phase 217's documented deferral (`217-CONTEXT.md` "Out of scope"). Without this fix v13.1 milestone-close criterion AUDIT-V1 fails. ~1d effort: 2 model_validators + 1 runtime branch | **Phase 219: oc-audit-remediate-idp-mapping** (proposed). Re-run audit on completion; if Boundary ≥ A−, retire this audit doc and produce v13.1-close.md with passing grades, OR amend this v13.1-close.md in place with the remediated grade. |
+| 1 | OAuth IdP→role mapping in core (3 🔴 sites — schema + service + model) | `oauth/{schemas,service,models}.py` (§1) | **Fix-now → Closed by Phase 219 (2026-04-29)** | Was the sole cause of Boundary B− vs A− target. Phase 217's documented deferral (`217-CONTEXT.md` "Out of scope"). Phase 219 (`oc-audit-remediate-idp-mapping`) closed the cluster on 2026-04-29 in three atomic commits: write-path schema validators (commit d0e09c17), runtime call-site branch (commit dcbb86af), test split + new `TestIdpRoleMappingGate` class (commit 1cb06324). 2026-04-29 audit re-run confirmed Boundary Integrity grade A (zero 🔴 in OAuth IdP cluster). | **Phase 219: oc-audit-remediate-idp-mapping** — **CLOSED 2026-04-29.** Per the post-Phase-219 audit re-run, Boundary moved B− → A (exceeds A− target); v13.1-close.md amended in place per Phase 219 D-12 (this document). |
 | 2 | AWS Marketplace billing in core runtime (3 🟡 loci) | `core/marketplace.py`, `core/config.py:87-88, 108`, `api/main.py:184-203`, `docker-compose.yml:128-129` (§1, §4) | **Demote to P2** | Inert when `AWS_MARKETPLACE_PRODUCT_CODE` unset (the default). No community deployment triggers it accidentally. Architectural cleanup (extract to `BillingExtension`), not a v13.1 close blocker. Carry-over from 2026-04-27 audit. | Add row to `oc-separation-deferred-items-20260426.md` under "P2 — Address as enterprise tier ships": *"Move AWS Marketplace billing to enterprise overlay via BillingExtension.on_startup() hook (1-2d)"*. |
 | 3 | `frontend/src/pages/admin/AdminSamlPage.tsx` ships in CE bundle | `frontend/src/pages/admin/AdminSamlPage.tsx:28-33` (§3b, §3 v13.1 deltas) | **Accept as OOS** | The page is gated at runtime via `useEdition()` → redirect. SAML data fetches go to backend endpoints that 404 in community via `require_enterprise()`. Bundle-size impact is minimal (one route). Frontend bundle code-split for enterprise components is already a P2 row in `oc-separation-deferred-items-20260426.md`, where this finding belongs. | None for v13.1 close. Reference: existing P2 deferred-items row "Frontend code-splitting for enterprise components". |
 | 4 | AI streaming + tool-calling in CE contradicts GTM "single-shot only" claim | `processing/ai/{streaming.py, llm_loop.py, tool_call_parser.py}` vs `docs-internal/GTM/free-vs-enterprise.md:70` (§3c) | **Accept as OOS** | This is a GTM-doc accuracy issue, not a code/boundary issue. The shipped behavior is correct CE behavior (interactive chat). The fix is rewriting the GTM line to match reality, which is a docs writing pass outside Phase 218's "verification + triage only" scope. | None for v13.1 close. Recommend a small docs phase post-v13.1 to align GTM language with shipped capabilities. |
@@ -414,21 +435,20 @@ Overall readiness moved from **B− (2.61 / 4.0)** at the source baseline to **B
 
 ### Triage summary
 
-- **Fix-now: 1** (the IdP mapping P0 — drives v13.1 close)
+- **Fix-now: 1 → CLOSED** (the IdP mapping P0 — closed by Phase 219 on 2026-04-29)
 - **Demote to P2: 2** (Marketplace billing, distribution activation)
 - **Accept as OOS: 3** (frontend SAML page, AI single-shot wording, manifest spec)
 
 ### Milestone close decision
 
-**v13.1 milestone close BLOCKED** until finding #1 is resolved.
+**v13.1 milestone close VERIFIED** — Phase 219 closed finding #1 on 2026-04-29; all three close-gate dimensions (Boundary A ≥ A−, Seam Quality B ≥ B, OSS Surface A− ≥ C) meet or exceed targets.
 
-Two paths forward (user decision):
+Path executed: **Phase 219 (oc-audit-remediate-idp-mapping)** — 1-day remediation. Scope delivered: two `model_validator(mode="after")` blocks in `oauth/schemas.py` (rejecting `group_claim` set or non-empty `group_role_mapping` in community), one runtime `if is_enterprise():` branch at `oauth/service.py:265-270` (community uses `default_role`), and test coverage split + new `TestIdpRoleMappingGate` class. Audit re-run on 2026-04-29 confirmed Boundary Integrity grade A.
 
-1. **Plan and execute Phase 219 (oc-audit-remediate-idp-mapping).** Estimated 1 day. Scope: gate `oauth/schemas.py:116-129, 237-248` write fields, gate `oauth/service.py:261-263` runtime branch, optional comment on `oauth/models.py:82-84` columns. Re-run audit on completion. If Boundary ≥ A−, finalize v13.1 close.
-2. **Slip v13.1 milestone to v13.2.** Reframe v13.1 as "Open-Core Separation P1 — partial close" with the IdP P0 documented as v13.2 scope. Lower-friction but loses the milestone-grade contract.
-
-Recommended: Path 1. The fix is small, well-scoped, and closes a specific architectural debt that is otherwise visible to every audit run.
+Next step: `/gsd-complete-milestone` to archive v13.1 and roll forward to v13.2.
 
 ---
 
-*Audit run: 2026-04-29 by /oc-audit at HEAD `0f656a43` (post-Phase-217 close). 6 parallel subagents. v13.1 closing-audit run.*
+*Original audit run: 2026-04-29 by /oc-audit at HEAD `0f656a43` (post-Phase-217 close). 6 parallel subagents. v13.1 closing-audit run.*
+
+*Amended in place: 2026-04-29 by Phase 219 (`oc-audit-remediate-idp-mapping`) per CONTEXT.md D-12. Amendments: banner swap (BLOCKED → VERIFIED with preserved subsection), Scorecard Boundary B− → A, Section 1 OAuth IdP rows 🔴 → 🟢, Section 8 grade-delta updated, P1 Residual Triage row 1 marked Closed by Phase 219, Executive Summary narrative updated. The 2026-04-29 audit re-run that produced these grades was discarded per D-11 (date-named file not committed; only this milestone-bound `v13.1-close.md` is the durable artifact).*
