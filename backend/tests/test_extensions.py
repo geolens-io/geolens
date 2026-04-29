@@ -19,9 +19,10 @@ def _reset_registry():
 def _clean_registry():
     """Reset registry AND isolate from environment-discovered entry points.
 
-    Phase 217 makes the enterprise overlay editable-installable in the
-    backend test venv (so the e002 SAML-columns migration auto-runs at
-    session setup). That install adds the ``geolens.extensions`` entry
+    The enterprise overlay is editable-installable in the backend test
+    venv (so the enterprise migration adding overlay-only columns
+    auto-runs at session setup). That install adds the
+    ``geolens.extensions`` entry
     point, which would otherwise pollute the registry whenever a test
     calls ``load_extensions()``. We patch ``entry_points`` to default-empty
     so each test starts from a known-empty discovery surface and can opt
@@ -238,8 +239,8 @@ class TestGetIdentityExtension:
         """DefaultIdentityExtension.resolve_identity_from_token returns None for any input.
 
         Enforces Pitfall 8: the method MUST be async — calling `await` on it
-        must not raise TypeError. Phase 217's SAML overlay relies on this
-        contract for its DB-lookup wire-in.
+        must not raise TypeError. Enterprise auth overlays rely on this
+        contract for their DB-lookup wire-in.
         """
         from app.platform.extensions.defaults import DefaultIdentityExtension
 
