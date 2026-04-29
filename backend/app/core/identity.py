@@ -12,10 +12,11 @@ IDENT-01..03) is closing. ``Request`` and ``AsyncSession`` are
 infrastructure types that do NOT live under ``app.modules.*`` so they
 do not violate the layering rule.
 
-Phase 217 (auth-saml-enterprise) is the first concrete consumer of
-``IdentityExtension``: a SAML overlay registers an alternate backend
-under the ``geolens.extensions`` entry-point group with key ``"identity"``
-and ``get_identity_extension()`` returns it on subsequent requests.
+An enterprise auth overlay (e.g., the ``geolens-enterprise`` package) is
+the first concrete consumer of ``IdentityExtension``: it registers an
+alternate backend under the ``geolens.extensions`` entry-point group
+with key ``"identity"`` and ``get_identity_extension()`` returns it on
+subsequent requests.
 """
 
 from __future__ import annotations
@@ -82,12 +83,12 @@ class IdentityExtension(Protocol):
     The default community implementation (``DefaultIdentityExtension`` at
     ``platform/extensions/defaults.py``) returns ``None``, signalling
     "I don't recognize this token; fall through to the existing JWT path."
-    Phase 217's SAML overlay implements this method to validate a SAML
-    session token, run JIT provisioning through the existing
-    ``find_or_create_oauth_user()`` pathway (per ROADMAP Phase 217 SC#3),
-    and return an ``Identity``. The async signature is mandatory
-    (Pitfall 8) — Phase 217 will perform DB lookups; ``await`` is required
-    in the wire-in.
+    An enterprise auth overlay implements this method to validate an
+    overlay-issued session token, run JIT provisioning through the
+    existing ``find_or_create_oauth_user()`` pathway, and return an
+    ``Identity``. The async signature is mandatory (Pitfall 8) — overlay
+    implementations may perform DB lookups; ``await`` is required in the
+    wire-in.
     """
 
     async def resolve_identity_from_token(

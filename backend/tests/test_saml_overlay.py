@@ -518,7 +518,6 @@ async def test_saml_acs_redirect_includes_source_query_param(
     query param is consistently present.
     """
     from geolens_enterprise.auth.saml import router as saml_router_mod
-    from geolens_enterprise.auth.saml.replay import replay_cache
 
     await _seed_saml_provider(test_db_session)
 
