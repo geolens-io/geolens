@@ -834,7 +834,7 @@ export type BrandingResponse = {
     /**
      * Show Badge
      *
-     * Whether to show the 'Powered by GeoLens' label in public and shared footers.
+     * Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal writes are enterprise controls (enterprise only).
      */
     show_badge: boolean;
 };
@@ -2931,13 +2931,13 @@ export type EmbedTokenCreate = {
     /**
      * Allowed Origins
      *
-     * Restrict embedding to these origins (CORS). Omit to allow any origin.
+     * Restrict embedding to these origins (enterprise only). Omit to allow any origin.
      */
     allowed_origins?: Array<string> | null;
     /**
      * Expires In Days
      *
-     * Token lifetime in days (1-365)
+     * Token lifetime in days (1-365). Expiration controls are enterprise controls (enterprise only).
      */
     expires_in_days?: number;
     /**
@@ -3073,7 +3073,7 @@ export type EmbedTokenUpdate = {
     /**
      * Allowed Origins
      *
-     * Updated list of allowed embedding origins
+     * Updated list of allowed embedding origins (enterprise only)
      */
     allowed_origins?: Array<string> | null;
 };
@@ -6236,7 +6236,7 @@ export type ShareTokenRequest = {
     /**
      * Expires At
      *
-     * Expiration timestamp; null = never expires
+     * Expiration timestamp (enterprise only); null = never expires
      */
     expires_at?: string | null;
 };

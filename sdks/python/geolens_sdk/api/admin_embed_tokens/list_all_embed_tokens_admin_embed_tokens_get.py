@@ -137,7 +137,7 @@ def sync_detailed(
 ) -> Response[AdminEmbedTokenListResponse | ProblemDetail]:
     """List All Embed Tokens
 
-     List all embed tokens across all maps with optional filters (admin only).
+     List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -183,7 +183,7 @@ def sync(
 ) -> AdminEmbedTokenListResponse | ProblemDetail | None:
     """List All Embed Tokens
 
-     List all embed tokens across all maps with optional filters (admin only).
+     List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -224,7 +224,7 @@ async def asyncio_detailed(
 ) -> Response[AdminEmbedTokenListResponse | ProblemDetail]:
     """List All Embed Tokens
 
-     List all embed tokens across all maps with optional filters (admin only).
+     List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -268,7 +268,7 @@ async def asyncio(
 ) -> AdminEmbedTokenListResponse | ProblemDetail | None:
     """List All Embed Tokens
 
-     List all embed tokens across all maps with optional filters (admin only).
+     List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.

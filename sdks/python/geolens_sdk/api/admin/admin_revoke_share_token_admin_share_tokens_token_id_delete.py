@@ -87,7 +87,7 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Admin Revoke Share Token
 
-     Revoke (soft-delete) a share token and cascade to its embed tokens (admin only).
+     Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
     Args:
         token_id (UUID):
@@ -118,7 +118,7 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Admin Revoke Share Token
 
-     Revoke (soft-delete) a share token and cascade to its embed tokens (admin only).
+     Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
     Args:
         token_id (UUID):
@@ -144,7 +144,7 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Admin Revoke Share Token
 
-     Revoke (soft-delete) a share token and cascade to its embed tokens (admin only).
+     Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
     Args:
         token_id (UUID):
@@ -173,7 +173,7 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Admin Revoke Share Token
 
-     Revoke (soft-delete) a share token and cascade to its embed tokens (admin only).
+     Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
     Args:
         token_id (UUID):

@@ -18,7 +18,7 @@ T = TypeVar("T", bound="EmbedTokenUpdate")
 class EmbedTokenUpdate:
     """
     Attributes:
-        allowed_origins (list[str] | None | Unset): Updated list of allowed embedding origins
+        allowed_origins (list[str] | None | Unset): Updated list of allowed embedding origins (enterprise only)
     """
 
     allowed_origins: list[str] | None | Unset = UNSET

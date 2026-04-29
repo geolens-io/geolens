@@ -93,7 +93,7 @@ def sync_detailed(
 ) -> Response[AIStatusResponse | ProblemDetail]:
     """Update Ai Status
 
-     Toggle AI features on/off at runtime (admin only).
+     Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
     Args:
         body (AIStatusUpdate):
@@ -124,7 +124,7 @@ def sync(
 ) -> AIStatusResponse | ProblemDetail | None:
     """Update Ai Status
 
-     Toggle AI features on/off at runtime (admin only).
+     Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
     Args:
         body (AIStatusUpdate):
@@ -150,7 +150,7 @@ async def asyncio_detailed(
 ) -> Response[AIStatusResponse | ProblemDetail]:
     """Update Ai Status
 
-     Toggle AI features on/off at runtime (admin only).
+     Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
     Args:
         body (AIStatusUpdate):
@@ -179,7 +179,7 @@ async def asyncio(
 ) -> AIStatusResponse | ProblemDetail | None:
     """Update Ai Status
 
-     Toggle AI features on/off at runtime (admin only).
+     Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
     Args:
         body (AIStatusUpdate):

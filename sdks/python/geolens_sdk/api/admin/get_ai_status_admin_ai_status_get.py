@@ -82,7 +82,7 @@ def sync_detailed(
 ) -> Response[AIStatusResponse | ProblemDetail]:
     """Get Ai Status
 
-     Return AI provider status and runtime toggle (admin only).
+     Return single-deployment AI status; no provider-routing policy controls (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -107,7 +107,7 @@ def sync(
 ) -> AIStatusResponse | ProblemDetail | None:
     """Get Ai Status
 
-     Return AI provider status and runtime toggle (admin only).
+     Return single-deployment AI status; no provider-routing policy controls (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -128,7 +128,7 @@ async def asyncio_detailed(
 ) -> Response[AIStatusResponse | ProblemDetail]:
     """Get Ai Status
 
-     Return AI provider status and runtime toggle (admin only).
+     Return single-deployment AI status; no provider-routing policy controls (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -151,7 +151,7 @@ async def asyncio(
 ) -> AIStatusResponse | ProblemDetail | None:
     """Get Ai Status
 
-     Return AI provider status and runtime toggle (admin only).
+     Return single-deployment AI status; no provider-routing policy controls (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

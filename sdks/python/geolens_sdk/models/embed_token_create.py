@@ -18,9 +18,10 @@ T = TypeVar("T", bound="EmbedTokenCreate")
 class EmbedTokenCreate:
     """
     Attributes:
-        allowed_origins (list[str] | None | Unset): Restrict embedding to these origins (CORS). Omit to allow any
-            origin. Example: ['https://dashboard.example.com'].
-        expires_in_days (int | Unset): Token lifetime in days (1-365) Default: 30. Example: 90.
+        allowed_origins (list[str] | None | Unset): Restrict embedding to these origins (enterprise only). Omit to allow
+            any origin. Example: ['https://dashboard.example.com'].
+        expires_in_days (int | Unset): Token lifetime in days (1-365). Expiration controls are enterprise controls
+            (enterprise only). Default: 30. Example: 90.
         name (None | str | Unset): Human-readable label for the token Example: Public dashboard embed.
     """
 

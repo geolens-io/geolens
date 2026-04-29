@@ -63,7 +63,10 @@ async def create_embed_token_endpoint(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenCreatedResponse:
-    """Create an embed token scoped to a map's current layers."""
+    """Create an embed token scoped to a map's current layers.
+
+    Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
+    """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
@@ -133,7 +136,7 @@ async def update_embed_token_endpoint(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
-    """Update embed token allowed_origins (domain restrictions)."""
+    """Update embed token allowed_origins (enterprise only)."""
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(

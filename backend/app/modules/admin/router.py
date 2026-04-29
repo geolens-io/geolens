@@ -541,7 +541,7 @@ def _ai_status(
 async def get_ai_status(
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
-    """Return AI provider status and runtime toggle (admin only)."""
+    """Return single-deployment AI status; no provider-routing policy controls (admin only)."""
     from app.core.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
 
     from app.processing.embeddings.helpers import has_embeddings
@@ -563,7 +563,7 @@ async def update_ai_status(
     user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
-    """Toggle AI features on/off at runtime (admin only)."""
+    """Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only)."""
     from app.processing.embeddings.helpers import has_embeddings
     from app.core.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
 
@@ -583,7 +583,7 @@ async def update_ai_status(
 async def get_embedding_stats(
     db: AsyncSession = Depends(get_db),
 ) -> EmbeddingStatsResponse:
-    """Return embedding coverage statistics (admin only)."""
+    """Return semantic-search embedding coverage statistics (admin only)."""
     service = AdminService(db)
     return await service.get_embedding_stats()
 
@@ -597,7 +597,7 @@ async def trigger_backfill(
     force: bool = False,
     current_user: User = Depends(require_permission("manage_users")),
 ) -> BackfillResponse:
-    """Trigger embedding generation for records (admin only).
+    """Trigger semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
@@ -714,7 +714,7 @@ async def list_share_tokens_endpoint(
     status: str | None = Query(None, pattern="^(active|expired|revoked)$"),
     db: AsyncSession = Depends(get_db),
 ) -> AdminShareTokenListResponse:
-    """List all share tokens with map info (admin only)."""
+    """List basic share-token inventory with map info; no quotas or domain controls (admin only)."""
     from app.modules.catalog.maps.service import list_share_tokens
 
     tokens, total = await list_share_tokens(
@@ -736,7 +736,7 @@ async def admin_revoke_share_token(
     current_user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Revoke (soft-delete) a share token and cascade to its embed tokens (admin only)."""
+    """Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only)."""
     from app.modules.embed_tokens.models import EmbedToken
     from app.modules.embed_tokens.service import bulk_revoke_embed_tokens
     from app.modules.catalog.maps.service import revoke_share_token

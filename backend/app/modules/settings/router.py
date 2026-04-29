@@ -490,8 +490,8 @@ async def get_branding(
 
     The active ``BrandingExtension`` provides initial defaults for branding
     keys. PersistentConfig overrides take precedence when set. Community
-    advertises ``show_badge`` only; enterprise overlays may extend the
-    extension to advertise additional keys (logo, colors, favicon, ...).
+    advertises read-only ``show_badge`` only; badge-removal writes and
+    additional branding keys are enterprise controls (enterprise only).
     """
     from app.platform.extensions import get_branding_extension
 

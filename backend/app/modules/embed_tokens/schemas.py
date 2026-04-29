@@ -42,7 +42,7 @@ class EmbedTokenCreate(BaseModel):
         default=30,
         ge=1,
         le=365,
-        description="Token lifetime in days (1-365)",
+        description="Token lifetime in days (1-365). Expiration controls are enterprise controls (enterprise only).",
         example=90,
     )
     name: str | None = Field(
@@ -55,7 +55,7 @@ class EmbedTokenCreate(BaseModel):
     allowed_origins: list[str] | None = Field(
         default=None,
         max_length=50,
-        description="Restrict embedding to these origins (CORS). Omit to allow any origin.",
+        description="Restrict embedding to these origins (enterprise only). Omit to allow any origin.",
         example=["https://dashboard.example.com"],
     )
 
@@ -69,7 +69,7 @@ class EmbedTokenUpdate(BaseModel):
     allowed_origins: list[str] | None = Field(
         default=None,
         max_length=50,
-        description="Updated list of allowed embedding origins",
+        description="Updated list of allowed embedding origins (enterprise only)",
     )
 
     @field_validator("allowed_origins", mode="before")

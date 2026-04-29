@@ -318,7 +318,8 @@ class SharedMapResponse(BaseModel):
 
 class ShareTokenRequest(BaseModel):
     expires_at: datetime | None = Field(
-        default=None, description="Expiration timestamp; null = never expires"
+        default=None,
+        description="Expiration timestamp (enterprise only); null = never expires",
     )
 
     @field_validator("expires_at")

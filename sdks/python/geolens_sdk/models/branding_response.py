@@ -15,7 +15,8 @@ class BrandingResponse:
     """Response for GET /settings/branding/.
 
     Attributes:
-        show_badge (bool): Whether to show the 'Powered by GeoLens' label in public and shared footers.
+        show_badge (bool): Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal
+            writes are enterprise controls (enterprise only).
     """
 
     show_badge: bool

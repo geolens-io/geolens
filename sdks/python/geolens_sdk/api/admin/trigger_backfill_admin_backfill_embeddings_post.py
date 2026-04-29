@@ -94,7 +94,7 @@ def sync_detailed(
 ) -> Response[BackfillResponse | ProblemDetail]:
     """Trigger Backfill
 
-     Trigger embedding generation for records (admin only).
+     Trigger semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
@@ -128,7 +128,7 @@ def sync(
 ) -> BackfillResponse | ProblemDetail | None:
     """Trigger Backfill
 
-     Trigger embedding generation for records (admin only).
+     Trigger semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
@@ -157,7 +157,7 @@ async def asyncio_detailed(
 ) -> Response[BackfillResponse | ProblemDetail]:
     """Trigger Backfill
 
-     Trigger embedding generation for records (admin only).
+     Trigger semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
@@ -189,7 +189,7 @@ async def asyncio(
 ) -> BackfillResponse | ProblemDetail | None:
     """Trigger Backfill
 
-     Trigger embedding generation for records (admin only).
+     Trigger semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
