@@ -86,8 +86,8 @@ def sync_detailed(
 
     The active ``BrandingExtension`` provides initial defaults for branding
     keys. PersistentConfig overrides take precedence when set. Community
-    advertises ``show_badge`` only; enterprise overlays may extend the
-    extension to advertise additional keys (logo, colors, favicon, ...).
+    advertises read-only ``show_badge`` only; badge-removal writes and
+    additional branding keys are enterprise controls (enterprise only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -116,8 +116,8 @@ def sync(
 
     The active ``BrandingExtension`` provides initial defaults for branding
     keys. PersistentConfig overrides take precedence when set. Community
-    advertises ``show_badge`` only; enterprise overlays may extend the
-    extension to advertise additional keys (logo, colors, favicon, ...).
+    advertises read-only ``show_badge`` only; badge-removal writes and
+    additional branding keys are enterprise controls (enterprise only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -142,8 +142,8 @@ async def asyncio_detailed(
 
     The active ``BrandingExtension`` provides initial defaults for branding
     keys. PersistentConfig overrides take precedence when set. Community
-    advertises ``show_badge`` only; enterprise overlays may extend the
-    extension to advertise additional keys (logo, colors, favicon, ...).
+    advertises read-only ``show_badge`` only; badge-removal writes and
+    additional branding keys are enterprise controls (enterprise only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -170,8 +170,8 @@ async def asyncio(
 
     The active ``BrandingExtension`` provides initial defaults for branding
     keys. PersistentConfig overrides take precedence when set. Community
-    advertises ``show_badge`` only; enterprise overlays may extend the
-    extension to advertise additional keys (logo, colors, favicon, ...).
+    advertises read-only ``show_badge`` only; badge-removal writes and
+    additional branding keys are enterprise controls (enterprise only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

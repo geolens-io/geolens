@@ -82,7 +82,7 @@ def sync_detailed(
 ) -> Response[EmbeddingStatsResponse | ProblemDetail]:
     """Get Embedding Stats
 
-     Return embedding coverage statistics (admin only).
+     Return semantic-search embedding coverage statistics (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -107,7 +107,7 @@ def sync(
 ) -> EmbeddingStatsResponse | ProblemDetail | None:
     """Get Embedding Stats
 
-     Return embedding coverage statistics (admin only).
+     Return semantic-search embedding coverage statistics (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -128,7 +128,7 @@ async def asyncio_detailed(
 ) -> Response[EmbeddingStatsResponse | ProblemDetail]:
     """Get Embedding Stats
 
-     Return embedding coverage statistics (admin only).
+     Return semantic-search embedding coverage statistics (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -151,7 +151,7 @@ async def asyncio(
 ) -> EmbeddingStatsResponse | ProblemDetail | None:
     """Get Embedding Stats
 
-     Return embedding coverage statistics (admin only).
+     Return semantic-search embedding coverage statistics (admin only).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

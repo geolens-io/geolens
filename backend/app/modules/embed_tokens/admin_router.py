@@ -45,7 +45,7 @@ async def list_all_embed_tokens(
     user: Identity = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> AdminEmbedTokenListResponse:
-    """List all embed tokens across all maps with optional filters (admin only)."""
+    """List basic embed-token inventory across maps; no quota or domain-policy controls (admin only)."""
     rows, total = await list_admin_embed_tokens(
         db, skip, limit, map_search, creator, status_filter, map_id=map_id
     )
@@ -71,7 +71,7 @@ async def bulk_revoke(
     user: Identity = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> BulkRevokeResponse:
-    """Bulk-revoke multiple embed tokens (admin only)."""
+    """Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only)."""
     count = await bulk_revoke_embed_tokens(db, body.token_ids)
 
     ip = get_client_ip(request)

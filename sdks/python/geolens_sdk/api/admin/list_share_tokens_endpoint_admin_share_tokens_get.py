@@ -116,7 +116,7 @@ def sync_detailed(
 ) -> Response[AdminShareTokenListResponse | ProblemDetail]:
     """List Share Tokens Endpoint
 
-     List all share tokens with map info (admin only).
+     List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -156,7 +156,7 @@ def sync(
 ) -> AdminShareTokenListResponse | ProblemDetail | None:
     """List Share Tokens Endpoint
 
-     List all share tokens with map info (admin only).
+     List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -191,7 +191,7 @@ async def asyncio_detailed(
 ) -> Response[AdminShareTokenListResponse | ProblemDetail]:
     """List Share Tokens Endpoint
 
-     List all share tokens with map info (admin only).
+     List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.
@@ -229,7 +229,7 @@ async def asyncio(
 ) -> AdminShareTokenListResponse | ProblemDetail | None:
     """List Share Tokens Endpoint
 
-     List all share tokens with map info (admin only).
+     List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
     Args:
         skip (int | Unset):  Default: 0.

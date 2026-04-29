@@ -611,7 +611,7 @@ async def update_map_share_token_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse:
-    """Update expiration on an existing share token. Owner or admin only."""
+    """Update expiration on an existing share token (enterprise only). Owner or admin only."""
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(

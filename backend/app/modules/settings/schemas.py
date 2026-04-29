@@ -199,7 +199,10 @@ class BrandingResponse(BaseModel):
     """Response for GET /settings/branding/."""
 
     show_badge: bool = Field(
-        description="Whether to show the 'Powered by GeoLens' label in public and shared footers."
+        description=(
+            "Whether to show the 'Powered by GeoLens' label in public and shared "
+            "footers. Badge-removal writes are enterprise controls (enterprise only)."
+        )
     )
 
 

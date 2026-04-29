@@ -93,7 +93,7 @@ def sync_detailed(
 ) -> Response[BulkRevokeResponse | ProblemDetail]:
     """Bulk Revoke
 
-     Bulk-revoke multiple embed tokens (admin only).
+     Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
 
     Args:
         body (BulkRevokeRequest):
@@ -124,7 +124,7 @@ def sync(
 ) -> BulkRevokeResponse | ProblemDetail | None:
     """Bulk Revoke
 
-     Bulk-revoke multiple embed tokens (admin only).
+     Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
 
     Args:
         body (BulkRevokeRequest):
@@ -150,7 +150,7 @@ async def asyncio_detailed(
 ) -> Response[BulkRevokeResponse | ProblemDetail]:
     """Bulk Revoke
 
-     Bulk-revoke multiple embed tokens (admin only).
+     Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
 
     Args:
         body (BulkRevokeRequest):
@@ -179,7 +179,7 @@ async def asyncio(
 ) -> BulkRevokeResponse | ProblemDetail | None:
     """Bulk Revoke
 
-     Bulk-revoke multiple embed tokens (admin only).
+     Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
 
     Args:
         body (BulkRevokeRequest):

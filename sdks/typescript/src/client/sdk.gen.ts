@@ -28,7 +28,7 @@ export const landingPageGet = <ThrowOnError extends boolean = false>(options?: O
 /**
  * Get Ai Status
  *
- * Return AI provider status and runtime toggle (admin only).
+ * Return single-deployment AI status; no provider-routing policy controls (admin only).
  */
 export const getAiStatusAdminAiStatusGet = <ThrowOnError extends boolean = false>(options?: Options<GetAiStatusAdminAiStatusGetData, ThrowOnError>) => (options?.client ?? client).get<GetAiStatusAdminAiStatusGetResponses, GetAiStatusAdminAiStatusGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -39,7 +39,7 @@ export const getAiStatusAdminAiStatusGet = <ThrowOnError extends boolean = false
 /**
  * Update Ai Status
  *
- * Toggle AI features on/off at runtime (admin only).
+ * Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
  */
 export const updateAiStatusAdminAiStatusPatch = <ThrowOnError extends boolean = false>(options: Options<UpdateAiStatusAdminAiStatusPatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateAiStatusAdminAiStatusPatchResponses, UpdateAiStatusAdminAiStatusPatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -121,7 +121,7 @@ export const exportAuditLogsAdminAuditLogsExportFormatGet = <ThrowOnError extend
 /**
  * Trigger Backfill
  *
- * Trigger embedding generation for records (admin only).
+ * Trigger semantic-search embedding generation for records (admin only).
  *
  * Pass ?force=true to delete all existing embeddings and regenerate from
  * scratch (required after changing the embedding model or dimensions).
@@ -135,7 +135,7 @@ export const triggerBackfillAdminBackfillEmbeddingsPost = <ThrowOnError extends 
 /**
  * List All Embed Tokens
  *
- * List all embed tokens across all maps with optional filters (admin only).
+ * List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
  */
 export const listAllEmbedTokensAdminEmbedTokensGet = <ThrowOnError extends boolean = false>(options?: Options<ListAllEmbedTokensAdminEmbedTokensGetData, ThrowOnError>) => (options?.client ?? client).get<ListAllEmbedTokensAdminEmbedTokensGetResponses, ListAllEmbedTokensAdminEmbedTokensGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -146,7 +146,7 @@ export const listAllEmbedTokensAdminEmbedTokensGet = <ThrowOnError extends boole
 /**
  * Bulk Revoke
  *
- * Bulk-revoke multiple embed tokens (admin only).
+ * Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
  */
 export const bulkRevokeAdminEmbedTokensBulkRevokePost = <ThrowOnError extends boolean = false>(options: Options<BulkRevokeAdminEmbedTokensBulkRevokePostData, ThrowOnError>) => (options.client ?? client).post<BulkRevokeAdminEmbedTokensBulkRevokePostResponses, BulkRevokeAdminEmbedTokensBulkRevokePostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -161,7 +161,7 @@ export const bulkRevokeAdminEmbedTokensBulkRevokePost = <ThrowOnError extends bo
 /**
  * Get Embedding Stats
  *
- * Return embedding coverage statistics (admin only).
+ * Return semantic-search embedding coverage statistics (admin only).
  */
 export const getEmbeddingStatsAdminEmbeddingStatsGet = <ThrowOnError extends boolean = false>(options?: Options<GetEmbeddingStatsAdminEmbeddingStatsGetData, ThrowOnError>) => (options?.client ?? client).get<GetEmbeddingStatsAdminEmbeddingStatsGetResponses, GetEmbeddingStatsAdminEmbeddingStatsGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -194,7 +194,7 @@ export const listAdminJobsAdminJobsGet = <ThrowOnError extends boolean = false>(
 /**
  * List Share Tokens Endpoint
  *
- * List all share tokens with map info (admin only).
+ * List basic share-token inventory with map info; no quotas or domain controls (admin only).
  */
 export const listShareTokensEndpointAdminShareTokensGet = <ThrowOnError extends boolean = false>(options?: Options<ListShareTokensEndpointAdminShareTokensGetData, ThrowOnError>) => (options?.client ?? client).get<ListShareTokensEndpointAdminShareTokensGetResponses, ListShareTokensEndpointAdminShareTokensGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -205,7 +205,7 @@ export const listShareTokensEndpointAdminShareTokensGet = <ThrowOnError extends 
 /**
  * Admin Revoke Share Token
  *
- * Revoke (soft-delete) a share token and cascade to its embed tokens (admin only).
+ * Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
  */
 export const adminRevokeShareTokenAdminShareTokensTokenIdDelete = <ThrowOnError extends boolean = false>(options: Options<AdminRevokeShareTokenAdminShareTokensTokenIdDeleteData, ThrowOnError>) => (options.client ?? client).delete<AdminRevokeShareTokenAdminShareTokensTokenIdDeleteResponses, AdminRevokeShareTokenAdminShareTokensTokenIdDeleteErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -1949,6 +1949,8 @@ export const listEmbedTokensEndpointMapsMapIdEmbedTokensGet = <ThrowOnError exte
  * Create Embed Token Endpoint
  *
  * Create an embed token scoped to a map's current layers.
+ *
+ * Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
  */
 export const createEmbedTokenEndpointMapsMapIdEmbedTokensPost = <ThrowOnError extends boolean = false>(options: Options<CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostData, ThrowOnError>) => (options.client ?? client).post<CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostResponses, CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -1974,7 +1976,7 @@ export const revokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDelete = <ThrowO
 /**
  * Update Embed Token Endpoint
  *
- * Update embed token allowed_origins (domain restrictions).
+ * Update embed token allowed_origins (enterprise only).
  */
 export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOnError extends boolean = false>(options: Options<UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses, UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2037,7 +2039,7 @@ export const getMapShareTokenEndpointMapsMapIdShareGet = <ThrowOnError extends b
 /**
  * Update Map Share Token Endpoint
  *
- * Update expiration on an existing share token. Owner or admin only.
+ * Update expiration on an existing share token (enterprise only). Owner or admin only.
  */
 export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError extends boolean = false>(options: Options<UpdateMapShareTokenEndpointMapsMapIdSharePatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateMapShareTokenEndpointMapsMapIdSharePatchResponses, UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2476,8 +2478,8 @@ export const getBasemapsSettingsBasemapsGet = <ThrowOnError extends boolean = fa
  *
  * The active ``BrandingExtension`` provides initial defaults for branding
  * keys. PersistentConfig overrides take precedence when set. Community
- * advertises ``show_badge`` only; enterprise overlays may extend the
- * extension to advertise additional keys (logo, colors, favicon, ...).
+ * advertises read-only ``show_badge`` only; badge-removal writes and
+ * additional branding keys are enterprise controls (enterprise only).
  */
 export const getBrandingSettingsBrandingGet = <ThrowOnError extends boolean = false>(options?: Options<GetBrandingSettingsBrandingGetData, ThrowOnError>) => (options?.client ?? client).get<GetBrandingSettingsBrandingGetResponses, GetBrandingSettingsBrandingGetErrors, ThrowOnError>({ url: '/settings/branding/', ...options });
 

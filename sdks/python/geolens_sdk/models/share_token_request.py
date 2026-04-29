@@ -20,7 +20,7 @@ T = TypeVar("T", bound="ShareTokenRequest")
 class ShareTokenRequest:
     """
     Attributes:
-        expires_at (datetime.datetime | None | Unset): Expiration timestamp; null = never expires
+        expires_at (datetime.datetime | None | Unset): Expiration timestamp (enterprise only); null = never expires
     """
 
     expires_at: datetime.datetime | None | Unset = UNSET

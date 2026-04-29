@@ -1339,7 +1339,7 @@
         "description": "Response for GET /settings/branding/.",
         "properties": {
           "show_badge": {
-            "description": "Whether to show the 'Powered by GeoLens' label in public and shared footers.",
+            "description": "Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal writes are enterprise controls (enterprise only).",
             "title": "Show Badge",
             "type": "boolean"
           }
@@ -5128,7 +5128,7 @@
                 "type": "null"
               }
             ],
-            "description": "Restrict embedding to these origins (CORS). Omit to allow any origin.",
+            "description": "Restrict embedding to these origins (enterprise only). Omit to allow any origin.",
             "example": [
               "https://dashboard.example.com"
             ],
@@ -5136,7 +5136,7 @@
           },
           "expires_in_days": {
             "default": 30,
-            "description": "Token lifetime in days (1-365)",
+            "description": "Token lifetime in days (1-365). Expiration controls are enterprise controls (enterprise only).",
             "example": 90,
             "maximum": 365.0,
             "minimum": 1.0,
@@ -5387,7 +5387,7 @@
                 "type": "null"
               }
             ],
-            "description": "Updated list of allowed embedding origins",
+            "description": "Updated list of allowed embedding origins (enterprise only)",
             "title": "Allowed Origins"
           }
         },
@@ -10560,7 +10560,7 @@
                 "type": "null"
               }
             ],
-            "description": "Expiration timestamp; null = never expires",
+            "description": "Expiration timestamp (enterprise only); null = never expires",
             "title": "Expires At"
           }
         },
@@ -13167,7 +13167,7 @@
     },
     "/admin/ai-status/": {
       "get": {
-        "description": "Return AI provider status and runtime toggle (admin only).",
+        "description": "Return single-deployment AI status; no provider-routing policy controls (admin only).",
         "operationId": "get_ai_status_admin_ai_status__get",
         "responses": {
           "200": {
@@ -13258,7 +13258,7 @@
         ]
       },
       "patch": {
-        "description": "Toggle AI features on/off at runtime (admin only).",
+        "description": "Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).",
         "operationId": "update_ai_status_admin_ai_status__patch",
         "requestBody": {
           "content": {
@@ -14108,7 +14108,7 @@
     },
     "/admin/backfill-embeddings/": {
       "post": {
-        "description": "Trigger embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).",
+        "description": "Trigger semantic-search embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).",
         "operationId": "trigger_backfill_admin_backfill_embeddings__post",
         "parameters": [
           {
@@ -14213,7 +14213,7 @@
     },
     "/admin/embed-tokens/": {
       "get": {
-        "description": "List all embed tokens across all maps with optional filters (admin only).",
+        "description": "List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).",
         "operationId": "list_all_embed_tokens_admin_embed_tokens__get",
         "parameters": [
           {
@@ -14396,7 +14396,7 @@
     },
     "/admin/embed-tokens/bulk-revoke/": {
       "post": {
-        "description": "Bulk-revoke multiple embed tokens (admin only).",
+        "description": "Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).",
         "operationId": "bulk_revoke_admin_embed_tokens_bulk_revoke__post",
         "requestBody": {
           "content": {
@@ -14499,7 +14499,7 @@
     },
     "/admin/embedding-stats/": {
       "get": {
-        "description": "Return embedding coverage statistics (admin only).",
+        "description": "Return semantic-search embedding coverage statistics (admin only).",
         "operationId": "get_embedding_stats_admin_embedding_stats__get",
         "responses": {
           "200": {
@@ -14852,7 +14852,7 @@
     },
     "/admin/share-tokens/": {
       "get": {
-        "description": "List all share tokens with map info (admin only).",
+        "description": "List basic share-token inventory with map info; no quotas or domain controls (admin only).",
         "operationId": "list_share_tokens_endpoint_admin_share_tokens__get",
         "parameters": [
           {
@@ -15004,7 +15004,7 @@
     },
     "/admin/share-tokens/{token_id}": {
       "delete": {
-        "description": "Revoke (soft-delete) a share token and cascade to its embed tokens (admin only).",
+        "description": "Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).",
         "operationId": "admin_revoke_share_token_admin_share_tokens__token_id__delete",
         "parameters": [
           {
@@ -30246,7 +30246,7 @@
         ]
       },
       "post": {
-        "description": "Create an embed token scoped to a map's current layers.",
+        "description": "Create an embed token scoped to a map's current layers.\n\nExpiration and allowed-origin restrictions are enterprise controls (enterprise only).",
         "operationId": "create_embed_token_endpoint_maps__map_id__embed_tokens__post",
         "parameters": [
           {
@@ -30496,7 +30496,7 @@
         ]
       },
       "patch": {
-        "description": "Update embed token allowed_origins (domain restrictions).",
+        "description": "Update embed token allowed_origins (enterprise only).",
         "operationId": "update_embed_token_endpoint_maps__map_id__embed_tokens__token_id___patch",
         "parameters": [
           {
@@ -31106,7 +31106,7 @@
         ]
       },
       "patch": {
-        "description": "Update expiration on an existing share token. Owner or admin only.",
+        "description": "Update expiration on an existing share token (enterprise only). Owner or admin only.",
         "operationId": "update_map_share_token_endpoint_maps__map_id__share__patch",
         "parameters": [
           {
@@ -34988,7 +34988,7 @@
     },
     "/settings/branding/": {
       "get": {
-        "description": "Return branding configuration (public, no auth required).\n\nThe active ``BrandingExtension`` provides initial defaults for branding\nkeys. PersistentConfig overrides take precedence when set. Community\nadvertises ``show_badge`` only; enterprise overlays may extend the\nextension to advertise additional keys (logo, colors, favicon, ...).",
+        "description": "Return branding configuration (public, no auth required).\n\nThe active ``BrandingExtension`` provides initial defaults for branding\nkeys. PersistentConfig overrides take precedence when set. Community\nadvertises read-only ``show_badge`` only; badge-removal writes and\nadditional branding keys are enterprise controls (enterprise only).",
         "operationId": "get_branding_settings_branding__get",
         "responses": {
           "200": {
