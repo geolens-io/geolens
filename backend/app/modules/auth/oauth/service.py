@@ -7,6 +7,7 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.edition import is_enterprise
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
@@ -257,10 +258,16 @@ async def find_or_create_oauth_user(
             break
         username = f"{base_username}_{secrets.token_hex(4)}"
 
-    # Resolve role from group mapping
-    role_name = _resolve_role(
-        groups, provider.group_role_mapping, provider.default_role
-    )
+    # Resolve role from group mapping (D-05).
+    # Enterprise: apply IdP group→role mapping via _resolve_role().
+    # Community: use default_role — defense-in-depth for legacy/direct-DB rows
+    # that may have group_role_mapping populated before the schema gate shipped.
+    if is_enterprise():
+        role_name = _resolve_role(
+            groups, provider.group_role_mapping, provider.default_role
+        )
+    else:
+        role_name = provider.default_role
 
     new_user = User(
         username=username,
