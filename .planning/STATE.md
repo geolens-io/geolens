@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: Phase 216 shipped; ready to start Phase 217 (auth-saml-enterprise)
+status: executing
 stopped_at: Phase 217 context gathered
-last_updated: "2026-04-29T10:58:40.141Z"
-last_activity: 2026-04-27 — Phase 216-06 round-trip + CI + docs + verification gate complete
+last_updated: "2026-04-29T12:11:50.469Z"
+last_activity: 2026-04-29 -- Phase 217 planning complete
 progress:
   total_phases: 9
   completed_phases: 5
-  total_plans: 23
+  total_plans: 28
   completed_plans: 23
-  percent: 100
+  percent: 82
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 Phase: 216 (geolens-cli-mvp) — COMPLETE 2026-04-27
 Plans complete: 6 of 6 (OCCLI-01..06 all closed; round-trip green; CI cli-test gate live; docs/cli.md shipped)
-Status: Phase 216 shipped; ready to start Phase 217 (auth-saml-enterprise)
-Last activity: 2026-04-27 — Phase 216-06 round-trip + CI + docs + verification gate complete
+Status: Ready to execute
+Last activity: 2026-04-29 -- Phase 217 planning complete
 
 ## Roadmap Snapshot
 
