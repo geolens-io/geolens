@@ -4,8 +4,8 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 217 context gathered
-last_updated: "2026-04-29T12:11:50.469Z"
-last_activity: 2026-04-29 -- Phase 217 planning complete
+last_updated: "2026-04-29T13:17:42.883Z"
+last_activity: 2026-04-29 -- Phase 217 execution started
 progress:
   total_phases: 9
   completed_phases: 5
@@ -21,14 +21,15 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 217 — auth-saml-enterprise (next; depends on 214 which is complete)
+**Current focus:** Phase 217 — auth-saml-enterprise
 
 ## Current Position
 
-Phase: 216 (geolens-cli-mvp) — COMPLETE 2026-04-27
+Phase: 217 (auth-saml-enterprise) — EXECUTING
+Plan: 1 of 5
 Plans complete: 6 of 6 (OCCLI-01..06 all closed; round-trip green; CI cli-test gate live; docs/cli.md shipped)
-Status: Ready to execute
-Last activity: 2026-04-29 -- Phase 217 planning complete
+Status: Executing Phase 217
+Last activity: 2026-04-29 -- Phase 217 execution started
 
 ## Roadmap Snapshot
 
