@@ -17,7 +17,7 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 - [x] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends (completed 2026-04-27)
 - [x] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate (completed 2026-04-27)
 - [x] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK (completed 2026-04-27)
-- [ ] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping
+- [x] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping
 - [ ] **Phase 218: oc-audit-close-v13.1** — Re-run `/oc-audit`; commit closing audit at `docs-internal/audits/oc-separation-audit-v13.1-close.md` showing Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C
 
 ## Phase Details
@@ -124,14 +124,14 @@ Plans:
   3. SP-initiated SSO works end-to-end against a reference IdP: metadata XML endpoint serves the SP descriptor; signed assertions are validated for signature, expiry, audience, and replay; new users are JIT-provisioned through the existing `find_or_create_oauth_user()` pathway
   4. SAML attribute → role mapping (e.g., `groups` → admin/editor/viewer) is configurable through the same admin tab; mapping changes are recorded in the existing audit log with old/new values
   5. Core's auth-extension hook (added in Phase 214 via `importlib.metadata` entry_points) is the only seam the SAML overlay registers into — there is no SAML-specific code path in core
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete (2026-04-29 — all 5 ROADMAP SC verified PASS; SC#1 with documented carve-out for Pitfall 11 `deferred=True` mitigation scaffolding in 5 core files)
 
 Plans:
-- [ ] 217-01-PLAN.md — Alembic graph repair + e002 enterprise migration + Wave 0 SAML test fixtures
-- [ ] 217-02-PLAN.md — Salvage + modernize enterprise SAML scaffold (router/config/dual-Protocol registration) + 8 SAML integration tests
-- [ ] 217-03-PLAN.md — Schema/model/audit-log extension in core (OAuthProvider columns, Pydantic per-type validator, SECRET_FIELDS audit redaction)
-- [ ] 217-04-PLAN.md — Frontend admin SAML page + edition gating (sidebar nav, /admin/saml route, community-404 verification)
-- [ ] 217-05-PLAN.md — SC#1 docstring scrub + docs/saml.md + phase verification gate (all 5 ROADMAP SC pass)
+- [x] 217-01-PLAN.md — Alembic graph repair (e001 down_revision phantom→f3a4b5c6d7e8) + e002_add_saml_columns enterprise migration + Wave 0 SAML test fixtures (PEM keypair + 5 SAMLResponse XML fixtures + saml_overlay_registered conftest helper)
+- [x] 217-02-PLAN.md — Salvage + modernize enterprise SAML scaffold (router/config/replay imports rebased on app.modules.auth.* / app.core.* paths; 3 pre-existing scaffold bugs fixed: cert PEM markers, missing outstanding-request tracking, response-consumption hygiene) + dual-Protocol registration (registry['auth'] + registry['identity']) + GET /auth/saml/{slug}/metadata endpoint + 9 SAML integration tests
+- [x] 217-03-PLAN.md — Pitfall 11 mitigation via SQLAlchemy deferred=True on SAML cols (HIGH-severity column-not-found risk empirically verified) + Pydantic per-type validator (model_validator(mode='after')) + Fernet-encrypted idp_certificate + audit-log diff with SECRET_FIELDS/SECRET_BODY_FIELDS redaction (Pitfall 9 HIGH; SAML-12 closure)
+- [x] 217-04-PLAN.md — Frontend admin SAML page (frontend/src/api/saml.ts + AdminSamlPage + SamlProvidersSection with authoritative getTileConfig sp_entity_id pre-fill per Pitfall 14) + AdminSidebar enterpriseOnly:true gating + /admin/saml route + i18n parity across 4 locales + community-404 backend test
+- [x] 217-05-PLAN.md — SC#1 docstring scrub (3 core files: identity.py, defaults.py, test_extensions.py) + docs/saml.md (223 lines: install + IdP config + hardening posture + multi-instance limitation + NameID format guidance) + 2 ruff cleanups + phase verification gate (5/5 SC PASS)
 
 ### Phase 218: oc-audit-close-v13.1
 **Goal**: The milestone's audit-grade promise is independently verified — re-running the open-core audit produces grades that meet or exceed the v13.1 targets, and the result is committed for traceability

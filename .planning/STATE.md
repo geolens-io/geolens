@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
-stopped_at: Phase 217 context gathered
-last_updated: "2026-04-29T13:17:42.883Z"
-last_activity: 2026-04-29 -- Phase 217 execution started
+status: Phase 217 shipped 2026-04-29; ready to start Phase 218 (oc-audit-close-v13.1)
+stopped_at: Phase 217 complete
+last_updated: "2026-04-29T16:05:00.000Z"
+last_activity: 2026-04-29 -- Phase 217 (auth-saml-enterprise) complete; all 5 SCs PASS
 progress:
   total_phases: 9
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 28
-  completed_plans: 23
-  percent: 82
+  completed_plans: 28
+  percent: 89
 ---
 
 # Project State
@@ -21,15 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 217 — auth-saml-enterprise
+**Current focus:** Phase 218 — oc-audit-close-v13.1 (final v13.1 phase; re-runs /oc-audit and commits closing audit at docs-internal/audits/oc-separation-audit-v13.1-close.md)
 
 ## Current Position
 
-Phase: 217 (auth-saml-enterprise) — EXECUTING
-Plan: 1 of 5
-Plans complete: 6 of 6 (OCCLI-01..06 all closed; round-trip green; CI cli-test gate live; docs/cli.md shipped)
-Status: Executing Phase 217
-Last activity: 2026-04-29 -- Phase 217 execution started
+Phase: 217 (auth-saml-enterprise) — COMPLETE 2026-04-29
+Plans complete: 5 of 5 (SAML-08..12 all closed; 5/5 ROADMAP SCs PASS; SC#1 with documented carve-out for Pitfall 11 deferred=True scaffolding)
+Status: Phase 217 shipped; ready to start Phase 218 (oc-audit-close-v13.1)
+Last activity: 2026-04-29 -- Phase 217 verification gate PASS; 18 SAML overlay tests + 18 enterprise tests + 1011 frontend tests + 2018 backend baseline all green
 
 ## Roadmap Snapshot
 
