@@ -2,16 +2,17 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: verifying
-stopped_at: Phase 219 context gathered
-last_updated: "2026-04-29T22:34:49.058Z"
-last_activity: 2026-04-29
+status: shipped
+stopped_at: v13.1 archived; tag v13.1 pushed; awaiting next milestone scope
+last_updated: "2026-04-29T22:50:00.000Z"
+last_activity: 2026-04-29 — v13.1 milestone close complete (paperwork pass + archive + tag + push); enterprise repo also pushed (5 SAML commits); CHANGELOG + retrospective + memories updated
 progress:
-  total_phases: 10
+  total_phases: 8
   completed_phases: 8
   total_plans: 30
   completed_plans: 30
   percent: 100
+next_action: "/gsd-new-milestone to scope next cycle, or /gsd-review-backlog to promote 999.5 (Helm) or 999.6 (tenant scoping)"
 ---
 
 # Project State
