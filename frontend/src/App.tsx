@@ -26,6 +26,7 @@ const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage').then(m 
 const AdminJobsPage = lazy(() => import('./pages/admin/AdminJobsPage').then(m => ({ default: m.AdminJobsPage })));
 const AdminAuditPage = lazy(() => import('./pages/admin/AdminAuditPage').then(m => ({ default: m.AdminAuditPage })));
 const AdminSharedMapsPage = lazy(() => import('./pages/admin/AdminSharedMapsPage').then(m => ({ default: m.AdminSharedMapsPage })));
+const AdminSamlPage = lazy(() => import('./pages/admin/AdminSamlPage').then(m => ({ default: m.AdminSamlPage })));
 
 // Settings (per-tab routes)
 const AdminSettingsPage = lazy(() => import('./pages/admin/AdminSettingsPage').then(m => ({ default: m.AdminSettingsPage })));
@@ -72,6 +73,7 @@ export const appRoutes = (
             <Route path="admin/jobs" element={<AdminJobsPage />} errorElement={<RouteErrorBoundary />} />
             <Route path="admin/audit" element={<AdminAuditPage />} errorElement={<RouteErrorBoundary />} />
             <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} errorElement={<RouteErrorBoundary />} />
+            <Route path="admin/saml" element={<AdminSamlPage />} errorElement={<RouteErrorBoundary />} />
             {/* Redirects from old routes */}
             <Route path="admin/share-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/embed-tokens" element={<Navigate to="/admin/shared-maps" replace />} />

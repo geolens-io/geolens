@@ -62,6 +62,7 @@
     "jobs": "Jobs",
     "auditLog": "Audit Log",
     "sharedMaps": "Published Maps",
+    "saml": "SAML SSO",
     "ai": "AI",
     "infrastructure": "Infrastructure",
     "general": "General",
@@ -348,7 +349,8 @@
     "adminJobs": "Admin Jobs",
     "adminAuditLog": "Admin Audit Log",
     "adminConfigOps": "Admin Config Ops",
-    "adminSettings": "Admin Settings"
+    "adminSettings": "Admin Settings",
+    "adminSaml": "SAML SSO Configuration"
   },
   "sidebar": {
     "toggle": "Toggle Sidebar"

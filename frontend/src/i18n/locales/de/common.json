@@ -61,6 +61,7 @@
     "jobs": "Aufträge",
     "auditLog": "Protokoll",
     "sharedMaps": "Veröffentlichte Karten",
+    "saml": "SAML SSO",
     "ai": "KI",
     "infrastructure": "Infrastruktur",
     "general": "Allgemein",
@@ -348,7 +349,8 @@
     "adminJobs": "Admin-Aufträge",
     "adminAuditLog": "Admin-Audit-Protokoll",
     "adminConfigOps": "Admin-Konfiguration",
-    "adminSettings": "Admin-Einstellungen"
+    "adminSettings": "Admin-Einstellungen",
+    "adminSaml": "SAML-SSO-Konfiguration"
   },
   "sidebar": {
     "toggle": "Seitenleiste umschalten"
