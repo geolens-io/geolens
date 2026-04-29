@@ -785,6 +785,47 @@ async def test_saml_provider_update_redacts_secret_fields(
         )
 
 
+# ---------------------------------------------------------------------------
+# Plan 04 Task 02 — SAML-10 backend half: community-mode 404
+# ---------------------------------------------------------------------------
+
+
+async def test_saml_endpoint_404_in_community(client):
+    """SAML-10 backend half: SAML routes return 404 in community mode.
+
+    Without the ``saml_router_mounted`` fixture (which both registers the
+    enterprise extension AND mounts the router into the FastAPI app), the
+    SAML router is absent from the app and any /auth/saml/* path returns
+    404. This is the third defense layer behind:
+
+      - frontend AdminSidebar hiding the nav item when !isEnterprise
+        (verified in frontend/src/components/admin/__tests__/AdminSidebar.test.tsx)
+      - frontend AdminSamlPage <Navigate to=\"/admin\"> when !isEnterprise
+
+    We exercise all three SAML route shapes (login, metadata, acs) to
+    confirm none of them leak in the community build.
+
+    Note: this test deliberately does NOT request ``saml_router_mounted``
+    or ``saml_overlay_registered``. Other tests in this file may run
+    before/after it; the ``saml_router_mounted`` fixture's teardown
+    block always unmounts the SAML router, so test ordering does not
+    affect this assertion.
+    """
+    for method, path in [
+        ("GET", "/auth/saml/anyslug/login"),
+        ("GET", "/auth/saml/anyslug/metadata"),
+        ("POST", "/auth/saml/anyslug/acs"),
+    ]:
+        if method == "POST":
+            response = await client.post(path, data={"SAMLResponse": "ignored"})
+        else:
+            response = await client.get(path)
+        assert response.status_code == 404, (
+            f"{method} {path} returned {response.status_code} (expected 404 in "
+            f"community mode -- SAML router should not be mounted)"
+        )
+
+
 async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
     client, test_db_session, saml_router_mounted, _cleanup_saml_providers
 ):
