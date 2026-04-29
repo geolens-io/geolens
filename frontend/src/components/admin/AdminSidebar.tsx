@@ -44,6 +44,7 @@ type OperationItem = {
   to: string;
   icon: LucideIcon;
   badgeKey?: 'pending' | 'failed';
+  enterpriseOnly?: boolean;
 };
 
 const operationsItems: readonly OperationItem[] = [
@@ -51,6 +52,7 @@ const operationsItems: readonly OperationItem[] = [
   { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase, badgeKey: 'failed' },
   { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText },
   { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2 },
+  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true },
 ];
 
 const settingsItems = [
@@ -82,6 +84,7 @@ export function AdminSidebar() {
   const { isEnterprise } = useEdition();
 
   const visibleSettingsItems = settingsItems.filter(item => !item.enterpriseOnly || isEnterprise);
+  const visibleOperationsItems = operationsItems.filter(item => !item.enterpriseOnly || isEnterprise);
 
   const badgeCounts: Record<string, number | undefined> = {
     pending: pendingCount,
@@ -121,7 +124,7 @@ export function AdminSidebar() {
           <SidebarGroupLabel>{t('adminNav.operations')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {operationsItems.map(({ labelKey, to, icon: Icon, badgeKey }) => {
+              {visibleOperationsItems.map(({ labelKey, to, icon: Icon, badgeKey }) => {
                 const count = badgeKey ? badgeCounts[badgeKey] : undefined;
                 return (
                   <SidebarMenuItem key={to}>
