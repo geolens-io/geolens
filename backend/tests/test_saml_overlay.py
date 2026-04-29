@@ -20,6 +20,7 @@ that assume the community community/no-SAML default are unaffected.
 from __future__ import annotations
 
 import base64
+import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -649,3 +650,189 @@ def test_oauth_provider_response_excludes_idp_certificate():
     assert "idp_entity_id" in fields
     assert "idp_sso_url" in fields
     assert "sp_entity_id" in fields
+
+
+# ---------------------------------------------------------------------------
+# Plan 03 Task 03: Audit-log diff + SECRET_FIELDS redaction tests
+# (SAML-12 / Pitfall 9 HIGH / T-217-03-AUDIT-LEAK)
+#
+# CRITICAL: tests use HTTP PUT (not PATCH) — endpoint is @router.put at
+# backend/app/modules/settings/router.py:399. PATCH would yield 405.
+# ---------------------------------------------------------------------------
+
+
+async def test_saml_provider_update_logs_old_new_role_mapping(
+    client, test_db_session, admin_auth_header, _cleanup_saml_providers
+):
+    """SAML-12 / SC#4: audit-log entry for SAML provider update captures
+    ``details.changes.group_role_mapping = {old: ..., new: ...}``.
+
+    Closes the SAML-12 audit gap identified in RESEARCH §11 (the prior code
+    logged only ``slug``; SAML-12 mandates "old/new values").
+    """
+    from app.modules.audit.models import AuditLog
+
+    # Seed via direct DB insert (PUT-against-router would require enterprise
+    # edition init for the SAML schema validator).
+    provider = await _seed_saml_provider(
+        test_db_session,
+        slug=f"audit-{uuid.uuid4().hex[:6]}",
+        group_role_mapping={"editors": "editor"},
+    )
+    provider_id = str(provider.id)
+
+    # PUT to update the role mapping (NOT PATCH — endpoint is @router.put).
+    resp = await client.put(
+        f"/settings/oauth-providers/{provider_id}",
+        json={"group_role_mapping": {"editors": "admin", "viewers": "viewer"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Inspect the audit log entry directly. Need a fresh session so the
+    # commit from the request handler is visible.
+    import app.core.db as db_module
+
+    async with db_module.async_session() as fresh:
+        result = await fresh.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "oauth_provider.update")
+            .where(AuditLog.resource_id == uuid.UUID(provider_id))
+            .order_by(AuditLog.created_at.desc())
+        )
+        entry = result.scalar_one_or_none()
+        assert entry is not None, "no audit log entry created for SAML provider update"
+
+        details = entry.details or {}
+        assert "changes" in details, f"audit details missing 'changes' key: {details}"
+        changes = details["changes"]
+        assert "group_role_mapping" in changes, (
+            f"group_role_mapping not in changes: {changes}"
+        )
+        diff = changes["group_role_mapping"]
+        assert "old" in diff and "new" in diff, f"missing old/new diff shape: {diff}"
+        assert diff["old"] == {"editors": "editor"}, f"wrong old: {diff['old']}"
+        assert diff["new"] == {"editors": "admin", "viewers": "viewer"}, (
+            f"wrong new: {diff['new']}"
+        )
+
+
+async def test_saml_provider_update_redacts_secret_fields(
+    client, test_db_session, admin_auth_header, _cleanup_saml_providers
+):
+    """Pitfall 9 / T-217-03-AUDIT-LEAK HIGH: updating ``idp_certificate`` in
+    a SAML provider must record the change in the audit log as
+    ``{"old": "<redacted>", "new": "<redacted>"}`` — never the raw PEM, never
+    the encrypted ciphertext.
+
+    Verifies the SECRET_FIELDS allowlist (idp_certificate,
+    client_secret_encrypted, client_secret) and the SECRET_BODY_FIELDS
+    body-detection loop (per checker WARNING #3).
+    """
+    import uuid as _uuid
+
+    from app.modules.audit.models import AuditLog
+
+    new_pem = "-----BEGIN CERTIFICATE-----\nMOCKNEWCERT\n-----END CERTIFICATE-----"
+
+    provider = await _seed_saml_provider(
+        test_db_session,
+        slug=f"redact-{_uuid.uuid4().hex[:6]}",
+    )
+    provider_id = str(provider.id)
+
+    resp = await client.put(
+        f"/settings/oauth-providers/{provider_id}",
+        json={"idp_certificate": new_pem},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    # The response itself must NOT include idp_certificate (write-only).
+    body = resp.json()
+    assert "idp_certificate" not in body, (
+        f"idp_certificate leaked in response: {body}"
+    )
+
+    # Audit-log entry must redact both old and new values for idp_certificate.
+    import app.core.db as db_module
+
+    async with db_module.async_session() as fresh:
+        result = await fresh.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "oauth_provider.update")
+            .where(AuditLog.resource_id == _uuid.UUID(provider_id))
+            .order_by(AuditLog.created_at.desc())
+        )
+        entry = result.scalar_one_or_none()
+        assert entry is not None
+        changes = (entry.details or {}).get("changes", {})
+        assert "idp_certificate" in changes, (
+            f"idp_certificate change not recorded: {changes}"
+        )
+        diff = changes["idp_certificate"]
+        assert diff == {"old": "<redacted>", "new": "<redacted>"}, (
+            f"idp_certificate must be redacted in audit log: {diff}"
+        )
+
+        # Defensive: the raw PEM must NOT appear ANYWHERE in the audit details.
+        details_str = str(entry.details)
+        assert "MOCKNEWCERT" not in details_str, (
+            f"raw PEM leaked into audit details: {details_str}"
+        )
+        assert "-----BEGIN" not in details_str, (
+            f"PEM markers leaked into audit details: {details_str}"
+        )
+
+
+async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+):
+    """SAML-12 / SC#4 behavior coverage: a SAML user whose assertion contains
+    ``groups=['editors']`` and whose provider has
+    ``group_claim='groups'`` + ``group_role_mapping={'editors': 'editor'}``
+    must be JIT-provisioned with role='editor' (NOT default_role='viewer').
+
+    Confirms the OAuth ``find_or_create_oauth_user()`` group → role mapping
+    pathway works for SAML through the existing OAuth JIT path (D-04).
+    """
+    from app.modules.auth.models import Role, UserRole
+
+    # Seed with group_role_mapping that maps the fixture's group to 'editor'.
+    await _seed_saml_provider(
+        test_db_session,
+        group_claim="groups",
+        group_role_mapping={"editors": "editor"},
+        default_role="viewer",  # default would be viewer; mapping takes precedence
+    )
+    saml_response = _load_fixture_b64("idp_response_signed.xml.b64")
+
+    resp = await client.post(
+        f"/auth/saml/{FIXTURE_SLUG}/acs",
+        data={"SAMLResponse": saml_response},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302, f"ACS POST failed: {resp.text}"
+    assert "token=" in resp.headers["location"], (
+        f"JIT provisioning did not complete: {resp.headers['location']}"
+    )
+
+    # Look up the JIT-provisioned user and confirm role='editor' (not viewer).
+    import app.core.db as db_module
+
+    async with db_module.async_session() as fresh:
+        user_result = await fresh.execute(
+            select(User).where(User.email == FIXTURE_NAMEID)
+        )
+        user = user_result.scalar_one_or_none()
+        assert user is not None, "no user provisioned"
+
+        role_result = await fresh.execute(
+            select(Role.name)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user.id)
+        )
+        roles = [r for r in role_result.scalars().all()]
+        assert "editor" in roles, (
+            f"group→role mapping failed: expected role 'editor', got {roles}"
+        )
