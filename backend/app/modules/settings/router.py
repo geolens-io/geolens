@@ -359,6 +359,45 @@ async def get_config_mode() -> ConfigModeResponse:
 # ---------------------------------------------------------------------------
 
 
+# Audit-log redaction allowlist. SECRET_FIELDS is the authoritative set used
+# when diffing old_values snapshots (which contain the internal encrypted
+# column ``client_secret_encrypted``). SECRET_BODY_FIELDS is the user-input
+# subset — body fields a caller can submit; ``client_secret_encrypted`` is
+# excluded because it's an internal column name and would never appear in
+# request bodies (per checker WARNING #3 — iterating it in the body-detection
+# loop is dead code). Pitfall 9 mitigation (HIGH severity, T-217-03-AUDIT-LEAK).
+SECRET_FIELDS = {"idp_certificate", "client_secret_encrypted", "client_secret"}
+SECRET_BODY_FIELDS = {"idp_certificate", "client_secret"}
+
+
+def _snapshot_provider(provider) -> dict:
+    """Snapshot non-secret OAuth/SAML provider fields for audit-log diffing.
+
+    Only includes fields whose old/new values are safe to log verbatim. Secret
+    fields are NEVER included here — they are flagged as "<redacted>" by the
+    body-detection loop in ``update_oauth_provider`` if the request body
+    submitted a new value, OR by the SECRET_FIELDS membership check when
+    comparing old_values to new state. Avoiding them here also dodges the
+    deferred-load trap on community DBs where SAML columns may not exist
+    (Pitfall 11) — we read attributes that are loaded by the default SELECT.
+    """
+    return {
+        "group_claim": provider.group_claim,
+        "group_role_mapping": provider.group_role_mapping,
+        "default_role": provider.default_role,
+        "enabled": provider.enabled,
+        # SAML fields (deferred=True on the ORM); these have already been
+        # loaded by the SAML admin path's undefer_group("saml") call OR by
+        # the previous get_provider_by_id() that the update endpoint did.
+        # Reading from __dict__ avoids triggering an implicit deferred load
+        # (which would fail with MissingGreenlet on community DBs that lack
+        # the columns).
+        "idp_entity_id": provider.__dict__.get("idp_entity_id"),
+        "idp_sso_url": provider.__dict__.get("idp_sso_url"),
+        "sp_entity_id": provider.__dict__.get("sp_entity_id"),
+    }
+
+
 @router.get("/oauth-providers/", response_model=list[OAuthProviderResponse])
 async def list_oauth_providers(
     _user: Identity = Depends(require_permission("manage_settings")),
@@ -380,16 +419,46 @@ async def create_oauth_provider(
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthProviderResponse:
-    """Create a new OAuth provider (admin only)."""
+    """Create a new OAuth or SAML provider (admin only).
+
+    Audit-log payload includes the full ``created`` snapshot with non-secret
+    fields verbatim and ``<redacted>`` markers for secrets that were submitted
+    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    """
     provider = await oauth_service.create_provider(db, body)
     ip = get_client_ip(request)
+
+    created_state = {
+        "slug": provider.slug,
+        "display_name": provider.display_name,
+        "provider_type": provider.provider_type,
+        "default_role": provider.default_role,
+        "group_claim": provider.group_claim,
+        "group_role_mapping": provider.group_role_mapping,
+        "enabled": provider.enabled,
+        # SAML fields — read body (input) values directly to avoid deferred
+        # load on the just-created ORM instance. body.idp_entity_id is the
+        # value the admin submitted; for OAuth providers it's None (filtered
+        # out of the snapshot).
+        "idp_entity_id": body.idp_entity_id,
+        "idp_sso_url": body.idp_sso_url,
+        "sp_entity_id": body.sp_entity_id,
+    }
+    # Mark presence (NOT value) of secrets — iterate only over user-input
+    # field names since SECRET_BODY_FIELDS excludes the internal
+    # client_secret_encrypted column.
+    if body.client_secret:
+        created_state["client_secret"] = "<redacted>"
+    if body.idp_certificate:
+        created_state["idp_certificate"] = "<redacted>"
+
     await log_action(
         session=db,
         user_id=user.id,
         action="oauth_provider.create",
         resource_type="oauth_provider",
         resource_id=provider.id,
-        details={"slug": body.slug},
+        details={"slug": body.slug, "created": created_state},
         ip_address=ip,
     )
     await db.commit()
@@ -407,13 +476,50 @@ async def update_oauth_provider(
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthProviderResponse:
-    """Update an existing OAuth provider (admin only)."""
+    """Update an existing OAuth or SAML provider (admin only).
+
+    Audit-log payload contains ``details.changes`` with per-field
+    ``{"old": ..., "new": ...}`` diffs. Secret fields (idp_certificate,
+    client_secret_encrypted, client_secret) are redacted as
+    ``{"old": "<redacted>", "new": "<redacted>"}`` (Pitfall 9 / SAML-12 /
+    T-217-03-AUDIT-LEAK HIGH severity).
+    """
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
+
+    # Snapshot non-secret fields BEFORE the update so we can diff old vs. new.
+    old_values = _snapshot_provider(provider)
+
     provider = await oauth_service.update_provider(db, provider, body)
+
+    # Build the changes diff. SECRET_FIELDS membership flips any matching
+    # field's diff to <redacted>/<redacted> — protects against future
+    # additions to old_values that accidentally include a secret field.
+    # Read NEW values via __dict__ directly (NOT getattr) to avoid triggering
+    # a deferred lazy-load on community DBs where SAML columns may not exist
+    # (Pitfall 11). Non-deferred fields are populated by the ORM on refresh.
+    changes: dict[str, dict] = {}
+    new_snapshot = _snapshot_provider(provider)
+    for field, old in old_values.items():
+        new = new_snapshot.get(field)
+        if old != new:
+            if field in SECRET_FIELDS:
+                changes[field] = {"old": "<redacted>", "new": "<redacted>"}
+            else:
+                changes[field] = {"old": old, "new": new}
+
+    # Detect secret-field changes via the body (since they're not in old_values
+    # snapshot — we never log secret old values, even pre-redaction). Iterate
+    # ONLY over user-input field names: client_secret_encrypted is internal-only
+    # and would never appear in body.model_dump() (per checker WARNING #3).
+    body_dict = body.model_dump(exclude_unset=True)
+    for secret_field in SECRET_BODY_FIELDS:
+        if body_dict.get(secret_field) is not None:
+            changes[secret_field] = {"old": "<redacted>", "new": "<redacted>"}
+
     ip = get_client_ip(request)
     await log_action(
         session=db,
@@ -421,7 +527,7 @@ async def update_oauth_provider(
         action="oauth_provider.update",
         resource_type="oauth_provider",
         resource_id=provider.id,
-        details={"slug": provider.slug},
+        details={"slug": provider.slug, "changes": changes},
         ip_address=ip,
     )
     await db.commit()
@@ -438,13 +544,39 @@ async def delete_oauth_provider(
     user: Identity = Depends(require_permission("manage_settings")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete an OAuth provider (admin only)."""
+    """Delete an OAuth or SAML provider (admin only).
+
+    Audit-log payload contains a ``deleted`` snapshot with the pre-delete
+    state — non-secret fields verbatim, secret fields marked ``<redacted>``
+    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
+    delete events too).
+    """
     provider = await oauth_service.get_provider_by_id(db, provider_id)
     if provider is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
     slug = provider.slug
+    deleted_state = {
+        "slug": provider.slug,
+        "display_name": provider.display_name,
+        "provider_type": provider.provider_type,
+        "default_role": provider.default_role,
+        "group_claim": provider.group_claim,
+        "group_role_mapping": provider.group_role_mapping,
+        "enabled": provider.enabled,
+        "idp_entity_id": provider.__dict__.get("idp_entity_id"),
+        "idp_sso_url": provider.__dict__.get("idp_sso_url"),
+        "sp_entity_id": provider.__dict__.get("sp_entity_id"),
+    }
+    # Mark presence of secrets — use SECRET_FIELDS allowlist here because the
+    # snapshot reads from the existing provider row (which DOES carry the
+    # internal client_secret_encrypted column, unlike the body-input loop).
+    if provider.client_secret_encrypted:
+        deleted_state["client_secret"] = "<redacted>"
+    if provider.__dict__.get("idp_certificate"):
+        deleted_state["idp_certificate"] = "<redacted>"
+
     await oauth_service.delete_provider(db, provider)
     ip = get_client_ip(request)
     await log_action(
@@ -453,7 +585,7 @@ async def delete_oauth_provider(
         action="oauth_provider.delete",
         resource_type="oauth_provider",
         resource_id=provider_id,
-        details={"slug": slug},
+        details={"slug": slug, "deleted": deleted_state},
         ip_address=ip,
     )
     await db.commit()
