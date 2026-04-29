@@ -8,35 +8,28 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-42 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v14.0). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture shipped — Apache 2.0 licensed, enterprise extensions in separate repo, public README and quickstart documentation complete. Marketing site at getgeolens.com shipped with Astro 6, SEO infrastructure, stylized product previews, homepage, demo collections, and WCAG 2.1 AA accessibility. Backend hardened with CommitRequest discriminated unions, PersistentConfig TypeAdapter validation, 3D geometry detection, GeoJSON-Z delivery, and shared vector staging pipeline. Phase 216 (Features & Quickstart pages) deferred to future milestone.
+43 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.1; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is ship-ready — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs published from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping. Boundary Integrity audit grade A (target A−), Seam Quality B (target B), OSS Surface Readiness A− (target C) — exceeds two of three v13.1 close targets.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Last Milestone (this repo): v13.0 Open-Core Pre-Release (shipped 2026-03-27)
+## Last Milestone (this repo): v13.1 Open-Core Separation P1 (shipped 2026-04-29)
 
-**Delivered:** 6 phases (206-211) — Apache 2.0 licensing, enterprise repo split, public README, contributor docs.
+**Delivered:** 8 phases (212-219), 30 plans, 21/21 requirements satisfied — see [milestones/v13.1-ROADMAP.md](milestones/v13.1-ROADMAP.md).
 
-**Concurrent shipped work:**
-- v14.0 Marketing Site (phases 212-217, executed in the `getgeolens.com` repo, shipped 2026-04-13). Phase artifacts archived during cleanup; only milestone summary persisted, now relocated.
+- Open-core boundary closed: `core/` no longer imports from `modules/settings/`; `auth/visibility.py` relocated to `catalog/authorization.py` with broadened architecture-guard (212, 213).
+- `IdentityProtocol` extracted: 51 cross-domain `User` import sites retyped to `Identity`; `get_identity_extension()` hook lets enterprise overlays register custom backends without core changes (214).
+- Auto-generated SDKs: Python (`pip install geolens-sdk`) + TypeScript (`@geolens/sdk`) regenerate one-shot via `make sdks`; `make sdks-check` CI gate prevents drift (215).
+- `geolens` CLI MVP: Apache-2.0 standalone tool consuming only the generated SDK (zero hand-rolled HTTP); `login` (keyring + headless), `scan`, `publish`, `export stac` (216).
+- SAML enterprise overlay: `geolens-enterprise` registers via entry_points with dual `AuthExtension` + `IdentityExtension`; admin UI 3-layer gated; SAML implementation lives outside core (217).
+- Audit gate met: Phase 218 produced closing audit; Phase 219 closed OAuth IdP→role mapping P0 surfaced by Phase 218 via `is_enterprise()` schema + service gate; audit doc amended in place to VERIFIED (218, 219).
+
+**Concurrent shipped work (cross-repo, prior to v13.1):**
+- v14.0 Marketing Site (phases 212-217 executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
-## Current Milestone: v13.1 Open-Core Separation P1
+## Current Milestone: None active
 
-**Goal:** Close the six P1 boundary/seam debts surfaced in `docs-internal/audits/oc-separation-deferred-items-20260426.md` so the open-core architecture is demonstrably ship-ready before the first paid customer (audit grades target: Boundary B → A−, Seam Quality C → B, OSS Surface D → C).
-
-**Target features:**
-- Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`)
-- Refactor `auth/visibility.py` → `catalog/authorization.py` (23 inbound files, mechanical relocation)
-- Extract `IdentityProtocol` in `core/identity.py` (51 `User` import sites across 11 domains — prerequisite for enterprise auth overlays)
-- Auto-generate Python + TypeScript SDKs from snapshotted `backend/openapi.json` with publish targets
-- Ship `geolens` CLI MVP (Apache-2.0): `scan`, `publish`, `export stac`, `login` — strategy's adoption wedge
-- Reintroduce SAML auth properly as `auth-saml-enterprise` overlay (government-buyer mandate; lives in enterprise repo, not core)
-
-**Key context:** Internal refactor + enterprise-overlay milestone driven by the open-core audit. Public app version stays at 1.0.0; planning milestone numbering continues from v13.0 (Open-Core Pre-Release, shipped 2026-03-27). Audit doc is the spec — no separate domain research needed.
-
-## Current Position
-
-v13.1 active. Last shipped milestone in this repo was v13.0 Open-Core Pre-Release (2026-03-27). Backlog phases 999.1–999.4 are completed standalone work tracked separately. Documentation-site work (v15.0) is being executed in the getgeolens.com repo.
+Run `/gsd-new-milestone` to scope the next cycle. Backlog (`999.5` Helm chart, `999.6` tenant scoping) tracks promotable items; see ROADMAP.md `## Backlog`.
 
 ## Core Value
 
@@ -289,12 +282,30 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ Users can understand save state and key actions without icon-only affordances — v12.3
 - ✓ Users see layer-type-appropriate icons and controls for vector, raster, and VRT layers — v12.3
 - ✓ Engineers can change map-builder behavior through smaller modules with shared capability model — v12.3
+- ✓ `core/` no longer imports from `modules/settings/`; layering inversion broken via `AppSetting` relocation to `core/db/models.py` — v13.1
+- ✓ `auth/visibility.py` removed; 23 inbound callers migrated to `catalog/authorization.py` with no behavior change — v13.1
+- ✓ `IdentityProtocol` defined in `core/identity.py`; 51 cross-domain `User` import sites retyped to `Identity` — v13.1
+- ✓ Extension system exposes `get_identity_extension()` typed accessor; enterprise overlays register identity backends without core changes — v13.1
+- ✓ Python SDK auto-generated from `backend/openapi.json`, Apache-2.0, ready for PyPI (live publish deferred per workflow_dispatch) — v13.1
+- ✓ TypeScript SDK auto-generated from `backend/openapi.json`, Apache-2.0, ready for npm (live publish deferred per workflow_dispatch) — v13.1
+- ✓ `make sdks` regenerates both SDKs one-shot; `make sdks-check` CI gate prevents drift — v13.1
+- ✓ SDK version pins to OpenAPI snapshot version; release process documented in `docs/sdks.md` — v13.1
+- ✓ `geolens` CLI distributed as Apache-2.0 PyPI package; works against any GeoLens instance with same code path — v13.1
+- ✓ `geolens login` stores token in OS keyring with `--no-keyring` headless fallback — v13.1
+- ✓ `geolens scan <dir>` walks directory and reports vector/raster files without uploading — v13.1
+- ✓ `geolens publish <file>` uploads via SDK and reports dataset URL — v13.1
+- ✓ `geolens export stac <id>` writes STAC 1.1 JSON for raster datasets — v13.1
+- ✓ CLI consumes only the generated Python SDK — zero hand-rolled HTTP imports (CI grep + tomllib gates enforce) — v13.1
+- ✓ SAML implementation lives entirely in `geolens-enterprise` repo (with documented Pitfall 11 carve-out for `deferred=True` ORM scaffolding) — v13.1
+- ✓ Core auth-extension hook is the only seam SAML overlay registers into; `importlib.metadata` entry_points — v13.1
+- ✓ Admin UI shows SAML tab only when enterprise edition detected; community returns 404 (3-layer gating) — v13.1
+- ✓ SP-initiated SAML SSO with metadata XML endpoint, signed assertion validation, JIT provisioning via `find_or_create_oauth_user()` — v13.1
+- ✓ Configurable SAML attribute → role mapping via `group_claim`/`group_role_mapping`; gated by `is_enterprise()` (Phase 219); audit-logged with `SECRET_FIELDS` redaction — v13.1
+- ✓ Closing audit grades meet/exceed targets: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− (≥C) — v13.1
 
 ### Active
 
-_v13.1 Open-Core Separation P1 — populated from `.planning/REQUIREMENTS.md` after requirements are defined._
-
-(Marketing-site Active items previously listed here moved with v14.0 to the `getgeolens.com` repo on 2026-04-26.)
+_No active milestone. Run `/gsd-new-milestone` to populate from `.planning/REQUIREMENTS.md` once requirements are defined._
 
 ### Out of Scope
 
@@ -542,4 +553,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-26 — milestone v13.1 Open-Core Separation P1 started (audit-driven; spans phases 212–217)*
+*Last updated: 2026-04-29 — after v13.1 Open-Core Separation P1 milestone shipped (8 phases, 30 plans, 21/21 requirements; Boundary A / Seam B / OSS A− audit grades)*
