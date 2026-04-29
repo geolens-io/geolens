@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: blocked
-stopped_at: Phase 218 verify gate FAIL — Boundary B- < A- (v13.1 milestone close blocked)
-last_updated: "2026-04-29T17:38:00.000Z"
-last_activity: 2026-04-29 -- Phase 218 closing audit produced; verify gate exit 1; awaiting user decision (Phase 219 vs slip v13.1)
+status: v13.1 milestone close BLOCKED on Boundary Integrity grade B- < A- target
+stopped_at: Phase 219 context gathered
+last_updated: "2026-04-29T18:00:50.496Z"
+last_activity: 2026-04-29 -- Phase 218 closing audit produced and committed; verify gate exit 1; user judgment required (Phase 219 vs slip v13.1)
 progress:
-  total_phases: 9
-  completed_phases: 6
+  total_phases: 10
+  completed_phases: 7
   total_plans: 29
-  completed_plans: 28
-  percent: 97
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -100,6 +100,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-29T16:40:25.261Z
-Stopped at: Phase 218 context gathered
-Resume file: .planning/phases/218-oc-audit-close-v13-1/218-CONTEXT.md
+Last session: 2026-04-29T18:00:50.491Z
+Stopped at: Phase 219 context gathered
+Resume file: .planning/phases/219-oc-audit-remediate-idp-mapping/219-CONTEXT.md
