@@ -244,7 +244,8 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
     if not m:
         raise RuntimeError("Cannot locate <Assertion> element in signed response")
     legit_assertion = m.group(1)
-    prefix = m.group(2) or ""  # e.g. 'ns1:' or 'saml:' or '' for default ns
+    # m.group(2) captures the namespace prefix (e.g. 'ns1:' or '' for default
+    # ns); kept for diagnostic clarity in the regex but not consumed downstream.
 
     # Build an evil assertion that swaps subject/email/groups for an admin user.
     # Note: this evil assertion is UNSIGNED. The XSW attack relies on the
