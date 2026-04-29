@@ -2,7 +2,29 @@
 
 import uuid
 
+import pytest
 from sqlalchemy import select
+
+
+# ---------------------------------------------------------------------------
+# Edition-state isolation (D-10)
+# Mirrors backend/tests/test_edition.py:11-22. Local autouse fixture so
+# edition mutations in tests do not leak across the module.
+# ---------------------------------------------------------------------------
+
+
+def _reset_edition():
+    """Reset edition singleton to pristine community state."""
+    import app.core.edition as ed_mod
+
+    ed_mod._info = None
+
+
+@pytest.fixture(autouse=True)
+def _clean_edition():
+    _reset_edition()
+    yield
+    _reset_edition()
 
 
 # ---------------------------------------------------------------------------
@@ -455,27 +477,93 @@ class TestFindOrCreateOAuthUser:
 
         assert user1.id == user2.id
 
-    async def test_group_role_mapping(self, client, test_db_session):
-        """OAUTH-07: Group claims in userinfo map to GeoLens roles."""
-        from app.modules.auth.oauth.service import find_or_create_oauth_user
+    async def test_group_role_mapping_community_uses_default_role(
+        self, client, test_db_session
+    ):
+        """OAUTH-07 community: Group mapping present in DB is IGNORED; default_role applied.
 
-        provider = await self._create_test_provider(
-            test_db_session,
+        Provider is seeded via direct ORM (NOT _create_test_provider) to bypass
+        the new D-01 schema validator and simulate a legacy/direct-DB row.
+        This tests the service-layer defense-in-depth gate (D-08, RESEARCH Pitfall 2).
+        """
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.encryption import encrypt_secret
+
+        suffix = uuid.uuid4().hex[:6]
+        provider = OAuthProvider(
+            slug=f"grp-community-{suffix}",
+            display_name="Group Community Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret_encrypted=encrypt_secret("test-secret"),
+            scopes="openid profile email",
+            default_role="viewer",
             group_claim="groups",
             group_role_mapping={"admins": "admin", "editors": "editor"},
-            default_role="viewer",
+            enabled=True,
         )
+        test_db_session.add(provider)
+        await test_db_session.flush()
         await test_db_session.commit()
 
         userinfo = {
-            "sub": f"group-sub-{uuid.uuid4().hex[:6]}",
-            "email": f"groupuser-{uuid.uuid4().hex[:6]}@example.com",
-            "name": "Group User",
+            "sub": f"group-community-sub-{uuid.uuid4().hex[:6]}",
+            "email": f"groupcommunity-{uuid.uuid4().hex[:6]}@example.com",
+            "name": "Group Community User",
             "groups": ["admins", "other-group"],
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
         await test_db_session.commit()
 
+        # In community, mapping is ignored — must get default_role ("viewer"), NOT "admin"
+        role_names = {r.name for r in user.roles}
+        assert "viewer" in role_names
+        assert "admin" not in role_names
+
+    async def test_group_role_mapping_enterprise_applies_mapping(
+        self, client, test_db_session
+    ):
+        """OAUTH-07 enterprise: Group claims in userinfo map to GeoLens roles.
+
+        Initialises enterprise edition so _resolve_role() is invoked (D-08).
+        Provider is seeded via direct ORM to bypass the schema validator
+        (which would also accept in enterprise, but ORM is cleaner for isolation).
+        """
+        from app.core.edition import init_edition
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.encryption import encrypt_secret
+
+        init_edition(["enterprise"])
+
+        suffix = uuid.uuid4().hex[:6]
+        provider = OAuthProvider(
+            slug=f"grp-enterprise-{suffix}",
+            display_name="Group Enterprise Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret_encrypted=encrypt_secret("test-secret"),
+            scopes="openid profile email",
+            default_role="viewer",
+            group_claim="groups",
+            group_role_mapping={"admins": "admin", "editors": "editor"},
+            enabled=True,
+        )
+        test_db_session.add(provider)
+        await test_db_session.flush()
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": f"group-enterprise-sub-{uuid.uuid4().hex[:6]}",
+            "email": f"groupenterprise-{uuid.uuid4().hex[:6]}@example.com",
+            "name": "Group Enterprise User",
+            "groups": ["admins", "other-group"],
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        # In enterprise, mapping is applied — "admins" group maps to "admin" role
         role_names = {r.name for r in user.roles}
         assert "admin" in role_names
 
@@ -511,6 +599,105 @@ class TestFindOrCreateOAuthUser:
         assert user.id != existing.id
         assert user.username.startswith(base_username)
         assert len(user.username) > len(base_username)
+
+
+# ---------------------------------------------------------------------------
+# Schema-validator gate tests (D-09)
+# ---------------------------------------------------------------------------
+
+
+class TestIdpRoleMappingGate:
+    """Schema-layer gate: OAuthProviderCreate/Update reject IdP mapping in community.
+
+    Edition state is reset before/after every test by the module-level
+    _clean_edition autouse fixture (D-10).
+    """
+
+    def _create_payload(self, **overrides):
+        """Base community-safe create payload."""
+        import uuid as _uuid
+
+        suffix = _uuid.uuid4().hex[:6]
+        return dict(
+            slug=f"gate-test-{suffix}",
+            display_name="Gate Test Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret="test-secret",
+            enabled=True,
+        ) | overrides
+
+    def test_create_rejects_group_claim_in_community(self):
+        """OAuthProviderCreate raises ValueError for group_claim in community edition."""
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        with _pytest.raises(ValidationError) as exc_info:
+            OAuthProviderCreate(**self._create_payload(group_claim="groups"))
+
+        assert "Group-based role mapping requires the GeoLens Enterprise overlay" in str(
+            exc_info.value
+        )
+
+    def test_create_rejects_group_role_mapping_in_community(self):
+        """OAuthProviderCreate raises ValueError for non-empty group_role_mapping in community."""
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        with _pytest.raises(ValidationError) as exc_info:
+            OAuthProviderCreate(
+                **self._create_payload(group_role_mapping={"admins": "admin"})
+            )
+
+        assert "Group-based role mapping requires the GeoLens Enterprise overlay" in str(
+            exc_info.value
+        )
+
+    def test_create_accepts_group_mapping_in_enterprise(self):
+        """OAuthProviderCreate accepts group_claim + group_role_mapping in enterprise."""
+        from app.core.edition import init_edition
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        init_edition(["enterprise"])
+
+        schema = OAuthProviderCreate(
+            **self._create_payload(
+                group_claim="groups",
+                group_role_mapping={"admins": "admin"},
+            )
+        )
+        assert schema.group_claim == "groups"
+        assert schema.group_role_mapping == {"admins": "admin"}
+
+    def test_update_rejects_group_role_mapping_in_community(self):
+        """OAuthProviderUpdate raises ValueError for non-empty group_role_mapping in community."""
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+        with _pytest.raises(ValidationError) as exc_info:
+            OAuthProviderUpdate(group_role_mapping={"admins": "admin"})
+
+        assert "Group-based role mapping requires the GeoLens Enterprise overlay" in str(
+            exc_info.value
+        )
+
+    def test_create_with_empty_mapping_allowed_in_community(self):
+        """Empty group_role_mapping ({}) is accepted in community (D-02 clear-mapping carve-out)."""
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        schema = OAuthProviderCreate(**self._create_payload(group_role_mapping={}))
+        assert schema.group_role_mapping == {}
+
+    def test_update_with_none_group_claim_allowed_in_community(self):
+        """group_claim=None (default) in OAuthProviderUpdate is accepted in community."""
+        from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+        # No group_claim set — should not raise
+        schema = OAuthProviderUpdate(display_name="Updated Name")
+        assert schema.group_claim is None
 
 
 class TestOAuthLoginEndpoint:
