@@ -9,8 +9,17 @@ vi.mock('@/hooks/use-admin', () => ({
   useFailedJobCount: () => ({ data: 0 }),
 }));
 
+// Default: community edition. Individual tests can override per-call via
+// `mockReturnValueOnce` to simulate enterprise. Stored on the mock so the
+// SAML-gating suite below can flip it without re-mocking the whole module.
+const useEditionMock = vi.fn(() => ({
+  isEnterprise: false,
+  edition: 'community',
+  isLoading: false,
+}));
+
 vi.mock('@/hooks/use-edition', () => ({
-  useEdition: () => ({ isEnterprise: false, edition: 'community', isLoading: false }),
+  useEdition: () => useEditionMock(),
 }));
 
 // i18n returns the key by default in tests, so we match on i18n keys' last segment
@@ -26,6 +35,7 @@ vi.mock('react-i18next', () => ({
         'adminNav.jobs': 'Jobs',
         'adminNav.auditLog': 'Audit Log',
         'adminNav.sharedMaps': 'Shared Maps',
+        'adminNav.saml': 'SAML SSO',
         'adminNav.settings': 'Settings',
         'adminNav.configOps': 'Config Ops',
         'adminNav.backToApp': 'Back to App',
@@ -124,5 +134,43 @@ describe('AdminSidebar', () => {
     renderSidebar();
     const link = screen.getByText('Back to App').closest('a');
     expect(link).toHaveAttribute('href', '/');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 217 Plan 04 Task 02 — SAML nav gating (217-04-02 / SAML-10)
+//
+// Verifies the three-layer defense for SAML enterprise gating
+// (T-217-04-EDITION): the sidebar nav item is HIDDEN in community mode
+// (`isEnterprise=false`) and VISIBLE in enterprise mode (`isEnterprise=true`).
+// The companion checks live in:
+//   - AdminSamlPage.tsx (page-level <Navigate to="/admin"> redirect)
+//   - backend/tests/test_saml_overlay.py::test_saml_endpoint_404_in_community
+// ---------------------------------------------------------------------------
+
+describe('AdminSidebar SAML gating (Phase 217 SAML-10)', () => {
+  it('hides SAML nav item in community edition', () => {
+    useEditionMock.mockReturnValueOnce({
+      isEnterprise: false,
+      edition: 'community',
+      isLoading: false,
+    });
+    renderSidebar();
+    // The "SAML SSO" label must NOT render and no <a> should target /admin/saml.
+    expect(screen.queryByText('SAML SSO')).toBeNull();
+    expect(document.querySelector('a[href="/admin/saml"]')).toBeNull();
+  });
+
+  it('shows SAML nav item in enterprise edition', () => {
+    useEditionMock.mockReturnValueOnce({
+      isEnterprise: true,
+      edition: 'enterprise',
+      isLoading: false,
+    });
+    renderSidebar();
+    // Both the human-readable label and the link href must be present.
+    expect(screen.getByText('SAML SSO')).toBeInTheDocument();
+    const link = document.querySelector('a[href="/admin/saml"]');
+    expect(link).not.toBeNull();
   });
 });
