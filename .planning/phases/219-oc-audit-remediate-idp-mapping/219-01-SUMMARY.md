@@ -37,10 +37,19 @@ decisions:
   - "D-09: TestIdpRoleMappingGate class with 6 schema-validator tests"
   - "D-10: local _clean_edition autouse fixture in test_oauth.py, not conftest.py"
 metrics:
-  duration: "~45 minutes"
+  duration: "~75 minutes (executor 45 min + orchestrator-driven Task 4 audit re-run + doc amendment 30 min)"
   completed_date: "2026-04-29"
-  completed_tasks: 3
+  completed_tasks: 4
   total_tasks: 4
+  audit_grade_post_219:
+    boundary_integrity: A
+    seam_quality: B
+    oss_surface: A-
+    overall: B+ (3.34/4.0)
+  v13_1_close_targets_met:
+    boundary: "A >= A- target ✓"
+    seam: "B >= B target ✓"
+    oss: "A- >= C target ✓"
 ---
 
 # Phase 219 Plan 01: gate-idp-role-mapping Summary
@@ -49,7 +58,7 @@ metrics:
 
 ## Status
 
-**PARTIALLY COMPLETE** — Tasks 1, 2, 3 committed. Task 4 (audit re-run + doc amendment) requires `/oc-audit` slash-command invocation which cannot be executed from a subagent context. The orchestrator must handle Task 4.
+**COMPLETE** — All 4 atomic commits per D-15 landed. Tasks 1-3 executed by gsd-executor subagent (~45 min). Task 4 (audit re-run via `/oc-audit` skill + in-place amendment of `oc-separation-audit-v13.1-close.md` per D-12) executed by the orchestrator in the main session (~30 min). The 2026-04-29 audit re-run confirmed Boundary Integrity grade A (zero 🔴 in OAuth IdP cluster), exceeding the v13.1 A− target. v13.1 milestone close VERIFIED.
 
 ## Commits
 
@@ -58,7 +67,7 @@ metrics:
 | 1 | d0e09c17 | feat(219-01): gate IdP role mapping at write path with model_validator (community) |
 | 2 | dcbb86af | feat(219-01): gate IdP role mapping at runtime call site in find_or_create_oauth_user |
 | 3 | 1cb06324 | test(219-01): split runtime test into community/enterprise variants and add schema-gate class |
-| 4 | pending | docs(219-01): amend v13.1-close.md with VERIFIED banner after Phase 219 boundary fix |
+| 4 | 6a79e1e5 | docs(219-01): amend v13.1-close.md with VERIFIED banner after Phase 219 boundary fix |
 
 ## What Was Built
 
