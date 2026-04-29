@@ -180,10 +180,16 @@ Plans:
 
 ### Phase 219: oc-audit-remediate-idp-mapping
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Close the single architectural P0 blocking v13.1 milestone close — gate OAuth IdP→role mapping (`group_claim` / `group_role_mapping`) behind `is_enterprise()` so the community runtime cannot accept or apply it. Then re-run `/oc-audit` and amend `docs-internal/audits/oc-separation-audit-v13.1-close.md` in place to verify Boundary Integrity ≥ A−, unblocking AUDIT-V1.
+**Requirements**: AUDIT-V1
 **Depends on:** Phase 218
 **Plans:** 0 plans
+
+**Success Criteria:**
+1. `OAuthProviderCreate` and `OAuthProviderUpdate` raise `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community when `group_claim` is set or `group_role_mapping` is non-empty; pass in enterprise.
+2. `find_or_create_oauth_user()` ignores group mapping in community (uses `default_role`) and applies it in enterprise.
+3. `/oc-audit` re-run grades Boundary Integrity ≥ A− with zero 🔴 violations under the OAuth IdP cluster.
+4. `docs-internal/audits/oc-separation-audit-v13.1-close.md` is amended in place: BLOCKED banner replaced with VERIFIED; Scorecard, Section 1, Section 8, and P1 Residual Triage row 1 updated.
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 219 to break down)
