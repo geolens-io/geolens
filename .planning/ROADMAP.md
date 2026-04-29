@@ -1,183 +1,69 @@
-# Roadmap: GeoLens v13.1 Open-Core Separation P1
+# Roadmap: GeoLens
 
-**Milestone:** v13.1 Open-Core Separation P1
-**Source spec:** `docs-internal/audits/oc-separation-deferred-items-20260426.md` (P1 bucket)
-**Granularity:** standard
-**Phase range:** 212–218 (continuing from v13.0 which ended at Phase 211)
-**Coverage:** 21/21 v13.1 requirements mapped
+## Milestones
 
-## Milestone Goal
-
-Close the six P1 boundary/seam debts surfaced in the open-core audit so the open-core architecture is demonstrably ship-ready before the first paid customer. Target audit grades: Boundary B → A−, Seam Quality C → B, OSS Surface D → C.
+- ✅ **v1.0 MVP** — Phases 1-8 (shipped 2026-02-13)
+- ✅ **v1.1 Machine Readability** — Phases 9-13 (shipped 2026-02-14)
+- ✅ **v1.2 QA & Polish** — Phases 14-16 (shipped 2026-02-14)
+- ✅ **v1.3 Admin Control & Data Lifecycle** — Phases 17-21 (shipped 2026-02-15)
+- ✅ **v1.4 Production Readiness** — Phases 22-27 (shipped 2026-02-15)
+- ✅ **v1.5 Data Organization & Freshness** — Phases 28-31 (shipped 2026-02-15)
+- ✅ **v1.6 UI/UX Polish** — Phases 32-35 (shipped 2026-02-15)
+- ⏸️ **v1.7 Marketplace & Distribution** — Phases 36-42 (paused at Phase 40)
+- ✅ **v1.8 Map Builder Core** — (shipped 2026-02-17)
+- ✅ **v1.9 Map Builder AI** — (shipped 2026-02-21)
+- ✅ **v2.0 Natural Earth Seed Script** — Phases 53-55 (shipped 2026-02-22)
+- ✅ **v2.1 Service URL Importing** — Phases 56-60 (shipped 2026-02-23)
+- ✅ **v2.2 Architecture Simplification** — Phases 61-63 (shipped 2026-02-23)
+- ✅ **v2.3 Layer Creation & Editing** — Phases 64-67 (shipped 2026-02-24)
+- ✅ **v2.4 Visual Identity & Admin Experience** — Phases 68-71 (shipped 2026-02-24)
+- ✅ **v2.5 i18n** — (shipped 2026-02-25)
+- ✅ **v2.6 Tile Architecture** — (shipped 2026-02-26)
+- ✅ **v3.0 Design Overhaul** — (shipped 2026-02-28)
+- ✅ **v5.0 Cloud-Ready Architecture** — (shipped 2026-03-02)
+- ✅ **v6.0 Hardening & Production Readiness** — Phases 102-110 (shipped 2026-03-03)
+- ✅ **v6.1 Dataset Detail UX & Provenance** — Phases 111-115 (shipped 2026-03-06)
+- ✅ **v6.2 Enterprise Configuration & OAuth** — Phases 116-120 (shipped 2026-03-07)
+- ✅ **v7.0 Stack Consolidation** — Phases 121-132 (shipped 2026-03-08)
+- ✅ **v7.2 Semantic Search (pgvector)** — Phases 133-138 (shipped 2026-03-09)
+- ✅ **v7.3 Map Page Polish** — Phases 139-143 (shipped 2026-03-09)
+- ✅ **v8.0 Spatial Intelligence** — Phases 144-147 (shipped 2026-03-09)
+- ✅ **v8.1 Secure Sharing & Embed Tokens** — Phases 148-151 (shipped 2026-03-10)
+- ✅ **v8.2 Share Link Settings** — Phases 152-153 (shipped 2026-03-10)
+- ✅ **v9.0 Cloud Marketplace Distribution** — Phases 154-160 (shipped 2026-03-11)
+- ✅ **v9.1 Map Experience & Discovery** — Phases 161-164 (shipped 2026-03-11)
+- ✅ **v10.0 Raster Support** — Phases 165-170 (shipped 2026-03-14)
+- ✅ **v10.1 VRT Raster Mosaics** — Phases 171-177 (shipped 2026-03-15)
+- ✅ **v11.0 Performance at Scale** — Phases 178-182 (shipped 2026-03-16)
+- ✅ **v12.0 Record-First Discovery Architecture** — Phases 183-190 (shipped 2026-03-17)
+- ✅ **v12.1 UI/UX Polish** — Phases 191-194 (shipped 2026-03-18)
+- ✅ **v12.2 Record Detail Stabilization** — Phases 195-199 (shipped 2026-03-19)
+- ✅ **v12.3 Map Builder Excellence** — Phases 200-205 (shipped 2026-03-21)
+- ✅ **v13.0 Open-Core Pre-Release** — Phases 206-211 (shipped 2026-03-27)
+- 🚀 **1.0.0 Public Release** — Version reset; backend/frontend bumped to 1.0.0 (shipped 2026-04-01)
+- ✅ **v13.1 Open-Core Separation P1** — Phases 212-219 (shipped 2026-04-29) — see [archive](milestones/v13.1-ROADMAP.md)
 
 ## Phases
 
-- [x] **Phase 212: core-settings-decouple** — Break `core ↔ settings` layering inversion (`AppSetting` import in `core/persistent_config.py` + `core/public_urls.py`) (completed 2026-04-27)
-- [x] **Phase 213: catalog-authz-relocate** — Move `auth/visibility.py` → `catalog/authorization.py`; migrate 23 inbound callers with no behavior change (completed 2026-04-27)
-- [x] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends (completed 2026-04-27)
-- [x] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate (completed 2026-04-27)
-- [x] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK (completed 2026-04-27)
-- [x] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping (completed 2026-04-27)
-- [x] **Phase 218: oc-audit-close-v13.1** — Re-run `/oc-audit`; commit closing audit at `docs-internal/audits/oc-separation-audit-v13.1-close.md` showing Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C (completed 2026-04-28; PARTIAL — closed by Phase 219)
-- [x] **Phase 219: oc-audit-remediate-idp-mapping** — Gate OAuth IdP→role mapping behind `is_enterprise()`; amend `oc-separation-audit-v13.1-close.md` in place to verify Boundary A (completed 2026-04-29)
+<details>
+<summary>✅ v13.1 Open-Core Separation P1 (Phases 212-219) — SHIPPED 2026-04-29</summary>
 
-## Phase Details
+- [x] Phase 212: core-settings-decouple (4/4 plans) — completed 2026-04-27
+- [x] Phase 213: catalog-authz-relocate (4/4 plans) — completed 2026-04-27
+- [x] Phase 214: identity-protocol-extract (4/4 plans) — completed 2026-04-27
+- [x] Phase 215: sdks-from-openapi (5/5 plans) — completed 2026-04-27
+- [x] Phase 216: geolens-cli-mvp (6/6 plans) — completed 2026-04-27
+- [x] Phase 217: auth-saml-enterprise (5/5 plans) — completed 2026-04-27
+- [x] Phase 218: oc-audit-close-v13.1 (1/1 plan) — completed 2026-04-28 (PARTIAL — closed by Phase 219)
+- [x] Phase 219: oc-audit-remediate-idp-mapping (1/1 plan) — completed 2026-04-29
 
-### Phase 212: core-settings-decouple
-**Goal**: `core/` no longer imports from `modules/settings/` — the layering inversion that violated the open-core boundary is gone, and downstream consumers (PersistentConfig, public URL builder) keep their existing behavior
-**Depends on**: Nothing (mechanical refactor; can run in parallel with 213/214)
-**Requirements**: LAYER-01
-**Success Criteria** (what must be TRUE):
-  1. `grep -rn "from app.modules.settings" backend/app/core/` returns zero `AppSetting` imports (and zero settings-module references generally)
-  2. `PersistentConfig` continues to read/write DB-backed values; admin Settings UI loads and saves all 16 config instances correctly
-  3. `core/public_urls.py` continues to resolve the public base URL with the same precedence (request → DB override → env var)
-  4. The 1965-test backend baseline stays green; no test required AppSetting-import shimming
-  5. The audit's "Layering" finding for `core/persistent_config.py:30` and `core/public_urls.py:14` no longer reproduces
-**Plans:** 4/4 plans complete (verified 2026-04-26 + UAT 2026-04-27)
+Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− (≥C). 21/21 v13.1 requirements satisfied.
 
-Plans:
-- [x] 212-01-introduce-core-db-models-PLAN.md — Create new core/db/models.py with relocated AppSetting class (verbatim copy + docstring)
-- [x] 212-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 9 callers to app.core.db.models, update alembic/env.py, delete modules/settings/models.py
-- [x] 212-03-architecture-guard-PLAN.md — Add backend/tests/test_layering.py guard + register architecture pytest marker
-- [x] 212-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC verification gate
+</details>
 
-### Phase 213: catalog-authz-relocate
-**Goal**: Dataset visibility / authorization logic lives under `catalog/authorization.py` where it belongs; `auth/` no longer owns catalog-domain knowledge
-**Depends on**: Nothing (mechanical relocation; independent of 212)
-**Requirements**: LAYER-02
-**Success Criteria** (what must be TRUE):
-  1. `backend/app/modules/auth/visibility.py` is deleted; all 15 direct visibility imports and 8 deferred-import call sites resolve to `catalog/authorization.py`
-  2. RBAC-filtered search, tile, feature, STAC, and OGC Records endpoints return identical results for the same user/role pairs as before the relocation
-  3. The 1965-test backend baseline stays green, including the visibility/authorization unit tests
-  4. `git grep "auth.visibility\|from app.modules.auth.visibility"` returns zero matches across the whole repo
-**Plans:** 4/4 plans complete
+### Next Milestone — Not yet planned
 
-Plans:
-- [x] 213-01-introduce-catalog-authorization-PLAN.md — Create new catalog/authorization.py (verbatim copy of auth/visibility.py with module docstring + DatasetGrant import promoted to module level)
-- [x] 213-02-migrate-callers-and-delete-old-PLAN.md — Migrate all 26 import lines across 23 files to app.modules.catalog.authorization, delete auth/visibility.py, run full pytest for RBAC parity
-- [x] 213-03-architecture-guard-PLAN.md — Extend backend/tests/test_layering.py with two new architecture guard tests + update module docstring (Phase 212 marker reused)
-- [x] 213-04-phase-verification-gate-PLAN.md — Run alembic check + full pytest + ruff + ROADMAP SC#1-#4 verification gate
-
-### Phase 214: identity-protocol-extract
-**Goal**: Cross-domain code depends on an `IdentityProtocol` abstraction rather than the concrete `User` SQLAlchemy model, and the extension system can register alternate identity backends — unblocking enterprise auth overlays without modifying core
-**Depends on**: Nothing (touches all 11 domains but is self-contained; prerequisite for Phase 217)
-**Requirements**: IDENT-01, IDENT-02, IDENT-03
-**Success Criteria** (what must be TRUE):
-  1. `backend/app/core/identity.py` defines `IdentityProtocol` capturing the surface 51 cross-domain call sites depend on (id, email, role, tenant context, etc.); the concrete `User` ORM model satisfies it
-  2. All 51 cross-domain `User` import sites across the 11 domains type against `IdentityProtocol` (or an alias of it), not the concrete SQLAlchemy class
-  3. The extension system exposes a registration hook (typed accessor + entry_point seam, mirroring `get_branding_extension()` / `get_audit_extension()`) so an enterprise overlay can supply an alternate identity backend without core changes
-  4. Existing JWT, OAuth/OIDC, API key, and refresh-token flows operate unchanged against the concrete model; the 1965-test backend baseline stays green
-  5. `pyright`/`mypy` (per project convention) reports no new typing regressions introduced by the Protocol migration
-**Plans:** 4/4 plans complete (2026-04-27 — all 5 ROADMAP SC verified PASS)
-
-Plans:
-- [x] 214-01-introduce-core-identity-PLAN.md — Create core/identity.py (IdentityProtocol, RoleProtocol, IdentityExtension, Identity alias) + DefaultIdentityExtension + get_identity_extension() typed accessor
-- [x] 214-02-retype-deps-and-wire-extension-PLAN.md — Retype get_optional_user/get_current_user/get_current_active_user to return Identity; wire extension between API-key and JWT paths in both deps (Pitfall 9 duplication preserves expired-token UX)
-- [x] 214-03-migrate-cross-domain-callers-PLAN.md — Migrate ~33 cross-domain caller files: swap User import for Identity; rewrite parameter annotations; 7 Pitfall-1 SQL-attribute files keep concrete User and join allowlist
-- [x] 214-04-architecture-guard-and-verification-gate-PLAN.md — Extended test_layering.py with broadened core/ guard + cross-domain User-import allowlist test (13 :! pathspec exclusions); replaced narrow Phase 212-03 test; phase verification gate confirmed alembic clean (pre-existing drift only) + 2001 passing tests in container + ruff clean + 5 SC PASS
-
-### Phase 215: sdks-from-openapi
-**Goal**: External integrators (and the v13.1 CLI) consume GeoLens through auto-generated, version-pinned Python and TypeScript SDKs; SDK drift against the OpenAPI snapshot is impossible to merge accidentally
-**Depends on**: Nothing (the OpenAPI snapshot at `backend/openapi.json` already exists; `make openapi-check` is the precedent pattern)
-**Requirements**: OCSDK-01, OCSDK-02, OCSDK-03, OCSDK-04
-**Success Criteria** (what must be TRUE):
-  1. `pip install geolens-sdk` (PyPI, Apache-2.0) yields a typed Python client with Bearer-token and API-key auth helpers; round-trip against a running instance succeeds for `/search/datasets`, `/datasets/{id}`, and `POST /ingest`
-  2. `npm install @geolens/sdk` (Apache-2.0) yields a typed TypeScript client with the same auth helpers and request/response models; round-trip against a running instance succeeds for the same three endpoints
-  3. `make sdks` regenerates both SDKs from `backend/openapi.json` in a single shot; `make sdks-check` fails CI when generated code drifts from the committed sources (mirrors `make openapi-check`)
-  4. Each SDK package version pins to the OpenAPI snapshot version it was generated from; `docs/sdks.md` documents the chosen generators (Python + TS) with rationale and the publish/release process
-**Plans:** 5/5 plans complete
-
-Plans:
-- [x] 215-01-PLAN.md — Scaffold sdks/python/ + sdks/typescript/ directories with hand-maintained tooling, license, and gitignores (no generated code yet)
-- [x] 215-02-PLAN.md — Wire Makefile targets (sdks/sdks-check/sdks-test/publish-sdks-py/publish-sdks-ts), scripts/sync_sdk_versions.py, scripts/flatten_openapi_defs.py preprocessor (research-extension finding), and run first regeneration to commit baseline generated code
-- [x] 215-03-PLAN.md — Add hand-written auth wrappers (Python GeolensClient + TypeScript createGeolensClient) with bearer + api-key + anonymous + ValueError-on-both behaviors
-- [x] 215-04-PLAN.md — Add round-trip integration test (12 tests), wire sdks-check job into ci.yml, and create publish-sdks.yml workflow scaffold (manual-trigger only)
-- [x] 215-05-PLAN.md — Wrote docs/sdks.md (305 lines), closed __init__.py cp-stash gap from Plan 04, added module-level skip for SDK round-trip when sdks/ absent in container, ran phase verification gate (alembic clean / 2001 passed / sdks-check 0 / 12 round-trip pass / actionlint clean for Phase 215 workflows / both SDKs build) — all 4 ROADMAP SC PASS
-
-### Phase 216: geolens-cli-mvp
-**Goal**: An end user can install the Apache-2.0 `geolens` CLI from PyPI, log into any GeoLens instance, scan a directory of spatial data, publish a dataset, and export STAC metadata — without writing a line of HTTP code or touching the GeoLens UI
-**Depends on**: Phase 215 (CLI consumes the generated Python SDK; no hand-rolled HTTP client)
-**Requirements**: OCCLI-01, OCCLI-02, OCCLI-03, OCCLI-04, OCCLI-05, OCCLI-06
-**Success Criteria** (what must be TRUE):
-  1. `pip install geolens` from PyPI installs an Apache-2.0 standalone package; `geolens --version` prints a version compatible with both community and enterprise instances
-  2. `geolens login <instance-url>` authenticates and stores the token in the OS keyring (or equivalent); a `--no-keyring` fallback writes to a config file for headless/CI use
-  3. `geolens scan <dir>` walks the directory, detects vector and raster files, and prints a dry-run report (file path, detected format, would-ingest yes/no) without uploading anything
-  4. `geolens publish <file>` uploads a vector or raster file to the configured instance via the generated Python SDK and prints the resulting dataset URL on success
-  5. `geolens export stac <dataset-id>` writes valid STAC 1.1 JSON for a raster dataset to stdout (or a file via `-o`)
-  6. The CLI source contains zero direct HTTP/`httpx`/`requests` imports for catalog operations — every API call goes through the generated Python SDK from Phase 215
-**Plans:** 6/6 plans complete (verified 2026-04-27)
-
-Plans:
-- [x] 216-01-scaffold-cli-package-PLAN.md — Apache-2.0 cli/ package + Typer scaffold + Wave 0 tests + Makefile recipes
-- [x] 216-02-auth-and-config-PLAN.md — XDG config + keyring with file fallback + login/logout/whoami + AppState.sdk()
-- [x] 216-03-scan-command-PLAN.md — directory walk + extension classification + shapefile sibling-grouping
-- [x] 216-04-publish-command-PLAN.md — 3-step ingest with multipart workaround + progress UI + dataset URL
-- [x] 216-05-export-stac-command-PLAN.md — STAC 1.1 pass-through with vector guard + atomic file write
-- [x] 216-06-roundtrip-ci-docs-PLAN.md — round-trip integration test + sync_sdk_versions ext + CI cli-test job + publish-cli.yml + docs/cli.md + verification gate
-
-### Phase 217: auth-saml-enterprise
-**Goal**: A government/enterprise buyer with a SAML IdP can install `geolens-enterprise`, configure SAML in the admin UI, and have their users log in via SP-initiated SSO with attribute-driven role mapping — and the core repo contains no SAML code
-**Depends on**: Phase 214 (overlay registers via the IdentityProtocol extension hook)
-**Requirements**: SAML-08, SAML-09, SAML-10, SAML-11, SAML-12
-**Success Criteria** (what must be TRUE):
-  1. `git grep -i saml` against the core repo returns zero matches outside test fixtures and `docs-internal/` documentation; the SAML implementation lives entirely in `geolens-enterprise`
-  2. With the enterprise overlay installed, the admin UI exposes a "SAML" configuration tab; in community mode the same tab is absent and direct route access returns 404 (matching the existing enterprise-gated pattern from v13.0)
-  3. SP-initiated SSO works end-to-end against a reference IdP: metadata XML endpoint serves the SP descriptor; signed assertions are validated for signature, expiry, audience, and replay; new users are JIT-provisioned through the existing `find_or_create_oauth_user()` pathway
-  4. SAML attribute → role mapping (e.g., `groups` → admin/editor/viewer) is configurable through the same admin tab; mapping changes are recorded in the existing audit log with old/new values
-  5. Core's auth-extension hook (added in Phase 214 via `importlib.metadata` entry_points) is the only seam the SAML overlay registers into — there is no SAML-specific code path in core
-**Plans:** 5/5 plans complete (2026-04-29 — all 5 ROADMAP SC verified PASS; SC#1 with documented carve-out for Pitfall 11 `deferred=True` mitigation scaffolding in 5 core files)
-
-Plans:
-- [x] 217-01-PLAN.md — Alembic graph repair (e001 down_revision phantom→f3a4b5c6d7e8) + e002_add_saml_columns enterprise migration + Wave 0 SAML test fixtures (PEM keypair + 5 SAMLResponse XML fixtures + saml_overlay_registered conftest helper)
-- [x] 217-02-PLAN.md — Salvage + modernize enterprise SAML scaffold (router/config/replay imports rebased on app.modules.auth.* / app.core.* paths; 3 pre-existing scaffold bugs fixed: cert PEM markers, missing outstanding-request tracking, response-consumption hygiene) + dual-Protocol registration (registry['auth'] + registry['identity']) + GET /auth/saml/{slug}/metadata endpoint + 9 SAML integration tests
-- [x] 217-03-PLAN.md — Pitfall 11 mitigation via SQLAlchemy deferred=True on SAML cols (HIGH-severity column-not-found risk empirically verified) + Pydantic per-type validator (model_validator(mode='after')) + Fernet-encrypted idp_certificate + audit-log diff with SECRET_FIELDS/SECRET_BODY_FIELDS redaction (Pitfall 9 HIGH; SAML-12 closure)
-- [x] 217-04-PLAN.md — Frontend admin SAML page (frontend/src/api/saml.ts + AdminSamlPage + SamlProvidersSection with authoritative getTileConfig sp_entity_id pre-fill per Pitfall 14) + AdminSidebar enterpriseOnly:true gating + /admin/saml route + i18n parity across 4 locales + community-404 backend test
-- [x] 217-05-PLAN.md — SC#1 docstring scrub (3 core files: identity.py, defaults.py, test_extensions.py) + docs/saml.md (223 lines: install + IdP config + hardening posture + multi-instance limitation + NameID format guidance) + 2 ruff cleanups + phase verification gate (5/5 SC PASS)
-
-### Phase 218: oc-audit-close-v13.1
-**Goal**: The milestone's audit-grade promise is independently verified — re-running the open-core audit produces grades that meet or exceed the v13.1 targets, and the result is committed for traceability
-**Depends on**: Phases 212, 213, 214, 215, 216, 217 (all P1 work must be merged)
-**Requirements**: AUDIT-V1
-**Success Criteria** (what must be TRUE):
-  1. Running `/oc-audit` against the post-217 state produces grades meeting or exceeding: Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C
-  2. The audit output is committed at `docs-internal/audits/oc-separation-audit-v13.1-close.md` with the same structure as the 2026-04-26 source audit (findings table, grades, deferred items)
-  3. Any P1-tagged residual findings in the closing audit are explicitly triaged: either fixed in a follow-up phase, demoted to P2 with rationale, or accepted as out-of-scope for v13.1
-**Plans:** 1 plan
-
-Plans:
-- [x] 218-01-PLAN.md — Run /oc-audit, rename to canonical v13.1-close path, append §8 grade-delta + P1 Residual Triage, mark six P1 deferred-items closures, gate via verify_close_audit.py (PARTIAL — surfaced OAuth IdP→role mapping P0; closed by Phase 219)
-
-### Phase 219: oc-audit-remediate-idp-mapping
-**Goal:** Close the single architectural P0 surfaced by Phase 218 — gate OAuth IdP→role mapping (`group_claim` / `group_role_mapping`) behind `is_enterprise()` so the community runtime cannot accept or apply it. Re-run `/oc-audit` and amend `docs-internal/audits/oc-separation-audit-v13.1-close.md` in place to verify Boundary Integrity ≥ A−, unblocking AUDIT-V1.
-**Depends on:** Phase 218
-**Requirements**: AUDIT-V1 (closure)
-**Success Criteria** (what must be TRUE):
-  1. `OAuthProviderCreate` and `OAuthProviderUpdate` raise `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community when `group_claim` is set or `group_role_mapping` is non-empty; pass in enterprise
-  2. `find_or_create_oauth_user()` ignores group mapping in community (uses `default_role`) and applies it in enterprise
-  3. `/oc-audit` re-run grades Boundary Integrity ≥ A− with zero 🔴 violations under the OAuth IdP cluster
-  4. `docs-internal/audits/oc-separation-audit-v13.1-close.md` is amended in place: BLOCKED banner replaced with VERIFIED; Scorecard, Section 1, Section 8, and P1 Residual Triage row 1 updated
-**Plans:** 1/1 plans complete (verified 2026-04-29; 11/11 must-haves; 5 UAT pass)
-
-Plans:
-- [x] 219-01-PLAN.md — Gate OAuth IdP→role mapping behind `is_enterprise()` (4 atomic commits: schema validator + service gate + tests + audit re-run & v13.1-close.md amendment)
-
-## Progress
-
-**Execution Order:**
-Phases executed in numeric order: 212 → 213 → 214 → 215 → 216 → 217 → 218 → 219
-
-(212 and 213 ran in parallel; 214 was a prerequisite for 217; 215 was a hard prerequisite for 216; 218 gated milestone close and surfaced the OAuth IdP→role mapping P0 closed by Phase 219.)
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 212. core-settings-decouple | 4/4 | Complete    | 2026-04-27 |
-| 213. catalog-authz-relocate | 4/4 | Complete    | 2026-04-27 |
-| 214. identity-protocol-extract | 4/4 | Complete    | 2026-04-27 |
-| 215. sdks-from-openapi | 5/5 | Complete   | 2026-04-27 |
-| 216. geolens-cli-mvp | 6/6 | Complete | 2026-04-27 |
-| 217. auth-saml-enterprise | 5/5 | Complete | 2026-04-27 |
-| 218. oc-audit-close-v13.1 | 1/1 | Complete | 2026-04-28 |
-| 219. oc-audit-remediate-idp-mapping | 1/1 | Complete | 2026-04-29 |
+No active milestone. Run `/gsd-new-milestone` to scope the next cycle.
 
 ## Backlog
 

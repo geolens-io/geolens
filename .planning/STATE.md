@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: ready-to-close
-stopped_at: Phase 219 complete -- v13.1 milestone close VERIFIED
-last_updated: "2026-04-29T19:00:00.000Z"
-last_activity: 2026-04-29 -- Phase 219 closed Boundary Integrity gap (B- -> A); audit re-run + v13.1-close.md amended in place; AUDIT-V1 satisfied; ready for /gsd-complete-milestone
+status: verifying
+stopped_at: Phase 219 context gathered
+last_updated: "2026-04-29T22:34:49.058Z"
+last_activity: 2026-04-29
 progress:
   total_phases: 10
   completed_phases: 8
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 Phase: 219 (oc-audit-remediate-idp-mapping) — **COMPLETE**
 Plan: 1 of 1 (4 of 4 atomic commits landed: d0e09c17 schema gate, dcbb86af service gate, 1cb06324 tests, 6a79e1e5 doc amendment)
 Status: v13.1 milestone close VERIFIED — Boundary Integrity A (≥ A− target) + Seam Quality B (≥ B target) + OSS Surface A− (≥ C target). All three close-gate dimensions met or exceeded.
-Last activity: 2026-04-29 -- Phase 219 verified; AUDIT-V1 satisfied; v13.1 close artifact amended in place
+Last activity: 2026-04-29
 
 ## Phase 218 / 219 close-gate record
 
@@ -97,6 +97,19 @@ The following stay in this repo because they describe work executed in this repo
 | 260425-sl1 | Address backend test debt (15 failures from audit 2026-04-25) — restored green-baseline (1965/1965) | 2026-04-26 | d6c5a4c8 | Verified | [260425-sl1-address-the-debt-in-docs-internal-audits](./quick/260425-sl1-address-the-debt-in-docs-internal-audits/) |
 | 260426-ihc | PR1 of post-impl-20260426-HANDOFF: search hot-path caching (PERF-2 + PERF-7) — 30s anon-only response cache on /search/datasets and /search/facets | 2026-04-26 | 7aebc4d8 | Verified | [260426-ihc-pr1-search-hot-path-caching-perf-2-perf-](./quick/260426-ihc-pr1-search-hot-path-caching-perf-2-perf-/) |
 | 260426-m5d | PR2 of post-impl-20260426-HANDOFF: search/maps function decomposition (KISS-1 + KISS-2 + PERF-6) — split search_datasets, extract _bulk_fetch_dataset_metadata, eliminate post-save get_map_with_layers re-fetch | 2026-04-26 | 550179c4 | Verified | [260426-m5d-pr2-search-maps-function-decomposition-k](./quick/260426-m5d-pr2-search-maps-function-decomposition-k/) |
+
+## Deferred Items
+
+Items acknowledged and deferred at v13.1 milestone close on 2026-04-29:
+
+| Category | Count | Disposition |
+|----------|-------|-------------|
+| quick_tasks | 170 | Cross-cutting backlog dating from 2026-03-16 through 2026-04-26 (v10.x–v13.0 era). Mix of completed-but-untracked, abandoned spikes, and superseded ideas. Run `/gsd-cleanup` to triage before next milestone. |
+| uat_gaps | 1 | Phase 216 (216-HUMAN-UAT.md) — 4 open scenarios are documented `human_needed` items: PyPI publish (D-40), OS-native keyring per-platform, interactive Progress UI, refresh-token retry. Not v13.1 close blockers. |
+| verification_gaps | 4 | 215, 216 (`human_needed` — deferred user actions per CONTEXT.md); 999.2, 999.4 (P3 backlog phases — not in v13.1 scope). |
+| **Total** | **175** | |
+
+These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are functional defects in v13.1; the 175 reflect cross-milestone hygiene debt (170 quick_tasks) plus the documented `human_needed` deferred user actions that ship alongside v13.1 (PyPI/npm publishes, per-platform keyring testing).
 
 ## Session Continuity
 
