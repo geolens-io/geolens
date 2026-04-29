@@ -544,3 +544,108 @@ async def test_saml_acs_redirect_includes_source_query_param(
     )
     err_qs = parse_qs(urlparse(err.headers["location"]).query)
     assert err_qs.get("source") == ["saml"], err.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# Plan 03 Task 02: Pydantic schema per-type validation tests (SAML-12 / D-12)
+# ---------------------------------------------------------------------------
+
+
+def test_oauth_provider_create_saml_requires_all_4_fields():
+    """SAML provider creation must reject any missing SAML field with a clear
+    ValidationError naming the missing field(s) (RESEARCH §6 model_validator)."""
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+    with pytest.raises(ValidationError) as excinfo:
+        OAuthProviderCreate(
+            slug="incomplete-saml",
+            display_name="Incomplete",
+            provider_type="saml",
+            idp_entity_id="https://idp.example.com",
+            # missing: idp_sso_url, idp_certificate, sp_entity_id
+        )
+    msg = str(excinfo.value)
+    assert "SAML providers require" in msg
+    assert "idp_sso_url" in msg
+    assert "idp_certificate" in msg
+    assert "sp_entity_id" in msg
+
+
+def test_oauth_provider_create_saml_accepts_all_4_fields():
+    """Complete SAML payload validates without error (RESEARCH §6 happy path)."""
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+    m = OAuthProviderCreate(
+        slug="complete-saml",
+        display_name="Complete SAML",
+        provider_type="saml",
+        idp_entity_id="https://fixture-idp.geolens.test/idp",
+        idp_sso_url="https://fixture-idp.geolens.test/sso",
+        idp_certificate="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+        sp_entity_id="https://geolens.test/auth/saml/complete-saml",
+    )
+    assert m.provider_type == "saml"
+    assert m.client_id is None
+    assert m.client_secret is None
+    assert m.idp_entity_id == "https://fixture-idp.geolens.test/idp"
+
+
+def test_oauth_provider_create_oauth_rejects_saml_fields():
+    """OIDC/Google/Microsoft providers must not set SAML fields — prevents
+    mixed configs that confuse the runtime (Pitfall: ambiguous provider rows)."""
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+    with pytest.raises(ValidationError) as excinfo:
+        OAuthProviderCreate(
+            slug="bad-mix",
+            display_name="Bad Mix",
+            provider_type="oidc",
+            client_id="cid",
+            client_secret="csec",
+            idp_entity_id="https://leaked.example.com",  # SAML field on OAuth
+        )
+    msg = str(excinfo.value)
+    assert "must not set SAML fields" in msg
+    assert "idp_entity_id" in msg
+
+
+def test_oauth_provider_create_oauth_requires_client_secret():
+    """OIDC/Google/Microsoft providers must have client_id AND client_secret
+    (Anti-Pattern A4: making them Optional must NOT bypass OAuth's existing
+    requirement)."""
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+    with pytest.raises(ValidationError) as excinfo:
+        OAuthProviderCreate(
+            slug="no-creds",
+            display_name="No Creds",
+            provider_type="oidc",
+            # client_id and client_secret intentionally omitted
+        )
+    msg = str(excinfo.value)
+    assert "require client_id and client_secret" in msg
+
+
+def test_oauth_provider_response_excludes_idp_certificate():
+    """Pattern D / T-217-03-WRITEONLY: idp_certificate is a write-only credential
+    and must not appear in OAuthProviderResponse. The 3 non-secret SAML fields
+    (idp_entity_id, idp_sso_url, sp_entity_id) ARE allowed."""
+    from app.modules.auth.oauth.schemas import OAuthProviderResponse
+
+    fields = set(OAuthProviderResponse.model_fields.keys())
+    assert "idp_certificate" not in fields, (
+        f"idp_certificate must NOT appear in OAuthProviderResponse; "
+        f"got: {sorted(fields)}"
+    )
+    assert "client_secret_encrypted" not in fields
+    assert "client_secret" not in fields
+    # The 3 non-secret SAML fields ARE exposed (admin UI needs them).
+    assert "idp_entity_id" in fields
+    assert "idp_sso_url" in fields
+    assert "sp_entity_id" in fields
