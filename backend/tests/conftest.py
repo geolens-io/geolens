@@ -138,6 +138,43 @@ def _test_db_lifecycle():
     # enterprise installed, this picks up the enterprise branch.
     command.upgrade(alembic_cfg, "heads")
 
+    # --- SAML column bridge (community-only test environments) ---
+    # The four SAML columns on catalog.oauth_providers are normally added by the
+    # enterprise migration e002_add_saml_columns. When geolens-enterprise is NOT
+    # installed, those columns are absent from the test DB. SQLAlchemy still
+    # includes them in INSERTs (deferred=True only suppresses SELECT loading,
+    # not INSERT column lists), causing UndefinedColumnError in any test that
+    # seeds an OAuthProvider row directly.
+    #
+    # This bridge detects the missing columns and adds them idempotently,
+    # mirroring what e002_add_saml_columns does. It only fires when the enterprise
+    # package is absent (i.e. _enterprise_paths is empty), so enterprise CI is
+    # unaffected.
+    if not _enterprise_paths:
+        _saml_bridge_engine = sqlalchemy.create_engine(settings.test_database_url_sync)
+        with _saml_bridge_engine.connect() as _conn:
+            # Check whether idp_entity_id already exists; if not, add all four.
+            _result = _conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'catalog' "
+                    "AND table_name = 'oauth_providers' "
+                    "AND column_name = 'idp_entity_id'"
+                )
+            )
+            if _result.fetchone() is None:
+                _conn.execute(
+                    text(
+                        "ALTER TABLE catalog.oauth_providers "
+                        "ADD COLUMN IF NOT EXISTS idp_entity_id VARCHAR(512), "
+                        "ADD COLUMN IF NOT EXISTS idp_sso_url VARCHAR(512), "
+                        "ADD COLUMN IF NOT EXISTS idp_certificate TEXT, "
+                        "ADD COLUMN IF NOT EXISTS sp_entity_id VARCHAR(512)"
+                    )
+                )
+                _conn.commit()
+        _saml_bridge_engine.dispose()
+
     yield
 
     # --- Teardown: drop the test database ---
