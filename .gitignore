@@ -46,7 +46,8 @@ tests/load/results/*.txt
 
 # Internal development (not for public release)
 .planning/
-.claude/
+.claude/*
+!.claude/commands/
 plans/
 artifacts/
 data/
