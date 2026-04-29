@@ -141,7 +141,10 @@ Plans:
   1. Running `/oc-audit` against the post-217 state produces grades meeting or exceeding: Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C
   2. The audit output is committed at `docs-internal/audits/oc-separation-audit-v13.1-close.md` with the same structure as the 2026-04-26 source audit (findings table, grades, deferred items)
   3. Any P1-tagged residual findings in the closing audit are explicitly triaged: either fixed in a follow-up phase, demoted to P2 with rationale, or accepted as out-of-scope for v13.1
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 218-01-PLAN.md — Run /oc-audit, rename to canonical v13.1-close path, append §8 grade-delta + P1 Residual Triage, mark six P1 deferred-items closures, gate via verify_close_audit.py
 
 ## Progress
 
@@ -158,7 +161,7 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | 215. sdks-from-openapi | 5/5 | Complete   | 2026-04-27 |
 | 216. geolens-cli-mvp | 6/6 | Complete | 2026-04-27 |
 | 217. auth-saml-enterprise | 0/TBD | Not started | - |
-| 218. oc-audit-close-v13.1 | 0/TBD | Not started | - |
+| 218. oc-audit-close-v13.1 | 0/1 | Not started | - |
 
 ## Backlog
 
