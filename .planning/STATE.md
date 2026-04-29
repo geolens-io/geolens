@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: v13.1 milestone close BLOCKED on Boundary Integrity grade B- < A- target
+status: executing
 stopped_at: Phase 219 context gathered
-last_updated: "2026-04-29T18:00:50.496Z"
-last_activity: 2026-04-29 -- Phase 218 closing audit produced and committed; verify gate exit 1; user judgment required (Phase 219 vs slip v13.1)
+last_updated: "2026-04-29T18:43:12.507Z"
+last_activity: 2026-04-29 -- Phase 219 planning complete
 progress:
   total_phases: 10
   completed_phases: 7
-  total_plans: 29
+  total_plans: 30
   completed_plans: 29
-  percent: 100
+  percent: 97
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 Phase: 218 (oc-audit-close-v13-1) — **BLOCKED** at Task 7 (verify gate FAIL)
 Plan: 1 of 1 (218-01: 6 of 8 tasks complete; Task 7 exit 1; Task 8 NOT run per D-06/D-07 STOP-on-shortfall)
-Status: v13.1 milestone close BLOCKED on Boundary Integrity grade B- < A- target
-Last activity: 2026-04-29 -- Phase 218 closing audit produced and committed; verify gate exit 1; user judgment required (Phase 219 vs slip v13.1)
+Status: Ready to execute
+Last activity: 2026-04-29 -- Phase 219 planning complete
 
 ## Phase 218 BLOCKED-state record
 
