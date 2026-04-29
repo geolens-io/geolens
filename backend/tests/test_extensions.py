@@ -17,8 +17,19 @@ def _reset_registry():
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
+    """Reset registry AND isolate from environment-discovered entry points.
+
+    Phase 217 makes the enterprise overlay editable-installable in the
+    backend test venv (so the e002 SAML-columns migration auto-runs at
+    session setup). That install adds the ``geolens.extensions`` entry
+    point, which would otherwise pollute the registry whenever a test
+    calls ``load_extensions()``. We patch ``entry_points`` to default-empty
+    so each test starts from a known-empty discovery surface and can opt
+    in to its own mock entry points via ``with patch(...)``.
+    """
     _reset_registry()
-    yield
+    with patch("app.platform.extensions.entry_points", return_value=[]):
+        yield
     _reset_registry()
 
 

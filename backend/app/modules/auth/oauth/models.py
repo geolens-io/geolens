@@ -25,7 +25,13 @@ class OAuthProvider(Base):
     __tablename__ = "oauth_providers"
     __table_args__ = (
         CheckConstraint(
-            "provider_type IN ('oidc', 'google', 'microsoft')",
+            # 'saml' is added by enterprise migration e002_add_saml_columns;
+            # the literal here matches the relaxed constraint so model and DB
+            # stay in sync when the enterprise overlay is loaded. Community
+            # deployments still see only oidc/google/microsoft rows because
+            # SAML rows can only be created when the enterprise overlay also
+            # supplies the required nullable SAML columns (added by e002).
+            "provider_type IN ('oidc', 'google', 'microsoft', 'saml')",
             name="chk_oauth_providers_type",
         ),
         {"schema": "catalog"},
@@ -43,6 +49,16 @@ class OAuthProvider(Base):
     authorize_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     token_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     userinfo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # SAML provider columns (added by enterprise migration e002_add_saml_columns).
+    # All four are nullable; only populated when provider_type='saml' and the
+    # enterprise overlay is loaded. Declared here so the ORM can read them
+    # when the enterprise overlay supplies SAML rows. Schema/service-layer
+    # validation that these are required for SAML and forbidden for OAuth
+    # lands in Plan 03.
+    idp_entity_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    idp_sso_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    idp_certificate: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sp_entity_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     scopes: Mapped[str] = mapped_column(
         String(512), server_default="openid profile email"
     )

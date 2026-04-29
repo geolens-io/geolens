@@ -103,7 +103,40 @@ def _test_db_lifecycle():
 
     alembic_cfg = AlembicConfig("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", settings.test_database_url)
-    command.upgrade(alembic_cfg, "head")
+    # Pre-set version_locations from the geolens.migrations entry-point group
+    # before invoking command.upgrade. The env.py also performs this discovery,
+    # but ScriptDirectory is constructed before env.py runs and caches the
+    # version_locations from the cfg at construction time -- so an env.py-time
+    # mutation does not propagate to the upgrade walk. Setting here ensures
+    # enterprise branch heads (e.g. e002_add_saml_columns) participate in
+    # `heads` (plural) discovery alongside the core head.
+    import pathlib as _pathlib
+    from importlib.metadata import entry_points as _entry_points
+
+    _enterprise_paths: list[str] = []
+    for _ep in _entry_points(group="geolens.migrations"):
+        try:
+            _fn = _ep.load()
+            if callable(_fn):
+                for _p in _fn():
+                    if _pathlib.Path(_p).is_dir():
+                        _enterprise_paths.append(_p)
+        except Exception:
+            pass  # Non-fatal; core migrations still run.
+    if _enterprise_paths:
+        _base_versions = (
+            alembic_cfg.get_main_option("version_locations") or "alembic/versions"
+        )
+        alembic_cfg.set_main_option(
+            "version_locations",
+            _base_versions + " " + " ".join(_enterprise_paths),
+        )
+
+    # Use "heads" (plural) so any enterprise migration branches discovered
+    # above are upgraded alongside core. With community-only installs, "heads"
+    # behaves identically to "head" because there is only one head; with
+    # enterprise installed, this picks up the enterprise branch.
+    command.upgrade(alembic_cfg, "heads")
 
     yield
 
