@@ -124,7 +124,14 @@ Plans:
   3. SP-initiated SSO works end-to-end against a reference IdP: metadata XML endpoint serves the SP descriptor; signed assertions are validated for signature, expiry, audience, and replay; new users are JIT-provisioned through the existing `find_or_create_oauth_user()` pathway
   4. SAML attribute → role mapping (e.g., `groups` → admin/editor/viewer) is configurable through the same admin tab; mapping changes are recorded in the existing audit log with old/new values
   5. Core's auth-extension hook (added in Phase 214 via `importlib.metadata` entry_points) is the only seam the SAML overlay registers into — there is no SAML-specific code path in core
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 217-01-PLAN.md — Alembic graph repair + e002 enterprise migration + Wave 0 SAML test fixtures
+- [ ] 217-02-PLAN.md — Salvage + modernize enterprise SAML scaffold (router/config/dual-Protocol registration) + 8 SAML integration tests
+- [ ] 217-03-PLAN.md — Schema/model/audit-log extension in core (OAuthProvider columns, Pydantic per-type validator, SECRET_FIELDS audit redaction)
+- [ ] 217-04-PLAN.md — Frontend admin SAML page + edition gating (sidebar nav, /admin/saml route, community-404 verification)
+- [ ] 217-05-PLAN.md — SC#1 docstring scrub + docs/saml.md + phase verification gate (all 5 ROADMAP SC pass)
 
 ### Phase 218: oc-audit-close-v13.1
 **Goal**: The milestone's audit-grade promise is independently verified — re-running the open-core audit produces grades that meet or exceed the v13.1 targets, and the result is committed for traceability
