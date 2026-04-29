@@ -20,17 +20,50 @@ async def create_provider(
     data: OAuthProviderCreate,
     public_app_url: str = "http://localhost:8080",
 ) -> OAuthProvider:
-    """Create a new OAuth provider, encrypting the client secret."""
+    """Create a new OAuth or SAML provider, encrypting credentials.
+
+    OAuth providers (oidc/google/microsoft) require client_id + client_secret;
+    the secret is Fernet-encrypted via ``client_secret_encrypted``.
+
+    SAML providers (provider_type='saml') require the 4 SAML fields:
+    ``idp_entity_id``, ``idp_sso_url``, ``idp_certificate``, ``sp_entity_id``.
+    The IdP signing cert is Fernet-encrypted (D-03 — Pattern D, mirrors the
+    OAuth client_secret idiom). NOT-NULL columns ``client_id`` and
+    ``client_secret_encrypted`` are populated with placeholder strings for
+    SAML rows because the DB columns themselves are NOT-NULL (Plan 03 makes
+    the Pydantic fields Optional but does not relax the DB constraint).
+
+    The Pydantic per-type validator on ``OAuthProviderCreate`` rejects mixed/
+    incomplete configs at the schema layer, so we can trust the data shape here.
+    """
+    is_saml = data.provider_type == "saml"
+
+    # NOT-NULL placeholder strings for SAML rows (DB columns require non-null).
+    client_id_value = data.client_id if not is_saml else "saml-no-client-id"
+    client_secret_value = (
+        encrypt_secret(data.client_secret)
+        if data.client_secret
+        else encrypt_secret("saml-no-client-secret")
+    )
+
     provider = OAuthProvider(
         slug=data.slug,
         display_name=data.display_name,
         provider_type=data.provider_type,
-        client_id=data.client_id,
-        client_secret_encrypted=encrypt_secret(data.client_secret),
+        client_id=client_id_value,
+        client_secret_encrypted=client_secret_value,
         discovery_url=data.discovery_url,
         authorize_url=data.authorize_url,
         token_url=data.token_url,
         userinfo_url=data.userinfo_url,
+        # SAML fields: idp_certificate is Fernet-encrypted (D-03 / Pattern D);
+        # the other 3 are plaintext (entity IDs and a public URL — not credentials).
+        idp_entity_id=data.idp_entity_id,
+        idp_sso_url=data.idp_sso_url,
+        idp_certificate=(
+            encrypt_secret(data.idp_certificate) if data.idp_certificate else None
+        ),
+        sp_entity_id=data.sp_entity_id,
         scopes=data.scopes,
         default_role=data.default_role,
         group_claim=data.group_claim,
@@ -80,7 +113,12 @@ async def update_provider(
     provider: OAuthProvider,
     data: OAuthProviderUpdate,
 ) -> OAuthProvider:
-    """Update an OAuth provider. Re-encrypts client_secret if provided."""
+    """Update an OAuth or SAML provider. Re-encrypts secrets if provided.
+
+    Both ``client_secret`` (OAuth) and ``idp_certificate`` (SAML) are
+    Fernet-encrypted before storage if present in the update body. Other
+    fields flow through the standard ``setattr`` loop.
+    """
     update_data = data.model_dump(exclude_unset=True)
 
     # Handle client_secret specially: encrypt before storing
@@ -88,6 +126,12 @@ async def update_provider(
         raw_secret = update_data.pop("client_secret")
         if raw_secret is not None:
             provider.client_secret_encrypted = encrypt_secret(raw_secret)
+
+    # Handle idp_certificate the same way (D-03 / Pattern D — mirrors client_secret).
+    if "idp_certificate" in update_data:
+        raw_cert = update_data.pop("idp_certificate")
+        if raw_cert is not None:
+            provider.idp_certificate = encrypt_secret(raw_cert)
 
     for field, value in update_data.items():
         setattr(provider, field, value)

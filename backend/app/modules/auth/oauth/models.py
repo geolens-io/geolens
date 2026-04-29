@@ -51,14 +51,31 @@ class OAuthProvider(Base):
     userinfo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # SAML provider columns (added by enterprise migration e002_add_saml_columns).
     # All four are nullable; only populated when provider_type='saml' and the
-    # enterprise overlay is loaded. Declared here so the ORM can read them
-    # when the enterprise overlay supplies SAML rows. Schema/service-layer
-    # validation that these are required for SAML and forbidden for OAuth
-    # lands in Plan 03.
-    idp_entity_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    idp_sso_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    idp_certificate: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sp_entity_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # enterprise overlay is loaded.
+    #
+    # Pitfall 11 mitigation: declared with ``deferred=True`` so they are NOT
+    # included in the default ``SELECT`` against ``oauth_providers``. Community
+    # deployments (which do NOT run e002_add_saml_columns) lack these columns
+    # entirely; without ``deferred``, every list/get of an OAuth provider would
+    # raise ``UndefinedColumnError``. With ``deferred``, the columns are only
+    # loaded when explicitly accessed (e.g. ``provider.idp_entity_id`` in the
+    # SAML router) -- which only happens when the enterprise overlay is loaded
+    # AND the row is provider_type='saml'. Grouped under ``deferred_group="saml"``
+    # so the SAML router can ``undefer_group("saml")`` to load all four in a
+    # single query when needed. Schema/service-layer validation that these are
+    # required for SAML and forbidden for OAuth lands in Plan 03.
+    idp_entity_id: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, deferred=True, deferred_group="saml"
+    )
+    idp_sso_url: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, deferred=True, deferred_group="saml"
+    )
+    idp_certificate: Mapped[str | None] = mapped_column(
+        Text, nullable=True, deferred=True, deferred_group="saml"
+    )
+    sp_entity_id: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, deferred=True, deferred_group="saml"
+    )
     scopes: Mapped[str] = mapped_column(
         String(512), server_default="openid profile email"
     )
