@@ -183,7 +183,7 @@ Plans:
 **Goal:** Close the single architectural P0 blocking v13.1 milestone close — gate OAuth IdP→role mapping (`group_claim` / `group_role_mapping`) behind `is_enterprise()` so the community runtime cannot accept or apply it. Then re-run `/oc-audit` and amend `docs-internal/audits/oc-separation-audit-v13.1-close.md` in place to verify Boundary Integrity ≥ A−, unblocking AUDIT-V1.
 **Requirements**: AUDIT-V1
 **Depends on:** Phase 218
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 **Success Criteria:**
 1. `OAuthProviderCreate` and `OAuthProviderUpdate` raise `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community when `group_claim` is set or `group_role_mapping` is non-empty; pass in enterprise.
@@ -192,7 +192,7 @@ Plans:
 4. `docs-internal/audits/oc-separation-audit-v13.1-close.md` is amended in place: BLOCKED banner replaced with VERIFIED; Scorecard, Section 1, Section 8, and P1 Residual Triage row 1 updated.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 219 to break down)
+- [ ] 219-01-PLAN.md — Gate OAuth IdP→role mapping behind `is_enterprise()` (4 atomic commits: schema validator + service gate + tests + audit re-run & v13.1-close.md amendment)
 
 ---
 
