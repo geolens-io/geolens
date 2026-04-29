@@ -178,6 +178,16 @@ Compose-only deployment today; enterprise prospects in regulated/government mark
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
+### Phase 219: oc-audit-remediate-idp-mapping
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 218
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 219 to break down)
+
 ---
 
 ### Phase 999.6: Tenant scoping infrastructure for multi-tenant isolation (BACKLOG)

@@ -59,8 +59,15 @@ Last activity: 2026-04-29 -- Phase 218 closing audit produced and committed; ver
 | 216 | geolens-cli-mvp | OCCLI-01..06 | 215 |
 | 217 | auth-saml-enterprise | SAML-08..12 | 214 |
 | 218 | oc-audit-close-v13.1 | AUDIT-V1 | 212–217 |
+| 219 | oc-audit-remediate-idp-mapping | TBD | 218 |
 
 Coverage: 21/21 v13.1 requirements mapped.
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 219 added: oc-audit-remediate-idp-mapping (remediate Phase 218 boundary shortfall — OAuth IdP→role mapping in core)
 
 ## Cross-Repo Note (2026-04-26)
 
