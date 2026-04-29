@@ -63,7 +63,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -96,7 +96,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -124,7 +124,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -165,7 +165,7 @@ jobs:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -268,7 +268,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -395,7 +395,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
