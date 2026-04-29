@@ -4,8 +4,8 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 219 context gathered
-last_updated: "2026-04-29T18:43:12.507Z"
-last_activity: 2026-04-29 -- Phase 219 planning complete
+last_updated: "2026-04-29T18:43:53.702Z"
+last_activity: 2026-04-29 -- Phase 219 execution started
 progress:
   total_phases: 10
   completed_phases: 7
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 218 — oc-audit-close-v13-1
+**Current focus:** Phase 219 — oc-audit-remediate-idp-mapping
 
 ## Current Position
 
-Phase: 218 (oc-audit-close-v13-1) — **BLOCKED** at Task 7 (verify gate FAIL)
-Plan: 1 of 1 (218-01: 6 of 8 tasks complete; Task 7 exit 1; Task 8 NOT run per D-06/D-07 STOP-on-shortfall)
-Status: Ready to execute
-Last activity: 2026-04-29 -- Phase 219 planning complete
+Phase: 219 (oc-audit-remediate-idp-mapping) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 219
+Last activity: 2026-04-29 -- Phase 219 execution started
 
 ## Phase 218 BLOCKED-state record
 
