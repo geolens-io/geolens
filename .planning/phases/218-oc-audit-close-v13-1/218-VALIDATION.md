@@ -1,10 +1,12 @@
 ---
 phase: 218
 slug: oc-audit-close-v13-1
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-29
+formalized: 2026-04-29
+formalization_note: "Post-hoc paperwork close per v13.1-MILESTONE-AUDIT.md (2026-04-29). Audit-only phase — produces no executable code. verify_close_audit.py + preflight.sh structural verification gates committed; Phase 219 closed the OAuth IdP P0 surfaced by this audit and amended the audit document in place. No coverage gaps; no executable code to test."
 ---
 
 # Phase 218 — Validation Strategy

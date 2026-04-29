@@ -1,10 +1,12 @@
 ---
 phase: 216
 slug: geolens-cli-mvp
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-27
+formalized: 2026-04-29
+formalization_note: "Post-hoc paperwork close per v13.1-MILESTONE-AUDIT.md (2026-04-29). 112 CLI unit tests pass (0.54s); 6 round-trip tests pass + 2 documented skips; OCCLI-06 grep gate clean; phase-level 216-VERIFICATION.md confirmed 6/6 ROADMAP SC verified; no coverage gaps surfaced by milestone audit. Original status=draft was paperwork lag, not coverage gap."
 ---
 
 # Phase 216 — Validation Strategy

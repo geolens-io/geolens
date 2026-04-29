@@ -48,17 +48,17 @@ The strategy's adoption wedge. Apache-2.0 standalone tool that exercises the SDK
 
 Reintroduce SAML cleanly as an enterprise extension. Government-buyer mandate. The dead scaffold removed by migration `2026_04_08_0001` does **not** return — this is a fresh implementation that lives in the `geolens-enterprise` repo, not core.
 
-- [ ] **SAML-08**: SAML implementation lives entirely in the `geolens-enterprise` repo; `git grep -i saml` against the core repo returns zero matches outside test fixtures and documentation.
-- [ ] **SAML-09**: Core exposes an auth-extension hook that the enterprise SAML overlay registers into via the existing `importlib.metadata` entry_points seam (no SAML-specific code paths in core).
-- [ ] **SAML-10**: Admin UI shows a SAML configuration tab only when the enterprise edition is detected at startup; community edition shows no SAML controls (404 on direct route access).
-- [ ] **SAML-11**: SAML SP supports SP-initiated SSO with metadata XML endpoint, signed assertion validation (signature, expiry, audience, replay protection), and just-in-time user provisioning that re-uses the existing `find_or_create_oauth_user()` pathway.
-- [ ] **SAML-12**: Configurable SAML attribute → role mapping (e.g., `groups` → admin/editor/viewer) administered through the same admin UI tab; audited via the existing audit log.
+- [x] **SAML-08**: SAML implementation lives entirely in the `geolens-enterprise` repo; `git grep -i saml` against the core repo returns zero matches outside test fixtures and documentation.
+- [x] **SAML-09**: Core exposes an auth-extension hook that the enterprise SAML overlay registers into via the existing `importlib.metadata` entry_points seam (no SAML-specific code paths in core).
+- [x] **SAML-10**: Admin UI shows a SAML configuration tab only when the enterprise edition is detected at startup; community edition shows no SAML controls (404 on direct route access).
+- [x] **SAML-11**: SAML SP supports SP-initiated SSO with metadata XML endpoint, signed assertion validation (signature, expiry, audience, replay protection), and just-in-time user provisioning that re-uses the existing `find_or_create_oauth_user()` pathway.
+- [x] **SAML-12**: Configurable SAML attribute → role mapping (e.g., `groups` → admin/editor/viewer) administered through the same admin UI tab; audited via the existing audit log.
 
 ### Audit-Grade Verification
 
 Milestone-level success criterion that ties the work back to the source audit.
 
-- [ ] **AUDIT-V1**: After the milestone closes, re-running `/oc-audit` produces grades meeting or exceeding: Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C. Audit output committed under `docs-internal/audits/oc-separation-audit-v13.1-close.md`.
+- [x] **AUDIT-V1**: After the milestone closes, re-running `/oc-audit` produces grades meeting or exceeding: Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C. Audit output committed under `docs-internal/audits/oc-separation-audit-v13.1-close.md`.
 
 ## Future Requirements (Deferred)
 
@@ -134,12 +134,12 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 | OCCLI-04 | 216 (geolens-cli-mvp) | Complete |
 | OCCLI-05 | 216 (geolens-cli-mvp) | Complete |
 | OCCLI-06 | 216 (geolens-cli-mvp) | Complete |
-| SAML-08 | 217 (auth-saml-enterprise) | Pending |
-| SAML-09 | 217 (auth-saml-enterprise) | Pending |
-| SAML-10 | 217 (auth-saml-enterprise) | Pending |
-| SAML-11 | 217 (auth-saml-enterprise) | Pending |
-| SAML-12 | 217 (auth-saml-enterprise) | Pending |
-| AUDIT-V1 | 218 (oc-audit-close-v13.1) | Pending |
+| SAML-08 | 217 (auth-saml-enterprise) | Complete |
+| SAML-09 | 217 (auth-saml-enterprise) | Complete |
+| SAML-10 | 217 (auth-saml-enterprise) | Complete |
+| SAML-11 | 217 (auth-saml-enterprise) | Complete |
+| SAML-12 | 217 (auth-saml-enterprise) | Complete |
+| AUDIT-V1 | 218 → 219 (oc-audit-remediate-idp-mapping) | Complete |
 
 **Coverage:**
 - v13.1 requirements: 21 total
@@ -148,4 +148,4 @@ Populated by the roadmapper on 2026-04-27. All 21 v13.1 requirements map to exac
 
 ---
 *Requirements defined: 2026-04-26*
-*Last updated: 2026-04-27 — OCCLI-01..06 complete; Phase 216 shipped*
+*Last updated: 2026-04-29 — all 21 v13.1 requirements complete; SAML-08..12 + AUDIT-V1 traceability flipped after milestone audit confirmed functional satisfaction*

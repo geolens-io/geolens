@@ -17,8 +17,9 @@ Close the six P1 boundary/seam debts surfaced in the open-core audit so the open
 - [x] **Phase 214: identity-protocol-extract** — Define `IdentityProtocol` in `core/identity.py`; migrate 51 cross-domain `User` import sites; expose extension hook for custom identity backends (completed 2026-04-27)
 - [x] **Phase 215: sdks-from-openapi** — Auto-generate Python + TypeScript SDKs from `backend/openapi.json` snapshot; publish to PyPI/npm; add `make sdks-check` CI drift gate (completed 2026-04-27)
 - [x] **Phase 216: geolens-cli-mvp** — Apache-2.0 `geolens` CLI on PyPI with `login`, `scan`, `publish`, `export stac` commands consuming the generated Python SDK (completed 2026-04-27)
-- [x] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping
-- [ ] **Phase 218: oc-audit-close-v13.1** — Re-run `/oc-audit`; commit closing audit at `docs-internal/audits/oc-separation-audit-v13.1-close.md` showing Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C
+- [x] **Phase 217: auth-saml-enterprise** — Reintroduce SAML cleanly as `geolens-enterprise` overlay using core's auth-extension hook; SP-initiated SSO with assertion validation, JIT provisioning, attribute → role mapping (completed 2026-04-27)
+- [x] **Phase 218: oc-audit-close-v13.1** — Re-run `/oc-audit`; commit closing audit at `docs-internal/audits/oc-separation-audit-v13.1-close.md` showing Boundary ≥ A−, Seam Quality ≥ B, OSS Surface ≥ C (completed 2026-04-28; PARTIAL — closed by Phase 219)
+- [x] **Phase 219: oc-audit-remediate-idp-mapping** — Gate OAuth IdP→role mapping behind `is_enterprise()`; amend `oc-separation-audit-v13.1-close.md` in place to verify Boundary A (completed 2026-04-29)
 
 ## Phase Details
 
@@ -144,14 +145,28 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 218-01-PLAN.md — Run /oc-audit, rename to canonical v13.1-close path, append §8 grade-delta + P1 Residual Triage, mark six P1 deferred-items closures, gate via verify_close_audit.py
+- [x] 218-01-PLAN.md — Run /oc-audit, rename to canonical v13.1-close path, append §8 grade-delta + P1 Residual Triage, mark six P1 deferred-items closures, gate via verify_close_audit.py (PARTIAL — surfaced OAuth IdP→role mapping P0; closed by Phase 219)
+
+### Phase 219: oc-audit-remediate-idp-mapping
+**Goal:** Close the single architectural P0 surfaced by Phase 218 — gate OAuth IdP→role mapping (`group_claim` / `group_role_mapping`) behind `is_enterprise()` so the community runtime cannot accept or apply it. Re-run `/oc-audit` and amend `docs-internal/audits/oc-separation-audit-v13.1-close.md` in place to verify Boundary Integrity ≥ A−, unblocking AUDIT-V1.
+**Depends on:** Phase 218
+**Requirements**: AUDIT-V1 (closure)
+**Success Criteria** (what must be TRUE):
+  1. `OAuthProviderCreate` and `OAuthProviderUpdate` raise `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community when `group_claim` is set or `group_role_mapping` is non-empty; pass in enterprise
+  2. `find_or_create_oauth_user()` ignores group mapping in community (uses `default_role`) and applies it in enterprise
+  3. `/oc-audit` re-run grades Boundary Integrity ≥ A− with zero 🔴 violations under the OAuth IdP cluster
+  4. `docs-internal/audits/oc-separation-audit-v13.1-close.md` is amended in place: BLOCKED banner replaced with VERIFIED; Scorecard, Section 1, Section 8, and P1 Residual Triage row 1 updated
+**Plans:** 1/1 plans complete (verified 2026-04-29; 11/11 must-haves; 5 UAT pass)
+
+Plans:
+- [x] 219-01-PLAN.md — Gate OAuth IdP→role mapping behind `is_enterprise()` (4 atomic commits: schema validator + service gate + tests + audit re-run & v13.1-close.md amendment)
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 → 218
+Phases executed in numeric order: 212 → 213 → 214 → 215 → 216 → 217 → 218 → 219
 
-(212 and 213 are independent and may run in parallel; 214 is a prerequisite for 217; 215 is a hard prerequisite for 216; 218 gates milestone close.)
+(212 and 213 ran in parallel; 214 was a prerequisite for 217; 215 was a hard prerequisite for 216; 218 gated milestone close and surfaced the OAuth IdP→role mapping P0 closed by Phase 219.)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -160,8 +175,9 @@ Phases execute in numeric order: 212 → 213 → 214 → 215 → 216 → 217 →
 | 214. identity-protocol-extract | 4/4 | Complete    | 2026-04-27 |
 | 215. sdks-from-openapi | 5/5 | Complete   | 2026-04-27 |
 | 216. geolens-cli-mvp | 6/6 | Complete | 2026-04-27 |
-| 217. auth-saml-enterprise | 0/TBD | Not started | - |
-| 218. oc-audit-close-v13.1 | 0/1 | Not started | - |
+| 217. auth-saml-enterprise | 5/5 | Complete | 2026-04-27 |
+| 218. oc-audit-close-v13.1 | 1/1 | Complete | 2026-04-28 |
+| 219. oc-audit-remediate-idp-mapping | 1/1 | Complete | 2026-04-29 |
 
 ## Backlog
 
@@ -177,24 +193,6 @@ Compose-only deployment today; enterprise prospects in regulated/government mark
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 219: oc-audit-remediate-idp-mapping
-
-**Goal:** Close the single architectural P0 blocking v13.1 milestone close — gate OAuth IdP→role mapping (`group_claim` / `group_role_mapping`) behind `is_enterprise()` so the community runtime cannot accept or apply it. Then re-run `/oc-audit` and amend `docs-internal/audits/oc-separation-audit-v13.1-close.md` in place to verify Boundary Integrity ≥ A−, unblocking AUDIT-V1.
-**Requirements**: AUDIT-V1
-**Depends on:** Phase 218
-**Plans:** 1 plan
-
-**Success Criteria:**
-1. `OAuthProviderCreate` and `OAuthProviderUpdate` raise `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community when `group_claim` is set or `group_role_mapping` is non-empty; pass in enterprise.
-2. `find_or_create_oauth_user()` ignores group mapping in community (uses `default_role`) and applies it in enterprise.
-3. `/oc-audit` re-run grades Boundary Integrity ≥ A− with zero 🔴 violations under the OAuth IdP cluster.
-4. `docs-internal/audits/oc-separation-audit-v13.1-close.md` is amended in place: BLOCKED banner replaced with VERIFIED; Scorecard, Section 1, Section 8, and P1 Residual Triage row 1 updated.
-
-Plans:
-- [ ] 219-01-PLAN.md — Gate OAuth IdP→role mapping behind `is_enterprise()` (4 atomic commits: schema validator + service gate + tests + audit re-run & v13.1-close.md amendment)
-
----
 
 ### Phase 999.6: Tenant scoping infrastructure for multi-tenant isolation (BACKLOG)
 

@@ -1,10 +1,12 @@
 ---
 phase: 213
 slug: catalog-authz-relocate
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-27
+formalized: 2026-04-29
+formalization_note: "Post-hoc paperwork close per v13.1-MILESTONE-AUDIT.md (2026-04-29). Backend test baseline (1999+ tests) green; visibility/authorization unit tests pass; per-plan verification gates ran successfully; no coverage gaps surfaced by milestone audit. Original status=draft was paperwork lag, not coverage gap."
 ---
 
 # Phase 213 — Validation Strategy

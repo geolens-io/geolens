@@ -1,10 +1,12 @@
 ---
 phase: 215
 slug: sdks-from-openapi
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-27
+formalized: 2026-04-29
+formalization_note: "Post-hoc paperwork close per v13.1-MILESTONE-AUDIT.md (2026-04-29). 12 round-trip tests pass; sdks-check CI gate clean (exit 0); both SDKs build (wheel + npm pack); Plan 05 verification gate covered all 4 ROADMAP SC; no coverage gaps surfaced by milestone audit. Original status=draft was paperwork lag, not coverage gap."
 ---
 
 # Phase 215 — Validation Strategy

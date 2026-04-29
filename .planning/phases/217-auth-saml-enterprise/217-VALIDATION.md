@@ -1,10 +1,12 @@
 ---
 phase: 217
 slug: auth-saml-enterprise
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-29
+formalized: 2026-04-29
+formalization_note: "Post-hoc paperwork close per v13.1-MILESTONE-AUDIT.md (2026-04-29). 9 SAML integration tests + Wave 0 fixtures pass; Plan 05 verification gate covered all 5 ROADMAP SC; community-404 backend test passes; phase-level 217-VERIFICATION.md confirms full SAML overlay chain WIRED end-to-end; no coverage gaps surfaced by milestone audit. Original status=draft was paperwork lag, not coverage gap."
 ---
 
 # Phase 217 — Validation Strategy
