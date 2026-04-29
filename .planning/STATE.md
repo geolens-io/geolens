@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: executing
-stopped_at: Phase 218 context gathered
-last_updated: "2026-04-29T17:09:20.168Z"
-last_activity: 2026-04-29 -- Phase 218 execution started
+status: blocked
+stopped_at: Phase 218 verify gate FAIL — Boundary B- < A- (v13.1 milestone close blocked)
+last_updated: "2026-04-29T17:38:00.000Z"
+last_activity: 2026-04-29 -- Phase 218 closing audit produced; verify gate exit 1; awaiting user decision (Phase 219 vs slip v13.1)
 progress:
   total_phases: 9
   completed_phases: 6
@@ -25,11 +25,28 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 ## Current Position
 
-Phase: 218 (oc-audit-close-v13-1) — EXECUTING
-Plan: 1 of 1
-Plans complete: 5 of 5 (SAML-08..12 all closed; 5/5 ROADMAP SCs PASS; SC#1 with documented carve-out for Pitfall 11 deferred=True scaffolding)
-Status: Executing Phase 218
-Last activity: 2026-04-29 -- Phase 218 execution started
+Phase: 218 (oc-audit-close-v13-1) — **BLOCKED** at Task 7 (verify gate FAIL)
+Plan: 1 of 1 (218-01: 6 of 8 tasks complete; Task 7 exit 1; Task 8 NOT run per D-06/D-07 STOP-on-shortfall)
+Status: v13.1 milestone close BLOCKED on Boundary Integrity grade B- < A- target
+Last activity: 2026-04-29 -- Phase 218 closing audit produced and committed; verify gate exit 1; user judgment required (Phase 219 vs slip v13.1)
+
+## Phase 218 BLOCKED-state record
+
+**Closing audit:** `docs-internal/audits/oc-separation-audit-v13.1-close.md` — `## ⚠ MILESTONE CLOSE BLOCKED` banner; B (3.06/4.0) overall.
+
+**Grade results vs v13.1 close targets:**
+
+| Dimension | v13.1 Close | Target | Met? |
+|-----------|-------------|--------|------|
+| Boundary Integrity | B- | A- | ❌ NO |
+| Seam Quality | B | B | ✅ YES |
+| OSS Surface Readiness | A- | C | ✅ YES |
+
+**Single P0 root cause:** OAuth IdP→role mapping in core (`oauth/{schemas,service,models}.py`) — Phase 217's documented deferral that Phase 218 (scoped as audit-close only) did not implement.
+
+**Recommended path:** Plan and execute Phase 219 (`oc-audit-remediate-idp-mapping`, ~1d). Scope: 2× `model_validator(mode="after")` in `oauth/schemas.py` + 1× runtime branch in `oauth/service.py:261-263`. After remediation, re-run audit; if Boundary ≥ A−, finalize v13.1 close.
+
+**Alternative path:** Slip v13.1 → v13.2 (move AUDIT-V1 forward; mark Phase 218 deferred).
 
 ## Roadmap Snapshot
 
