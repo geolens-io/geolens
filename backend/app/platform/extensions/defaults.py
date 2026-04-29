@@ -33,8 +33,8 @@ class DefaultIdentityExtension:
     Community edition behavior is exactly today's behavior — one async
     method call returning None per request.
 
-    The async signature is intentional (Pitfall 8). Phase 217's SAML
-    overlay will perform DB lookups; the dep wire-in does
+    The async signature is intentional (Pitfall 8). Enterprise auth
+    overlays may perform DB lookups; the dep wire-in does
     ``await ext.resolve_identity_from_token(token, request, db)``, so
     all implementations — community and enterprise — MUST be async.
     """
