@@ -33,11 +33,27 @@ else
 fi
 
 echo "=== SAML logic absent from core (narrow regex; Pitfall 5) ==="
-# Look for SAML implementation, not enum strings or column scaffolding (4 false-positive files
-# carved out by Phase 217: oauth/schemas.py, oauth/models.py, oauth/service.py, settings/router.py)
-HITS=$(rg -i 'class.*Saml|def.*saml' backend/app/ --no-messages | wc -l | tr -d ' ' || echo 0)
+# Look for SAML implementation (top-level class/def names containing 'saml'),
+# not enum strings, docstrings, or column scaffolding. The regex anchors at the
+# `class`/`def` keyword and matches identifiers that start with or contain 'saml'.
+# Phase 217 documented carve-out: oauth/{schemas,models,service}.py and
+# settings/router.py contain `deferred_group="saml"` columns and docstring
+# references — these are NOT SAML logic and the anchored regex correctly skips
+# them. Exception (also carved out): the `def _safe_read_deferred_saml_fields`
+# helper in oauth/schemas.py which exists only to make the deferred-group columns
+# safe to read on community DBs without SAML columns. We allowlist this single
+# helper-name pattern explicitly (it has no SAML business logic — it's a
+# defensive read-handler for the carve-out scaffolding).
+RAW=$(rg -i '^\s*(class|def)\s+\w*saml' backend/app/ --no-messages || true)
+# Strip allowlisted carve-out helper, then count remaining lines
+FILTERED=$(printf '%s' "$RAW" | grep -v '_safe_read_deferred_saml_fields' || true)
+if [ -z "$FILTERED" ]; then
+    HITS=0
+else
+    HITS=$(printf '%s\n' "$FILTERED" | wc -l | tr -d ' ')
+fi
 if [ "$HITS" -eq 0 ]; then
-    pass "no SAML logic in backend/app/ (0 hits for class.*Saml|def.*saml)"
+    pass "no SAML logic in backend/app/ (0 hits for anchored class/def saml regex; deferred-group scaffolding carved out)"
 else
     fail "$HITS SAML logic hit(s) in backend/app/"
 fi
