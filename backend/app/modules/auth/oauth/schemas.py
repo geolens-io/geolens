@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.edition import is_enterprise
+
 
 def _validate_optional_http_url(value: str | None) -> str | None:
     """Validate an optional HTTP(S) URL (TYPE-N4).
@@ -168,6 +170,25 @@ class OAuthProviderCreate(BaseModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _validate_idp_mapping_gate(self):
+        """Gate group-based role mapping behind the enterprise edition (D-01, D-02, D-03).
+
+        Empty dict ({}) and None are allowed in community — they represent
+        "no mapping" / "clear mapping" (D-02 carve-out). Only non-empty
+        group_role_mapping or a non-None group_claim triggers the gate.
+        """
+        if not is_enterprise():
+            if self.group_claim is not None:
+                raise ValueError(
+                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                )
+            if isinstance(self.group_role_mapping, dict) and len(self.group_role_mapping) > 0:
+                raise ValueError(
+                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                )
+        return self
+
 
 class OAuthProviderUpdate(BaseModel):
     """Schema for updating an existing OAuth provider. All fields optional."""
@@ -260,6 +281,25 @@ class OAuthProviderUpdate(BaseModel):
     @classmethod
     def _check_idp_url(cls, value: str | None) -> str | None:
         return _validate_optional_http_url(value)
+
+    @model_validator(mode="after")
+    def _validate_idp_mapping_gate(self):
+        """Gate group-based role mapping behind the enterprise edition (D-01, D-02, D-03).
+
+        Empty dict ({}) and None are allowed in community — they represent
+        "no mapping" / "clear mapping" (D-02 carve-out). Only non-empty
+        group_role_mapping or a non-None group_claim triggers the gate.
+        """
+        if not is_enterprise():
+            if self.group_claim is not None:
+                raise ValueError(
+                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                )
+            if isinstance(self.group_role_mapping, dict) and len(self.group_role_mapping) > 0:
+                raise ValueError(
+                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                )
+        return self
 
 
 class OAuthProviderResponse(BaseModel):
