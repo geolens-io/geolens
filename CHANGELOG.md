@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — v13.1 Open-Core Separation (2026-04-29)
+
+- **`geolens` CLI** (Apache-2.0) — standalone Python package that consumes only the generated SDK; supports `login` (OS keyring + `--no-keyring` headless fallback), `scan <dir>` (vector + raster file detection), `publish <file>` (SDK-driven 3-step ingest), `export stac <id>` (STAC 1.1 raster metadata). Source at `cli/`; PyPI publish pending (workflow_dispatch only via `.github/workflows/publish-cli.yml`).
+- **Python + TypeScript SDKs** auto-generated from `backend/openapi.json` — `geolens-sdk` (Python via `openapi-python-client`) and `@geolens/sdk` (TypeScript via `@hey-api/openapi-ts`). Source at `sdks/python/` and `sdks/typescript/`; PyPI/npm publishes pending (workflow_dispatch only via `.github/workflows/publish-sdks.yml`). Regenerate via `make sdks`; `make sdks-check` is a CI drift gate.
+- **Extension hook for enterprise overlays** — `backend/app/core/identity.py` defines `IdentityProtocol`, `RoleProtocol`, and `IdentityExtension`; `backend/app/platform/extensions/__init__.py` exposes `get_identity_extension()` typed accessor. Overlays register via `importlib.metadata` entry_points. The companion `geolens-enterprise` package uses this seam to provide SAML SP-initiated SSO with assertion validation, JIT provisioning via `find_or_create_oauth_user()`, and audited attribute→role mapping.
+- **`backend/openapi.json` snapshot committed** as the SDK source of truth — reproducible SDK regeneration from this artifact.
+- **`docs/sdks.md`** (305 lines) and **`docs/cli.md`** (248 lines) — user-facing documentation for SDK + CLI surfaces including install, auth modes, exit codes, and known rough edges.
+- **`docs/saml.md`** (223 lines) — install + per-IdP configuration walkthroughs, hardening posture, multi-instance limitations, NameID format guidance for the optional `geolens-enterprise` SAML overlay.
+
+### Changed — v13.1 Open-Core Separation (2026-04-29)
+
+- **Open-core boundary closed** — `backend/app/core/` no longer imports from `backend/app/modules/settings/`; `AppSetting` model relocated to `backend/app/core/db/models.py`. New architecture-guard test in `backend/tests/test_layering.py` prevents regression.
+- **`backend/app/modules/auth/visibility.py` removed** — visibility/authorization logic moved to `backend/app/modules/catalog/authorization.py`. 23 inbound callers migrated; dataset-visibility semantics unchanged.
+- **`IdentityProtocol` introduced** — 51 cross-domain `User` import sites retyped to depend on `Identity` (the Protocol alias) rather than the concrete `User` ORM model. Allowlist guard at `test_layering.py:237` keeps 18 SQL-attribute files on the concrete model. Enables enterprise overlays to register custom identity backends without modifying core.
+- **OAuth IdP→role mapping is now enterprise-only** — `group_claim` and `group_role_mapping` are rejected by `OAuthProviderCreate`/`OAuthProviderUpdate` schemas with `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community deployments; only applied at the service layer when `is_enterprise()` returns True. Pre-existing OAuth providers without group mapping are unaffected.
+
+### Note on SAML availability (v13.1)
+
+The "**SAML support has been removed**" entry below remains accurate for the **community edition** — the dead scaffold (XML metadata parser, broken `provider_type='saml'` accepted but non-functional, 4 unused `oauth_providers` columns) is gone from core. As of v13.1, working SAML is available via the optional `geolens-enterprise` overlay, which registers via the new auth-extension hook. The community edition is unchanged: no SAML controls in admin UI, `/admin/saml` returns 404, no `provider_type='saml'` accepted by API.
+
 ### Security
 
 - **BREAKING: `JWT_SECRET_KEY` must now be at least 32 characters.** The backend validates the length at startup; shorter values fail fast with an actionable error. HS256 requires ≥ 256 bits of entropy — shorter secrets were brute-forceable. See the [upgrade guide](docs/upgrade-guide.md#unreleased--jwt_secret_key-minimum-length) for rotation instructions. The `.env.example` default passes unchanged; only deployments with custom short secrets are affected.
