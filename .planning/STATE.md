@@ -4,8 +4,8 @@ milestone: v13.1
 milestone_name: Open-Core Separation P1
 status: executing
 stopped_at: Phase 218 context gathered
-last_updated: "2026-04-29T17:07:50.300Z"
-last_activity: 2026-04-29 -- Phase 218 planning complete
+last_updated: "2026-04-29T17:09:20.168Z"
+last_activity: 2026-04-29 -- Phase 218 execution started
 progress:
   total_phases: 9
   completed_phases: 6
@@ -21,14 +21,15 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 218 — oc-audit-close-v13.1 (final v13.1 phase; re-runs /oc-audit and commits closing audit at docs-internal/audits/oc-separation-audit-v13.1-close.md)
+**Current focus:** Phase 218 — oc-audit-close-v13-1
 
 ## Current Position
 
-Phase: 217 (auth-saml-enterprise) — COMPLETE 2026-04-29
+Phase: 218 (oc-audit-close-v13-1) — EXECUTING
+Plan: 1 of 1
 Plans complete: 5 of 5 (SAML-08..12 all closed; 5/5 ROADMAP SCs PASS; SC#1 with documented carve-out for Pitfall 11 deferred=True scaffolding)
-Status: Ready to execute
-Last activity: 2026-04-29 -- Phase 218 planning complete
+Status: Executing Phase 218
+Last activity: 2026-04-29 -- Phase 218 execution started
 
 ## Roadmap Snapshot
 
