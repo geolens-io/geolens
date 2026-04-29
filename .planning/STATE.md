@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.1
 milestone_name: Open-Core Separation P1
-status: Phase 216 shipped 2026-04-27; ready to start Phase 217 (auth-saml-enterprise)
-stopped_at: Phase 216 complete
-last_updated: "2026-04-27T23:15:00.000Z"
-last_activity: 2026-04-27 -- Phase 216-06 round-trip + CI + docs + verification gate complete
+status: Phase 216 shipped; ready to start Phase 217 (auth-saml-enterprise)
+stopped_at: Phase 217 context gathered
+last_updated: "2026-04-29T10:58:40.141Z"
+last_activity: 2026-04-27 — Phase 216-06 round-trip + CI + docs + verification gate complete
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 23
   completed_plans: 23
-  percent: 56
+  percent: 100
 ---
 
 # Project State
@@ -75,6 +75,6 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Session Continuity
 
-Last session: 2026-04-27T23:15:00.000Z
-Stopped at: Phase 216 complete; Phase 217 (auth-saml-enterprise) is next
-Resume file: None
+Last session: 2026-04-29T10:58:40.136Z
+Stopped at: Phase 217 context gathered
+Resume file: .planning/phases/217-auth-saml-enterprise/217-CONTEXT.md
