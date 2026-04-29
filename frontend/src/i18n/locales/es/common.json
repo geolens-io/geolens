@@ -61,6 +61,7 @@
     "jobs": "Trabajos",
     "auditLog": "Registro de auditoría",
     "sharedMaps": "Mapas Publicados",
+    "saml": "SSO SAML",
     "ai": "IA",
     "infrastructure": "Infraestructura",
     "general": "General",
@@ -348,7 +349,8 @@
     "adminJobs": "Tareas admin",
     "adminAuditLog": "Registro de auditoría admin",
     "adminConfigOps": "Configuración admin",
-    "adminSettings": "Ajustes admin"
+    "adminSettings": "Ajustes admin",
+    "adminSaml": "Configuración de SSO SAML"
   },
   "sidebar": {
     "toggle": "Alternar barra lateral"
