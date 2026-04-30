@@ -113,7 +113,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   3. The enterprise overlay's BillingExtension.on_startup() fires and registers marketplace usage when the overlay is installed and the env var is set — behavior is unchanged for enterprise deployments
   4. An audit re-run against the post-phase codebase reports zero 🟡 risks in §1 (Feature Boundary Leakage) and the AWS Marketplace cluster reads "✅ Closed"
 **Plans**: 5 plans
-  - [ ] 223-01-PLAN.md — BillingExtension Protocol scaffolding (Protocol + DefaultBillingExtension + get_billing_extensions accessor + Wave-0 BILLING-01 tests)
+  - [x] 223-01-PLAN.md — BillingExtension Protocol scaffolding (Protocol + DefaultBillingExtension + get_billing_extensions accessor + Wave-0 BILLING-01 tests)
   - [ ] 223-02-PLAN.md — Lifespan dispatch loop replaces api/main.py:184-203 + drop core.marketplace import + 3 anyio dispatch tests (BILLING-04 / D-10/D-11/D-12)
   - [ ] 223-03-PLAN.md — Delete core/marketplace.py + remove aws_marketplace_* from Settings + .env.example restructure (BILLING-02, BILLING-05)
   - [ ] 223-04-PLAN.md — Architecture guard tests + billing-extraction-discipline Makefile target (BILLING-02 + BILLING-04 / D-11)
@@ -126,7 +126,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 222. audit-sink-protocol | 6/5 | Complete    | 2026-04-30 |
-| 223. marketplace-billing-extraction |  0/5 | Not started | - |
+| 223. marketplace-billing-extraction | 1/5 | In Progress|  |
 
 ## Backlog
 
@@ -134,7 +134,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 6/5 plans complete
+**Plans:** 1/5 plans executed
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 **Tier:** Cloud (vendor-hosted SaaS, deferred) — **not Enterprise**. Self-hosted Enterprise is single-tenant by design (reframed 2026-04-30 — see `docs-internal/GTM/free-vs-enterprise.md` §3).
