@@ -81,7 +81,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   5. Either a non-destructive alembic downgrade path exists that preserves SAML data, OR `edition-deactivation.md` documents the destructive path with an explicit mandatory-export step
 **Plans**: 6 plans
 - [x] 220-01-deactivation-runbook-PLAN.md — Author docs/edition-deactivation.md (LIFECYCLE-01, LIFECYCLE-05)
-- [ ] 220-02-reactivation-runbook-PLAN.md — Author docs/edition-reactivation.md (LIFECYCLE-02)
+- [x] 220-02-reactivation-runbook-PLAN.md — Author docs/edition-reactivation.md (LIFECYCLE-02)
 - [ ] 220-03-saml-doc-edit-PLAN.md — Targeted edit to docs/saml.md Installation section (LIFECYCLE-03)
 - [ ] 220-04-lifecycle-test-PLAN.md — Register lifecycle marker + author backend/tests/test_lifecycle.py (LIFECYCLE-04)
 - [ ] 220-05-requirements-precision-fix-PLAN.md — Fix LIFECYCLE-04 wording in REQUIREMENTS.md and ROADMAP.md (LIFECYCLE-04 text-precision)
@@ -101,7 +101,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 220. lifecycle-runbooks-and-preservation | 1/6 | In Progress|  |
+| 220. lifecycle-runbooks-and-preservation | 2/6 | In Progress|  |
 | 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
 
 ## Backlog
@@ -110,7 +110,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 
