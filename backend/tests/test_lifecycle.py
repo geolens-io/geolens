@@ -32,15 +32,22 @@ needed.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer_group
 
 import app.core.edition as edition_mod
-from app.modules.auth.models import User
+from app.modules.audit.models import AuditLog
+from app.modules.audit.service import log_action
+from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import decrypt_secret, encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
+from app.modules.auth.providers.local import verify_password
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.extensions import (
     _extensions,
     _routers,
@@ -301,3 +308,279 @@ async def test_overlay_removal_preserves_saml_data(
         edition_mod._info = saved_info
         # _extensions / _routers are restored by the saml_overlay_registered
         # fixture's finally block (conftest.py:481-484) -- no work needed here.
+
+
+@pytest.mark.lifecycle
+async def test_convert_saml_user_to_local_preserves_user_data(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    saml_overlay_registered,
+    _cleanup_lifecycle_rows,
+):
+    """LIFECYCLE-06: converting a SAML user to local-password preserves audit
+    history, group memberships, and record/dataset ownership.
+
+    Seeds a representative trio of FK referrers (audit_log, user_roles, record
+    + attached dataset) -- per Phase 221 D-06, three independent FKs from three
+    different domains demonstrate the design promise that users.id is the
+    durable handle. Note that "dataset ownership" is recorded on Record.created_by
+    (the Dataset table has no created_by column; the dataset is bound to its
+    record via record_id with ondelete=CASCADE -- so preserving the record
+    preserves the dataset row by construction).
+
+    Then invokes POST /admin/users/{user_id}/convert-saml-to-local/ via
+    TestClient and asserts (a) the conversion succeeded, (b) every seeded FK
+    referrer survives with its original user_id, (c) the new audit_log row
+    records the conversion with the allow-listed details (no password material).
+    """
+    saved_info = edition_mod._info
+    edition_mod.init_edition(["enterprise"])
+
+    try:
+        # ---------- SEED phase ----------
+
+        # Seed SAML provider (mirrors test_overlay_removal_preserves_saml_data
+        # at test_lifecycle.py:136-150 -- encrypt_secret() required for the
+        # NOT-NULL Fernet ciphertext columns; Pitfall 3).
+        provider = OAuthProvider(
+            slug=LIFECYCLE_SLUG,
+            display_name="Lifecycle Test IdP",
+            provider_type="saml",
+            client_id="unused",
+            client_secret_encrypted=encrypt_secret("unused"),
+            idp_entity_id=LIFECYCLE_IDP_ENTITY_ID,
+            idp_sso_url=LIFECYCLE_IDP_SSO_URL,
+            idp_certificate=encrypt_secret(LIFECYCLE_CERT_PEM),
+            sp_entity_id=LIFECYCLE_SP_ENTITY_ID,
+            enabled=True,
+        )
+        test_db_session.add(provider)
+        await test_db_session.commit()
+        await test_db_session.refresh(provider)
+        seeded_provider_id = provider.id
+
+        # Seed SAML user (auth_provider='oauth' -- SAML users land here per
+        # Phase 217 D-04).
+        user = User(
+            username=LIFECYCLE_USERNAME,
+            email=LIFECYCLE_USER_EMAIL,
+            password_hash=None,
+            is_active=True,
+            auth_provider="oauth",
+        )
+        test_db_session.add(user)
+        await test_db_session.commit()
+        await test_db_session.refresh(user)
+        seeded_user_id = user.id
+
+        # Seed OAuthAccount linkage (provider -> user).
+        account = OAuthAccount(
+            user_id=seeded_user_id,
+            provider_id=seeded_provider_id,
+            subject=LIFECYCLE_USER_SUBJECT,
+        )
+        test_db_session.add(account)
+        await test_db_session.commit()
+
+        # Seed user_roles assignment -- pick the 'viewer' role (always present
+        # in the seeded dev DB; verify by SELECTing it). If 'viewer' is missing,
+        # SELECT any role; the test only asserts that THE seeded role row
+        # survives, not that a specific role-name is present.
+        role_row = (
+            await test_db_session.execute(
+                select(Role).where(Role.name == "viewer")
+            )
+        ).scalar_one_or_none()
+        if role_row is None:
+            role_row = (
+                await test_db_session.execute(select(Role).limit(1))
+            ).scalar_one()
+        seeded_role_id = role_row.id
+
+        user_role = UserRole(user_id=seeded_user_id, role_id=seeded_role_id)
+        test_db_session.add(user_role)
+        await test_db_session.commit()
+
+        # Seed an AuditLog row via log_action (D-10 pattern -- log_action does
+        # NOT commit; caller commits explicitly).
+        await log_action(
+            session=test_db_session,
+            user_id=seeded_user_id,
+            action="test.seed.lifecycle",
+            resource_type="user",
+            resource_id=seeded_user_id,
+            details={"phase": "221", "purpose": "lifecycle-06-fk-survival"},
+        )
+        await test_db_session.commit()
+
+        # Seed a Record row with created_by=seeded_user_id. Record carries the
+        # ownership invariant for LIFECYCLE-06 (B1 fix: Dataset has no
+        # created_by column -- ownership lives on Record).
+        # Required non-null fields per
+        # backend/app/modules/catalog/datasets/domain/models.py:73-87:
+        # title (Text, NOT NULL), record_type (server_default='vector_dataset',
+        # CHECK-constrained to one of the seven enum values).
+        # `created_by` is nullable Mapped[UUID|None] with ondelete=SET NULL --
+        # the very FK whose preservation we want to assert.
+        record = Record(
+            title="Phase 221 lifecycle test record (delete via cleanup)",
+            record_type="vector_dataset",
+            created_by=seeded_user_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.commit()
+        await test_db_session.refresh(record)
+        seeded_record_id = record.id
+
+        # Optional but valuable: also seed a Dataset bound to that Record.
+        # Asserting the dataset survives proves the full ownership CHAIN
+        # (User <- Record.created_by, Record <- Dataset.record_id CASCADE) is
+        # intact, not just the Record row in isolation.
+        # Dataset table required-non-null columns: record_id (FK, unique),
+        # table_name (String(255), unique, nullable=False). Use a uuid-suffixed
+        # table_name to keep parallel-run uniqueness.
+        dataset = Dataset(
+            record_id=seeded_record_id,
+            table_name=f"lifecycle_test_{uuid.uuid4().hex[:8]}",
+        )
+        test_db_session.add(dataset)
+        await test_db_session.commit()
+        await test_db_session.refresh(dataset)
+        seeded_dataset_id = dataset.id
+
+        # ---------- INVOKE phase ----------
+
+        new_password = "lifecycle-test-newpw-2026"
+        resp = await client.post(
+            f"/admin/users/{seeded_user_id}/convert-saml-to-local/",
+            json={"password": new_password},
+            headers=admin_auth_header,
+        )
+
+        # ---------- ASSERT phase ----------
+
+        # Response shape -- UserResponse serializes UUID -> str in the JSON
+        # body; this str() comparison is for the over-the-wire form, NOT the
+        # ORM-level UUID equality used in the assertions below.
+        assert resp.status_code == 200, (
+            f"conversion endpoint returned {resp.status_code}: {resp.text}"
+        )
+        body = resp.json()
+        assert body["id"] == str(seeded_user_id), (
+            f"users.id changed across conversion: {body['id']} != {seeded_user_id}"
+        )
+        # NOTE: UserResponse schema (backend/app/modules/auth/schemas.py:48-62)
+        # does NOT expose `auth_provider` -- the ORM-level assertion below on
+        # the re-fetched User row is the authoritative auth_provider check.
+
+        # Re-fetch User row to assert ORM-level state (defeats any session-cache
+        # staleness from the seed phase). expire_all() is SYNC -- do NOT await
+        # (B2 fix; project pattern at test_embed_tokens.py:798,852).
+        test_db_session.expire_all()
+        user_row = (
+            await test_db_session.execute(
+                select(User).where(User.id == seeded_user_id)
+            )
+        ).scalar_one()
+        assert user_row.id == seeded_user_id  # immutable handle
+        assert user_row.auth_provider == "local"
+        assert user_row.password_hash is not None
+        assert verify_password(new_password, user_row.password_hash), (
+            "stored password hash does not verify against the supplied password"
+        )
+
+        # OAuthAccount SAML linkage row deleted
+        oauth_acct_row = (
+            await test_db_session.execute(
+                select(OAuthAccount).where(
+                    OAuthAccount.user_id == seeded_user_id,
+                    OAuthAccount.provider_id == seeded_provider_id,
+                )
+            )
+        ).scalar_one_or_none()
+        assert oauth_acct_row is None, (
+            "SAML oauth_accounts row was not deleted by the conversion"
+        )
+
+        # OAuthProvider row preserved (D-04 -- other users may still link)
+        provider_row = (
+            await test_db_session.execute(
+                select(OAuthProvider).where(OAuthProvider.id == seeded_provider_id)
+            )
+        ).scalar_one()
+        assert provider_row.provider_type == "saml"
+
+        # user_roles row preserved (D-07)
+        ur_row = (
+            await test_db_session.execute(
+                select(UserRole).where(
+                    UserRole.user_id == seeded_user_id,
+                    UserRole.role_id == seeded_role_id,
+                )
+            )
+        ).scalar_one_or_none()
+        assert ur_row is not None, "user_roles row was destroyed by conversion"
+
+        # Seeded audit_log row preserved (D-06 -- users.id immutable, FK survives)
+        seed_log_row = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.user_id == seeded_user_id,
+                    AuditLog.action == "test.seed.lifecycle",
+                )
+            )
+        ).scalar_one_or_none()
+        assert seed_log_row is not None, (
+            "test.seed.lifecycle audit_log row was destroyed by conversion"
+        )
+
+        # NEW audit_log row written by the conversion endpoint (Plan 01 Task 3).
+        # AuditLog.resource_id is Mapped[uuid.UUID | None] -- compare via UUID
+        # equality (B3 fix; project pattern at test_saml_overlay.py:699 and
+        # test_provenance_attribution.py:338). NO `str()` cast.
+        conversion_log_row = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "auth.convert_saml_to_local",
+                    AuditLog.resource_id == seeded_user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        assert conversion_log_row is not None, (
+            "endpoint did not write the auth.convert_saml_to_local audit_log row"
+        )
+        assert conversion_log_row.resource_type == "user"
+        # Allow-listed details only (security invariant T-221-03)
+        assert conversion_log_row.details == {
+            "from": "saml",
+            "to": "local",
+            "provider_slug": LIFECYCLE_SLUG,
+        }, f"audit details not allow-listed: {conversion_log_row.details!r}"
+
+        # Record row preserved with original created_by (D-06 -- the
+        # ownership-invariant assertion for LIFECYCLE-06).
+        record_row = (
+            await test_db_session.execute(
+                select(Record).where(Record.id == seeded_record_id)
+            )
+        ).scalar_one()
+        assert record_row.created_by == seeded_user_id, (
+            f"record.created_by changed: {record_row.created_by} != {seeded_user_id}"
+        )
+
+        # Dataset row preserved via record_id (cascade did NOT fire because the
+        # Record was preserved -- this asserts the full ownership chain is
+        # intact end-to-end).
+        dataset_row = (
+            await test_db_session.execute(
+                select(Dataset).where(Dataset.id == seeded_dataset_id)
+            )
+        ).scalar_one()
+        assert dataset_row.record_id == seeded_record_id, (
+            "dataset.record_id link broken across conversion"
+        )
+
+    finally:
+        edition_mod._info = saved_info
+        # _extensions / _routers / _cleanup_lifecycle_rows handle DB cleanup
