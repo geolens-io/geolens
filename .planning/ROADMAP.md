@@ -92,3 +92,30 @@ No tenant-scoping infrastructure exists today — `User` has no tenant column, a
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
+
+### Phase 999.7: Edition lifecycle — deactivation & reactivation runbook (BACKLOG)
+
+**Goal:** [Captured for future planning]
+**Requirements:** TBD
+**Plans:** 0 plans
+**Source:** v13.1 close-out conversation 2026-04-29 — gap surfaced after architecture review
+**Estimated effort:** ~2–3 days
+
+v13.1 shipped enterprise *activation* cleanly (extension `importlib.metadata` entry_points + `is_enterprise()` runtime gate + 3-layer admin UI gating + Pitfall 11 `deferred=True` SAML columns). It did **not** close the *deactivation* / *reactivation* lifecycle. Concrete gaps surfaced during v13.1 close-out review:
+
+1. **No path for existing SAML-authenticated users when enterprise is deactivated.** Their `User` rows persist (created via `find_or_create_oauth_user()`) but the SAML auth path is gone — they cannot log in until enterprise is reactivated or they're re-onboarded to OIDC/local accounts.
+2. **`alembic downgrade -1` per `docs/saml.md` is destructive** — drops the 4 SAML columns AND any `oauth_providers` rows with `provider_type='saml'`. No operational data-preservation runbook between deactivation and migration rollback.
+3. **No documented deactivation/reactivation runbook** in `docs/`. Only the destructive alembic note exists.
+4. **No re-activation symmetry test.** The `deferred=True` SAML columns are designed to make reactivation lossless (data preserved through deactivation period), but no UAT or test confirms this round-trip works.
+
+First paying customer who downgrades from enterprise to community will hit one or more of these. P2 priority — not a v13.1 blocker, but operationally important once enterprise has real users with SAML data.
+
+Likely scope:
+- Pre-deactivation checklist (DB backup; SAML-user inventory; alternate-auth onboarding plan)
+- Deactivation switch matrix (`GEOLENS_EDITION=community` env override vs package uninstall vs compose-overlay removal)
+- Data-fate documentation (what survives, what's invisible, what's destroyed by alembic-downgrade)
+- Reactivation path + symmetry test (deactivate → reactivate is lossless for `deferred=True` columns)
+- Optional CLI helper: `geolens admin saml-export` to back up SAML provider configs before downgrade
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
