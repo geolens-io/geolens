@@ -74,3 +74,22 @@ class DefaultAuditSink:
             details=event.details,
             ip_address=event.ip_address,
         )
+
+
+class DefaultBillingExtension:
+    """Community-edition default — no-op startup hook (Phase 223 D-07 / BILLING-01).
+
+    Mirrors ``DefaultIdentityExtension``: an async no-op that lets the dispatch
+    loop iterate over a non-empty ``[DefaultBillingExtension()]`` list when no
+    overlay is registered. Empty-list-as-default would also work but breaks
+    symmetry with the four existing single-slot Protocols (each has a
+    ``Default*`` class).
+
+    The async signature is intentional (D-08): enterprise overlays may perform
+    non-blocking I/O (HTTP calls to billing APIs, async DB writes for audit).
+    All extensions — community and enterprise — are awaited by the lifespan
+    dispatch loop (Plan 02).
+    """
+
+    async def on_startup(self, app) -> None:  # type: ignore[no-untyped-def]
+        return
