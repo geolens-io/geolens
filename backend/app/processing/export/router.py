@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.catalog.authorization import check_dataset_access
@@ -115,19 +115,21 @@ async def export_dataset_endpoint(
         )
 
     # 7. Audit log
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="dataset.export",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={
-            "format": format,
-            "target_crs": target_crs,
-            "bbox": bbox,
-            "where": where,
-        },
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="dataset.export",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "format": format,
+                "target_crs": target_crs,
+                "bbox": bbox,
+                "where": where,
+            },
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
 

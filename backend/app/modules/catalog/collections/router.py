@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.platform.cache import get_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.identity import Identity
@@ -80,14 +80,16 @@ async def create_collection_endpoint(
     """Create a new collection."""
     try:
         collection = await create_collection(db, body.name, body.description, user.id)
-        await log_action(
+        await audit_emit(
             db,
-            user_id=user.id,
-            action="collection.create",
-            resource_type="collection",
-            resource_id=collection.id,
-            details={"name": body.name},
-            ip_address=request.client.host if request.client else None,
+            AuditEvent(
+                user_id=user.id,
+                action="collection.create",
+                resource_type="collection",
+                resource_id=collection.id,
+                details={"name": body.name},
+                ip_address=request.client.host if request.client else None,
+            ),
         )
         await db.commit()
         await db.refresh(collection)
@@ -198,14 +200,16 @@ async def update_collection_endpoint(
             detail="Collection not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="collection.update",
-        resource_type="collection",
-        resource_id=collection_id,
-        details=body.model_dump(exclude_none=True),
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="collection.update",
+            resource_type="collection",
+            resource_id=collection_id,
+            details=body.model_dump(exclude_none=True),
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     # Re-load the row so attributes are fresh (commit expires the ORM
@@ -243,14 +247,16 @@ async def delete_collection_endpoint(
             detail="Collection not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="collection.delete",
-        resource_type="collection",
-        resource_id=collection_id,
-        details={"name": name},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="collection.delete",
+            resource_type="collection",
+            resource_id=collection_id,
+            details={"name": name},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     await invalidate_catalog_cache()
@@ -277,14 +283,16 @@ async def add_datasets_endpoint(
             detail="Collection not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="collection.add_datasets",
-        resource_type="collection",
-        resource_id=collection_id,
-        details={"dataset_ids": [str(d) for d in body.dataset_ids]},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="collection.add_datasets",
+            resource_type="collection",
+            resource_id=collection_id,
+            details={"dataset_ids": [str(d) for d in body.dataset_ids]},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     await invalidate_catalog_cache()
@@ -310,14 +318,16 @@ async def remove_dataset_endpoint(
             detail="Dataset membership not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="collection.remove_dataset",
-        resource_type="collection",
-        resource_id=collection_id,
-        details={"dataset_id": str(dataset_id)},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="collection.remove_dataset",
+            resource_type="collection",
+            resource_id=collection_id,
+            details={"dataset_id": str(dataset_id)},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     await invalidate_catalog_cache()

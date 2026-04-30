@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
-from app.modules.audit.service import log_action, query_audit_logs
+from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
 from app.platform.cache import get_cache
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.core.identity import Identity
@@ -156,13 +156,15 @@ async def get_single_dataset(
 
     # Log dataset access for authenticated users only
     if user is not None:
-        await log_action(
+        await audit_emit(
             db,
-            user_id=user.id,
-            action="dataset.view",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            ip_address=request.client.host if request.client else None,
+            AuditEvent(
+                user_id=user.id,
+                action="dataset.view",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                ip_address=request.client.host if request.client else None,
+            ),
         )
         await db.commit()
 
@@ -291,14 +293,16 @@ async def update_dataset_metadata(
         )
 
     # Log the metadata edit
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="metadata.edit",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details=meta.model_dump(exclude_none=True),
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="metadata.edit",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=meta.model_dump(exclude_none=True),
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     await db.refresh(dataset)
@@ -330,14 +334,16 @@ async def bulk_delete_datasets_endpoint(
     for item in body.datasets:
         try:
             table_name = await delete_dataset(db, item.dataset_id, item.confirm_title)
-            await log_action(
+            await audit_emit(
                 db,
-                user_id=user.id,
-                action="dataset.delete",
-                resource_type="dataset",
-                resource_id=item.dataset_id,
-                details={"title": item.confirm_title, "table_name": table_name},
-                ip_address=request.client.host if request.client else None,
+                AuditEvent(
+                    user_id=user.id,
+                    action="dataset.delete",
+                    resource_type="dataset",
+                    resource_id=item.dataset_id,
+                    details={"title": item.confirm_title, "table_name": table_name},
+                    ip_address=request.client.host if request.client else None,
+                ),
             )
             # Commit per-item so a later failure cannot orphan storage objects
             # that were already deleted for successfully-committed datasets.
@@ -400,14 +406,16 @@ async def delete_dataset_endpoint(
             detail=msg,
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="dataset.delete",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={"title": body.confirm_title, "table_name": table_name},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="dataset.delete",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"title": body.confirm_title, "table_name": table_name},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
 

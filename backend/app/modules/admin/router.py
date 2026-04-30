@@ -30,7 +30,7 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.admin.service import AdminService
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
@@ -110,14 +110,16 @@ async def create_user(
             detail=str(exc),
         )
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.create",
-        resource_type="user",
-        resource_id=user.id,
-        details={"username": body.username, "role": body.role},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.create",
+            resource_type="user",
+            resource_id=user.id,
+            details={"username": body.username, "role": body.role},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return _user_response(user)
@@ -210,14 +212,16 @@ async def update_user(
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_409_CONFLICT)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.update",
-        resource_type="user",
-        resource_id=user_id,
-        details=body.model_dump(exclude_none=True),
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.update",
+            resource_type="user",
+            resource_id=user_id,
+            details=body.model_dump(exclude_none=True),
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return _user_response(user)
@@ -240,14 +244,16 @@ async def deactivate_user(
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.deactivate",
-        resource_type="user",
-        resource_id=user_id,
-        details={"username": user.username},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.deactivate",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": user.username},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return _user_response(user)
@@ -295,14 +301,16 @@ async def convert_saml_to_local(
         _raise_on_error(exc, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.convert_saml_to_local",
-        resource_type="user",
-        resource_id=user_id,
-        details={"from": "saml", "to": "local", "provider_slug": provider_slug},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.convert_saml_to_local",
+            resource_type="user",
+            resource_id=user_id,
+            details={"from": "saml", "to": "local", "provider_slug": provider_slug},
+            ip_address=ip,
+        ),
     )
     try:
         await db.commit()
@@ -338,14 +346,16 @@ async def approve_user(
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.approve",
-        resource_type="user",
-        resource_id=user_id,
-        details={"username": user.username, "role": body.role},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.approve",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": user.username, "role": body.role},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return _user_response(user)
@@ -368,13 +378,15 @@ async def reject_user(
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.reject",
-        resource_type="user",
-        resource_id=user_id,
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.reject",
+            resource_type="user",
+            resource_id=user_id,
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -397,14 +409,16 @@ async def delete_user(
     except ValueError as exc:
         _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.delete",
-        resource_type="user",
-        resource_id=user_id,
-        details={"username": deleted_username},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.delete",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": deleted_username},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -485,14 +499,16 @@ async def create_api_key(
     api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
 
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="api_key.create",
-        resource_type="api_key",
-        resource_id=api_key.id,
-        details={"name": body.name, "target_user_id": str(body.user_id)},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="api_key.create",
+            resource_type="api_key",
+            resource_id=api_key.id,
+            details={"name": body.name, "target_user_id": str(body.user_id)},
+            ip_address=ip,
+        ),
     )
     await db.commit()
 
@@ -671,14 +687,16 @@ async def revoke_api_key(
         )
     api_key.is_active = False
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="api_key.revoke",
-        resource_type="api_key",
-        resource_id=key_id,
-        details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="api_key.revoke",
+            resource_type="api_key",
+            resource_id=key_id,
+            details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -776,17 +794,19 @@ async def admin_revoke_share_token(
     revoked_token_id, map_id, cascade_count = result
 
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="map.admin_share_revoke",
-        resource_type="map_share_token",
-        resource_id=revoked_token_id,
-        details={
-            "map_id": str(map_id),
-            "cascade_embed_count": cascade_count,
-        },
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="map.admin_share_revoke",
+            resource_type="map_share_token",
+            resource_id=revoked_token_id,
+            details={
+                "map_id": str(map_id),
+                "cascade_embed_count": cascade_count,
+            },
+            ip_address=ip,
+        ),
     )
 
     await db.commit()

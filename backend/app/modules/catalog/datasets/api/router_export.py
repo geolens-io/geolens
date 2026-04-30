@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_optional_user,
@@ -247,14 +247,16 @@ async def download_cog(
     filename = f"{slugify(dataset.record.title)}.cog.tif"
 
     # 6. Audit log
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="dataset.download_cog",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={"filename": filename, "storage_backend": raster_asset.storage_backend},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="dataset.download_cog",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"filename": filename, "storage_backend": raster_asset.storage_backend},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
 

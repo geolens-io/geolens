@@ -12,7 +12,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -169,17 +169,19 @@ async def update_attribute_endpoint(
         if updates:
             attr = await update_attribute(db, attribute_id, **updates)
             dataset.record.updated_by = user.id
-            await log_action(
+            await audit_emit(
                 db,
-                user_id=user.id,
-                action="attribute.edit",
-                resource_type="dataset",
-                resource_id=dataset_id,
-                details={
-                    "attribute_id": str(attr.id),
-                    "field_name": attr.field_name,
-                    "changed_fields": sorted(updates.keys()),
-                },
+                AuditEvent(
+                    user_id=user.id,
+                    action="attribute.edit",
+                    resource_type="dataset",
+                    resource_id=dataset_id,
+                    details={
+                        "attribute_id": str(attr.id),
+                        "field_name": attr.field_name,
+                        "changed_fields": sorted(updates.keys()),
+                    },
+                ),
             )
             await db.commit()
         await db.refresh(attr)
@@ -220,25 +222,27 @@ async def reset_attribute_endpoint(
     try:
         attr = await reset_attribute(db, attribute_id, dataset.table_name)
         dataset.record.updated_by = user.id
-        await log_action(
+        await audit_emit(
             db,
-            user_id=user.id,
-            action="attribute.reset",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            details={
-                "attribute_id": str(attr.id),
-                "field_name": attr.field_name,
-                "changed_fields": [
-                    "title",
-                    "description",
-                    "units",
-                    "domain_type",
-                    "semantic_role",
-                    "example_values",
-                    "user_modified_fields",
-                ],
-            },
+            AuditEvent(
+                user_id=user.id,
+                action="attribute.reset",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                details={
+                    "attribute_id": str(attr.id),
+                    "field_name": attr.field_name,
+                    "changed_fields": [
+                        "title",
+                        "description",
+                        "units",
+                        "domain_type",
+                        "semantic_role",
+                        "example_values",
+                        "user_modified_fields",
+                    ],
+                },
+            ),
         )
         await db.commit()
         await db.refresh(attr)

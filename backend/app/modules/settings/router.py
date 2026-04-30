@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.oauth import service as oauth_service
@@ -452,14 +452,16 @@ async def create_oauth_provider(
     if body.idp_certificate:
         created_state["idp_certificate"] = "<redacted>"
 
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="oauth_provider.create",
-        resource_type="oauth_provider",
-        resource_id=provider.id,
-        details={"slug": body.slug, "created": created_state},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth_provider.create",
+            resource_type="oauth_provider",
+            resource_id=provider.id,
+            details={"slug": body.slug, "created": created_state},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return OAuthProviderResponse.model_validate(provider)
@@ -521,14 +523,16 @@ async def update_oauth_provider(
             changes[secret_field] = {"old": "<redacted>", "new": "<redacted>"}
 
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="oauth_provider.update",
-        resource_type="oauth_provider",
-        resource_id=provider.id,
-        details={"slug": provider.slug, "changes": changes},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth_provider.update",
+            resource_type="oauth_provider",
+            resource_id=provider.id,
+            details={"slug": provider.slug, "changes": changes},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return OAuthProviderResponse.model_validate(provider)
@@ -579,14 +583,16 @@ async def delete_oauth_provider(
 
     await oauth_service.delete_provider(db, provider)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="oauth_provider.delete",
-        resource_type="oauth_provider",
-        resource_id=provider_id,
-        details={"slug": slug, "deleted": deleted_state},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth_provider.delete",
+            resource_type="oauth_provider",
+            resource_id=provider_id,
+            details={"slug": slug, "deleted": deleted_state},
+            ip_address=ip,
+        ),
     )
     await db.commit()
 

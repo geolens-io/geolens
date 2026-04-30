@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.processing.ingest.schemas import Visibility
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.datasets.domain.models import (
@@ -294,12 +294,14 @@ async def stac_connect(
 
     result = await connect_stac_api(request.url)
     if result is None:
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="stac_connect",
-            resource_type="stac_api",
-            details={"url": request.url, "result": "not_stac"},
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="stac_connect",
+                resource_type="stac_api",
+                details={"url": request.url, "result": "not_stac"},
+            ),
         )
         await db.commit()
         raise HTTPException(
@@ -307,16 +309,18 @@ async def stac_connect(
             detail="URL does not appear to be a valid STAC API. Check the URL and try again.",
         )
 
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="stac_connect",
-        resource_type="stac_api",
-        details={
-            "url": request.url,
-            "result": "success",
-            "stac_version": result["stac_version"],
-        },
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="stac_connect",
+            resource_type="stac_api",
+            details={
+                "url": request.url,
+                "result": "success",
+                "stac_version": result["stac_version"],
+            },
+        ),
     )
     await db.commit()
 
@@ -547,18 +551,20 @@ async def stac_import(
             errors += 1
 
     # Audit log
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="stac_import",
-        resource_type="stac_api",
-        details={
-            "url": request.url,
-            "requested": len(request.items),
-            "created": created,
-            "skipped": skipped,
-            "errors": errors,
-        },
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="stac_import",
+            resource_type="stac_api",
+            details={
+                "url": request.url,
+                "requested": len(request.items),
+                "created": created,
+                "skipped": skipped,
+                "errors": errors,
+            },
+        ),
     )
     await db.commit()
 

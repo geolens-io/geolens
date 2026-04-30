@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
@@ -122,16 +122,18 @@ async def add_column_endpoint(
     )
 
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="layer.add_column",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={
-            "column_name": body.column.name,
-            "column_type": body.column.type,
-        },
+        AuditEvent(
+            user_id=user.id,
+            action="layer.add_column",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "column_name": body.column.name,
+                "column_type": body.column.type,
+            },
+        ),
     )
     await db.commit()
 
@@ -174,13 +176,15 @@ async def rename_column_endpoint(
     )
 
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="layer.rename_column",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={"old_name": column_name, "new_name": body.new_name},
+        AuditEvent(
+            user_id=user.id,
+            action="layer.rename_column",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"old_name": column_name, "new_name": body.new_name},
+        ),
     )
     await db.commit()
     return ColumnListResponse(columns=columns)
@@ -234,13 +238,15 @@ async def alter_column_type_endpoint(
     )
 
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="layer.alter_column_type",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={"column_name": column_name, "new_type": body.new_type},
+        AuditEvent(
+            user_id=user.id,
+            action="layer.alter_column_type",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"column_name": column_name, "new_type": body.new_type},
+        ),
     )
     await db.commit()
     return ColumnListResponse(columns=columns)
@@ -280,13 +286,15 @@ async def drop_column_endpoint(
     )
 
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="layer.drop_column",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={"column_name": column_name},
+        AuditEvent(
+            user_id=user.id,
+            action="layer.drop_column",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"column_name": column_name},
+        ),
     )
     await db.commit()
 

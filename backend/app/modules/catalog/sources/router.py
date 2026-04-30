@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -53,12 +53,14 @@ async def _probe_audit_fail(
     **extra,
 ) -> None:
     """Audit-log a probe failure and raise HTTPException."""
-    await log_action(
-        session=db,
-        user_id=user_id,
-        action="probe_service",
-        resource_type="service_url",
-        details={"url": url, "result": result, **extra},
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="probe_service",
+            resource_type="service_url",
+            details={"url": url, "result": result, **extra},
+        ),
     )
     await db.commit()
     raise HTTPException(status_code=status_code, detail=detail)
@@ -68,12 +70,14 @@ async def _fail_preview(
     db: AsyncSession, user_id: uuid.UUID, url: str, layer: str
 ) -> NoReturn:
     """Log audit and raise 502 for a failed service preview."""
-    await log_action(
-        session=db,
-        user_id=user_id,
-        action="preview_service_layer",
-        resource_type="service_url",
-        details={"url": url, "layer": layer, "result": "ogrinfo_failed"},
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={"url": url, "layer": layer, "result": "ogrinfo_failed"},
+        ),
     )
     await db.commit()
     raise HTTPException(
@@ -199,17 +203,19 @@ async def probe_service_url(
         service_type=response.service_type,
         layer_count=len(response.layers),
     )
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="probe_service",
-        resource_type="service_url",
-        details={
-            "url": request.url,
-            "result": "success",
-            "service_type": response.service_type,
-            "layer_count": len(response.layers),
-        },
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="probe_service",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "result": "success",
+                "service_type": response.service_type,
+                "layer_count": len(response.layers),
+            },
+        ),
     )
     await db.commit()
 
@@ -233,17 +239,19 @@ async def preview_service_layer(
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
         logger.warning("SSRF blocked for preview", url=request.url, reason=str(exc))
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="preview_service_layer",
-            resource_type="service_url",
-            details={
-                "url": request.url,
-                "layer": request.layer_name,
-                "result": "ssrf_blocked",
-                "reason": str(exc),
-            },
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="preview_service_layer",
+                resource_type="service_url",
+                details={
+                    "url": request.url,
+                    "layer": request.layer_name,
+                    "result": "ssrf_blocked",
+                    "reason": str(exc),
+                },
+            ),
         )
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -318,17 +326,19 @@ async def preview_service_layer(
             service_type=request.service_type,
             error=str(exc),
         )
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="preview_service_layer",
-            resource_type="service_url",
-            details={
-                "url": request.url,
-                "layer": request.layer_name,
-                "result": "invalid_request",
-                "reason": str(exc),
-            },
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="preview_service_layer",
+                resource_type="service_url",
+                details={
+                    "url": request.url,
+                    "layer": request.layer_name,
+                    "result": "invalid_request",
+                    "reason": str(exc),
+                },
+            ),
         )
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -380,16 +390,18 @@ async def preview_service_layer(
             url=request.url,
             layer=request.layer_name,
         )
-        await log_action(
-            session=db,
-            user_id=user.id,
-            action="preview_service_layer",
-            resource_type="service_url",
-            details={
-                "url": request.url,
-                "layer": request.layer_name,
-                "result": "unexpected_error",
-            },
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="preview_service_layer",
+                resource_type="service_url",
+                details={
+                    "url": request.url,
+                    "layer": request.layer_name,
+                    "result": "unexpected_error",
+                },
+            ),
         )
         await db.commit()
         raise HTTPException(
@@ -427,17 +439,19 @@ async def preview_service_layer(
         layer=request.layer_name,
         job_id=str(job.id),
     )
-    await log_action(
-        session=db,
-        user_id=user.id,
-        action="preview_service_layer",
-        resource_type="service_url",
-        details={
-            "url": request.url,
-            "layer": request.layer_name,
-            "job_id": str(job.id),
-            "result": "success",
-        },
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "layer": request.layer_name,
+                "job_id": str(job.id),
+                "result": "success",
+            },
+        ),
     )
     await db.commit()
 

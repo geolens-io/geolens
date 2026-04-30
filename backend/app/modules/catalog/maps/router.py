@@ -16,7 +16,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -238,14 +238,16 @@ async def create_map_endpoint(
     map_obj = await create_map(
         db, body.name, body.description, user.id, notes=body.notes
     )
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.create",
-        resource_type="map",
-        resource_id=map_obj.id,
-        details={"name": body.name},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.create",
+            resource_type="map",
+            resource_id=map_obj.id,
+            details={"name": body.name},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     await db.refresh(map_obj)
@@ -430,14 +432,16 @@ async def update_map_endpoint(
             detail="Map not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.update",
-        resource_type="map",
-        resource_id=map_id,
-        details={"changed_fields": list(body.model_dump(exclude_none=True).keys())},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.update",
+            resource_type="map",
+            resource_id=map_id,
+            details={"changed_fields": list(body.model_dump(exclude_none=True).keys())},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
 
@@ -467,14 +471,16 @@ async def delete_map_endpoint(
     await check_map_ownership(map_obj, user, db)
 
     map_name = await delete_map(db, map_id)
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.delete",
-        resource_type="map",
-        resource_id=map_id,
-        details={"name": map_name},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.delete",
+            resource_type="map",
+            resource_id=map_id,
+            details={"name": map_name},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -507,18 +513,20 @@ async def duplicate_map_endpoint(
             detail="Map not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.duplicate",
-        resource_type="map",
-        resource_id=new_map.id,
-        details={
-            "source_map_id": str(map_id),
-            "new_name": new_map.name,
-            "excluded_layers": excluded_count,
-        },
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.duplicate",
+            resource_type="map",
+            resource_id=new_map.id,
+            details={
+                "source_map_id": str(map_id),
+                "new_name": new_map.name,
+                "excluded_layers": excluded_count,
+            },
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
 
@@ -584,14 +592,16 @@ async def share_map_endpoint(
     token_obj = await create_share_token(
         db, map_id, user.id, expires_at=body.expires_at if body else None
     )
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.share",
-        resource_type="map",
-        resource_id=map_id,
-        details={"token_hint": token_obj.token_hint},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.share",
+            resource_type="map",
+            resource_id=map_id,
+            details={"token_hint": token_obj.token_hint},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     raw_token = getattr(token_obj, "_raw_token", token_obj.token_hint)
@@ -625,14 +635,16 @@ async def update_map_share_token_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active share token found",
         )
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.update_share_token",
-        resource_type="map",
-        resource_id=map_id,
-        details={"expires_at": str(body.expires_at)},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.update_share_token",
+            resource_type="map",
+            resource_id=map_id,
+            details={"expires_at": str(body.expires_at)},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     return ShareTokenResponse(
@@ -664,14 +676,16 @@ async def revoke_map_share_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active share token found",
         )
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.revoke_share",
-        resource_type="map",
-        resource_id=map_id,
-        details={},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.revoke_share",
+            resource_type="map",
+            resource_id=map_id,
+            details={},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -820,14 +834,16 @@ async def add_layer_endpoint(
 
     layer = await add_layer(db, map_id, body)
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.add_layer",
-        resource_type="map",
-        resource_id=map_id,
-        details={"dataset_id": str(body.dataset_id)},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.add_layer",
+            resource_type="map",
+            resource_id=map_id,
+            details={"dataset_id": str(body.dataset_id)},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
 
@@ -861,14 +877,16 @@ async def remove_layer_endpoint(
             detail="Layer not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="map.remove_layer",
-        resource_type="map",
-        resource_id=map_id,
-        details={"layer_id": str(layer_id)},
-        ip_address=request.client.host if request.client else None,
+        AuditEvent(
+            user_id=user.id,
+            action="map.remove_layer",
+            resource_type="map",
+            resource_id=map_id,
+            details={"layer_id": str(layer_id)},
+            ip_address=request.client.host if request.client else None,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
