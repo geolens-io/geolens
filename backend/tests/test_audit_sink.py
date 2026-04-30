@@ -123,3 +123,107 @@ async def test_raising_sink_does_not_break_business_op(test_db_session, caplog) 
             _extensions.pop("audit_sinks", None)
         else:
             _extensions["audit_sinks"] = saved
+
+
+@pytest.mark.anyio
+async def test_fixture_sink_receives_events_alongside_default(
+    client,
+    admin_auth_header,
+    test_db_session,
+) -> None:
+    """AUDIT-04 / D-12: enterprise-shape AuditSink + DefaultAuditSink coexist.
+
+    End-to-end integration: a fixture sink registered via direct
+    ``_extensions["audit_sinks"]`` append receives every audit event AND the
+    DefaultAuditSink still writes its row. Proves the multi-sink subscription
+    contract works through the rewritten call path (Plan 03's
+    ``audit_emit + AuditEvent`` flow at ``admin/router.py:113``).
+
+    Uses the registry-level fixture pattern (mirrors ``saml_overlay_registered``
+    at ``conftest.py:454-484`` — save snapshot, set new state, restore in
+    ``finally``). No entry-point round-trip needed; the test runs without
+    requiring ``geolens-enterprise`` to be installed.
+
+    Pitfall C: BOTH ``DefaultAuditSink()`` AND ``FixtureSink()`` must be in
+    the slot. If only the fixture sink is registered, the AUDIT-05 default-row
+    assertion fails (DefaultAuditSink is missing from the iteration).
+    """
+    from sqlalchemy import select
+
+    from app.modules.audit.events import AuditEvent
+    from app.modules.audit.models import AuditLog
+    from app.platform.extensions import _extensions
+    from app.platform.extensions.defaults import DefaultAuditSink
+
+    class FixtureSink:
+        """Stand-in for a future enterprise audit-export sink (S3, SIEM, syslog)."""
+
+        def __init__(self) -> None:
+            self.received: list[AuditEvent] = []
+
+        async def emit(self, session, event):
+            self.received.append(event)
+
+    fixture_sink = FixtureSink()
+    saved = _extensions.get("audit_sinks")
+    # Pitfall C: seed BOTH default + fixture so DefaultAuditSink also runs.
+    _extensions["audit_sinks"] = [DefaultAuditSink(), fixture_sink]
+    try:
+        # Use a deterministic username so the assertion query is precise.
+        unique_username = f"audit-sink-test-multi-{uuid.uuid4().hex[:8]}"
+        resp = await client.post(
+            "/admin/users/",
+            json={
+                "username": unique_username,
+                "password": "test-password-12345",
+                "role": "viewer",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, (
+            f"POST /admin/users/ failed: {resp.status_code} {resp.text}. "
+            f"If this fails with the request body shape, refresh the field "
+            f"names from backend/app/modules/admin/schemas.py::AdminUserCreate."
+        )
+
+        # AUDIT-04: FixtureSink received the user.create event.
+        user_create_events = [
+            e for e in fixture_sink.received if e.action == "user.create"
+        ]
+        assert user_create_events, (
+            f"FixtureSink.received did not contain a user.create event. "
+            f"Saw: {[e.action for e in fixture_sink.received]}. "
+            f"If empty, Plan 03 may not have rewritten admin/router.py:113 "
+            f"to route through audit_emit() — check that admin/router.py "
+            f"contains 'audit_emit' and not 'log_action' near line 113."
+        )
+        evt = user_create_events[0]
+        assert evt.resource_type == "user"
+        assert evt.details is not None
+        assert evt.details.get("username") == unique_username
+        assert evt.details.get("role") == "viewer"
+
+        # AUDIT-05 (default still ran): DefaultAuditSink wrote its audit_logs row.
+        # The request handler committed, so committing test_db_session starts a new
+        # READ COMMITTED transaction that sees the committed audit row.
+        await test_db_session.commit()
+        row = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "user.create",
+                    AuditLog.details.contains({"username": unique_username}),
+                )
+            )
+        ).scalar_one_or_none()
+        assert row is not None, (
+            "DefaultAuditSink did not write its audit_logs row "
+            "(multi-sink coexistence broken — the FixtureSink did not "
+            "displace the default, but the default did not run). "
+            "Verify _extensions['audit_sinks'] was seeded with BOTH "
+            "DefaultAuditSink() and fixture_sink (Pitfall C)."
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("audit_sinks", None)
+        else:
+            _extensions["audit_sinks"] = saved
