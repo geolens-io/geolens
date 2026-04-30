@@ -77,7 +77,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   1. Operator can read `docs/edition-deactivation.md` that covers the full enterprise→community downgrade sequence: pre-flight checks, `GEOLENS_EDITION=community` switch, SAML user inventory, and data-fate matrix (what survives vs. what requires export before `alembic downgrade`)
   2. Operator can read `docs/edition-reactivation.md` that confirms `deferred=True` SAML columns and `oauth_providers` rows survive a deactivation period and are usable immediately on re-upgrade
   3. `docs/saml.md` no longer presents `alembic downgrade -1` as the primary deactivation path — it links to `edition-deactivation.md` and labels the alembic path as destructive/opt-in with a mandatory data-export prerequisite
-  4. An integration test runs in CI (`pytest -m lifecycle`) that exercises the deactivate path and asserts `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` User columns are intact after edition flag is toggled off
+  4. An integration test runs in CI (`pytest -m lifecycle`) that exercises the deactivate path and asserts `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` `oauth_providers` columns are intact after edition flag is toggled off
   5. Either a non-destructive alembic downgrade path exists that preserves SAML data, OR `edition-deactivation.md` documents the destructive path with an explicit mandatory-export step
 **Plans**: 6 plans
 - [x] 220-01-deactivation-runbook-PLAN.md — Author docs/edition-deactivation.md (LIFECYCLE-01, LIFECYCLE-05)

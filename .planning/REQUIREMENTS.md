@@ -21,7 +21,7 @@ Operator-facing runbooks that turn the existing alembic-only mental model into a
 
 Behavioral guarantees that make the runbook safe by construction, not just by documentation.
 
-- [ ] **LIFECYCLE-04**: Disabling the enterprise edition (without running `alembic downgrade`) preserves `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` SAML columns on `User` — verified by an integration test that exercises the deactivate path.
+- [ ] **LIFECYCLE-04**: Disabling the enterprise edition (without running `alembic downgrade`) preserves `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` SAML columns on `oauth_providers` — verified by an integration test that exercises the deactivate path.
 - [ ] **LIFECYCLE-05**: Either a non-destructive alembic downgrade path exists that preserves SAML auth data, OR the runbook explicitly documents the destructive nature with a mandatory data-export step ahead of `alembic downgrade -1`. (Decision deferred to plan phase based on schema cost/benefit; either outcome satisfies the requirement.)
 
 ### User Continuity
