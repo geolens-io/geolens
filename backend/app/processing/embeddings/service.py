@@ -143,7 +143,12 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
                 ),
                 timeout=30.0,
             )
-            return len(response.data[0].embedding)
+            embedding = response.data[0].embedding
+            if not embedding:
+                raise EmbeddingUnavailableError(
+                    f"Embedding probe for model '{model}' returned empty vector."
+                )
+            return len(embedding)
         except Exception as exc:  # broad: OpenAI-compatible SDKs can raise various network/API/timeout errors
             last_exc = exc
             if attempt < max_attempts:

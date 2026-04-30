@@ -50,7 +50,7 @@ _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 # Module-level HTTP client for Titiler proxy (reused across requests)
 # ---------------------------------------------------------------------------
 _titiler_client = httpx.AsyncClient(
-    timeout=httpx.Timeout(30.0, connect=5.0),
+    timeout=httpx.Timeout(30.0, connect=10.0),
     follow_redirects=True,
 )
 
