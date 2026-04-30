@@ -17,7 +17,7 @@ Closes the +242% `log_action()` decentralization regression flagged in the 2026-
 - [x] **AUDIT-02**: All 65 `log_action()` emit sites in `backend/app/` route through `get_audit_sink().emit(...)` rather than calling `log_action()` directly. The `log_action()` function itself either (a) becomes the community default sink's `emit()` body, or (b) is removed in favor of the protocol — chosen during `/gsd-discuss-phase`.
 - [x] **AUDIT-03**: Sink-failure semantics are explicit: a sink that raises does not break the surrounding business operation (e.g., a failed dataset publish must not be rolled back because an audit emit failed). Failures are logged via `structlog.exception()` but do not propagate. Defined and tested.
 - [x] **AUDIT-04**: An enterprise audit-export overlay can subscribe additional sinks (file, S3, SIEM, syslog) by registering an `AuditSink` implementation through the existing extension entry-point group, without modifying core code. Verified end-to-end via a fixture-based test sink.
-- [ ] **AUDIT-05**: Existing audit behavior is preserved — every event today recorded in `audit_logs` continues to be recorded after the refactor; existing tests pass without modification; no row-count or row-content drift on a deterministic test workload (community default + zero overlays).
+- [x] **AUDIT-05**: Existing audit behavior is preserved — every event today recorded in `audit_logs` continues to be recorded after the refactor; existing tests pass without modification; no row-count or row-content drift on a deterministic test workload (community default + zero overlays).
 
 ### Marketplace Billing Extraction
 
