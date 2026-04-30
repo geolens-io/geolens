@@ -4,7 +4,7 @@ milestone: v13.2
 milestone_name: Edition Lifecycle Hardening
 status: verifying
 stopped_at: Phase 221 context gathered
-last_updated: "2026-04-30T12:45:44.919Z"
+last_updated: "2026-04-30T15:47:58.741Z"
 last_activity: 2026-04-30
 progress:
   total_phases: 3
@@ -102,7 +102,18 @@ The following stay in this repo because they describe work executed in this repo
 
 ## Deferred Items
 
-Items acknowledged and deferred at v13.1 milestone close on 2026-04-29:
+### v13.2 milestone close (2026-04-30)
+
+| Category | Count | Disposition |
+|----------|-------|-------------|
+| quick_tasks | 170 | Same cross-milestone backlog carried over from v13.1 close. Run `/gsd-cleanup` to triage. |
+| uat_gaps | 1 | Phase 220 (220-HUMAN-UAT.md) — UAT-2 lifecycle CI confirmation. Local equivalent passed (3 lifecycle tests + lifecycle marker INCLUDED locally with overlay installed); CI literal log line confirmation blocked on Actions free-tier billing exhaustion through 2026-04-30. Reset 2026-05-01. Functional behavior already verified. |
+| verification_gaps | 1 | Phase 220 (220-VERIFICATION.md) — `human_needed` for the same UAT-2 item. |
+| **Total** | **172** | |
+
+Surfaced by `gsd-sdk query audit-open` at v13.2 close. None are functional defects in v13.2; full backend suite (2036/2036 passed, 62.29% coverage) and local CI-equivalent gates (ruff + format + openapi + sdks + bandit + frontend lint/tsc/vitest) all green at close.
+
+### v13.1 milestone close (2026-04-29)
 
 | Category | Count | Disposition |
 |----------|-------|-------------|

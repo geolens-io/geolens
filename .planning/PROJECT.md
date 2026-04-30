@@ -8,13 +8,24 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-43 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.1; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is ship-ready — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs published from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping. Boundary Integrity audit grade A (target A−), Seam Quality B (target B), OSS Surface Readiness A− (target C) — exceeds two of three v13.1 close targets.
+44 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.2; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is ship-ready — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs published from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, **and a documented + tested edition lifecycle** (operator runbooks for enterprise↔community downgrade/re-upgrade, admin SAML→local conversion endpoint, round-trip symmetry test confirming losslessness). Boundary Integrity audit grade A (target A−), Seam Quality B (target B), OSS Surface Readiness A− (target C) — exceeds two of three v13.1 close targets.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Last Milestone (this repo): v13.1 Open-Core Separation P1 (shipped 2026-04-29)
+## Last Milestone (this repo): v13.2 Edition Lifecycle Hardening (shipped 2026-04-30)
 
-**Delivered:** 8 phases (212-219), 30 plans, 21/21 requirements satisfied — see [milestones/v13.1-ROADMAP.md](milestones/v13.1-ROADMAP.md).
+**Delivered:** 2 phases (220-221), 9 plans, 7/7 requirements satisfied — see [milestones/v13.2-ROADMAP.md](milestones/v13.2-ROADMAP.md).
+
+- **Operator runbooks for the full lifecycle** — `docs/edition-deactivation.md` (186 lines, 10 sections) for enterprise→community downgrade and `docs/edition-reactivation.md` for re-upgrade. `docs/saml.md` cross-links to the new runbook and labels `alembic downgrade -1` as the destructive path with mandatory `pg_dump` pre-step (Phase 220).
+- **SAML data preservation verified** — `backend/tests/test_lifecycle.py::test_overlay_removal_preserves_saml_data` confirms `oauth_providers` rows + 4 `deferred=True` SAML columns + `oauth_accounts` linkages survive a registry-clear deactivation. `lifecycle` pytest marker registered + run by default in CI when overlay installed (Phase 220).
+- **CI overlay install with graceful fork-PR fallback** — `.github/workflows/ci.yml` conditionally checks out `geolens-enterprise` based on `GEOLENS_ENTERPRISE_TOKEN` secret presence; pytest runs with lifecycle marker INCLUDED when available, deselected on fork PRs without secret (Phase 220).
+- **Admin SAML→local conversion endpoint** — `POST /admin/users/{user_id}/convert-saml-to-local/` (audit action `user.convert_saml_to_local`) flips a SAML user to local-password in a single transaction, preserving `users.id` (every FK referencing it stays intact) and deleting only the SAML `oauth_accounts` linkage. Self-conversion blocked with 422 (Phase 221).
+- **Round-trip symmetry guaranteed** — `test_deactivate_reactivate_roundtrip_preserves_saml_data` drives the registry through a full cycle and asserts losslessness across the 4 deferred SAML columns + `oauth_accounts` linkage + User row + a seeded `audit_log` row (Phase 221).
+
+<details>
+<summary>Earlier milestone — v13.1 Open-Core Separation P1 (shipped 2026-04-29)</summary>
+
+8 phases (212-219), 30 plans, 21/21 requirements satisfied — see [milestones/v13.1-ROADMAP.md](milestones/v13.1-ROADMAP.md).
 
 - Open-core boundary closed: `core/` no longer imports from `modules/settings/`; `auth/visibility.py` relocated to `catalog/authorization.py` with broadened architecture-guard (212, 213).
 - `IdentityProtocol` extracted: 51 cross-domain `User` import sites retyped to `Identity`; `get_identity_extension()` hook lets enterprise overlays register custom backends without core changes (214).
@@ -23,23 +34,15 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - SAML enterprise overlay: `geolens-enterprise` registers via entry_points with dual `AuthExtension` + `IdentityExtension`; admin UI 3-layer gated; SAML implementation lives outside core (217).
 - Audit gate met: Phase 218 produced closing audit; Phase 219 closed OAuth IdP→role mapping P0 surfaced by Phase 218 via `is_enterprise()` schema + service gate; audit doc amended in place to VERIFIED (218, 219).
 
+</details>
+
 **Concurrent shipped work (cross-repo, prior to v13.1):**
-- v14.0 Marketing Site (phases 212-217 executed in `getgeolens.com` repo, shipped 2026-04-13).
+- v14.0 Marketing Site (executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
-## Current Milestone: v13.2 Edition Lifecycle Hardening
+## Next Milestone
 
-**Goal:** Close the deactivation/reactivation lifecycle gap surfaced during v13.1 close-out — make enterprise→community downgrade safe and re-upgrade lossless before any paying customer hits these gaps.
-
-**Target features:**
-- Documented deactivation runbook for existing SAML-authenticated users (preserve `User` rows; provide alternate auth path so they can still log in)
-- Non-destructive `alembic downgrade` path that preserves the 4 `deferred=True` SAML columns and `oauth_providers` rows with `provider_type='saml'`
-- `docs/` runbook covering the full deactivation → reactivation lifecycle (operator-facing, not just developer notes)
-- Re-activation symmetry test/UAT confirming the `deferred=True` SAML columns round-trip losslessly through a deactivation → reactivation cycle
-
-**Source:** Promotes backlog phase 999.7 (captured 2026-04-29 during v13.1 close-out architecture review). P2 priority — operationally important once enterprise has real users with SAML data; not a v13.1 functional defect.
-
-**Backlog (deferred from v13.2):** `999.6` tenant scoping (separate architectural milestone, 1–2 weeks+).
+_No active milestone. Run `/gsd-new-milestone` to scope the next milestone — `999.6` tenant scoping is the highest-priority backlog item (separate architectural milestone, 1–2 weeks+)._
 
 ## Core Value
 
@@ -312,6 +315,13 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ SP-initiated SAML SSO with metadata XML endpoint, signed assertion validation, JIT provisioning via `find_or_create_oauth_user()` — v13.1
 - ✓ Configurable SAML attribute → role mapping via `group_claim`/`group_role_mapping`; gated by `is_enterprise()` (Phase 219); audit-logged with `SECRET_FIELDS` redaction — v13.1
 - ✓ Closing audit grades meet/exceed targets: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− (≥C) — v13.1
+- ✓ Operator runbook for enterprise→community downgrade (`docs/edition-deactivation.md`, 10 sections) — v13.2
+- ✓ Operator runbook for community→enterprise re-upgrade (`docs/edition-reactivation.md`) — v13.2
+- ✓ `docs/saml.md` no longer presents `alembic downgrade -1` as primary deactivation path; cross-links to runbook with mandatory `pg_dump` pre-step on destructive path — v13.2
+- ✓ Disabling the enterprise edition without `alembic downgrade` preserves `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` SAML columns — verified by `test_overlay_removal_preserves_saml_data` in CI — v13.2
+- ✓ Destructive alembic downgrade path documented with explicit data-export prerequisite — v13.2
+- ✓ Admin SAML→local conversion endpoint preserves users.id (all FK referrers intact) — `POST /admin/users/{user_id}/convert-saml-to-local/` with audit action `user.convert_saml_to_local`, allow-listed audit details (no password material), 422-blocked self-conversion — v13.2
+- ✓ Round-trip symmetry test confirms 4 `deferred=True` SAML columns + `oauth_accounts` linkage + User row + seeded `audit_log` row are lossless across deactivate→reactivate cycle — `test_deactivate_reactivate_roundtrip_preserves_saml_data` in CI — v13.2
 
 ### Active
 
@@ -563,4 +573,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-29 — milestone v13.2 Edition Lifecycle Hardening scoped (promotes backlog 999.7); v13.1 shipped earlier same day*
+*Last updated: 2026-04-30 — v13.2 Edition Lifecycle Hardening shipped (operator runbooks + admin SAML→local conversion + round-trip symmetry test)*
