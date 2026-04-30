@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -34,7 +35,7 @@ class IngestJob(Base):
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     source_layer: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    user_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    user_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

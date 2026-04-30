@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -49,7 +49,7 @@ class IngestContext:
     source_format: str
     source_filename: str | None
     original_srid: int | None
-    user_metadata: dict
+    user_metadata: dict[str, Any]
     source_url: str | None = None
 
 
@@ -255,7 +255,7 @@ async def _detect_and_override_geometry(
     session,
     *,
     table_name: str,
-    user_metadata: dict,
+    user_metadata: dict[str, Any],
 ) -> str | None:
     """Apply user x/y or WKT geometry overrides to a freshly-loaded table.
 
@@ -475,7 +475,7 @@ async def _ingest_vector_into_staging(
     layer_name: str | None = None,
     ogrinfo_columns: list[dict] | None = None,
     user_wants_geom: bool = False,
-    user_metadata: dict | None = None,
+    user_metadata: dict[str, Any] | None = None,
 ) -> StagingResult:
     """Load a vector source into staging and return extracted staging metadata.
 

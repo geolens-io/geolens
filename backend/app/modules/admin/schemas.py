@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -124,8 +124,8 @@ class AdminJobResponse(BaseModel):
         description="ID of the dataset created by this job, if completed successfully."
     )
     error_message: str | None = Field(description="Error details if the job failed.")
-    user_metadata: dict | None = Field(
-        description="User-supplied metadata captured at upload time (title, summary, tags, etc.)."
+    user_metadata: dict[str, Any] | None = Field(
+        description="User-supplied metadata captured at upload time (title, summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys: title, summary, visibility, file_type, vrt_type, warnings.",
     )
     created_by: uuid.UUID | None = Field(
         description="ID of the user who initiated the job."
