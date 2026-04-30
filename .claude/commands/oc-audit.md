@@ -1,8 +1,8 @@
 # /oc-audit — Open-Core Separation Audit
 
-Audit the GeoLens codebase for open-core separation health across two product axes — Community (free, self-hosted) and Enterprise (paid, self-hosted private deployments) — covering boundary integrity, seam quality, inventory accuracy, and prioritized action items.
+Audit the GeoLens codebase for open-core separation health across two product axes — Community (free, self-hosted, multi-user single-org) and Enterprise (paid, self-hosted, **single-tenant**) — covering boundary integrity, seam quality, inventory accuracy, and prioritized action items.
 
-> **Note:** A hosted SaaS / Cloud tier is *deferred* per `docs-internal/GTM/pricing-to-tiers.md` ("Managed Hosting (Future) — Only do this AFTER traction"). This audit does not currently cover SaaS readiness. If/when that decision changes, the audit will need a 7th subagent (multi-tenancy / metering / billing / per-workspace quota readiness) and a corresponding scoring dimension.
+> **Note:** A hosted SaaS / Cloud tier is *deferred* per `docs-internal/GTM/pricing-to-tiers.md` ("Cloud Edition — Future, Multi-Tenant — Only do this AFTER traction"). Multi-tenancy is the Cloud paywall, **not** an Enterprise self-hosted feature — Enterprise is single-tenant by design. This audit does not currently cover Cloud / SaaS readiness. If/when that decision changes, the audit will need a 7th subagent (tenant-scoping seams / metering / billing / per-tenant quota readiness, gated by Phase 999.6) and a corresponding scoring dimension.
 
 ---
 
@@ -54,7 +54,7 @@ If any of these have changed since the audit was last run, update the assumption
 
 These are the canonical free/paid boundary definitions. Use these as the source of truth when the GTM docs are ambiguous or missing.
 
-**Guiding principle:** *Free should make a single user successful alone, and a single team collaborating in one deployment. Paid should solve organizational problems — multi-tenant isolation, governance, compliance, control, branding, and scale.*
+**Guiding principle:** *Free should make a single user successful alone, and a single team collaborating in one deployment. Paid Enterprise should solve single-org operational problems — governance, compliance, control, branding, hardening, and scale — for one customer org running their own isolated deployment. Multi-tenant isolation is **not** an Enterprise paywall; it belongs to the future Cloud (vendor-hosted SaaS) tier.*
 
 ### MUST remain free (Community Edition)
 
@@ -117,21 +117,30 @@ These are the canonical free/paid boundary definitions. Use these as the source 
 - Org-level tokenized API + embed quota administration
 - Persistent external connectors (stored credentials, scheduled mirroring, recurring sync from S3 / WFS / ArcGIS / PostGIS)
 
-**Enterprise tier ($75K–$200K+/yr):**
+**Enterprise tier ($75K–$200K+/yr) — single-tenant, self-hosted:**
 - White-labeling (full rebrand, custom domain, OEM rights)
-- **Multi-tenant isolation** (multiple isolated organizations sharing one deployment with separate users, data, billing, admin)
 - Cross-instance federation
 - Data lineage tracking (structured)
 - Air-gapped deployment packages
-- GovCloud-ready configs
+- GovCloud-ready / FIPS / FedRAMP-ready configs
+- Customer-managed encryption keys (CMK)
 - Org-wide AI policies, batch metadata extraction, automated workflow pipelines
+
+**Cloud tier (deferred — vendor-hosted SaaS, multi-tenant):**
+- **Multi-tenant isolation** (many customer orgs sharing one vendor-operated deployment with isolated data, users, audit trail, billing, quotas)
+- Per-tenant metering / billing (Stripe, AWS Marketplace metering)
+- Per-tenant quotas (storage, API calls, AI tokens, embed bandwidth)
+- Self-service signup / org provisioning
+- Vendor-operated SLA (uptime, automated backup, patching)
+
+> Cloud is **out of current audit scope**. Multi-tenancy seams (Phase 999.6) live here when ready.
 
 ### Anti-patterns (things that MUST NOT happen)
 
 - Standards (OGC/STAC/DCAT) behind a paywall
 - Per-seat pricing or artificial user caps in Community
 - "Crippled" free tier that blocks basic ingest → find → visualize → share workflow
-- Multi-user collaboration in a single deployment behind a paywall (only multi-tenant isolation is paid)
+- Multi-user collaboration in a single deployment behind a paywall (multi-user single-org is FREE; multi-tenant cross-org isolation is Cloud-only, not Enterprise)
 - Enterprise logic hardcoded in community modules without extension seams
 - Feature flags that degrade community UX to upsell
 - AGPL or copyleft on developer-facing surfaces (CLI, SDK, schemas, validators) — scares enterprise + government adopters
@@ -157,14 +166,14 @@ Run these 6 subagents in parallel. Each produces a standalone findings section.
    grep -rn "ai.policy\|model.routing\|allow.deny\|ai.governance\|batch.metadata" backend/app/ --include="*.py" | grep -v __pycache__
    grep -rn "airgap\|air.gap\|govcloud\|gov.cloud\|offline.deploy" . --include="*.py" --include="*.yml" --include="*.yaml" | grep -v __pycache__ | grep -v node_modules
    ```
-2. Search for **multi-tenant** identifiers (multi-tenant isolation is enterprise-only; multi-user collaboration in a single deployment is fine):
+2. Search for **multi-tenant** identifiers (multi-tenant isolation is **Cloud-only**, not Enterprise; multi-user collaboration in a single deployment is fine):
    ```bash
    grep -rn "tenant_id\|multi.tenant\|cross.org\|tenant.isolation" backend/app/ --include="*.py" | grep -v __pycache__
    grep -rn "org_id\|organization" backend/app/ --include="*.py" | grep -v __pycache__
    ```
    Classify each hit:
-   - If used for *multi-tenant isolation* (tenant-scoped data partitioning, cross-tenant admin) → **boundary violation in community** unless cleanly behind a seam.
-   - If used as *forward-compatible schema scaffolding* (e.g., a nullable `org_id` column with a default of 1) without gating any feature → 🟢 acceptable.
+   - If used for *multi-tenant isolation* (tenant-scoped data partitioning, cross-tenant admin) in core or in the Enterprise overlay → **boundary violation** unless cleanly gated behind a seam reserved for the future Cloud overlay (Phase 999.6 territory). Enterprise must remain single-tenant; tenant code in `app_enterprise/` is also a violation.
+   - If used as *forward-compatible schema scaffolding* (e.g., a nullable `tenant_id` / `org_id` column with a default sentinel) without gating any feature → 🟢 acceptable as a Cloud-prep seam, but flag for explicit ADR if undocumented.
    - If `workspace_id` / `team_id` / similar collaborative scoping → 🟢 fine; that's multi-user, not multi-tenant.
 3. Search for accidental gating of community features:
    ```bash
@@ -215,7 +224,7 @@ Run these 6 subagents in parallel. Each produces a standalone findings section.
    - **Workflow / approval hooks** — Is there any state-machine pattern that could support draft → review → publish without core changes?
    - **AI provider registry** — Where are AI calls dispatched from? Is there a provider abstraction allowing enterprise-only model routing / policy enforcement?
    - **Persistent connector registry** — Is there an extension point for adding stored-credential connectors with scheduled sync (S3, WFS, ArcGIS, PostGIS) without modifying the core ingestion path?
-   - **Tenant scoping hooks** — If/when multi-tenant isolation lands, are data-access paths factored so a tenant filter can be injected via the seam (rather than hardcoded scoping in queries)?
+   - **Tenant scoping hooks** — Reserved for the **future Cloud (multi-tenant SaaS) overlay**, not Enterprise. If/when Cloud lands (Phase 999.6), are data-access paths factored so a tenant filter can be injected via the seam (rather than hardcoded scoping in queries)? Today this is a forward-looking readiness check, not an Enterprise gap.
 3. For each seam, rate:
    - **🟢 Ready** — Clean interface exists; enterprise overlay could plug in today.
    - **🟡 Adaptable** — Would need 1–2 days of refactoring to introduce or extend the seam.
@@ -475,8 +484,8 @@ Avoid false positives. Do NOT flag:
 - **Theme provider in frontend** — a general theme system is fine. Only "remove GeoLens branding" toggle and full white-label are paid.
 - **Feature flags for internal dev purposes** — only flag feature flags that gate community features for upsell.
 - **Settings module having many config options** — settings is inherently a configuration surface. Only flag enterprise-specific policy config in the community settings module.
-- **Multi-user collaboration in a single deployment** — multiple users sharing collections/maps in one deployment is FREE. Only multi-*tenant* isolation (multiple separate orgs in one deployment) is enterprise.
-- **`org_id` / `workspace_id` columns in core models** — acceptable as forward-compatible scaffolding *if* they don't gate any feature in community. Flag only if used to drive multi-tenant isolation, cross-org admin, or feature gating.
+- **Multi-user collaboration in a single deployment** — multiple users sharing collections/maps in one deployment is FREE. Multi-*tenant* isolation (multiple separate orgs in one deployment) is **Cloud-only** (vendor-hosted SaaS, deferred), **not** Enterprise. Self-hosted Enterprise is single-tenant by design.
+- **`org_id` / `workspace_id` / `tenant_id` columns in core models** — acceptable as forward-compatible scaffolding *if* they don't gate any feature in community AND they're documented as Cloud-prep seams. Flag only if used to drive active tenant scoping in core/Enterprise, cross-org admin in Enterprise, or feature gating.
 - **`backend/app/platform/extensions/` Protocol files** — these ARE the seams; their existence is a positive signal, not a violation.
 - **`docker-compose.enterprise.yml` referencing enterprise services** — that's its job. Flag only if the *base* compose file has enterprise references.
 - **API keys / token management infrastructure in Community** — basic per-user keys are free. Flag only if quotas, usage tracking, or admin token management are absent in expected enterprise tiers (gap, not violation).
