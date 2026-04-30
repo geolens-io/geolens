@@ -12,6 +12,7 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.auth.models import ApiKey, Role, User, UserRole
+from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
@@ -170,6 +171,78 @@ class AdminService:
         await self.db.flush()
         await self.db.refresh(user)
         return user
+
+    async def convert_saml_user_to_local(
+        self, user_id: uuid.UUID, password: str
+    ) -> tuple[User, str]:
+        """Convert a SAML-authenticated user to local-password (Phase 221 LIFECYCLE-06).
+
+        In a single (uncommitted) DB transaction:
+          1. Load the user; raise ValueError("User not found") if absent.
+          2. Validate user.auth_provider == "oauth"; otherwise raise ValueError
+             (router maps to 422).
+          3. Find a SAML linkage (oauth_accounts row joined to oauth_providers
+             where provider_type='saml'); raise ValueError if absent.
+          4. Set user.password_hash = hash_password(password).
+          5. Flip user.auth_provider from 'oauth' to 'local' (chk_users_auth_provider
+             CHECK admits 'local').
+          6. DELETE the SAML oauth_accounts row (clean break per D-04 -- the
+             oauth_providers row stays; other users may still link to it).
+
+        Returns (user, provider_slug). The router uses provider_slug to populate
+        the audit-log details field. The router (NOT this method) writes the
+        audit_log row and commits the transaction (per D-05).
+
+        Per D-06: users.id is never updated; every FK referencing it is preserved
+        by virtue of the row not moving.
+        Per D-07: user_roles, api_keys, share_tokens, audit_logs, last_login_at
+        are never touched.
+        """
+        # 1. Load user
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise ValueError("User not found")
+
+        # 2. Validate user is OAuth-authenticated
+        if user.auth_provider != "oauth":
+            raise ValueError(
+                f"User auth_provider is '{user.auth_provider}', not 'oauth' "
+                "-- conversion only applies to OAuth/SAML-authenticated users"
+            )
+
+        # 3. Find a SAML linkage for this user
+        saml_link_stmt = (
+            select(OAuthAccount, OAuthProvider.slug)
+            .join(OAuthProvider, OAuthAccount.provider_id == OAuthProvider.id)
+            .where(
+                OAuthAccount.user_id == user_id,
+                OAuthProvider.provider_type == "saml",
+            )
+        )
+        link_row = (await self.db.execute(saml_link_stmt)).first()
+        if link_row is None:
+            raise ValueError(
+                "User has no SAML provider linkage -- not a SAML-authenticated user"
+            )
+        saml_account, provider_slug = link_row
+
+        # 4. Set password hash
+        user.password_hash = hash_password(password)
+
+        # 5. Flip auth_provider (chk_users_auth_provider admits 'local')
+        user.auth_provider = "local"
+
+        # 6. Delete the SAML linkage row (clean break per D-04). Scoped by id so
+        #    only THIS user's SAML linkage is deleted -- other users' linkages
+        #    AND this user's non-SAML linkages (multi-IdP edge case) are preserved.
+        await self.db.execute(
+            delete(OAuthAccount).where(OAuthAccount.id == saml_account.id)
+        )
+
+        await self.db.flush()
+        await self.db.refresh(user)
+        return user, provider_slug
 
     async def list_users(
         self,
