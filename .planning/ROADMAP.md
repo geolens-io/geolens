@@ -67,19 +67,6 @@ No active milestone. Run `/gsd-new-milestone` to scope the next cycle.
 
 ## Backlog
 
-### Phase 999.5: Helm chart for Kubernetes deployment (BACKLOG)
-
-**Goal:** [Captured for future planning]
-**Requirements:** TBD
-**Plans:** 0 plans
-**Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §7 P3
-**Estimated effort:** ~1 week
-
-Compose-only deployment today; enterprise prospects in regulated/government markets typically demand K8s. Helm chart enables enterprise adoption at scale and unblocks K8s-first prospects.
-
-Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
 ### Phase 999.6: Tenant scoping infrastructure for multi-tenant isolation (BACKLOG)
 
 **Goal:** [Captured for future planning]
