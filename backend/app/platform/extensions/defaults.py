@@ -41,3 +41,36 @@ class DefaultIdentityExtension:
 
     async def resolve_identity_from_token(self, token, request, db):  # type: ignore[no-untyped-def]
         return None
+
+
+class DefaultAuditSink:
+    """Community-edition default: writes one audit_logs row via log_action().
+
+    log_action() is preserved as an internal helper (Phase 222 D-04 / AUDIT-02
+    option a). Application code does NOT call log_action() directly post-Phase-222;
+    only this sink does.
+
+    Does NOT swallow exceptions internally (D-07) — only the audit_emit() facade
+    swallows. Internal swallowing would silently lose session.flush() constraint
+    failures that today's tests expect to surface.
+
+    The async signature is intentional: enterprise overlays may perform non-blocking
+    I/O (S3 PutObject, SIEM HTTP POST). All sinks — community and enterprise — are
+    awaited by ``audit_emit()``.
+    """
+
+    async def emit(self, session, event) -> None:  # type: ignore[no-untyped-def]
+        # Deferred import: log_action lives in app.modules.audit.service.
+        # extensions/ is platform-level and should not pull modules-level
+        # imports at module load (Phase 214 deferred-import discipline).
+        from app.modules.audit.service import log_action
+
+        await log_action(
+            session,
+            user_id=event.user_id,
+            action=event.action,
+            resource_type=event.resource_type,
+            resource_id=event.resource_id,
+            details=event.details,
+            ip_address=event.ip_address,
+        )
