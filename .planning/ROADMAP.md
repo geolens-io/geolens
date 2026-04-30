@@ -64,7 +64,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 ### v13.2 Edition Lifecycle Hardening (Phases 220-221)
 
-- [ ] **Phase 220: lifecycle-runbooks-and-preservation** - Operator runbooks (deactivate + reactivate) land in `docs/`, `docs/saml.md` cross-links, and data-preservation guarantee is verified by integration test
+- [x] **Phase 220: lifecycle-runbooks-and-preservation** - Operator runbooks (deactivate + reactivate) land in `docs/`, `docs/saml.md` cross-links, and data-preservation guarantee is verified by integration test (completed 2026-04-30)
 - [ ] **Phase 221: lifecycle-user-continuity-and-verification** - SAML users have a documented and tested re-onboarding path; CI round-trip symmetry test confirms deactivate → reactivate is lossless
 
 ## Phase Details
@@ -85,7 +85,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 - [x] 220-03-saml-doc-edit-PLAN.md — Targeted edit to docs/saml.md Installation section (LIFECYCLE-03)
 - [x] 220-04-lifecycle-test-PLAN.md — Register lifecycle marker + author backend/tests/test_lifecycle.py (LIFECYCLE-04)
 - [x] 220-05-requirements-precision-fix-PLAN.md — Fix LIFECYCLE-04 wording in REQUIREMENTS.md and ROADMAP.md (LIFECYCLE-04 text-precision)
-- [ ] 220-06-ci-overlay-install-PLAN.md — Amend .github/workflows/ci.yml to install geolens-enterprise overlay before backend test job (LIFECYCLE-04 CI side)
+- [x] 220-06-ci-overlay-install-PLAN.md — Amend .github/workflows/ci.yml to install geolens-enterprise overlay before backend test job (LIFECYCLE-04 CI side)
 
 ### Phase 221: lifecycle-user-continuity-and-verification
 **Goal**: Existing SAML-authenticated users have a safe, documented re-onboarding path when their edition is deactivated, and a CI test confirms the full deactivate→reactivate round-trip is lossless
@@ -101,7 +101,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 220. lifecycle-runbooks-and-preservation | 5/6 | In Progress|  |
+| 220. lifecycle-runbooks-and-preservation | 6/6 | Complete   | 2026-04-30 |
 | 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
 
 ## Backlog
@@ -110,7 +110,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 
