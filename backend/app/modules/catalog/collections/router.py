@@ -208,6 +208,10 @@ async def update_collection_endpoint(
         ip_address=request.client.host if request.client else None,
     )
     await db.commit()
+    # Re-load the row so attributes are fresh (commit expires the ORM
+    # object; the subsequent _collection_to_response read would otherwise
+    # trigger lazy-load IO outside the greenlet -> MissingGreenlet).
+    await db.refresh(collection)
     await invalidate_catalog_cache()
 
     user_roles = await get_user_roles(db, user)

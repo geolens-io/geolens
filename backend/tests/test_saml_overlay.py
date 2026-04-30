@@ -661,13 +661,23 @@ def test_oauth_provider_response_excludes_idp_certificate():
 
 
 async def test_saml_provider_update_logs_old_new_role_mapping(
-    client, test_db_session, admin_auth_header, _cleanup_saml_providers
+    client,
+    test_db_session,
+    admin_auth_header,
+    saml_router_mounted,
+    _cleanup_saml_providers,
 ):
     """SAML-12 / SC#4: audit-log entry for SAML provider update captures
     ``details.changes.group_role_mapping = {old: ..., new: ...}``.
 
     Closes the SAML-12 audit gap identified in RESEARCH §11 (the prior code
     logged only ``slug``; SAML-12 mandates "old/new values").
+
+    Uses ``saml_router_mounted`` to flip ``is_enterprise()`` to True --
+    OAuthProviderUpdate's ``_validate_idp_mapping_gate`` rejects non-empty
+    ``group_role_mapping`` in community mode (oauth/schemas.py:298), so
+    without enterprise the PUT would 422 before reaching the audit-log
+    diff path being tested here.
     """
     from app.modules.audit.models import AuditLog
 
