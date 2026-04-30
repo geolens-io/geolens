@@ -13,16 +13,16 @@ Requirements for v13.2. Each maps to exactly one phase in `.planning/ROADMAP.md`
 
 Operator-facing runbooks that turn the existing alembic-only mental model into a complete deactivation → reactivation lifecycle.
 
-- [ ] **LIFECYCLE-01**: Operator can read a deactivation runbook in `docs/` that walks through enterprise→community downgrade end-to-end — deactivate the edition, preserve `User` rows, optionally roll back schema, and communicate to existing SAML users.
-- [ ] **LIFECYCLE-02**: Operator can read a reactivation runbook in `docs/` that walks through community→enterprise re-upgrade and confirms `deferred=True` SAML columns plus `oauth_providers` rows are still intact and usable.
-- [ ] **LIFECYCLE-03**: `docs/saml.md` no longer recommends destructive `alembic downgrade -1` as the only deactivation path — it cross-links to the new lifecycle runbook and explicitly flags the destructive path as opt-in / data-export-required.
+- [x] **LIFECYCLE-01**: Operator can read a deactivation runbook in `docs/` that walks through enterprise→community downgrade end-to-end — deactivate the edition, preserve `User` rows, optionally roll back schema, and communicate to existing SAML users.
+- [x] **LIFECYCLE-02**: Operator can read a reactivation runbook in `docs/` that walks through community→enterprise re-upgrade and confirms `deferred=True` SAML columns plus `oauth_providers` rows are still intact and usable.
+- [x] **LIFECYCLE-03**: `docs/saml.md` no longer recommends destructive `alembic downgrade -1` as the only deactivation path — it cross-links to the new lifecycle runbook and explicitly flags the destructive path as opt-in / data-export-required.
 
 ### Data Preservation
 
 Behavioral guarantees that make the runbook safe by construction, not just by documentation.
 
-- [ ] **LIFECYCLE-04**: Disabling the enterprise edition (without running `alembic downgrade`) preserves `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` SAML columns on `oauth_providers` — verified by an integration test that exercises the deactivate path.
-- [ ] **LIFECYCLE-05**: Either a non-destructive alembic downgrade path exists that preserves SAML auth data, OR the runbook explicitly documents the destructive nature with a mandatory data-export step ahead of `alembic downgrade -1`. (Decision deferred to plan phase based on schema cost/benefit; either outcome satisfies the requirement.)
+- [x] **LIFECYCLE-04**: Disabling the enterprise edition (without running `alembic downgrade`) preserves `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` SAML columns on `oauth_providers` — verified by an integration test that exercises the deactivate path.
+- [x] **LIFECYCLE-05**: Either a non-destructive alembic downgrade path exists that preserves SAML auth data, OR the runbook explicitly documents the destructive nature with a mandatory data-export step ahead of `alembic downgrade -1`. (Decision deferred to plan phase based on schema cost/benefit; either outcome satisfies the requirement.)
 
 ### User Continuity
 
@@ -62,11 +62,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIFECYCLE-01 | Phase 220 | Pending |
-| LIFECYCLE-02 | Phase 220 | Pending |
-| LIFECYCLE-03 | Phase 220 | Pending |
-| LIFECYCLE-04 | Phase 220 | Pending |
-| LIFECYCLE-05 | Phase 220 | Pending |
+| LIFECYCLE-01 | Phase 220 | Complete |
+| LIFECYCLE-02 | Phase 220 | Complete |
+| LIFECYCLE-03 | Phase 220 | Complete |
+| LIFECYCLE-04 | Phase 220 | Complete |
+| LIFECYCLE-05 | Phase 220 | Complete |
 | LIFECYCLE-06 | Phase 221 | Pending |
 | LIFECYCLE-07 | Phase 221 | Pending |
 

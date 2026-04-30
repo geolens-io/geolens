@@ -101,7 +101,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 220. lifecycle-runbooks-and-preservation | 6/6 | Complete   | 2026-04-30 |
+| 220. lifecycle-runbooks-and-preservation | 6/6 | Complete    | 2026-04-30 |
 | 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
 
 ## Backlog

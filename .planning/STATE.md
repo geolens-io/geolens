@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.2
 milestone_name: Edition Lifecycle Hardening
-status: executing
+status: ready_to_plan
 stopped_at: Phase 220 context gathered
 last_updated: "2026-04-30T01:25:47.594Z"
 last_activity: 2026-04-30 -- Phase 220 execution started
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
   completed_plans: 0
-  percent: 0
+  percent: 33
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 ## Current Position
 
-Phase: 220 (lifecycle-runbooks-and-preservation) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 220
-Last activity: 2026-04-30 -- Phase 220 execution started
+Phase: 999.6
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-04-30
 
 ## Roadmap Snapshot
 
