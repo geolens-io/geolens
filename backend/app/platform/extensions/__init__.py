@@ -16,6 +16,7 @@ from app.platform.extensions.defaults import (
     DefaultAuditExtension,
     DefaultAuditSink,  # NEW (Phase 222)
     DefaultAuthExtension,
+    DefaultBillingExtension,  # NEW (Phase 223)
     DefaultBrandingExtension,
     DefaultIdentityExtension,
 )
@@ -23,6 +24,7 @@ from app.platform.extensions.protocols import (
     AuditExtension,
     AuditSink,  # NEW (Phase 222)
     AuthExtension,
+    BillingExtension,  # NEW (Phase 223)
     BrandingExtension,
 )
 
@@ -154,3 +156,37 @@ def get_audit_sinks() -> list[AuditSink]:
     if sinks is None:
         return [DefaultAuditSink()]
     return list(sinks)  # type: ignore[arg-type]
+
+
+def get_billing_extensions() -> list[BillingExtension]:
+    """Return all registered BillingExtensions, or [DefaultBillingExtension()] when slot missing.
+
+    Phase 223 D-06 — mirrors ``get_audit_sinks()`` shape verbatim (list-shape,
+    lazy default, defensive copy). The list shape is forward-compatible: a
+    future overlay may register a billing-event sink alongside a primary biller
+    (e.g., audit-trail-style billing events). Cost of list shape over single-slot
+    is one extra ``[]`` of syntax; benefit is symmetry with ``AuditSink`` (one
+    pattern, not two).
+
+    Enterprise overlays append to ``_extensions["billing_extensions"]`` via
+    ``setdefault + append`` in their ``register_extensions(registry)`` callback::
+
+        billing_extensions = registry.setdefault(
+            "billing_extensions", [DefaultBillingExtension()]
+        )
+        billing_extensions.append(MarketplaceBillingExtension())
+
+    Reassigning the slot (``registry["billing_extensions"] = [MyExt()]``) makes
+    DefaultBillingExtension disappear from the iteration. The dispatch loop
+    (api/main.py lifespan, Plan 02) tolerates this — DefaultBillingExtension
+    is a no-op so its absence has no behavioral effect — but the
+    ``setdefault + append`` discipline matches Phase 222's pattern and keeps
+    the codebase consistent.
+
+    Returns a defensive ``list(exts)`` copy so an extension cannot accidentally
+    mutate the registry mid-iteration in the lifespan dispatch.
+    """
+    exts = _extensions.get("billing_extensions")
+    if exts is None:
+        return [DefaultBillingExtension()]
+    return list(exts)  # type: ignore[arg-type]
