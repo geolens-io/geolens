@@ -42,6 +42,7 @@
 - ✅ **v13.0 Open-Core Pre-Release** — Phases 206-211 (shipped 2026-03-27)
 - 🚀 **1.0.0 Public Release** — Version reset; backend/frontend bumped to 1.0.0 (shipped 2026-04-01)
 - ✅ **v13.1 Open-Core Separation P1** — Phases 212-219 (shipped 2026-04-29) — see [archive](milestones/v13.1-ROADMAP.md)
+- 🔄 **v13.2 Edition Lifecycle Hardening** — Phases 220-221 (in progress)
 
 ## Phases
 
@@ -61,9 +62,41 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 </details>
 
-### Next Milestone — Not yet planned
+### v13.2 Edition Lifecycle Hardening (Phases 220-221)
 
-No active milestone. Run `/gsd-new-milestone` to scope the next cycle.
+- [ ] **Phase 220: lifecycle-runbooks-and-preservation** - Operator runbooks (deactivate + reactivate) land in `docs/`, `docs/saml.md` cross-links, and data-preservation guarantee is verified by integration test
+- [ ] **Phase 221: lifecycle-user-continuity-and-verification** - SAML users have a documented and tested re-onboarding path; CI round-trip symmetry test confirms deactivate → reactivate is lossless
+
+## Phase Details
+
+### Phase 220: lifecycle-runbooks-and-preservation
+**Goal**: Operators have authoritative documentation for the enterprise→community downgrade and re-upgrade lifecycle, and data-preservation behavior is verified by an automated test
+**Depends on**: Phase 219 (v13.1 SAML implementation — `backend/app/modules/auth/saml/`, `oauth_providers` table, `User` deferred=True columns)
+**Requirements**: LIFECYCLE-01, LIFECYCLE-02, LIFECYCLE-03, LIFECYCLE-04, LIFECYCLE-05
+**Success Criteria** (what must be TRUE):
+  1. Operator can read `docs/edition-deactivation.md` that covers the full enterprise→community downgrade sequence: pre-flight checks, `GEOLENS_EDITION=community` switch, SAML user inventory, and data-fate matrix (what survives vs. what requires export before `alembic downgrade`)
+  2. Operator can read `docs/edition-reactivation.md` that confirms `deferred=True` SAML columns and `oauth_providers` rows survive a deactivation period and are usable immediately on re-upgrade
+  3. `docs/saml.md` no longer presents `alembic downgrade -1` as the primary deactivation path — it links to `edition-deactivation.md` and labels the alembic path as destructive/opt-in with a mandatory data-export prerequisite
+  4. An integration test runs in CI (`pytest -m lifecycle`) that exercises the deactivate path and asserts `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` User columns are intact after edition flag is toggled off
+  5. Either a non-destructive alembic downgrade path exists that preserves SAML data, OR `edition-deactivation.md` documents the destructive path with an explicit mandatory-export step
+**Plans**: TBD
+
+### Phase 221: lifecycle-user-continuity-and-verification
+**Goal**: Existing SAML-authenticated users have a safe, documented re-onboarding path when their edition is deactivated, and a CI test confirms the full deactivate→reactivate round-trip is lossless
+**Depends on**: Phase 220
+**Requirements**: LIFECYCLE-06, LIFECYCLE-07
+**Success Criteria** (what must be TRUE):
+  1. An admin can convert a SAML-authenticated user's account to local-password or OIDC via a documented procedure (runbook or CLI command) without losing audit history, group memberships, or dataset ownership
+  2. `docs/edition-deactivation.md` includes a "Handling existing SAML users" section describing the re-onboarding procedure and linking to any supporting admin tooling
+  3. A CI test (`pytest -m lifecycle`) exercises the deactivate → reactivate round-trip and asserts that User identities, `oauth_providers` rows, and audit trail entries are all intact after the cycle completes
+**Plans**: TBD
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 220. lifecycle-runbooks-and-preservation | 0/TBD | Not started | - |
+| 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
 
 ## Backlog
 
@@ -76,33 +109,6 @@ No active milestone. Run `/gsd-new-milestone` to scope the next cycle.
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 
 No tenant-scoping infrastructure exists today — `User` has no tenant column, all catalog tables sit in single `catalog` schema, no request-context middleware. Required before the Enterprise tier's "multi-org / tenant isolation" feature can ship. Touches identity, catalog, audit, and embed-token domains; needs migration plan + query-injection callback registry + tenant-context propagation.
-
-Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
-
-### Phase 999.7: Edition lifecycle — deactivation & reactivation runbook (BACKLOG)
-
-**Goal:** [Captured for future planning]
-**Requirements:** TBD
-**Plans:** 0 plans
-**Source:** v13.1 close-out conversation 2026-04-29 — gap surfaced after architecture review
-**Estimated effort:** ~2–3 days
-
-v13.1 shipped enterprise *activation* cleanly (extension `importlib.metadata` entry_points + `is_enterprise()` runtime gate + 3-layer admin UI gating + Pitfall 11 `deferred=True` SAML columns). It did **not** close the *deactivation* / *reactivation* lifecycle. Concrete gaps surfaced during v13.1 close-out review:
-
-1. **No path for existing SAML-authenticated users when enterprise is deactivated.** Their `User` rows persist (created via `find_or_create_oauth_user()`) but the SAML auth path is gone — they cannot log in until enterprise is reactivated or they're re-onboarded to OIDC/local accounts.
-2. **`alembic downgrade -1` per `docs/saml.md` is destructive** — drops the 4 SAML columns AND any `oauth_providers` rows with `provider_type='saml'`. No operational data-preservation runbook between deactivation and migration rollback.
-3. **No documented deactivation/reactivation runbook** in `docs/`. Only the destructive alembic note exists.
-4. **No re-activation symmetry test.** The `deferred=True` SAML columns are designed to make reactivation lossless (data preserved through deactivation period), but no UAT or test confirms this round-trip works.
-
-First paying customer who downgrades from enterprise to community will hit one or more of these. P2 priority — not a v13.1 blocker, but operationally important once enterprise has real users with SAML data.
-
-Likely scope:
-- Pre-deactivation checklist (DB backup; SAML-user inventory; alternate-auth onboarding plan)
-- Deactivation switch matrix (`GEOLENS_EDITION=community` env override vs package uninstall vs compose-overlay removal)
-- Data-fate documentation (what survives, what's invisible, what's destroyed by alembic-downgrade)
-- Reactivation path + symmetry test (deactivate → reactivate is lossless for `deferred=True` columns)
-- Optional CLI helper: `geolens admin saml-export` to back up SAML provider configs before downgrade
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)

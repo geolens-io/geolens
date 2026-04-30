@@ -62,19 +62,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIFECYCLE-01 | TBD | Pending |
-| LIFECYCLE-02 | TBD | Pending |
-| LIFECYCLE-03 | TBD | Pending |
-| LIFECYCLE-04 | TBD | Pending |
-| LIFECYCLE-05 | TBD | Pending |
-| LIFECYCLE-06 | TBD | Pending |
-| LIFECYCLE-07 | TBD | Pending |
+| LIFECYCLE-01 | Phase 220 | Pending |
+| LIFECYCLE-02 | Phase 220 | Pending |
+| LIFECYCLE-03 | Phase 220 | Pending |
+| LIFECYCLE-04 | Phase 220 | Pending |
+| LIFECYCLE-05 | Phase 220 | Pending |
+| LIFECYCLE-06 | Phase 221 | Pending |
+| LIFECYCLE-07 | Phase 221 | Pending |
 
 **Coverage:**
 - v13.2 requirements: 7 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 7 ⚠️ (will be resolved by roadmapper)
+- Mapped to phases: 7 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-29*
-*Last updated: 2026-04-29 — initial definition for v13.2 milestone (promotes backlog phase 999.7).*
+*Last updated: 2026-04-29 — traceability filled in by roadmapper (Phase 220: LIFECYCLE-01..05, Phase 221: LIFECYCLE-06..07).*

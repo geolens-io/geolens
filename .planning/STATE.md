@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v13.2
 milestone_name: Edition Lifecycle Hardening
 status: planning
-last_updated: "2026-04-30T00:21:49.232Z"
-last_activity: 2026-04-30
+last_updated: "2026-04-29T00:00:00.000Z"
+last_activity: 2026-04-29
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,23 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.1 milestone close — Phase 219 verified; ready for `/gsd-complete-milestone`.
+**Current focus:** v13.2 Edition Lifecycle Hardening — Phase 220 next.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 220 (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-30 — Milestone v13.2 started
+Status: Planning
+Last activity: 2026-04-29 — Roadmap created for v13.2
+
+## Roadmap Snapshot
+
+| Phase | Name | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 220 | lifecycle-runbooks-and-preservation | LIFECYCLE-01, LIFECYCLE-02, LIFECYCLE-03, LIFECYCLE-04, LIFECYCLE-05 | 219 |
+| 221 | lifecycle-user-continuity-and-verification | LIFECYCLE-06, LIFECYCLE-07 | 220 |
+
+Coverage: 7/7 v13.2 requirements mapped.
 
 ## Phase 218 / 219 close-gate record
 
@@ -45,28 +54,20 @@ Last activity: 2026-04-30 — Milestone v13.2 started
 
 **v13.1 close artifact:** `docs-internal/audits/oc-separation-audit-v13.1-close.md` — amended in place per Phase 219 D-12. `## ⚠ MILESTONE CLOSE BLOCKED` replaced with `## ✅ MILESTONE CLOSE VERIFIED — Phase 219 closed boundary gap`. Pre-remediation BLOCKED narrative preserved as `### Pre-remediation state (2026-04-29)` subsection for audit-trail traceability.
 
-**Next step:** `/gsd-complete-milestone` to archive v13.1 and roll forward to v13.2.
-
-## Roadmap Snapshot
-
-| Phase | Name | Requirements | Depends on |
-|-------|------|--------------|------------|
-| 212 | core-settings-decouple | LAYER-01 | — |
-| 213 | catalog-authz-relocate | LAYER-02 | — |
-| 214 | identity-protocol-extract | IDENT-01, IDENT-02, IDENT-03 | — |
-| 215 | sdks-from-openapi | OCSDK-01, OCSDK-02, OCSDK-03, OCSDK-04 | — |
-| 216 | geolens-cli-mvp | OCCLI-01..06 | 215 |
-| 217 | auth-saml-enterprise | SAML-08..12 | 214 |
-| 218 | oc-audit-close-v13.1 | AUDIT-V1 | 212–217 |
-| 219 | oc-audit-remediate-idp-mapping | TBD | 218 |
-
-Coverage: 21/21 v13.1 requirements mapped.
-
 ## Accumulated Context
 
 ### Roadmap Evolution
 
 - Phase 219 added: oc-audit-remediate-idp-mapping (remediate Phase 218 boundary shortfall — OAuth IdP→role mapping in core)
+- v13.2 phases 220-221 defined: promotes backlog phase 999.7 (edition lifecycle runbooks + data preservation + user continuity + CI verification)
+
+### Key Implementation Reference
+
+The v13.1 SAML implementation is ground truth for v13.2:
+- `backend/app/modules/auth/saml/` — SAML enterprise overlay registered via `importlib.metadata` entry_points
+- `oauth_providers` table — stores `provider_type='saml'` rows
+- `User` model `deferred=True` columns (4 SAML columns) — Pitfall 11 mitigation ensuring lossless reactivation by design
+- `find_or_create_oauth_user()` — JIT provisioning path that creates User rows for SAML-authenticated users
 
 ## Cross-Repo Note (2026-04-26)
 
@@ -112,6 +113,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-04-29T18:00:50.491Z
-Stopped at: Phase 219 context gathered
-Resume file: .planning/phases/219-oc-audit-remediate-idp-mapping/219-CONTEXT.md
+Last session: 2026-04-29
+Stopped at: v13.2 roadmap created
+Resume file: .planning/ROADMAP.md
