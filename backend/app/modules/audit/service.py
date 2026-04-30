@@ -2,11 +2,61 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 
+import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.modules.audit.events import AuditEvent  # re-exported for ergonomic single-import
 from app.modules.audit.models import AuditLog
+from app.platform.extensions import get_audit_sinks
+
+logger = structlog.stdlib.get_logger(__name__)
+
+__all__ = [
+    "AuditEvent",
+    "audit_emit",
+    "log_action",
+    "query_audit_logs",
+    "stream_audit_logs",
+]
+
+
+async def audit_emit(session: AsyncSession, event: AuditEvent) -> None:
+    """Dispatch event to every registered AuditSink with per-sink failure isolation.
+
+    Phase 222 D-06 / AUDIT-03: a sink that raises does NOT break the
+    surrounding business op. Failures are logged via ``structlog.exception()``
+    but do not propagate.
+
+    Phase 222 D-07: the default community sink does NOT swallow exceptions
+    internally — only THIS facade does. ``DefaultAuditSink.emit()`` lets
+    ``session.add()`` constraint failures surface naturally; the per-sink
+    ``except Exception`` here catches them at the facade boundary so the
+    caller's transaction is unaffected.
+
+    Phase 222 D-08: failure scope is per-emit, not per-transaction. A failing
+    sink does not get circuit-broken — it runs again on the next ``audit_emit()``
+    call. Circuit-breaking / sink-quarantine is REQUIREMENTS.md "Out of Scope"
+    advanced-semantics territory.
+
+    Iteration order is the registry's list order; ``DefaultAuditSink`` is
+    registered first by lazy-default semantics, but post-overlay-registration
+    the order depends on the overlay's ``setdefault + append`` discipline
+    (see ``get_audit_sinks()`` docstring). Order is observable but not
+    contractually guaranteed.
+    """
+    for sink in get_audit_sinks():
+        try:
+            await sink.emit(session, event)
+        except Exception:  # noqa: BLE001 — broad: AUDIT-03 contract is "never propagate sink failures"
+            logger.exception(
+                "Audit sink raised; suppressed per AUDIT-03",
+                sink=type(sink).__name__,
+                action=event.action,
+                resource_type=event.resource_type,
+                resource_id=str(event.resource_id) if event.resource_id else None,
+            )
 
 
 def _apply_filters(
