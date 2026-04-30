@@ -79,7 +79,13 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   3. `docs/saml.md` no longer presents `alembic downgrade -1` as the primary deactivation path — it links to `edition-deactivation.md` and labels the alembic path as destructive/opt-in with a mandatory data-export prerequisite
   4. An integration test runs in CI (`pytest -m lifecycle`) that exercises the deactivate path and asserts `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` User columns are intact after edition flag is toggled off
   5. Either a non-destructive alembic downgrade path exists that preserves SAML data, OR `edition-deactivation.md` documents the destructive path with an explicit mandatory-export step
-**Plans**: TBD
+**Plans**: 6 plans
+- [ ] 220-01-deactivation-runbook-PLAN.md — Author docs/edition-deactivation.md (LIFECYCLE-01, LIFECYCLE-05)
+- [ ] 220-02-reactivation-runbook-PLAN.md — Author docs/edition-reactivation.md (LIFECYCLE-02)
+- [ ] 220-03-saml-doc-edit-PLAN.md — Targeted edit to docs/saml.md Installation section (LIFECYCLE-03)
+- [ ] 220-04-lifecycle-test-PLAN.md — Register lifecycle marker + author backend/tests/test_lifecycle.py (LIFECYCLE-04)
+- [ ] 220-05-requirements-precision-fix-PLAN.md — Fix LIFECYCLE-04 wording in REQUIREMENTS.md and ROADMAP.md (LIFECYCLE-04 text-precision)
+- [ ] 220-06-ci-overlay-install-PLAN.md — Amend .github/workflows/ci.yml to install geolens-enterprise overlay before backend test job (LIFECYCLE-04 CI side)
 
 ### Phase 221: lifecycle-user-continuity-and-verification
 **Goal**: Existing SAML-authenticated users have a safe, documented re-onboarding path when their edition is deactivated, and a CI test confirms the full deactivate→reactivate round-trip is lossless
@@ -95,7 +101,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 220. lifecycle-runbooks-and-preservation | 0/TBD | Not started | - |
+| 220. lifecycle-runbooks-and-preservation | 0/6 | Not started | - |
 | 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
 
 ## Backlog
