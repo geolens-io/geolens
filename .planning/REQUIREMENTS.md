@@ -34,7 +34,7 @@ Make sure existing humans can still log in after their edition is deactivated.
 
 Tests/UATs that prove the round-trip works, so this milestone delivers a guarantee instead of a theory.
 
-- [ ] **LIFECYCLE-07**: Re-activation symmetry test confirms the `deferred=True` SAML columns round-trip losslessly through a deactivate → reactivate cycle (User identities, `oauth_providers` rows, and audit trail all intact). Test runs in CI as part of the standard backend suite.
+- [x] **LIFECYCLE-07**: Re-activation symmetry test confirms the `deferred=True` SAML columns round-trip losslessly through a deactivate → reactivate cycle (User identities, `oauth_providers` rows, and audit trail all intact). Test runs in CI as part of the standard backend suite.
 
 ## Future Requirements
 
@@ -68,7 +68,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIFECYCLE-04 | Phase 220 | Complete |
 | LIFECYCLE-05 | Phase 220 | Complete |
 | LIFECYCLE-06 | Phase 221 | Complete |
-| LIFECYCLE-07 | Phase 221 | Pending |
+| LIFECYCLE-07 | Phase 221 | Complete |
 
 **Coverage:**
 - v13.2 requirements: 7 total
