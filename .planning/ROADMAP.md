@@ -95,7 +95,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 **Plans**: 5 plans
   - [x] 222-01-PLAN.md — AuditSink Protocol scaffolding (Protocol + AuditEvent dataclass + DefaultAuditSink + get_audit_sinks accessor + AUDIT-01 unit smoke test)
   - [x] 222-02-PLAN.md — audit_emit() facade + AUDIT-03 raising-sink test (per-sink try/except + structlog.exception)
-  - [ ] 222-03-PLAN.md — Mechanical 65-site rewrite across 18 files (preserves 5 lazy-import sites)
+  - [x] 222-03-PLAN.md — Mechanical 65-site rewrite across 18 files (preserves 5 lazy-import sites)
   - [ ] 222-04-PLAN.md — AUDIT-04 multi-sink integration test (FixtureSink + DefaultAuditSink coexistence via HTTP endpoint)
   - [ ] 222-05-PLAN.md — Architecture guard (AUDIT-02 invariant) + Makefile target + AUDIT-05 close gate
 
@@ -120,7 +120,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 222. audit-sink-protocol | 2/5 | In Progress|  |
+| 222. audit-sink-protocol | 3/5 | In Progress|  |
 | 223. marketplace-billing-extraction | 0/TBD | Not started | - |
 
 ## Backlog
@@ -129,7 +129,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 **Tier:** Cloud (vendor-hosted SaaS, deferred) — **not Enterprise**. Self-hosted Enterprise is single-tenant by design (reframed 2026-04-30 — see `docs-internal/GTM/free-vs-enterprise.md` §3).
