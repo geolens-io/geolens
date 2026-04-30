@@ -80,6 +80,26 @@ class UserUpdate(BaseModel):
         return v
 
 
+class SamlToLocalConversion(BaseModel):
+    """Request body for POST /admin/users/{user_id}/convert-saml-to-local/.
+
+    Per Phase 221 D-01: a dedicated, single-purpose schema kept narrow on
+    purpose -- password is intentionally NOT on the generic UserUpdate schema
+    (which has no password field) so this conversion produces a single,
+    audit-distinct action ('auth.convert_saml_to_local') instead of being
+    folded into 'user.update'.
+    """
+
+    password: str = Field(
+        min_length=8,
+        max_length=256,
+        description=(
+            "Local-password for the converted account (minimum 8 characters). "
+            "The user can change this after first login."
+        ),
+    )
+
+
 class UserNameItem(BaseModel):
     id: uuid.UUID = Field(description="Unique user identifier.")
     username: str = Field(description="User's login username.")
