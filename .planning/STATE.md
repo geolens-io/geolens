@@ -1,18 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.1
-milestone_name: Open-Core Separation P1
-status: shipped
-stopped_at: v13.1 archived; tag v13.1 pushed; awaiting next milestone scope
-last_updated: "2026-04-29T22:50:00.000Z"
-last_activity: 2026-04-29 — v13.1 milestone close complete (paperwork pass + archive + tag + push); enterprise repo also pushed (5 SAML commits); CHANGELOG + retrospective + memories updated
+milestone: v13.2
+milestone_name: Edition Lifecycle Hardening
+status: planning
+last_updated: "2026-04-30T00:21:49.232Z"
+last_activity: 2026-04-30
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 30
-  completed_plans: 30
-  percent: 100
-next_action: "/gsd-new-milestone to scope next cycle, or /gsd-review-backlog to promote 999.5 (Helm) or 999.6 (tenant scoping)"
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -26,10 +24,10 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 ## Current Position
 
-Phase: 219 (oc-audit-remediate-idp-mapping) — **COMPLETE**
-Plan: 1 of 1 (4 of 4 atomic commits landed: d0e09c17 schema gate, dcbb86af service gate, 1cb06324 tests, 6a79e1e5 doc amendment)
-Status: v13.1 milestone close VERIFIED — Boundary Integrity A (≥ A− target) + Seam Quality B (≥ B target) + OSS Surface A− (≥ C target). All three close-gate dimensions met or exceeded.
-Last activity: 2026-04-29
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-30 — Milestone v13.2 started
 
 ## Phase 218 / 219 close-gate record
 

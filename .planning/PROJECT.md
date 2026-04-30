@@ -27,9 +27,19 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - v14.0 Marketing Site (phases 212-217 executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
-## Current Milestone: None active
+## Current Milestone: v13.2 Edition Lifecycle Hardening
 
-Run `/gsd-new-milestone` to scope the next cycle. Backlog (`999.5` Helm chart, `999.6` tenant scoping) tracks promotable items; see ROADMAP.md `## Backlog`.
+**Goal:** Close the deactivation/reactivation lifecycle gap surfaced during v13.1 close-out — make enterprise→community downgrade safe and re-upgrade lossless before any paying customer hits these gaps.
+
+**Target features:**
+- Documented deactivation runbook for existing SAML-authenticated users (preserve `User` rows; provide alternate auth path so they can still log in)
+- Non-destructive `alembic downgrade` path that preserves the 4 `deferred=True` SAML columns and `oauth_providers` rows with `provider_type='saml'`
+- `docs/` runbook covering the full deactivation → reactivation lifecycle (operator-facing, not just developer notes)
+- Re-activation symmetry test/UAT confirming the `deferred=True` SAML columns round-trip losslessly through a deactivation → reactivation cycle
+
+**Source:** Promotes backlog phase 999.7 (captured 2026-04-29 during v13.1 close-out architecture review). P2 priority — operationally important once enterprise has real users with SAML data; not a v13.1 functional defect.
+
+**Backlog (deferred from v13.2):** `999.6` tenant scoping (separate architectural milestone, 1–2 weeks+).
 
 ## Core Value
 
@@ -553,4 +563,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-29 — after v13.1 Open-Core Separation P1 milestone shipped (8 phases, 30 plans, 21/21 requirements; Boundary A / Seam B / OSS A− audit grades)*
+*Last updated: 2026-04-29 — milestone v13.2 Edition Lifecycle Hardening scoped (promotes backlog 999.7); v13.1 shipped earlier same day*
