@@ -65,6 +65,12 @@ For full activation context (IdP setup, admin UI walkthrough, hardening defaults
 
 - Open a private browser window, navigate to `/login`, click a SAML provider button, complete the IdP round-trip, and confirm you land back in GeoLens authenticated. If the IdP rejects with `Unsolicited response` for outstanding-request reasons, retry — pending-request state was cleared during deactivation; new logins re-establish it.
 
+## Note on previously converted SAML users
+
+If SAML users were converted to local-password during deactivation (per [`docs/edition-deactivation.md`](edition-deactivation.md) §Handling existing SAML users), those conversions persist after reactivation. Each converted user continues to log in with the local-password credential issued during deactivation — re-mounting the SAML overlay does not automatically re-link them to the SAML provider. Their `users.id`, role memberships, audit history, and dataset ownership are intact (the conversion was non-destructive across `users.id`-keyed records); only the auth path is now `local` instead of `oauth`.
+
+If you want a previously-converted user back on SAML federated SSO, that re-linking is currently a manual procedure — automating reverse conversion (local → SAML on reactivation) is on the deferred roadmap. Operators who need it today can either (a) delete the local user and let the user re-authenticate via the IdP, which JIT-creates a fresh user row (loses any local-only metadata), or (b) manually `INSERT` an `oauth_accounts` row pointing at the SAML provider for the user and flip `users.auth_provider` back to `'oauth'` (preserves all FK history but requires manual SQL).
+
 ## Why this works
 
 The 4 SAML columns on `catalog.oauth_providers` are added by `e002_add_saml_columns` (the enterprise alembic head). The ORM declares them `deferred=True, deferred_group="saml"` — when the overlay is absent, default queries never load them, so community deployments work unchanged. The columns and rows persist physically regardless of whether the overlay is loaded; re-mounting only restores the consumer (the SAML router and admin UI) of pre-existing data.
