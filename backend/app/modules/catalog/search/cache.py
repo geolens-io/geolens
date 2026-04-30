@@ -66,7 +66,8 @@ def build_cache_key(
     if semantic_enabled is not None:
         payload["semantic_enabled"] = bool(semantic_enabled)
     digest = hashlib.sha1(
-        json.dumps(payload, default=str, sort_keys=True).encode()
+        json.dumps(payload, default=str, sort_keys=True).encode(),
+        usedforsecurity=False,
     ).hexdigest()
     return f"catalog:search:{endpoint}:{digest}"
 
