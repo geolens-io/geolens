@@ -197,9 +197,9 @@ async def test_anon_search_caches_response(
     second_payload = second.json()
 
     # Behavioral signal: second response must equal first (stale) on cache hit.
-    assert (
-        second_payload["numberMatched"] == first_matched
-    ), "anon second request should return cached (stale) numberMatched"
+    assert second_payload["numberMatched"] == first_matched, (
+        "anon second request should return cached (stale) numberMatched"
+    )
 
     # WR-05: assert full-body equivalence (modulo timeStamp) — protects against
     # silent reconstruction breakage if response_model coercion ever drifts.
@@ -260,9 +260,9 @@ async def test_authed_search_bypasses_cache(
     assert second.status_code == 200
     second_matched = second.json()["numberMatched"]
 
-    assert (
-        second_matched == first_matched + 1
-    ), "authed second request should reflect DB mutation (cache bypass)"
+    assert second_matched == first_matched + 1, (
+        "authed second request should reflect DB mutation (cache bypass)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +313,9 @@ async def test_anon_facets_caches_response(
     second_payload = second.json()
     second_total = _record_type_total(second_payload)
 
-    assert (
-        second_total == first_total
-    ), "anon second request should return cached (stale) facet totals"
+    assert second_total == first_total, (
+        "anon second request should return cached (stale) facet totals"
+    )
 
     # WR-05: full-body equality — protects against silent reconstruction breakage.
     assert second_payload == first.json(), "facet cache hit must round-trip body"
@@ -371,6 +371,6 @@ async def test_authed_facets_bypasses_cache(
     assert second.status_code == 200
     second_total = _record_type_total(second.json())
 
-    assert (
-        second_total == first_total + 1
-    ), "authed second request should reflect DB mutation (cache bypass)"
+    assert second_total == first_total + 1, (
+        "authed second request should reflect DB mutation (cache bypass)"
+    )

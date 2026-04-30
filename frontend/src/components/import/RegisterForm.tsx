@@ -283,7 +283,7 @@ function TableDetail({
             t('register.registerButton', { count: 1, defaultValue: 'Register as dataset' })
           )}
         </Button>
-      </div>
+      </fieldset>
     </>
   );
 }

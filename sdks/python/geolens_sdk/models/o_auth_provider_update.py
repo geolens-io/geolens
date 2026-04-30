@@ -41,10 +41,15 @@ class OAuthProviderUpdate:
         group_claim (None | str | Unset): Updated group claim name.
         group_role_mapping (None | OAuthProviderUpdateGroupRoleMappingType0 | Unset): Updated group-to-role mapping.
             Pass an empty object to clear.
+        idp_certificate (None | str | Unset): Updated SAML IdP signing certificate (PEM). Setting this rotates the
+            stored cert; omit to leave unchanged.
+        idp_entity_id (None | str | Unset): Updated SAML IdP entityID.
+        idp_sso_url (None | str | Unset): Updated SAML IdP SSO URL.
         provider_type (None | OAuthProviderUpdateProviderTypeType0 | Unset): New provider type. Rarely changed after
             creation.
         scopes (None | str | Unset): Updated space-separated scopes.
         slug (None | str | Unset): New slug. Changes the callback URL — coordinate with the IdP before updating.
+        sp_entity_id (None | str | Unset): Updated SP entityID.
         token_url (None | str | Unset): Updated token endpoint.
         userinfo_url (None | str | Unset): Updated userinfo endpoint.
     """
@@ -58,9 +63,13 @@ class OAuthProviderUpdate:
     enabled: bool | None | Unset = UNSET
     group_claim: None | str | Unset = UNSET
     group_role_mapping: None | OAuthProviderUpdateGroupRoleMappingType0 | Unset = UNSET
+    idp_certificate: None | str | Unset = UNSET
+    idp_entity_id: None | str | Unset = UNSET
+    idp_sso_url: None | str | Unset = UNSET
     provider_type: None | OAuthProviderUpdateProviderTypeType0 | Unset = UNSET
     scopes: None | str | Unset = UNSET
     slug: None | str | Unset = UNSET
+    sp_entity_id: None | str | Unset = UNSET
     token_url: None | str | Unset = UNSET
     userinfo_url: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -128,6 +137,24 @@ class OAuthProviderUpdate:
         else:
             group_role_mapping = self.group_role_mapping
 
+        idp_certificate: None | str | Unset
+        if isinstance(self.idp_certificate, Unset):
+            idp_certificate = UNSET
+        else:
+            idp_certificate = self.idp_certificate
+
+        idp_entity_id: None | str | Unset
+        if isinstance(self.idp_entity_id, Unset):
+            idp_entity_id = UNSET
+        else:
+            idp_entity_id = self.idp_entity_id
+
+        idp_sso_url: None | str | Unset
+        if isinstance(self.idp_sso_url, Unset):
+            idp_sso_url = UNSET
+        else:
+            idp_sso_url = self.idp_sso_url
+
         provider_type: None | str | Unset
         if isinstance(self.provider_type, Unset):
             provider_type = UNSET
@@ -147,6 +174,12 @@ class OAuthProviderUpdate:
             slug = UNSET
         else:
             slug = self.slug
+
+        sp_entity_id: None | str | Unset
+        if isinstance(self.sp_entity_id, Unset):
+            sp_entity_id = UNSET
+        else:
+            sp_entity_id = self.sp_entity_id
 
         token_url: None | str | Unset
         if isinstance(self.token_url, Unset):
@@ -181,12 +214,20 @@ class OAuthProviderUpdate:
             field_dict["group_claim"] = group_claim
         if group_role_mapping is not UNSET:
             field_dict["group_role_mapping"] = group_role_mapping
+        if idp_certificate is not UNSET:
+            field_dict["idp_certificate"] = idp_certificate
+        if idp_entity_id is not UNSET:
+            field_dict["idp_entity_id"] = idp_entity_id
+        if idp_sso_url is not UNSET:
+            field_dict["idp_sso_url"] = idp_sso_url
         if provider_type is not UNSET:
             field_dict["provider_type"] = provider_type
         if scopes is not UNSET:
             field_dict["scopes"] = scopes
         if slug is not UNSET:
             field_dict["slug"] = slug
+        if sp_entity_id is not UNSET:
+            field_dict["sp_entity_id"] = sp_entity_id
         if token_url is not UNSET:
             field_dict["token_url"] = token_url
         if userinfo_url is not UNSET:
@@ -297,6 +338,33 @@ class OAuthProviderUpdate:
             d.pop("group_role_mapping", UNSET)
         )
 
+        def _parse_idp_certificate(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        idp_certificate = _parse_idp_certificate(d.pop("idp_certificate", UNSET))
+
+        def _parse_idp_entity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        idp_entity_id = _parse_idp_entity_id(d.pop("idp_entity_id", UNSET))
+
+        def _parse_idp_sso_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        idp_sso_url = _parse_idp_sso_url(d.pop("idp_sso_url", UNSET))
+
         def _parse_provider_type(
             data: object,
         ) -> None | OAuthProviderUpdateProviderTypeType0 | Unset:
@@ -336,6 +404,15 @@ class OAuthProviderUpdate:
 
         slug = _parse_slug(d.pop("slug", UNSET))
 
+        def _parse_sp_entity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        sp_entity_id = _parse_sp_entity_id(d.pop("sp_entity_id", UNSET))
+
         def _parse_token_url(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -364,9 +441,13 @@ class OAuthProviderUpdate:
             enabled=enabled,
             group_claim=group_claim,
             group_role_mapping=group_role_mapping,
+            idp_certificate=idp_certificate,
+            idp_entity_id=idp_entity_id,
+            idp_sso_url=idp_sso_url,
             provider_type=provider_type,
             scopes=scopes,
             slug=slug,
+            sp_entity_id=sp_entity_id,
             token_url=token_url,
             userinfo_url=userinfo_url,
         )

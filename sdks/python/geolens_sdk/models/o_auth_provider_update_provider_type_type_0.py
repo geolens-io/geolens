@@ -1,6 +1,6 @@
 from typing import Literal, cast
 
-OAuthProviderUpdateProviderTypeType0 = Literal["google", "microsoft", "oidc"]
+OAuthProviderUpdateProviderTypeType0 = Literal["google", "microsoft", "oidc", "saml"]
 
 O_AUTH_PROVIDER_UPDATE_PROVIDER_TYPE_TYPE_0_VALUES: set[
     OAuthProviderUpdateProviderTypeType0
@@ -8,6 +8,7 @@ O_AUTH_PROVIDER_UPDATE_PROVIDER_TYPE_TYPE_0_VALUES: set[
     "google",
     "microsoft",
     "oidc",
+    "saml",
 }
 
 

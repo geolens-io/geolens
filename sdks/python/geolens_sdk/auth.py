@@ -11,6 +11,7 @@ The query-parameter `?api_key=<key>` fallback that the backend supports for
 browser/embed contexts is NOT exposed by this SDK wrapper (D-11). Use one
 of the two header modes via the constructor or the set_* helpers.
 """
+
 from __future__ import annotations
 
 from typing import Optional, Union
@@ -49,9 +50,7 @@ class GeolensClient:
         api_key: Optional[str] = None,
     ) -> None:
         if bearer_token and api_key:
-            raise ValueError(
-                "Provide either bearer_token or api_key, not both."
-            )
+            raise ValueError("Provide either bearer_token or api_key, not both.")
         self._base_url = base_url
         self._client: Union[AuthenticatedClient, Client]
         if bearer_token:

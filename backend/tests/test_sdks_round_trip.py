@@ -28,6 +28,7 @@ module). Plan 05 also added ``__init__.py`` to the Makefile cp-stash so
 ``from geolens_sdk import GeolensClient`` works for SDK consumers; the
 explicit submodule path is kept here for test stability across regenerations.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -320,9 +321,7 @@ async def test_typescript_round_trip(client, admin_auth_header) -> None:
     try:
         import uvicorn  # noqa: F401
     except ImportError:
-        pytest.skip(
-            "uvicorn not installed (TS half needs a real HTTP server)"
-        )
+        pytest.skip("uvicorn not installed (TS half needs a real HTTP server)")
 
     from app.api.main import app
 
@@ -358,9 +357,7 @@ async def test_typescript_round_trip(client, admin_auth_header) -> None:
         env["GEOLENS_BASE_URL"] = base_url
         env["GEOLENS_TOKEN"] = token
 
-        ts_test = (
-            _REPO_ROOT / "sdks" / "typescript" / "test" / "round_trip.test.mjs"
-        )
+        ts_test = _REPO_ROOT / "sdks" / "typescript" / "test" / "round_trip.test.mjs"
         assert ts_test.exists(), f"TS test script missing at {ts_test}"
 
         # Run the blocking subprocess in a worker thread so the asyncio event

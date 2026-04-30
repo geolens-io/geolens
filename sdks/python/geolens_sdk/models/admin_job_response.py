@@ -37,7 +37,8 @@ class AdminJobResponse:
         started_at (datetime.datetime | None): Timestamp when the worker began processing the job.
         status (AdminJobResponseStatus): Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
         user_metadata (AdminJobResponseUserMetadataType0 | None): User-supplied metadata captured at upload time (title,
-            summary, tags, etc.).
+            summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys:
+            title, summary, visibility, file_type, vrt_type, warnings.
         username (None | str): Username of the user who initiated the job.
     """
 

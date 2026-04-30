@@ -304,7 +304,7 @@ export type AdminJobResponse = {
     /**
      * User Metadata
      *
-     * User-supplied metadata captured at upload time (title, summary, tags, etc.).
+     * User-supplied metadata captured at upload time (title, summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys: title, summary, visibility, file_type, vrt_type, warnings.
      */
     user_metadata: {
         [key: string]: unknown;
@@ -4258,15 +4258,15 @@ export type OAuthProviderCreate = {
     /**
      * Client Id
      *
-     * OAuth client ID issued by the IdP.
+     * OAuth client ID issued by the IdP. Required for OAuth/OIDC providers; omit for SAML.
      */
-    client_id: string;
+    client_id?: string | null;
     /**
      * Client Secret
      *
-     * OAuth client secret issued by the IdP. Stored encrypted; never returned in responses.
+     * OAuth client secret issued by the IdP. Stored encrypted; never returned in responses. Required for OAuth/OIDC providers; omit for SAML.
      */
-    client_secret: string;
+    client_secret?: string | null;
     /**
      * Default Role
      *
@@ -4294,7 +4294,7 @@ export type OAuthProviderCreate = {
     /**
      * Group Claim
      *
-     * Name of the JWT/userinfo claim that contains group memberships. Set to enable group-based role mapping.
+     * Name of the JWT/userinfo claim (or SAML attribute) that contains group memberships. Set to enable group-based role mapping.
      */
     group_claim?: string | null;
     /**
@@ -4306,11 +4306,29 @@ export type OAuthProviderCreate = {
         [key: string]: unknown;
     } | null;
     /**
+     * Idp Certificate
+     *
+     * SAML IdP signing certificate (PEM). Required for SAML providers. Stored Fernet-encrypted at rest; never returned in responses.
+     */
+    idp_certificate?: string | null;
+    /**
+     * Idp Entity Id
+     *
+     * SAML IdP entityID. Required for SAML providers.
+     */
+    idp_entity_id?: string | null;
+    /**
+     * Idp Sso Url
+     *
+     * SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML providers.
+     */
+    idp_sso_url?: string | null;
+    /**
      * Provider Type
      *
-     * OAuth provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic.
+     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).
      */
-    provider_type: 'google' | 'microsoft' | 'oidc';
+    provider_type: 'google' | 'microsoft' | 'oidc' | 'saml';
     /**
      * Scopes
      *
@@ -4323,6 +4341,12 @@ export type OAuthProviderCreate = {
      * URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and hyphens only.
      */
     slug: string;
+    /**
+     * Sp Entity Id
+     *
+     * SP entityID for this provider. Required for SAML providers. Default suggestion: {public_api_url}/auth/saml/{slug}.
+     */
+    sp_entity_id?: string | null;
     /**
      * Token Url
      *
@@ -4366,7 +4390,23 @@ export type OAuthProviderPublic = {
 /**
  * OAuthProviderResponse
  *
- * Response schema for OAuth provider. Never exposes client_secret.
+ * Response schema for OAuth/SAML provider.
+ *
+ * Write-only credentials are never exposed:
+ * - ``client_secret_encrypted`` (OAuth client secret) — excluded.
+ * - ``idp_certificate`` (SAML IdP signing cert, Fernet-encrypted at rest) — excluded.
+ *
+ * The 3 non-secret SAML fields (``idp_entity_id``, ``idp_sso_url``,
+ * ``sp_entity_id``) ARE exposed so the admin UI can display them.
+ *
+ * Pitfall 11 interaction: those 3 fields are declared with ``deferred=True``
+ * on the OAuth ORM model so community DBs (which lack the columns) do not
+ * crash on SELECT. Pydantic's ``from_attributes=True`` would normally trigger
+ * an implicit deferred load on attribute access, which fails under FastAPI's
+ * async context with ``MissingGreenlet``. The ``model_validator(mode="before")``
+ * below reads the SAML fields directly from ``obj.__dict__`` so unloaded
+ * attributes default to None instead of triggering IO. SAML admin endpoints
+ * that need the values must use ``undefer_group("saml")`` at query time.
  */
 export type OAuthProviderResponse = {
     /**
@@ -4378,9 +4418,9 @@ export type OAuthProviderResponse = {
     /**
      * Client Id
      *
-     * OAuth client ID. Visible to admins; never exposes client_secret.
+     * OAuth client ID. Visible to admins; never exposes client_secret. Null for SAML providers.
      */
-    client_id: string;
+    client_id?: string | null;
     /**
      * Created At
      *
@@ -4432,9 +4472,21 @@ export type OAuthProviderResponse = {
      */
     id: string;
     /**
+     * Idp Entity Id
+     *
+     * SAML IdP entityID (SAML providers only).
+     */
+    idp_entity_id?: string | null;
+    /**
+     * Idp Sso Url
+     *
+     * SAML IdP SSO URL (SAML providers only).
+     */
+    idp_sso_url?: string | null;
+    /**
      * Provider Type
      *
-     * Provider type: 'google', 'microsoft', or 'oidc'.
+     * Provider type: 'google', 'microsoft', 'oidc', or 'saml'.
      */
     provider_type: string;
     /**
@@ -4449,6 +4501,12 @@ export type OAuthProviderResponse = {
      * URL-safe identifier used in the callback URL.
      */
     slug: string;
+    /**
+     * Sp Entity Id
+     *
+     * SP entityID for this SAML provider (SAML providers only).
+     */
+    sp_entity_id?: string | null;
     /**
      * Token Url
      *
@@ -4532,11 +4590,29 @@ export type OAuthProviderUpdate = {
         [key: string]: unknown;
     } | null;
     /**
+     * Idp Certificate
+     *
+     * Updated SAML IdP signing certificate (PEM). Setting this rotates the stored cert; omit to leave unchanged.
+     */
+    idp_certificate?: string | null;
+    /**
+     * Idp Entity Id
+     *
+     * Updated SAML IdP entityID.
+     */
+    idp_entity_id?: string | null;
+    /**
+     * Idp Sso Url
+     *
+     * Updated SAML IdP SSO URL.
+     */
+    idp_sso_url?: string | null;
+    /**
      * Provider Type
      *
      * New provider type. Rarely changed after creation.
      */
-    provider_type?: 'google' | 'microsoft' | 'oidc' | null;
+    provider_type?: 'google' | 'microsoft' | 'oidc' | 'saml' | null;
     /**
      * Scopes
      *
@@ -4549,6 +4625,12 @@ export type OAuthProviderUpdate = {
      * New slug. Changes the callback URL — coordinate with the IdP before updating.
      */
     slug?: string | null;
+    /**
+     * Sp Entity Id
+     *
+     * Updated SP entityID.
+     */
+    sp_entity_id?: string | null;
     /**
      * Token Url
      *
@@ -5883,6 +5965,26 @@ export type ReuploadServicePreviewRequest = {
      * Url
      */
     url: string;
+};
+
+/**
+ * SamlToLocalConversion
+ *
+ * Request body for POST /admin/users/{user_id}/convert-saml-to-local/.
+ *
+ * Per Phase 221 D-01: a dedicated, single-purpose schema kept narrow on
+ * purpose -- password is intentionally NOT on the generic UserUpdate schema
+ * (which has no password field) so this conversion produces a single,
+ * audit-distinct action ('user.convert_saml_to_local') instead of being
+ * folded into 'user.update'.
+ */
+export type SamlToLocalConversion = {
+    /**
+     * Password
+     *
+     * Local-password for the converted account (minimum 8 characters). The user can change this after first login.
+     */
+    password: string;
 };
 
 /**
@@ -9113,6 +9215,56 @@ export type ApproveUserAdminUsersUserIdApprovePostResponses = {
 };
 
 export type ApproveUserAdminUsersUserIdApprovePostResponse = ApproveUserAdminUsersUserIdApprovePostResponses[keyof ApproveUserAdminUsersUserIdApprovePostResponses];
+
+export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostData = {
+    body: SamlToLocalConversion;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/admin/users/{user_id}/convert-saml-to-local/';
+};
+
+export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostError = ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostErrors[keyof ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostErrors];
+
+export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserResponse;
+};
+
+export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponse = ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponses[keyof ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponses];
 
 export type DeactivateUserAdminUsersUserIdDeactivatePostData = {
     body?: never;

@@ -36,6 +36,7 @@ on exit codes + output. The unit slices in ``cli/tests/`` already cover
 each command's logic with mocked SDKs; this module is the smoke gate that
 proves the pieces compose end-to-end.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -203,6 +204,7 @@ class TestLoginRoundTrip:
         assert result.exit_code == 0, result.output
         # Verify credentials.toml round-tripped via the public loader.
         from geolens_cli import auth as _auth
+
         loaded = _auth.load_bearer_token(base_url)
         assert loaded is not None
         assert loaded.value == token
@@ -241,9 +243,7 @@ class TestWhoamiRoundTrip:
     ) -> None:
         base_url, token = uvicorn_url
         # First login (puts token in mocked keyring + writes config.toml)
-        login_result = await _invoke(
-            runner, ["login", base_url, "--token", token]
-        )
+        login_result = await _invoke(runner, ["login", base_url, "--token", token])
         assert login_result.exit_code == 0, login_result.output
         # Then whoami: hits /auth/me on the live uvicorn instance
         result = await _invoke(runner, ["whoami"])
@@ -312,19 +312,16 @@ class TestPublishRoundTrip:
         # is async on the backend; polling for completion adds ~5-10s and
         # is not required to prove the round-trip works). The unit slice
         # already covers the wait/no-wait branch.
-        result = await _invoke(
-            runner, ["publish", str(target), "--no-wait"]
-        )
+        result = await _invoke(runner, ["publish", str(target), "--no-wait"])
         # Accept exit 0 (full success) OR exit 1 (commit returns success
         # but resolve_dataset_id can't extract — accepted per Plan 06
         # behavior note 2). Anything else is a real failure.
         if result.exit_code == 0:
             # Either a /datasets/<id> URL or a /datasets?job_id=... URL
             # (the --no-wait fallback per CONTEXT D-19).
-            assert (
-                "/datasets/" in result.output
-                or "/datasets?" in result.output
-            ), result.output
+            assert "/datasets/" in result.output or "/datasets?" in result.output, (
+                result.output
+            )
         else:
             pytest.skip(
                 f"Publish round-trip exited {result.exit_code}; "
