@@ -97,7 +97,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   3. A CI test (`pytest -m lifecycle`) exercises the deactivate → reactivate round-trip and asserts that User identities, `oauth_providers` rows, and audit trail entries are all intact after the cycle completes
 **Plans**: 3 plans
 - [x] 221-01-PLAN.md — Add SamlToLocalConversion schema + AdminService.convert_saml_user_to_local + POST /admin/users/{id}/convert-saml-to-local/ endpoint (LIFECYCLE-06 backend)
-- [ ] 221-02-PLAN.md — Replace docs/edition-deactivation.md line-81 TODO with Handling existing SAML users section + docs/edition-reactivation.md forward-pointer (LIFECYCLE-06 docs)
+- [x] 221-02-PLAN.md — Replace docs/edition-deactivation.md line-81 TODO with Handling existing SAML users section + docs/edition-reactivation.md forward-pointer (LIFECYCLE-06 docs)
 - [ ] 221-03-PLAN.md — Extend _cleanup_lifecycle_rows + add LIFECYCLE-06 conversion test + LIFECYCLE-07 round-trip test in backend/tests/test_lifecycle.py
 
 ## Progress
@@ -105,7 +105,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 220. lifecycle-runbooks-and-preservation | 6/6 | Complete    | 2026-04-30 |
-| 221. lifecycle-user-continuity-and-verification | 1/3 | In Progress|  |
+| 221. lifecycle-user-continuity-and-verification | 2/3 | In Progress|  |
 
 ## Backlog
 
@@ -113,7 +113,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 

@@ -28,7 +28,7 @@ Behavioral guarantees that make the runbook safe by construction, not just by do
 
 Make sure existing humans can still log in after their edition is deactivated.
 
-- [ ] **LIFECYCLE-06**: SAML-authenticated users whose edition is deactivated have a documented and tested re-onboarding path — e.g., an admin can convert their account to local-password or OIDC without losing audit history, group memberships, or dataset ownership.
+- [x] **LIFECYCLE-06**: SAML-authenticated users whose edition is deactivated have a documented and tested re-onboarding path — e.g., an admin can convert their account to local-password or OIDC without losing audit history, group memberships, or dataset ownership.
 
 ### Verification
 
@@ -67,7 +67,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIFECYCLE-03 | Phase 220 | Complete |
 | LIFECYCLE-04 | Phase 220 | Complete |
 | LIFECYCLE-05 | Phase 220 | Complete |
-| LIFECYCLE-06 | Phase 221 | Pending |
+| LIFECYCLE-06 | Phase 221 | Complete |
 | LIFECYCLE-07 | Phase 221 | Pending |
 
 **Coverage:**
