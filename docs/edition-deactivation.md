@@ -192,7 +192,7 @@ A successful response (HTTP 200) is the user's `UserResponse` payload with `auth
 - Sets `users.password_hash` to a bcrypt hash of the supplied password.
 - Flips `users.auth_provider` from `'oauth'` to `'local'`.
 - Deletes the user's `oauth_accounts` row pointing at the SAML provider. The SAML `oauth_providers` row itself is preserved — other users may still link to it post-reactivation.
-- Writes one `audit_log` entry with `action='auth.convert_saml_to_local'` and `details={"from": "saml", "to": "local", "provider_slug": "<slug>"}`. Password material is never logged.
+- Writes one `audit_log` entry with `action='user.convert_saml_to_local'` and `details={"from": "saml", "to": "local", "provider_slug": "<slug>"}`. Password material is never logged.
 
 All steps run in one transaction; any failure rolls back without writing the audit-log row.
 
@@ -218,7 +218,7 @@ Expected: HTTP 200 with `access_token`. If you receive 401, confirm the conversi
 ```sql
 SELECT user_id, action, resource_id, details
 FROM catalog.audit_logs
-WHERE action = 'auth.convert_saml_to_local'
+WHERE action = 'user.convert_saml_to_local'
 ORDER BY created_at DESC
 LIMIT 10;
 ```

@@ -109,7 +109,7 @@ async def _cleanup_lifecycle_rows(test_db_session: AsyncSession):
     and LIFECYCLE-07 round-trip test seed:
       - audit_logs rows by user_id OR resource_id (test-seeded
         'test.seed.lifecycle' rows AND endpoint-written
-        'auth.convert_saml_to_local' rows where resource_id == converted user_id).
+        'user.convert_saml_to_local' rows where resource_id == converted user_id).
       - user_roles rows by user_id (LIFECYCLE-06 conversion-test seed).
       - records rows by created_by (LIFECYCLE-06 record-ownership seed). Datasets
         attached via record_id are cleaned via CASCADE; an explicit datasets
@@ -560,13 +560,13 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         conversion_log_row = (
             await test_db_session.execute(
                 select(AuditLog).where(
-                    AuditLog.action == "auth.convert_saml_to_local",
+                    AuditLog.action == "user.convert_saml_to_local",
                     AuditLog.resource_id == seeded_user_id,
                 )
             )
         ).scalar_one_or_none()
         assert conversion_log_row is not None, (
-            "endpoint did not write the auth.convert_saml_to_local audit_log row"
+            "endpoint did not write the user.convert_saml_to_local audit_log row"
         )
         assert conversion_log_row.resource_type == "user"
         # Allow-listed details only (security invariant T-221-03)
