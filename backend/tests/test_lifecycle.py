@@ -1,33 +1,51 @@
-"""Integration test for the SAML enterprise overlay deactivation lifecycle (Phase 220 LIFECYCLE-04).
+"""Integration tests for the SAML enterprise overlay lifecycle.
 
-Closes ROADMAP Phase 220 SC#4: clearing the in-process extension registry
-(simulating the operator-canonical "stop loading the geolens-enterprise overlay"
-deactivation path per CONTEXT.md D-01) does NOT destroy SAML data.
+Three test functions covering Phase 220 + Phase 221 requirements:
 
-The test seeds an OAuthProvider (provider_type='saml', all 4 deferred SAML
-columns populated), an OAuthAccount linkage row, and a User with
-auth_provider='oauth'. It then clears the three module-level state surfaces
-(_extensions, _routers, app.core.edition._info via init_edition([])) and
-asserts:
+  1. test_overlay_removal_preserves_saml_data (Phase 220 LIFECYCLE-04) --
+     deactivate-only. Clears the in-process extension registry (simulating
+     the operator-canonical "stop loading the geolens-enterprise overlay"
+     deactivation path per Phase 220 D-01) and asserts SAML data survives:
+     oauth_providers row + 4 deferred SAML columns, oauth_accounts linkage,
+     User row with auth_provider='oauth', is_enterprise() flipped to False,
+     and typed registry accessors falling back to Default* counterparts.
 
-  1. oauth_providers row still queryable; 4 deferred columns retain values
-     (loaded via select(...).options(undefer_group("saml"))).
-  2. oauth_accounts linkage row still present.
-  3. users row with auth_provider='oauth' still present.
-  4. is_enterprise() returns False.
-  5. The 4 typed registry accessors return their Default* counterparts.
+  2. test_convert_saml_user_to_local_preserves_user_data (Phase 221
+     LIFECYCLE-06) -- conversion. Seeds a representative trio of FK referrers
+     (audit_log, user_roles, Record + attached Dataset), invokes
+     POST /admin/users/{user_id}/convert-saml-to-local/ via TestClient with
+     admin auth, and asserts the conversion endpoint preserves every FK
+     referrer scoped to users.id while flipping auth_provider to 'local',
+     deleting only the SAML oauth_accounts row, and writing an audit_log
+     row with allow-listed details (no password material).
 
-D-04 (registry-level simulation in single pytest session) and D-05 (test
-lives in backend/tests/test_lifecycle.py -- core repo, NOT enterprise).
+  3. test_deactivate_reactivate_roundtrip_preserves_saml_data (Phase 221
+     LIFECYCLE-07) -- round-trip symmetry. Drives the registry through a
+     full deactivate->reactivate cycle (3 module-level state surfaces reset
+     on deactivate, re-populated symmetrically via Pattern 3 Shape A on
+     reactivate) and asserts the cycle is lossless across the 4 deferred
+     SAML columns, oauth_accounts linkage, User row, and a seeded
+     audit_log row (D-10 -- a real seed, not vacuous FK reflection).
 
-The test is marked @pytest.mark.lifecycle. The marker is registered in
-backend/pyproject.toml; it is NOT in the addopts deselect list, so it runs
-by default in standard pytest invocations (per RESEARCH.md Pitfall 7).
+All three tests are marked @pytest.mark.lifecycle. The marker is registered
+in backend/pyproject.toml; it is NOT in the addopts deselect list, so the
+tests run by default in standard pytest invocations (Phase 220 RESEARCH.md
+Pitfall 7).
 
-The test takes the saml_overlay_registered fixture (conftest.py:454-484) so
-the registry starts populated; the mid-test clear runs BEFORE the fixture's
-finally block, which restores prior state on teardown. No new fixture is
-needed.
+All three tests take the saml_overlay_registered fixture (conftest.py:454-
+484) so the registry starts populated; mid-test clears run BEFORE the
+fixture's finally block, which restores prior state on teardown.
+
+The shared _cleanup_lifecycle_rows fixture (test-local, NOT promoted to
+conftest.py per Phase 221 D-11) extends Phase 220's pattern with
+dependency-ordered DELETEs against audit_logs (user_id OR resource_id),
+user_roles, datasets (by record_id), and records (by created_by) BEFORE
+the existing oauth_accounts/oauth_providers/users DELETEs.
+
+Enterprise imports are ALWAYS deferred inside test/fixture bodies (Phase
+220 RESEARCH.md Pitfall 5) so test collection succeeds in community-only
+environments; only tests that actually request the fixture/import fail
+with ImportError when the geolens-enterprise overlay is unavailable.
 """
 
 from __future__ import annotations
