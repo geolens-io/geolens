@@ -89,7 +89,16 @@ export interface RasterPreviewResponse {
   temporal_start: string | null;
 }
 
-export type RecordType = 'vector_dataset' | 'raster_dataset' | 'vrt_dataset' | 'table';
+// Mirrors backend chk_records_record_type CHECK constraint
+// (catalog/datasets/domain/models.py:52). Keep in sync if values change.
+export type RecordType =
+  | 'vector_dataset'
+  | 'raster_dataset'
+  | 'vrt_dataset'
+  | 'map'
+  | 'service'
+  | 'collection'
+  | 'table';
 export type DatasetVisibility = 'public' | 'restricted' | 'private';
 export type RecordStatus = 'draft' | 'published';
 export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';

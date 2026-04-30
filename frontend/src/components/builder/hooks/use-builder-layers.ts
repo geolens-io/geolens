@@ -68,7 +68,7 @@ export function useBuilderLayers(
   // Initialize local state from API data (once)
   useEffect(() => {
     if (mapData && !initializedRef.current) {
-      setLocalLayers(mapData.layers);
+      setLocalLayers(mapData.layers ?? []);
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       setLocalName(mapData.name);
