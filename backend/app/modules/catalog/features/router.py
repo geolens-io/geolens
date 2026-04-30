@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.modules.catalog.authorization import check_dataset_access
@@ -351,16 +351,18 @@ async def create_feature(
 
     await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="feature.insert",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={
-            "gid": row["gid"],
-            "property_fields": sorted((row.get("properties") or {}).keys()),
-        },
+        AuditEvent(
+            user_id=user.id,
+            action="feature.insert",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "gid": row["gid"],
+                "property_fields": sorted((row.get("properties") or {}).keys()),
+            },
+        ),
     )
     await db.commit()
 
@@ -440,16 +442,18 @@ async def replace_single_feature(
 
     await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="feature.replace",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={
-            "gid": row["gid"],
-            "property_fields": sorted((row.get("properties") or {}).keys()),
-        },
+        AuditEvent(
+            user_id=user.id,
+            action="feature.replace",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "gid": row["gid"],
+                "property_fields": sorted((row.get("properties") or {}).keys()),
+            },
+        ),
     )
     await db.commit()
 
@@ -523,17 +527,19 @@ async def patch_single_feature(
     if body.geometry is not None:
         await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="feature.update",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={
-            "gid": row["gid"],
-            "geometry_updated": body.geometry is not None,
-            "property_fields": sorted((body.properties or {}).keys()),
-        },
+        AuditEvent(
+            user_id=user.id,
+            action="feature.update",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "gid": row["gid"],
+                "geometry_updated": body.geometry is not None,
+                "property_fields": sorted((body.properties or {}).keys()),
+            },
+        ),
     )
     await db.commit()
 
@@ -589,13 +595,15 @@ async def delete_single_feature(
 
     await refresh_dataset_metadata(db, dataset)
     dataset.record.updated_by = user.id
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="feature.delete",
-        resource_type="dataset",
-        resource_id=dataset_id,
-        details={"gid": gid},
+        AuditEvent(
+            user_id=user.id,
+            action="feature.delete",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={"gid": gid},
+        ),
     )
     await db.commit()
 

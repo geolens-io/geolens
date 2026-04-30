@@ -22,7 +22,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
 from app.core.dependencies import get_db
@@ -90,13 +90,15 @@ async def create_embed_token_endpoint(
             detail=str(e),
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="embed_token.create",
-        resource_type="embed_token",
-        resource_id=token.id,
-        details={"map_id": str(map_id)},
+        AuditEvent(
+            user_id=user.id,
+            action="embed_token.create",
+            resource_type="embed_token",
+            resource_id=token.id,
+            details={"map_id": str(map_id)},
+        ),
     )
     await db.commit()
     await db.refresh(token)
@@ -152,13 +154,15 @@ async def update_embed_token_endpoint(
             detail="Embed token not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="embed_token.update",
-        resource_type="embed_token",
-        resource_id=token_id,
-        details={"map_id": str(map_id), "allowed_origins": body.allowed_origins},
+        AuditEvent(
+            user_id=user.id,
+            action="embed_token.update",
+            resource_type="embed_token",
+            resource_id=token_id,
+            details={"map_id": str(map_id), "allowed_origins": body.allowed_origins},
+        ),
     )
     await db.commit()
     await db.refresh(token)
@@ -189,13 +193,15 @@ async def revoke_embed_token_endpoint(
             detail="Embed token not found",
         )
 
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="embed_token.revoke",
-        resource_type="embed_token",
-        resource_id=token_id,
-        details={"map_id": str(map_id)},
+        AuditEvent(
+            user_id=user.id,
+            action="embed_token.revoke",
+            resource_type="embed_token",
+            resource_id=token_id,
+            details={"map_id": str(map_id)},
+        ),
     )
     await db.commit()
 

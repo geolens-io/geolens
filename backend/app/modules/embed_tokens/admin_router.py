@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_client_ip, get_db
@@ -75,17 +75,19 @@ async def bulk_revoke(
     count = await bulk_revoke_embed_tokens(db, body.token_ids)
 
     ip = get_client_ip(request)
-    await log_action(
+    await audit_emit(
         db,
-        user_id=user.id,
-        action="embed_token.bulk_revoke",
-        resource_type="embed_token",
-        resource_id=None,
-        details={
-            "revoked_count": count,
-            "token_ids": [str(tid) for tid in body.token_ids],
-        },
-        ip_address=ip,
+        AuditEvent(
+            user_id=user.id,
+            action="embed_token.bulk_revoke",
+            resource_type="embed_token",
+            resource_id=None,
+            details={
+                "revoked_count": count,
+                "token_ids": [str(tid) for tid in body.token_ids],
+            },
+            ip_address=ip,
+        ),
     )
     await db.commit()
 

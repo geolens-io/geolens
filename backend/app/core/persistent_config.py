@@ -18,7 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import log_action
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
 from app.core.config import settings
@@ -198,17 +198,19 @@ class PersistentConfig(Generic[T]):
 
         # Audit log
         if user_id is not None:
-            await log_action(
-                session=db,
-                user_id=user_id,
-                action="update",
-                resource_type="setting",
-                details={
-                    "setting_key": self.key,
-                    "old_value": old_value,
-                    "new_value": value,
-                },
-                ip_address=ip_address,
+            await audit_emit(
+                db,
+                AuditEvent(
+                    user_id=user_id,
+                    action="update",
+                    resource_type="setting",
+                    details={
+                        "setting_key": self.key,
+                        "old_value": old_value,
+                        "new_value": value,
+                    },
+                    ip_address=ip_address,
+                ),
             )
 
         if commit:
@@ -244,17 +246,19 @@ class PersistentConfig(Generic[T]):
             await db.delete(existing)
 
             if user_id is not None:
-                await log_action(
-                    session=db,
-                    user_id=user_id,
-                    action="reset",
-                    resource_type="setting",
-                    details={
-                        "setting_key": self.key,
-                        "old_value": old_value,
-                        "new_value": self.env_default,
-                    },
-                    ip_address=ip_address,
+                await audit_emit(
+                    db,
+                    AuditEvent(
+                        user_id=user_id,
+                        action="reset",
+                        resource_type="setting",
+                        details={
+                            "setting_key": self.key,
+                            "old_value": old_value,
+                            "new_value": self.env_default,
+                        },
+                        ip_address=ip_address,
+                    ),
                 )
 
             await db.commit()
