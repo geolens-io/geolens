@@ -40,9 +40,23 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - v14.0 Marketing Site (executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
+## Current Milestone: v13.3 Boundary A+ Cleanup
+
+**Goal:** Close two P1 architectural items from the 2026-04-30 open-core separation audit so the next external/sales-facing pass can claim Boundary Integrity A+ (no remaining 🟡 risks) and a fully-overlay-capable audit seam.
+
+**Target features:**
+- `AuditSink.emit()` Protocol — route the 65 `log_action()` emit sites through a single hook so audit-export overlays don't have to patch every call site (closes the +242% v13.2 regression flagged in `docs-internal/audits/oc-separation-audit-20260430.md` §5)
+- AWS Marketplace billing extraction — relocate `core/marketplace.py`, the lifespan registration, the `boto3` dependency, and `aws_marketplace_*` settings out of core into the enterprise overlay (clears the 3 remaining 🟡 boundary risks)
+
+**Key context:**
+- Both items P1 in the post-v13.2 audit (`docs-internal/audits/oc-separation-audit-20260430.md` §7)
+- AuditSink has real design questions (sync vs async emit, batched vs per-event, ordering guarantees, sink-failure semantics) — benefits from `/gsd-discuss-phase` before plan
+- Marketplace extraction is mostly mechanical relocation; depends on the enterprise overlay accepting a new `BillingExtension` registration
+- Both phases must preserve community functionality with zero behavioral change visible to community deployments
+
 ## Next Milestone
 
-_No active milestone. Run `/gsd-new-milestone` to scope the next milestone — `999.6` tenant scoping is the highest-priority backlog item (separate architectural milestone, 1–2 weeks+)._
+_v13.3 is the active milestone. After v13.3 ships, `999.6` tenant scoping (Cloud-tier prerequisite) is the highest-priority backlog item — separate architectural milestone, 1–2 weeks+._
 
 ## Core Value
 
@@ -573,4 +587,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-30 — v13.2 Edition Lifecycle Hardening shipped (operator runbooks + admin SAML→local conversion + round-trip symmetry test)*
+*Last updated: 2026-04-30 — v13.3 Boundary A+ Cleanup milestone started (AuditSink Protocol + AWS Marketplace billing extraction, post-v13.2 audit-driven)*
