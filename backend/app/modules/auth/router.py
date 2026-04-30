@@ -282,20 +282,22 @@ async def create_my_api_key(
 
     The raw key is returned only in this response and cannot be retrieved again.
     """
-    from app.modules.audit.service import log_action
+    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
     from app.modules.auth.service import create_api_key_for_user
 
     api_key, raw_key = await create_api_key_for_user(db, current_user.id, body.name)
 
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="api_key.create",
-        resource_type="api_key",
-        resource_id=api_key.id,
-        details={"name": body.name},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="api_key.create",
+            resource_type="api_key",
+            resource_id=api_key.id,
+            details={"name": body.name},
+            ip_address=ip,
+        ),
     )
     await db.commit()
 
@@ -315,7 +317,7 @@ async def revoke_my_api_key(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) one of the current user's API keys."""
-    from app.modules.audit.service import log_action
+    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
 
     result = await db.execute(
         select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == current_user.id)
@@ -328,14 +330,16 @@ async def revoke_my_api_key(
         )
     api_key.is_active = False
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="api_key.revoke",
-        resource_type="api_key",
-        resource_id=key_id,
-        details={"name": api_key.name},
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="api_key.revoke",
+            resource_type="api_key",
+            resource_id=key_id,
+            details={"name": api_key.name},
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -354,7 +358,7 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Change the current user's password (requires current password)."""
-    from app.modules.audit.service import log_action
+    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
     from app.modules.auth.providers.local import hash_password, verify_password
 
     if current_user.auth_provider != "local":
@@ -372,13 +376,15 @@ async def change_password(
 
     current_user.password_hash = hash_password(body.new_password)
     ip = get_client_ip(request)
-    await log_action(
-        session=db,
-        user_id=current_user.id,
-        action="user.change_password",
-        resource_type="user",
-        resource_id=current_user.id,
-        ip_address=ip,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.change_password",
+            resource_type="user",
+            resource_id=current_user.id,
+            ip_address=ip,
+        ),
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

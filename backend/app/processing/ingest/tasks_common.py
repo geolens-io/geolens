@@ -843,7 +843,7 @@ async def _apply_reupload_swap(
     file_hash: str | None = None,
 ) -> None:
     """Apply shared atomic swap + version invariants for all reupload sources."""
-    from app.modules.audit.service import log_action
+    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
     from app.modules.catalog.collections.models import DatasetVersion
     from app.processing.ingest.metadata import (
         compute_quality_score,
@@ -926,16 +926,18 @@ async def _apply_reupload_swap(
             uploaded_by=actor_id,
         )
     )
-    await log_action(
+    await audit_emit(
         session,
-        user_id=actor_id,
-        action="reupload.commit",
-        resource_type="dataset",
-        resource_id=dataset.id,
-        details={
-            "version_number": new_version,
-            "source_type": "service_url" if source_url else "file",
-            "source_format": source_format,
-            "source_filename": source_filename,
-        },
+        AuditEvent(
+            user_id=actor_id,
+            action="reupload.commit",
+            resource_type="dataset",
+            resource_id=dataset.id,
+            details={
+                "version_number": new_version,
+                "source_type": "service_url" if source_url else "file",
+                "source_format": source_format,
+                "source_filename": source_filename,
+            },
+        ),
     )

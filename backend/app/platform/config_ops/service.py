@@ -280,7 +280,7 @@ async def import_config(
     """
     from app.core.persistent_config import _registry
     from app.core.public_urls import _is_env_only
-    from app.modules.audit.service import log_action
+    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
 
     if _is_env_only():
         raise ConfigLockedError("Configuration locked to environment variables")
@@ -336,19 +336,21 @@ async def import_config(
     await db.commit()
 
     # Audit log
-    await log_action(
-        session=db,
-        user_id=user_id,
-        action="config_import",
-        resource_type="config",
-        details={
-            "mode": mode,
-            "settings_applied": settings_applied,
-            "oauth_created": oauth_created,
-            "oauth_updated": oauth_updated,
-            "oauth_deleted": oauth_deleted,
-        },
-        ip_address=ip_address,
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="config_import",
+            resource_type="config",
+            details={
+                "mode": mode,
+                "settings_applied": settings_applied,
+                "oauth_created": oauth_created,
+                "oauth_updated": oauth_updated,
+                "oauth_deleted": oauth_deleted,
+            },
+            ip_address=ip_address,
+        ),
     )
     await db.commit()
 
