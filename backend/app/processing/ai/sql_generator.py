@@ -44,7 +44,7 @@ def _schema_cache_key(layers: list["ChatMapLayer"]) -> str:
             )
         parts.append(f"{layer.dataset_table_name}|{layer.geometry_type}|{col_sig}")
     raw = "\n".join(sorted(parts))
-    return hashlib.md5(raw.encode()).hexdigest()
+    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
 
 
 def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
