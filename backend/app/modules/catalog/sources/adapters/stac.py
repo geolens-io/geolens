@@ -11,7 +11,7 @@ external STAC APIs using httpx for HTTP interaction.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 import structlog
@@ -68,7 +68,21 @@ async def connect_stac_api(url: str) -> dict | None:
         }
 
 
-async def list_stac_collections(url: str) -> list[dict[str, Any]]:
+class StacCollectionDict(TypedDict):
+    """Shape of a single collection entry returned by ``list_stac_collections``."""
+
+    id: str
+    title: str
+    description: str
+    license: str | None
+    keywords: list[str]
+    bbox: list[float] | None
+    temporal_start: str | None
+    temporal_end: str | None
+    item_count: int | None
+
+
+async def list_stac_collections(url: str) -> list[StacCollectionDict]:
     """Fetch collections from a STAC API.
 
     Returns a list of collection dicts with id, title, description,
