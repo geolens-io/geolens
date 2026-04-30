@@ -489,10 +489,10 @@ async def preview_file(
         except (
             Exception
         ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
-            logger.warning("raster_preview failed", job_id=str(job_id), error=str(exc))
+            logger.exception("raster_preview failed", job_id=str(job_id), error=str(exc))
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Unable to preview raster file: {exc}",
+                detail="Unable to preview raster file. The file may be malformed or unsupported.",
             )
         file_size: int | None = None
         try:
@@ -525,10 +525,10 @@ async def preview_file(
     try:
         info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
     except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
-        logger.warning("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
+        logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Unable to preview file: {exc}",
+            detail="Unable to preview file. The file may be malformed or unsupported.",
         )
 
     # Auto-detect geometry columns for non-spatial files (CSV/XLSX with lat/lng or WKT)

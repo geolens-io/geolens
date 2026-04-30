@@ -263,7 +263,7 @@ function TableDetail({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-3 flex-wrap mt-5">
+      <fieldset disabled={isPending} className="flex items-center gap-3 flex-wrap mt-5 disabled:opacity-60">
         <select
           value={visibility}
           onChange={(e) => onVisibilityChange(e.target.value)}
