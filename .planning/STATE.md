@@ -4,8 +4,8 @@ milestone: v13.2
 milestone_name: Edition Lifecycle Hardening
 status: ready_to_plan
 stopped_at: Phase 220 context gathered
-last_updated: "2026-04-30T01:25:47.594Z"
-last_activity: 2026-04-30 -- Phase 220 execution started
+last_updated: "2026-04-30T11:15:00.000Z"
+last_activity: 2026-04-30 -- Phase 220 shipped (UAT-1 passed; UAT-2 deferred to free-tier reset)
 progress:
   total_phases: 3
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 220 — lifecycle-runbooks-and-preservation
+**Current focus:** v13.2 close-out — Phase 221 next; Phase 220 UAT-2 deferred to 2026-05-01
 
 ## Current Position
 
-Phase: 999.6
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-04-30
+Phase: 221 (lifecycle-user-continuity-and-verification) — not started
+Plan: —
+Status: Ready to discuss
+Last activity: 2026-04-30 — Phase 220 shipped (6/6 plans, UAT-1 ✓, UAT-2 deferred to 2026-05-01)
 
 ## Roadmap Snapshot
 
@@ -115,6 +115,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-04-30T00:47:24.812Z
-Stopped at: Phase 220 context gathered
-Resume file: .planning/phases/220-lifecycle-runbooks-and-preservation/220-CONTEXT.md
+Last session: 2026-04-30T11:15:00.000Z
+Stopped at: Phase 220 shipped — Phase 221 ready to discuss
+Resume file: .planning/phases/220-lifecycle-runbooks-and-preservation/220-HUMAN-UAT.md (UAT-2 follow-up)
