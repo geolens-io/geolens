@@ -45,7 +45,15 @@ Loading the overlay triggers the `e002_add_saml_columns` Alembic migration, whic
 1. Adds four nullable columns to `catalog.oauth_providers` (`idp_entity_id`, `idp_sso_url`, `idp_certificate`, `sp_entity_id`).
 2. Relaxes the `chk_oauth_providers_type` CHECK constraint to include `'saml'`.
 
-The migration is reversible (`alembic downgrade -1` removes the columns and re-tightens the CHECK), but downgrading destroys any SAML provider rows. Back up first.
+> **To deactivate SAML, see [`docs/edition-deactivation.md`](edition-deactivation.md).**
+> The canonical path leaves the schema alone — your SAML provider rows and the
+> 4 deferred SAML columns persist through deactivation, ready for reactivation.
+>
+> The `alembic downgrade -1` path is destructive: it deletes
+> `oauth_accounts` SAML rows, deletes `oauth_providers` SAML rows, and drops
+> the 4 SAML columns. Use only for permanent decommissioning. Mandatory pre-step:
+> `pg_dump --table catalog.oauth_providers --table catalog.oauth_accounts --table catalog.users`.
+> Without this dump, the deletion is unrecoverable.
 
 Verify the overlay loaded:
 
@@ -55,6 +63,10 @@ curl -fsS http://localhost:8000/openapi.json | jq '.paths | keys[] | select(test
 ```
 
 If the SAML routes are missing, confirm `geolens-enterprise` is installed (`uv pip list | grep enterprise`) and that the API logs include `loaded extension: identity` at startup.
+
+### Deactivating SAML
+
+To turn SAML off, follow the canonical path in [`docs/edition-deactivation.md`](edition-deactivation.md). The TL;DR: stop loading the `geolens-enterprise` overlay (drop `docker-compose.enterprise.yml` from your compose stack or `pip uninstall geolens-enterprise`) and restart. Your SAML provider rows survive; your users' identities survive; reactivation is a clean re-mount.
 
 ## IdP Configuration
 
