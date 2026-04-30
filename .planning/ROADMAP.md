@@ -92,7 +92,12 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   3. An enterprise overlay can register a second AuditSink implementation via the existing extension entry-point group and receive every audit event without any core code change
   4. No call site in backend/app/ calls log_action() directly — all 65 sites route through get_audit_sink().emit()
   5. Existing audit-related tests pass without modification
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 222-01-PLAN.md — AuditSink Protocol scaffolding (Protocol + AuditEvent dataclass + DefaultAuditSink + get_audit_sinks accessor + AUDIT-01 unit smoke test)
+  - [ ] 222-02-PLAN.md — audit_emit() facade + AUDIT-03 raising-sink test (per-sink try/except + structlog.exception)
+  - [ ] 222-03-PLAN.md — Mechanical 65-site rewrite across 18 files (preserves 5 lazy-import sites)
+  - [ ] 222-04-PLAN.md — AUDIT-04 multi-sink integration test (FixtureSink + DefaultAuditSink coexistence via HTTP endpoint)
+  - [ ] 222-05-PLAN.md — Architecture guard (AUDIT-02 invariant) + Makefile target + AUDIT-05 close gate
 
 ---
 
@@ -115,7 +120,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 222. audit-sink-protocol | 0/TBD | Not started | - |
+| 222. audit-sink-protocol | 0/5 | Plans created | - |
 | 223. marketplace-billing-extraction | 0/TBD | Not started | - |
 
 ## Backlog
