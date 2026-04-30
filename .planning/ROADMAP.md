@@ -95,14 +95,17 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   1. An admin can convert a SAML-authenticated user's account to local-password or OIDC via a documented procedure (runbook or CLI command) without losing audit history, group memberships, or dataset ownership
   2. `docs/edition-deactivation.md` includes a "Handling existing SAML users" section describing the re-onboarding procedure and linking to any supporting admin tooling
   3. A CI test (`pytest -m lifecycle`) exercises the deactivate → reactivate round-trip and asserts that User identities, `oauth_providers` rows, and audit trail entries are all intact after the cycle completes
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 221-01-PLAN.md — Add SamlToLocalConversion schema + AdminService.convert_saml_user_to_local + POST /admin/users/{id}/convert-saml-to-local/ endpoint (LIFECYCLE-06 backend)
+- [ ] 221-02-PLAN.md — Replace docs/edition-deactivation.md line-81 TODO with Handling existing SAML users section + docs/edition-reactivation.md forward-pointer (LIFECYCLE-06 docs)
+- [ ] 221-03-PLAN.md — Extend _cleanup_lifecycle_rows + add LIFECYCLE-06 conversion test + LIFECYCLE-07 round-trip test in backend/tests/test_lifecycle.py
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 220. lifecycle-runbooks-and-preservation | 6/6 | Complete    | 2026-04-30 |
-| 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
+| 221. lifecycle-user-continuity-and-verification | 0/3 | Planned     | - |
 
 ## Backlog
 
