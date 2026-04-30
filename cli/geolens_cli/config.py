@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """XDG-compliant config + atomic TOML I/O for the GeoLens CLI.
 
 Hand-maintained — NOT regenerated. config.toml stores the active instance

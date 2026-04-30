@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Credential storage — OS keyring with credentials.toml fallback.
 
 Hand-maintained — NOT regenerated. Mirrors sdks/python/geolens_sdk/auth.py's

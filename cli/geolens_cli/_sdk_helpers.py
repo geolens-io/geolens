@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SDK call helpers — Response → T translator + httpx-error → exit-code mapper.
 
 Hand-maintained — NOT regenerated. Centralizes the SDK call boundary so each

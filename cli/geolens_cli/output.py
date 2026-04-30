@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Output formatter — rich Console + JSON mode + exit-code constants.
 
 Hand-maintained — NOT regenerated. Centralizes stdout/stderr formatting so

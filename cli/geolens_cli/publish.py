@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """3-step ingest flow — upload → preview → commit.
 
 Hand-maintained — NOT regenerated. Implements the upload workaround for
