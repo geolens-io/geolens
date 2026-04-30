@@ -327,3 +327,74 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
         )
+
+
+@pytest.mark.architecture
+def test_no_log_action_calls_outside_audit_service() -> None:
+    """Phase 222 AUDIT-02: ``log_action()`` is called only by ``DefaultAuditSink.emit()``.
+
+    All 65 historical call sites must route through ``audit_emit()`` instead.
+    Closes the +242% ``log_action`` decentralization regression flagged in
+    ``docs-internal/audits/oc-separation-audit-20260430.md`` §5 (line 224).
+
+    Excluded paths:
+      - ``backend/app/modules/audit/service.py`` — defines ``log_action()``;
+        this is the only application-side caller permitted post-Phase-222.
+      - ``backend/app/platform/extensions/defaults.py`` — ``DefaultAuditSink.emit()``
+        calls ``log_action()`` via deferred import (Phase 222 D-04 / option a
+        from AUDIT-02). The community-edition default sink is the SOLE
+        consumer of the preserved helper.
+      - ``backend/tests/`` — test seeds (e.g., ``test_lifecycle.py:421, 687``)
+        may construct audit_logs rows directly via ``log_action()`` for
+        deterministic fixture setup. Tests are exempt from the production-code
+        invariant (RESEARCH.md Open Question 3 (b)).
+
+    Pattern matched: ``await log_action(`` — the call shape used by every
+    historical site. The ``await`` anchor avoids tripping on the function's
+    own definition (``async def log_action(``) and on attribute references
+    like ``log_action_helper``.
+
+    Maps directly to Phase 222 ROADMAP SC#4 ("No call site in backend/app/
+    calls log_action() directly — all 65 sites route through
+    get_audit_sink().emit()") — implementation is via the ``audit_emit()``
+    facade introduced in Plan 02.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 222 AUDIT-02 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"\bawait log_action\(",
+            "--",
+            "backend/app/",
+            ":!backend/app/modules/audit/service.py",
+            ":!backend/app/platform/extensions/defaults.py",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 222 AUDIT-02 invariant violated: log_action() is called "
+            "outside backend/app/modules/audit/service.py and "
+            "backend/app/platform/extensions/defaults.py. All 65 historical "
+            "sites must use audit_emit(session, AuditEvent(...)) instead.\n"
+            f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
