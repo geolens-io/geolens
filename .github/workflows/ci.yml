@@ -238,8 +238,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Probe enterprise token availability
+        env:
+          ENTERPRISE_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+        run: |
+          if [ -n "${ENTERPRISE_TOKEN}" ]; then
+            echo "HAS_ENTERPRISE_TOKEN=1" >> $GITHUB_ENV
+          else
+            echo "HAS_ENTERPRISE_TOKEN=0" >> $GITHUB_ENV
+          fi
+
       - name: Checkout geolens-enterprise (skip on fork PRs without secret)
-        if: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN != '' }}
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
         uses: actions/checkout@v4
         with:
           repository: geolens-io/geolens-enterprise
