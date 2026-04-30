@@ -3,6 +3,7 @@ phase: 220-lifecycle-runbooks-and-preservation
 plan: 04
 status: complete
 completed: 2026-04-30
+requirements_completed: [LIFECYCLE-04]
 ---
 
 # Plan 220-04 — lifecycle-test — SUMMARY

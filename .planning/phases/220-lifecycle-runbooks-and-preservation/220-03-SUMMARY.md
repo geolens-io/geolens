@@ -3,6 +3,7 @@ phase: 220-lifecycle-runbooks-and-preservation
 plan: 03
 status: complete
 completed: 2026-04-30
+requirements_completed: [LIFECYCLE-03]
 ---
 
 # Plan 220-03 — saml-doc-edit — SUMMARY

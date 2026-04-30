@@ -3,6 +3,7 @@ phase: 220-lifecycle-runbooks-and-preservation
 plan: 06
 status: complete
 completed: 2026-04-30
+requirements_completed: [LIFECYCLE-04]
 user_setup:
   - service: github_actions
     why: "CI lifecycle test requires private-repo checkout of geolens-enterprise"

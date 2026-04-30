@@ -3,6 +3,7 @@ phase: 220-lifecycle-runbooks-and-preservation
 plan: 01
 status: complete
 completed: 2026-04-30
+requirements_completed: [LIFECYCLE-01, LIFECYCLE-05]
 ---
 
 # Plan 220-01 — deactivation-runbook — SUMMARY

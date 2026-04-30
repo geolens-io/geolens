@@ -3,6 +3,7 @@ phase: 220-lifecycle-runbooks-and-preservation
 plan: 02
 status: complete
 completed: 2026-04-30
+requirements_completed: [LIFECYCLE-02]
 ---
 
 # Plan 220-02 — reactivation-runbook — SUMMARY

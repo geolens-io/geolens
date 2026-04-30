@@ -3,6 +3,7 @@ phase: 220-lifecycle-runbooks-and-preservation
 plan: 05
 status: complete
 completed: 2026-04-30
+requirements_completed: [LIFECYCLE-04]
 ---
 
 # Plan 220-05 — requirements-precision-fix — SUMMARY
