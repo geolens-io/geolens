@@ -14,12 +14,14 @@ import structlog
 
 from app.platform.extensions.defaults import (
     DefaultAuditExtension,
+    DefaultAuditSink,  # NEW (Phase 222)
     DefaultAuthExtension,
     DefaultBrandingExtension,
     DefaultIdentityExtension,
 )
 from app.platform.extensions.protocols import (
     AuditExtension,
+    AuditSink,  # NEW (Phase 222)
     AuthExtension,
     BrandingExtension,
 )
@@ -123,3 +125,32 @@ def get_identity_extension() -> "IdentityExtension":
     if ext is None:
         return DefaultIdentityExtension()
     return ext  # type: ignore[return-value]
+
+
+def get_audit_sinks() -> list[AuditSink]:
+    """Return all registered AuditSinks, or [DefaultAuditSink()] when slot missing.
+
+    Phase 222 D-09 / D-10 / D-11 — departure from the four existing
+    single-instance accessors: returns a list (community always has 1 sink,
+    enterprise can have N).
+
+    Enterprise overlays append to ``_extensions["audit_sinks"]`` via
+    ``setdefault + append`` in their ``register_extensions(registry)`` callback::
+
+        sinks = registry.setdefault("audit_sinks", [DefaultAuditSink()])
+        sinks.append(MyEnterpriseSink())
+
+    Reassigning the slot (``registry["audit_sinks"] = [MySink()]``) makes
+    DefaultAuditSink disappear and breaks AUDIT-05 row-write contract for
+    that deployment. Phase 222 cannot enforce this in the contract (overlay
+    code lives outside this repo); the architecture-guard test only catches
+    direct ``log_action(`` calls, not registry misuse. Documented as Pitfall D
+    in 222-RESEARCH.md.
+
+    Returns a defensive ``list(sinks)`` copy so a sink cannot accidentally
+    mutate the registry mid-iteration in ``audit_emit()``.
+    """
+    sinks = _extensions.get("audit_sinks")
+    if sinks is None:
+        return [DefaultAuditSink()]
+    return list(sinks)  # type: ignore[arg-type]
