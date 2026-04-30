@@ -304,7 +304,19 @@ async def convert_saml_to_local(
         details={"from": "saml", "to": "local", "provider_slug": provider_slug},
         ip_address=ip,
     )
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        # Service mutations + audit_log row written but commit failed --
+        # leaves no persisted record. Log with request_id correlation so
+        # operators can reconcile against client-side state.
+        logger.exception(
+            "convert_saml_to_local commit failed",
+            user_id=str(user_id),
+            admin_id=str(current_user.id),
+            provider_slug=provider_slug,
+        )
+        raise
     return _user_response(user)
 
 

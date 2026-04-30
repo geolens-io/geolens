@@ -258,6 +258,12 @@ async def complete_presigned_upload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
         except Exception:
+            logger.exception(
+                "multipart_upload_completion_failed",
+                job_id=str(job.id),
+                s3_key=s3_key,
+                part_count=len(request.parts),
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Upload completion failed — the upload session may have expired. Please try again.",
