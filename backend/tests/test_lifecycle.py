@@ -584,3 +584,203 @@ async def test_convert_saml_user_to_local_preserves_user_data(
     finally:
         edition_mod._info = saved_info
         # _extensions / _routers / _cleanup_lifecycle_rows handle DB cleanup
+
+
+@pytest.mark.lifecycle
+async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
+    test_db_session: AsyncSession,
+    saml_overlay_registered,
+    _cleanup_lifecycle_rows,
+):
+    """LIFECYCLE-07: deactivate -> reactivate cycle is lossless across User
+    identities, oauth_providers rows (4 deferred SAML columns), oauth_accounts
+    rows, and audit_log entries.
+
+    Setup:    saml_overlay_registered fixture populates _extensions/_routers.
+              init_edition(["enterprise"]) flips is_enterprise() to True.
+    Seed:     OAuthProvider(saml) + User(auth_provider='oauth') + OAuthAccount
+              + an AuditLog row via log_action (D-10 -- a SEEDED row, not a
+              vacuous FK-survival reflection).
+    Deactivate: _extensions.clear(); _routers.clear(); init_edition([]).
+                Asserts is_enterprise() is False mid-cycle (Pitfall 1).
+    Reactivate: defer-import EnterpriseSamlExtension + saml_router INSIDE the
+                test body (Pitfall 5); manually populate _extensions["auth"],
+                _extensions["identity"], _routers via append; init_edition(
+                ["enterprise"]). This is Pattern 3 Shape A -- mirrors the
+                fixture's setup steps, NOT the production registration helper
+                (Pitfall 2 -- the helper writes a "_routers" key into the
+                dict, not the module-level list).
+    Assert:   is_enterprise() is True; typed accessor returns enterprise
+              instance; the 4 deferred SAML columns retain values via
+              undefer_group("saml"); OAuthAccount intact; User intact with
+              auth_provider='oauth'; seeded audit_log row intact.
+    Teardown: edition_mod._info restored; saml_overlay_registered's finally
+              block restores _extensions/_routers; _cleanup_lifecycle_rows
+              deletes seeded rows.
+
+    Note on accepted coupling (W2): the mid-cycle isinstance check on
+    DefaultAuthExtension couples this test to the
+    app.platform.extensions.defaults import path. This coupling is already
+    accepted in the Phase 220 test_overlay_removal_preserves_saml_data; we
+    keep it here for symmetry. Alternative (class-name string comparison)
+    would be weaker and less informative on regressions.
+    """
+    from app.core.edition import is_enterprise
+
+    saved_info = edition_mod._info
+    edition_mod.init_edition(["enterprise"])
+
+    try:
+        # ---------- SEED phase ----------
+
+        provider = OAuthProvider(
+            slug=LIFECYCLE_SLUG,
+            display_name="Lifecycle Test IdP",
+            provider_type="saml",
+            client_id="unused",
+            client_secret_encrypted=encrypt_secret("unused"),
+            idp_entity_id=LIFECYCLE_IDP_ENTITY_ID,
+            idp_sso_url=LIFECYCLE_IDP_SSO_URL,
+            idp_certificate=encrypt_secret(LIFECYCLE_CERT_PEM),
+            sp_entity_id=LIFECYCLE_SP_ENTITY_ID,
+            enabled=True,
+        )
+        test_db_session.add(provider)
+        await test_db_session.commit()
+        await test_db_session.refresh(provider)
+        seeded_provider_id = provider.id
+
+        user = User(
+            username=LIFECYCLE_USERNAME,
+            email=LIFECYCLE_USER_EMAIL,
+            password_hash=None,
+            is_active=True,
+            auth_provider="oauth",
+        )
+        test_db_session.add(user)
+        await test_db_session.commit()
+        await test_db_session.refresh(user)
+        seeded_user_id = user.id
+
+        account = OAuthAccount(
+            user_id=seeded_user_id,
+            provider_id=seeded_provider_id,
+            subject=LIFECYCLE_USER_SUBJECT,
+        )
+        test_db_session.add(account)
+        await test_db_session.commit()
+
+        # D-10: SEED an audit_log row (real audit-trail assertion, not vacuous
+        # FK-survival reflection).
+        await log_action(
+            session=test_db_session,
+            user_id=seeded_user_id,
+            action="test.seed.lifecycle",
+            resource_type="user",
+            resource_id=seeded_user_id,
+            details={"phase": "221", "purpose": "lifecycle-07-roundtrip-symmetry"},
+        )
+        await test_db_session.commit()
+
+        # ---------- DEACTIVATE phase (mirrors Phase 220 test_overlay_removal) ----------
+
+        _extensions.clear()
+        _routers.clear()
+        edition_mod.init_edition([])
+
+        # Mid-cycle checkpoint -- Pitfall 1.
+        assert is_enterprise() is False, (
+            "deactivate phase did not flip is_enterprise() to False"
+        )
+        # Sanity: typed accessors fall through to defaults mid-cycle.
+        assert isinstance(get_auth_extension(), DefaultAuthExtension)
+
+        # ---------- REACTIVATE phase (Pattern 3 Shape A) ----------
+
+        # Pitfall 5: defer enterprise imports inside the test body.
+        # Pitfall 2: do NOT use the production registration helper -- it writes
+        # a "_routers" key into _extensions (dict key), not to the module-level
+        # _routers list. Mirror the saml_overlay_registered fixture's setup
+        # steps (conftest.py:466-478) verbatim instead.
+        from geolens_enterprise.auth.saml import EnterpriseSamlExtension
+        from geolens_enterprise.auth.saml.router import router as saml_router
+
+        ext = EnterpriseSamlExtension()
+        _extensions["auth"] = ext
+        _extensions["identity"] = ext
+        _routers.append(saml_router)
+        edition_mod.init_edition(["enterprise"])
+
+        # ---------- ASSERT symmetry ----------
+
+        assert is_enterprise() is True, (
+            "reactivate phase did not flip is_enterprise() back to True"
+        )
+
+        # Typed accessor returns the enterprise instance (not the default).
+        assert isinstance(get_auth_extension(), EnterpriseSamlExtension), (
+            "get_auth_extension() did not return the enterprise instance "
+            "post-reactivation"
+        )
+
+        # 4 deferred SAML columns retained values (Pitfall 3 -- Fernet ciphertext
+        # is non-deterministic so compare via decrypt_secret() for the cert
+        # column; raw equality is fine for non-encrypted columns).
+        # expire_all() is sync (B2 fix; project pattern test_embed_tokens.py:798,852).
+        test_db_session.expire_all()
+        survivor = (
+            await test_db_session.execute(
+                select(OAuthProvider)
+                .where(OAuthProvider.id == seeded_provider_id)
+                .options(undefer_group("saml"))
+            )
+        ).scalar_one()
+        assert survivor.provider_type == "saml"
+        assert survivor.idp_entity_id == LIFECYCLE_IDP_ENTITY_ID
+        assert survivor.idp_sso_url == LIFECYCLE_IDP_SSO_URL
+        assert decrypt_secret(survivor.idp_certificate) == LIFECYCLE_CERT_PEM
+        assert survivor.sp_entity_id == LIFECYCLE_SP_ENTITY_ID
+
+        # OAuthAccount linkage row intact
+        oauth_acct_row = (
+            await test_db_session.execute(
+                select(OAuthAccount).where(
+                    OAuthAccount.user_id == seeded_user_id,
+                    OAuthAccount.provider_id == seeded_provider_id,
+                )
+            )
+        ).scalar_one_or_none()
+        assert oauth_acct_row is not None, (
+            "OAuthAccount linkage row was destroyed by deactivate->reactivate cycle"
+        )
+
+        # User row intact and STILL auth_provider='oauth' (this test does NOT
+        # convert; it only tests the registry-level round-trip).
+        user_row = (
+            await test_db_session.execute(
+                select(User).where(User.id == seeded_user_id)
+            )
+        ).scalar_one()
+        assert user_row.auth_provider == "oauth", (
+            f"user.auth_provider drifted: {user_row.auth_provider!r}"
+        )
+
+        # Seeded audit_log row intact (D-10 -- the real LIFECYCLE-07 contract).
+        audit_row = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.user_id == seeded_user_id,
+                    AuditLog.action == "test.seed.lifecycle",
+                )
+            )
+        ).scalar_one_or_none()
+        assert audit_row is not None, (
+            "audit_log row was destroyed by deactivate->reactivate cycle "
+            "(LIFECYCLE-07 explicit assertion)"
+        )
+        assert audit_row.user_id == seeded_user_id
+
+    finally:
+        edition_mod._info = saved_info
+        # _extensions / _routers restored by saml_overlay_registered's finally
+        # block. _cleanup_lifecycle_rows handles seeded-row DB cleanup.
