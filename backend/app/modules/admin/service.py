@@ -25,19 +25,40 @@ class AdminService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _get_other_admin_count(self, exclude_user_id: uuid.UUID) -> int:
+        """Count admin users excluding the given user_id."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(UserRole)
+            .join(Role, UserRole.role_id == Role.id)
+            .where(Role.name == "admin", UserRole.user_id != exclude_user_id)
+        )
+        return result.scalar() or 0
+
     async def _ensure_not_last_admin(self, user: User, action: str = "modify") -> None:
         """Raise ValueError if this is the last admin user."""
-        user_roles = {r.name for r in user.roles}
-        if "admin" in user_roles:
-            admin_count_result = await self.db.execute(
-                select(func.count())
-                .select_from(UserRole)
-                .join(Role, UserRole.role_id == Role.id)
-                .where(Role.name == "admin", UserRole.user_id != user.id)
-            )
-            other_admins = admin_count_result.scalar() or 0
-            if other_admins == 0:
-                raise ValueError(f"Cannot {action} the last admin user")
+        if "admin" not in {r.name for r in user.roles}:
+            return
+        if await self._get_other_admin_count(exclude_user_id=user.id) == 0:
+            raise ValueError(f"Cannot {action} the last admin user")
+
+    async def _ensure_unique_user_field(
+        self,
+        field,
+        value: str,
+        error_msg: str,
+        exclude_id: uuid.UUID | None = None,
+    ) -> None:
+        """Raise ValueError if a User row exists with field == value (case-insensitive).
+
+        Used for username/email uniqueness checks. Pass exclude_id when updating
+        an existing user to exclude that row from the check.
+        """
+        stmt = select(User).where(func.lower(field) == func.lower(value))
+        if exclude_id is not None:
+            stmt = stmt.where(User.id != exclude_id)
+        if (await self.db.execute(stmt)).scalar_one_or_none() is not None:
+            raise ValueError(error_msg)
 
     async def create_user(
         self,
@@ -50,20 +71,13 @@ class AdminService:
 
         Raises ValueError if username/email is taken or role not found.
         """
-        # Check username uniqueness (case-insensitive)
-        existing = await self.db.execute(
-            select(User).where(func.lower(User.username) == func.lower(username))
+        await self._ensure_unique_user_field(
+            User.username, username, "Username already taken"
         )
-        if existing.scalar_one_or_none() is not None:
-            raise ValueError("Username already taken")
-
-        # Check email uniqueness if provided
         if email is not None:
-            existing_email = await self.db.execute(
-                select(User).where(func.lower(User.email) == func.lower(email))
+            await self._ensure_unique_user_field(
+                User.email, email, "Email already registered"
             )
-            if existing_email.scalar_one_or_none() is not None:
-                raise ValueError("Email already registered")
 
         user = User(
             username=username,
@@ -124,15 +138,12 @@ class AdminService:
 
         # Apply non-None scalar fields
         if updates.email is not None:
-            # Check email uniqueness
-            existing_email = await self.db.execute(
-                select(User).where(
-                    func.lower(User.email) == func.lower(updates.email),
-                    User.id != user_id,
-                )
+            await self._ensure_unique_user_field(
+                User.email,
+                updates.email,
+                "Email already registered",
+                exclude_id=user_id,
             )
-            if existing_email.scalar_one_or_none() is not None:
-                raise ValueError("Email already registered")
             user.email = updates.email
 
         if updates.is_active is not None:
@@ -140,37 +151,36 @@ class AdminService:
                 await self._ensure_not_last_admin(user, "deactivate")
             user.is_active = updates.is_active
 
-        # Handle role change
         if updates.role is not None:
-            # Find the new role
-            role_result = await self.db.execute(
-                select(Role).where(Role.name == updates.role)
-            )
-            new_role = role_result.scalar_one_or_none()
-            if new_role is None:
-                raise ValueError(f"Role '{updates.role}' not found")
-
-            # Last-admin guard: prevent demoting the sole admin
-            user_roles = {r.name for r in user.roles}
-            if "admin" in user_roles and updates.role != "admin":
-                admin_count_result = await self.db.execute(
-                    select(func.count())
-                    .select_from(UserRole)
-                    .join(Role, UserRole.role_id == Role.id)
-                    .where(Role.name == "admin", UserRole.user_id != user_id)
-                )
-                other_admins = admin_count_result.scalar() or 0
-                if other_admins == 0:
-                    raise ValueError("Cannot demote the last admin user")
-
-            # Remove existing roles
-            await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))
-            # Add new role
-            self.db.add(UserRole(user_id=user_id, role_id=new_role.id))
+            await self._update_user_role(user, updates.role)
 
         await self.db.flush()
         await self.db.refresh(user)
         return user
+
+    async def _update_user_role(self, user: User, new_role_name: str) -> None:
+        """Replace a user's role with new_role_name in the current transaction.
+
+        Raises ValueError if the new role doesn't exist or if this would demote
+        the sole admin.
+        """
+        role_result = await self.db.execute(
+            select(Role).where(Role.name == new_role_name)
+        )
+        new_role = role_result.scalar_one_or_none()
+        if new_role is None:
+            raise ValueError(f"Role '{new_role_name}' not found")
+
+        # Last-admin guard: prevent demoting the sole admin
+        if (
+            "admin" in {r.name for r in user.roles}
+            and new_role_name != "admin"
+            and await self._get_other_admin_count(exclude_user_id=user.id) == 0
+        ):
+            raise ValueError("Cannot demote the last admin user")
+
+        await self.db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+        self.db.add(UserRole(user_id=user.id, role_id=new_role.id))
 
     async def convert_saml_user_to_local(
         self, user_id: uuid.UUID, password: str
@@ -255,26 +265,21 @@ class AdminService:
 
         Returns (users, total_count).
         """
-        count_query = select(func.count()).select_from(User)
-        list_query = select(User).order_by(User.created_at)
-
+        filters = []
         if status == "deactivated":
-            deactivated = (User.status == "active") & (User.is_active == False)  # noqa: E712
-            count_query = count_query.where(deactivated)
-            list_query = list_query.where(deactivated)
+            filters.append(
+                (User.status == "active") & (User.is_active == False)  # noqa: E712
+            )
         elif status is not None:
-            count_query = count_query.where(User.status == status)
-            list_query = list_query.where(User.status == status)
-
+            filters.append(User.status == status)
         if search is not None:
             pattern = f"%{search}%"
-            search_filter = User.username.ilike(pattern) | User.email.ilike(pattern)
-            count_query = count_query.where(search_filter)
-            list_query = list_query.where(search_filter)
+            filters.append(User.username.ilike(pattern) | User.email.ilike(pattern))
 
-        count_result = await self.db.execute(count_query)
-        total = count_result.scalar() or 0
+        count_query = select(func.count()).select_from(User).where(*filters)
+        list_query = select(User).where(*filters).order_by(User.created_at)
 
+        total = (await self.db.execute(count_query)).scalar() or 0
         result = await self.db.execute(list_query.offset(skip).limit(limit))
         users = list(result.scalars().all())
 
@@ -332,8 +337,10 @@ class AdminService:
         await self.db.delete(user)
         await self.db.flush()
 
-    async def delete_user(self, user_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
-        """Hard-delete a user.
+    async def delete_user(
+        self, user_id: uuid.UUID, current_user_id: uuid.UUID
+    ) -> str:
+        """Hard-delete a user. Returns the deleted username for audit logging.
 
         Raises ValueError for self-deletion, last-admin deletion, or not found.
         FK SET NULL handles audit_logs, datasets, ingest_jobs automatically.
@@ -348,6 +355,8 @@ class AdminService:
 
         await self._ensure_not_last_admin(user, "delete")
 
+        username = user.username
+
         # Delete related records that have CASCADE or need explicit cleanup
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))
         await self.db.execute(delete(ApiKey).where(ApiKey.user_id == user_id))
@@ -355,6 +364,7 @@ class AdminService:
         # Hard delete the user (FK SET NULL handles audit_logs, datasets, ingest_jobs)
         await self.db.delete(user)
         await self.db.flush()
+        return username
 
     async def list_jobs(
         self,
@@ -377,22 +387,49 @@ class AdminService:
         if search is not None:
             filters.append(IngestJob.source_filename.ilike(f"%{search}%"))
 
-        count_stmt = select(func.count()).select_from(IngestJob)
-        for f in filters:
-            count_stmt = count_stmt.where(f)
+        count_stmt = select(func.count()).select_from(IngestJob).where(*filters)
         total = (await self.db.execute(count_stmt)).scalar_one()
 
         list_stmt = (
             select(IngestJob, UserModel.username)
             .outerjoin(UserModel, IngestJob.created_by == UserModel.id)
+            .where(*filters)
             .order_by(IngestJob.created_at.desc())
+            .offset(skip)
+            .limit(limit)
         )
-        for f in filters:
-            list_stmt = list_stmt.where(f)
-        list_stmt = list_stmt.offset(skip).limit(limit)
         rows = (await self.db.execute(list_stmt)).all()
 
         return rows, total
+
+    async def revoke_share_token_with_cascade(
+        self, token_id: uuid.UUID
+    ) -> tuple[uuid.UUID, uuid.UUID, int] | None:
+        """Revoke a share token and cascade-revoke all active embed tokens for the map.
+
+        Returns (token_id, map_id, cascade_embed_count) on success; None if the
+        share token doesn't exist (caller maps to 404). Caller is responsible
+        for committing the transaction and writing the audit log.
+        """
+        from app.modules.catalog.maps.service import revoke_share_token
+        from app.modules.embed_tokens.models import EmbedToken
+        from app.modules.embed_tokens.service import bulk_revoke_embed_tokens
+
+        token_obj = await revoke_share_token(self.db, token_id)
+        if token_obj is None:
+            return None
+
+        result = await self.db.execute(
+            select(EmbedToken.id).where(
+                EmbedToken.map_id == token_obj.map_id,
+                EmbedToken.is_active.is_(True),
+            )
+        )
+        embed_ids = [row[0] for row in result.all()]
+        if embed_ids:
+            await bulk_revoke_embed_tokens(self.db, embed_ids)
+
+        return token_obj.id, token_obj.map_id, len(embed_ids)
 
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
         """Return embedding coverage statistics."""

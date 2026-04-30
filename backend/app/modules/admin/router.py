@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from typing import NoReturn
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -58,6 +59,29 @@ def _user_response(user: User) -> UserResponse:
         created_at=user.created_at,
         roles=sorted(r.name for r in user.roles),
     )
+
+
+def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
+    """Convert an ApiKey ORM object to an AdminApiKeyListItem schema."""
+    return AdminApiKeyListItem(
+        id=key.id,
+        user_id=key.user_id,
+        name=key.name,
+        is_active=key.is_active,
+        created_at=key.created_at,
+        last_used_at=key.last_used_at,
+    )
+
+
+def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
+    """Map a service-layer ValueError to an HTTPException.
+
+    'not found' messages map to 404; everything else uses default_status.
+    """
+    detail = str(exc)
+    if "not found" in detail.lower():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    raise HTTPException(status_code=default_status, detail=detail)
 
 
 @router.post(
@@ -158,11 +182,8 @@ async def get_user(
     service = AdminService(db)
     try:
         user = await service.get_user(user_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_404_NOT_FOUND)
     return _user_response(user)
 
 
@@ -187,16 +208,7 @@ async def update_user(
     try:
         user = await service.update_user(user_id, body)
     except ValueError as exc:
-        detail = str(exc)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=detail,
-        )
+        _raise_on_error(exc, status.HTTP_409_CONFLICT)
     ip = get_client_ip(request)
     await log_action(
         session=db,
@@ -226,16 +238,7 @@ async def deactivate_user(
     try:
         user = await service.deactivate_user(user_id, current_user.id)
     except ValueError as exc:
-        detail = str(exc)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail,
-        )
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
     await log_action(
         session=db,
@@ -288,17 +291,8 @@ async def convert_saml_to_local(
             user_id, body.password
         )
     except ValueError as exc:
-        detail = str(exc)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            )
-        # All other ValueErrors (auth_provider mismatch, no SAML linkage) -> 422
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=detail,
-        )
+        # All non-"not found" ValueErrors (auth_provider mismatch, no SAML linkage) -> 422
+        _raise_on_error(exc, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     ip = get_client_ip(request)
     await log_action(
@@ -330,16 +324,7 @@ async def approve_user(
     try:
         user = await service.approve_user(user_id, body.role)
     except ValueError as exc:
-        detail = str(exc)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail,
-        )
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
     await log_action(
         session=db,
@@ -369,16 +354,7 @@ async def reject_user(
     try:
         await service.reject_user(user_id)
     except ValueError as exc:
-        detail = str(exc)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail,
-        )
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
     await log_action(
         session=db,
@@ -403,25 +379,11 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin."""
-    # Fetch username before deletion for audit trail
-    target = await db.execute(select(User).where(User.id == user_id))
-    target_user = target.scalar_one_or_none()
-    target_username = target_user.username if target_user else None
-
     service = AdminService(db)
     try:
-        await service.delete_user(user_id, current_user.id)
+        deleted_username = await service.delete_user(user_id, current_user.id)
     except ValueError as exc:
-        detail = str(exc)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=detail,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=detail,
-        )
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
     ip = get_client_ip(request)
     await log_action(
         session=db,
@@ -429,7 +391,7 @@ async def delete_user(
         action="user.delete",
         resource_type="user",
         resource_id=user_id,
-        details={"username": target_username},
+        details={"username": deleted_username},
         ip_address=ip,
     )
     await db.commit()
@@ -551,17 +513,7 @@ async def list_api_keys(
     result = await db.execute(stmt.offset(skip).limit(limit))
     keys = result.scalars().all()
     return AdminApiKeyListResponse(
-        items=[
-            AdminApiKeyListItem(
-                id=k.id,
-                user_id=k.user_id,
-                name=k.name,
-                is_active=k.is_active,
-                created_at=k.created_at,
-                last_used_at=k.last_used_at,
-            )
-            for k in keys
-        ],
+        items=[_api_key_response(k) for k in keys],
         total=total,
     )
 
@@ -802,27 +754,14 @@ async def admin_revoke_share_token(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only)."""
-    from app.modules.embed_tokens.models import EmbedToken
-    from app.modules.embed_tokens.service import bulk_revoke_embed_tokens
-    from app.modules.catalog.maps.service import revoke_share_token
-
-    token_obj = await revoke_share_token(db, token_id)
-    if token_obj is None:
+    service = AdminService(db)
+    result = await service.revoke_share_token_with_cascade(token_id)
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Share token not found",
         )
-
-    # Cascade: revoke all active embed tokens for this map
-    result = await db.execute(
-        select(EmbedToken.id).where(
-            EmbedToken.map_id == token_obj.map_id,
-            EmbedToken.is_active.is_(True),
-        )
-    )
-    embed_ids = [row[0] for row in result.all()]
-    if embed_ids:
-        await bulk_revoke_embed_tokens(db, embed_ids)
+    revoked_token_id, map_id, cascade_count = result
 
     ip = get_client_ip(request)
     await log_action(
@@ -830,10 +769,10 @@ async def admin_revoke_share_token(
         user_id=current_user.id,
         action="map.admin_share_revoke",
         resource_type="map_share_token",
-        resource_id=token_obj.id,
+        resource_id=revoked_token_id,
         details={
-            "map_id": str(token_obj.map_id),
-            "cascade_embed_count": len(embed_ids),
+            "map_id": str(map_id),
+            "cascade_embed_count": cascade_count,
         },
         ip_address=ip,
     )
