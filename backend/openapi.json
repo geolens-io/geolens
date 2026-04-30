@@ -469,7 +469,7 @@
                 "type": "null"
               }
             ],
-            "description": "User-supplied metadata captured at upload time (title, summary, tags, etc.).",
+            "description": "User-supplied metadata captured at upload time (title, summary, tags, vrt_type, file_type, warnings, etc.). Heterogeneous shape across ingest paths -- canonical keys: title, summary, visibility, file_type, vrt_type, warnings.",
             "title": "User Metadata"
           },
           "username": {
@@ -7266,18 +7266,30 @@
             "title": "Authorize Url"
           },
           "client_id": {
-            "description": "OAuth client ID issued by the IdP.",
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Client Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OAuth client ID issued by the IdP. Required for OAuth/OIDC providers; omit for SAML.",
+            "title": "Client Id"
           },
           "client_secret": {
-            "description": "OAuth client secret issued by the IdP. Stored encrypted; never returned in responses.",
-            "maxLength": 1000,
-            "minLength": 1,
-            "title": "Client Secret",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OAuth client secret issued by the IdP. Stored encrypted; never returned in responses. Required for OAuth/OIDC providers; omit for SAML.",
+            "title": "Client Secret"
           },
           "default_role": {
             "default": "viewer",
@@ -7322,7 +7334,7 @@
                 "type": "null"
               }
             ],
-            "description": "Name of the JWT/userinfo claim that contains group memberships. Set to enable group-based role mapping.",
+            "description": "Name of the JWT/userinfo claim (or SAML attribute) that contains group memberships. Set to enable group-based role mapping.",
             "title": "Group Claim"
           },
           "group_role_mapping": {
@@ -7338,12 +7350,51 @@
             "description": "JSON object mapping IdP group names to GeoLens roles. First match wins. Falls back to default_role if no group matches.",
             "title": "Group Role Mapping"
           },
+          "idp_certificate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAML IdP signing certificate (PEM). Required for SAML providers. Stored Fernet-encrypted at rest; never returned in responses.",
+            "title": "Idp Certificate"
+          },
+          "idp_entity_id": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAML IdP entityID. Required for SAML providers.",
+            "title": "Idp Entity Id"
+          },
+          "idp_sso_url": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML providers.",
+            "title": "Idp Sso Url"
+          },
           "provider_type": {
-            "description": "OAuth provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic.",
+            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).",
             "enum": [
               "google",
               "microsoft",
-              "oidc"
+              "oidc",
+              "saml"
             ],
             "title": "Provider Type",
             "type": "string"
@@ -7362,6 +7413,19 @@
             "pattern": "^[a-z0-9-]+$",
             "title": "Slug",
             "type": "string"
+          },
+          "sp_entity_id": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SP entityID for this provider. Required for SAML providers. Default suggestion: {public_api_url}/auth/saml/{slug}.",
+            "title": "Sp Entity Id"
           },
           "token_url": {
             "anyOf": [
@@ -7393,9 +7457,7 @@
         "required": [
           "slug",
           "display_name",
-          "provider_type",
-          "client_id",
-          "client_secret"
+          "provider_type"
         ],
         "title": "OAuthProviderCreate",
         "type": "object"
@@ -7428,7 +7490,7 @@
         "type": "object"
       },
       "OAuthProviderResponse": {
-        "description": "Response schema for OAuth provider. Never exposes client_secret.",
+        "description": "Response schema for OAuth/SAML provider.\n\nWrite-only credentials are never exposed:\n  - ``client_secret_encrypted`` (OAuth client secret) \u2014 excluded.\n  - ``idp_certificate`` (SAML IdP signing cert, Fernet-encrypted at rest) \u2014 excluded.\n\nThe 3 non-secret SAML fields (``idp_entity_id``, ``idp_sso_url``,\n``sp_entity_id``) ARE exposed so the admin UI can display them.\n\nPitfall 11 interaction: those 3 fields are declared with ``deferred=True``\non the OAuth ORM model so community DBs (which lack the columns) do not\ncrash on SELECT. Pydantic's ``from_attributes=True`` would normally trigger\nan implicit deferred load on attribute access, which fails under FastAPI's\nasync context with ``MissingGreenlet``. The ``model_validator(mode=\"before\")``\nbelow reads the SAML fields directly from ``obj.__dict__`` so unloaded\nattributes default to None instead of triggering IO. SAML admin endpoints\nthat need the values must use ``undefer_group(\"saml\")`` at query time.",
         "properties": {
           "authorize_url": {
             "anyOf": [
@@ -7443,9 +7505,16 @@
             "title": "Authorize Url"
           },
           "client_id": {
-            "description": "OAuth client ID. Visible to admins; never exposes client_secret.",
-            "title": "Client Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OAuth client ID. Visible to admins; never exposes client_secret. Null for SAML providers.",
+            "title": "Client Id"
           },
           "created_at": {
             "description": "Timestamp the provider was created.",
@@ -7511,8 +7580,32 @@
             "title": "Id",
             "type": "string"
           },
+          "idp_entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAML IdP entityID (SAML providers only).",
+            "title": "Idp Entity Id"
+          },
+          "idp_sso_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SAML IdP SSO URL (SAML providers only).",
+            "title": "Idp Sso Url"
+          },
           "provider_type": {
-            "description": "Provider type: 'google', 'microsoft', or 'oidc'.",
+            "description": "Provider type: 'google', 'microsoft', 'oidc', or 'saml'.",
             "title": "Provider Type",
             "type": "string"
           },
@@ -7525,6 +7618,18 @@
             "description": "URL-safe identifier used in the callback URL.",
             "title": "Slug",
             "type": "string"
+          },
+          "sp_entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SP entityID for this SAML provider (SAML providers only).",
+            "title": "Sp Entity Id"
           },
           "token_url": {
             "anyOf": [
@@ -7562,7 +7667,6 @@
           "slug",
           "display_name",
           "provider_type",
-          "client_id",
           "scopes",
           "default_role",
           "enabled",
@@ -7694,13 +7798,52 @@
             "description": "Updated group-to-role mapping. Pass an empty object to clear.",
             "title": "Group Role Mapping"
           },
+          "idp_certificate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Updated SAML IdP signing certificate (PEM). Setting this rotates the stored cert; omit to leave unchanged.",
+            "title": "Idp Certificate"
+          },
+          "idp_entity_id": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Updated SAML IdP entityID.",
+            "title": "Idp Entity Id"
+          },
+          "idp_sso_url": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Updated SAML IdP SSO URL.",
+            "title": "Idp Sso Url"
+          },
           "provider_type": {
             "anyOf": [
               {
                 "enum": [
                   "google",
                   "microsoft",
-                  "oidc"
+                  "oidc",
+                  "saml"
                 ],
                 "type": "string"
               },
@@ -7738,6 +7881,19 @@
             ],
             "description": "New slug. Changes the callback URL \u2014 coordinate with the IdP before updating.",
             "title": "Slug"
+          },
+          "sp_entity_id": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Updated SP entityID.",
+            "title": "Sp Entity Id"
           },
           "token_url": {
             "anyOf": [
@@ -10045,6 +10201,23 @@
           "layer_name"
         ],
         "title": "ReuploadServicePreviewRequest",
+        "type": "object"
+      },
+      "SamlToLocalConversion": {
+        "description": "Request body for POST /admin/users/{user_id}/convert-saml-to-local/.\n\nPer Phase 221 D-01: a dedicated, single-purpose schema kept narrow on\npurpose -- password is intentionally NOT on the generic UserUpdate schema\n(which has no password field) so this conversion produces a single,\naudit-distinct action ('user.convert_saml_to_local') instead of being\nfolded into 'user.update'.",
+        "properties": {
+          "password": {
+            "description": "Local-password for the converted account (minimum 8 characters). The user can change this after first login.",
+            "maxLength": 256,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "SamlToLocalConversion",
         "type": "object"
       },
       "SavedSearchCreate": {
@@ -15992,6 +16165,121 @@
           }
         ],
         "summary": "Approve User",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/convert-saml-to-local/": {
+      "post": {
+        "description": "Convert a SAML-authenticated user to local-password (admin only).\n\nPhase 221 LIFECYCLE-06. The conversion happens in a single DB transaction:\nvalidate -> set password -> flip auth_provider -> delete SAML oauth_accounts\nrow -> write audit_log row. The audit_log write is the LAST step before\ncommit (per D-05) so failed conversions never leave an orphan audit entry.\n\nAudit details are an explicit allow-list ({\"from\", \"to\", \"provider_slug\"})\n-- password material is never logged.\n\nSelf-conversion is blocked with 422 to prevent admin self-lockout when an\nadmin fat-fingers the new password (Phase 221 Risk Surfaces / Pitfall 7).",
+        "operationId": "convert_saml_to_local_admin_users__user_id__convert_saml_to_local__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SamlToLocalConversion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Convert Saml To Local",
         "tags": [
           "Admin"
         ]
@@ -35715,7 +36003,7 @@
         ]
       },
       "post": {
-        "description": "Create a new OAuth provider (admin only).",
+        "description": "Create a new OAuth or SAML provider (admin only).\n\nAudit-log payload includes the full ``created`` snapshot with non-secret\nfields verbatim and ``<redacted>`` markers for secrets that were submitted\nin the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).",
         "operationId": "create_oauth_provider_settings_oauth_providers__post",
         "requestBody": {
           "content": {
@@ -35818,7 +36106,7 @@
     },
     "/settings/oauth-providers/{provider_id}": {
       "delete": {
-        "description": "Delete an OAuth provider (admin only).",
+        "description": "Delete an OAuth or SAML provider (admin only).\n\nAudit-log payload contains a ``deleted`` snapshot with the pre-delete\nstate \u2014 non-secret fields verbatim, secret fields marked ``<redacted>``\nif they were previously set (T-217-03-AUDIT-LEAK mitigation extends to\ndelete events too).",
         "operationId": "delete_oauth_provider_settings_oauth_providers__provider_id__delete",
         "parameters": [
           {
@@ -35914,7 +36202,7 @@
         ]
       },
       "put": {
-        "description": "Update an existing OAuth provider (admin only).",
+        "description": "Update an existing OAuth or SAML provider (admin only).\n\nAudit-log payload contains ``details.changes`` with per-field\n``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,\nclient_secret_encrypted, client_secret) are redacted as\n``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /\nT-217-03-AUDIT-LEAK HIGH severity).",
         "operationId": "update_oauth_provider_settings_oauth_providers__provider_id__put",
         "parameters": [
           {

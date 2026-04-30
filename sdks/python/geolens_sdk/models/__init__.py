@@ -367,6 +367,7 @@ from .reupload_preview_response_sample_rows_item import (
 )
 from .reupload_response import ReuploadResponse
 from .reupload_service_preview_request import ReuploadServicePreviewRequest
+from .saml_to_local_conversion import SamlToLocalConversion
 from .saved_search_create import SavedSearchCreate
 from .saved_search_create_params import SavedSearchCreateParams
 from .saved_search_list_response import SavedSearchListResponse
@@ -771,6 +772,7 @@ __all__ = (
     "ReuploadPreviewResponseSampleRowsItem",
     "ReuploadResponse",
     "ReuploadServicePreviewRequest",
+    "SamlToLocalConversion",
     "SavedSearchCreate",
     "SavedSearchCreateParams",
     "SavedSearchListResponse",

@@ -97,9 +97,15 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
-    """Update Oauth Provider
+    r"""Update Oauth Provider
 
-     Update an existing OAuth provider (admin only).
+     Update an existing OAuth or SAML provider (admin only).
+
+    Audit-log payload contains ``details.changes`` with per-field
+    ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
+    client_secret_encrypted, client_secret) are redacted as
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
+    T-217-03-AUDIT-LEAK HIGH severity).
 
     Args:
         provider_id (UUID):
@@ -132,9 +138,15 @@ def sync(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> OAuthProviderResponse | ProblemDetail | None:
-    """Update Oauth Provider
+    r"""Update Oauth Provider
 
-     Update an existing OAuth provider (admin only).
+     Update an existing OAuth or SAML provider (admin only).
+
+    Audit-log payload contains ``details.changes`` with per-field
+    ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
+    client_secret_encrypted, client_secret) are redacted as
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
+    T-217-03-AUDIT-LEAK HIGH severity).
 
     Args:
         provider_id (UUID):
@@ -162,9 +174,15 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
-    """Update Oauth Provider
+    r"""Update Oauth Provider
 
-     Update an existing OAuth provider (admin only).
+     Update an existing OAuth or SAML provider (admin only).
+
+    Audit-log payload contains ``details.changes`` with per-field
+    ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
+    client_secret_encrypted, client_secret) are redacted as
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
+    T-217-03-AUDIT-LEAK HIGH severity).
 
     Args:
         provider_id (UUID):
@@ -195,9 +213,15 @@ async def asyncio(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> OAuthProviderResponse | ProblemDetail | None:
-    """Update Oauth Provider
+    r"""Update Oauth Provider
 
-     Update an existing OAuth provider (admin only).
+     Update an existing OAuth or SAML provider (admin only).
+
+    Audit-log payload contains ``details.changes`` with per-field
+    ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
+    client_secret_encrypted, client_secret) are redacted as
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
+    T-217-03-AUDIT-LEAK HIGH severity).
 
     Args:
         provider_id (UUID):

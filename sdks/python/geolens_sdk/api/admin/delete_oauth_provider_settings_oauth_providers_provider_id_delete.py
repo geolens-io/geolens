@@ -87,7 +87,12 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Oauth Provider
 
-     Delete an OAuth provider (admin only).
+     Delete an OAuth or SAML provider (admin only).
+
+    Audit-log payload contains a ``deleted`` snapshot with the pre-delete
+    state — non-secret fields verbatim, secret fields marked ``<redacted>``
+    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
+    delete events too).
 
     Args:
         provider_id (UUID):
@@ -118,7 +123,12 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Delete Oauth Provider
 
-     Delete an OAuth provider (admin only).
+     Delete an OAuth or SAML provider (admin only).
+
+    Audit-log payload contains a ``deleted`` snapshot with the pre-delete
+    state — non-secret fields verbatim, secret fields marked ``<redacted>``
+    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
+    delete events too).
 
     Args:
         provider_id (UUID):
@@ -144,7 +154,12 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Oauth Provider
 
-     Delete an OAuth provider (admin only).
+     Delete an OAuth or SAML provider (admin only).
+
+    Audit-log payload contains a ``deleted`` snapshot with the pre-delete
+    state — non-secret fields verbatim, secret fields marked ``<redacted>``
+    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
+    delete events too).
 
     Args:
         provider_id (UUID):
@@ -173,7 +188,12 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Delete Oauth Provider
 
-     Delete an OAuth provider (admin only).
+     Delete an OAuth or SAML provider (admin only).
+
+    Audit-log payload contains a ``deleted`` snapshot with the pre-delete
+    state — non-secret fields verbatim, secret fields marked ``<redacted>``
+    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
+    delete events too).
 
     Args:
         provider_id (UUID):

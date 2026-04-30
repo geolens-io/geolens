@@ -78,14 +78,13 @@ def _regenerate_saml_fixtures():
         pass
     yield
 
+
 FIXTURE_IDP_ENTITY_ID = "https://fixture-idp.geolens.test/idp"
 FIXTURE_SP_ENTITY_ID = "https://geolens.test/auth/saml/fixture"
 FIXTURE_SLUG = "fixture"
 FIXTURE_NAMEID = "user@example.com"
 # Embedded in the fixtures' InResponseTo attribute (see generate_fixtures.py).
 FIXTURE_REQUEST_ID = "id-fixture-request-001"
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -120,11 +119,11 @@ async def _seed_saml_provider(
         slug=slug,
         display_name=display_name,
         provider_type="saml",
-        client_id="unused",                                # placeholder for NOT-NULL
+        client_id="unused",  # placeholder for NOT-NULL
         client_secret_encrypted=encrypt_secret("unused"),  # placeholder for NOT-NULL
         idp_entity_id=idp_entity_id,
         idp_sso_url=idp_sso_url,
-        idp_certificate=encrypt_secret(idp_certificate),   # Fernet-encrypted at rest
+        idp_certificate=encrypt_secret(idp_certificate),  # Fernet-encrypted at rest
         sp_entity_id=sp_entity_id,
         group_claim=group_claim,
         group_role_mapping=group_role_mapping,
@@ -178,7 +177,9 @@ def _unmount_saml_router() -> None:
     from app.api.main import app
 
     app.router.routes = [
-        r for r in app.router.routes if not getattr(r, "path", "").startswith("/auth/saml")
+        r
+        for r in app.router.routes
+        if not getattr(r, "path", "").startswith("/auth/saml")
     ]
 
 
@@ -200,9 +201,7 @@ async def _cleanup_saml_providers(test_db_session):
         # CASCADE removes oauth_accounts via FK; remove the user(s) JIT'd from
         # the fixture NameID first so we don't fight the user_roles FK.
         await test_db_session.execute(
-            text(
-                "DELETE FROM catalog.users WHERE email = :email"
-            ),
+            text("DELETE FROM catalog.users WHERE email = :email"),
             {"email": FIXTURE_NAMEID},
         )
         await test_db_session.execute(
@@ -333,7 +332,9 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
         data={"SAMLResponse": saml_response},
         follow_redirects=False,
     )
-    assert resp.status_code == 302, f"expected redirect, got {resp.status_code}: {resp.text}"
+    assert resp.status_code == 302, (
+        f"expected redirect, got {resp.status_code}: {resp.text}"
+    )
     location = resp.headers["location"]
 
     # URL must include ?source=saml query param (Pitfall 8).
@@ -492,7 +493,9 @@ async def test_saml_acs_rejects_xsw_attack(
         # Decode the JWT to make sure it isn't for attacker@evil.test.
         # (We don't expect this branch -- pysaml2 should reject XSW outright.)
         parsed = urlparse(location)
-        frag_pairs = dict(p.split("=", 1) for p in parsed.fragment.split("&") if "=" in p)
+        frag_pairs = dict(
+            p.split("=", 1) for p in parsed.fragment.split("&") if "=" in p
+        )
         token = frag_pairs.get("token", "")
         # JWT body is the middle base64url segment.
         try:
@@ -759,9 +762,7 @@ async def test_saml_provider_update_redacts_secret_fields(
 
     # The response itself must NOT include idp_certificate (write-only).
     body = resp.json()
-    assert "idp_certificate" not in body, (
-        f"idp_certificate leaked in response: {body}"
-    )
+    assert "idp_certificate" not in body, f"idp_certificate leaked in response: {body}"
 
     # Audit-log entry must redact both old and new values for idp_certificate.
     import app.core.db as db_module

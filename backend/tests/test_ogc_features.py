@@ -170,7 +170,9 @@ async def test_collections_includes_dataset_collections(
     assert "datasets" in all_ids
 
     # The per-dataset feature collection should be listed
-    assert target_entry is not None, f"Expected per-dataset entry for {public_dataset.id}"
+    assert target_entry is not None, (
+        f"Expected per-dataset entry for {public_dataset.id}"
+    )
     assert target_entry["itemType"] == "feature"
 
 

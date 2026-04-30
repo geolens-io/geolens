@@ -30,40 +30,53 @@ class OAuthProviderCreate:
     """Schema for creating a new OAuth provider.
 
     Attributes:
-        client_id (str): OAuth client ID issued by the IdP.
-        client_secret (str): OAuth client secret issued by the IdP. Stored encrypted; never returned in responses.
         display_name (str): Human-readable label shown on the login page button.
-        provider_type (OAuthProviderCreateProviderType): OAuth provider type. 'google' and 'microsoft' auto-populate the
-            discovery URL; 'oidc' is generic.
+        provider_type (OAuthProviderCreateProviderType): OAuth or SAML provider type. 'google' and 'microsoft' auto-
+            populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).
         slug (str): URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and
             hyphens only.
         authorize_url (None | str | Unset): Authorization endpoint. Only needed when discovery_url is not set.
+        client_id (None | str | Unset): OAuth client ID issued by the IdP. Required for OAuth/OIDC providers; omit for
+            SAML.
+        client_secret (None | str | Unset): OAuth client secret issued by the IdP. Stored encrypted; never returned in
+            responses. Required for OAuth/OIDC providers; omit for SAML.
         default_role (str | Unset): Role assigned to new users created via this provider: 'viewer', 'editor', or
             'admin'. Default: 'viewer'.
         discovery_url (None | str | Unset): OIDC discovery URL ending in `.well-known/openid-configuration`. Auto-
             populated for Google and Microsoft.
         enabled (bool | Unset): Whether the provider button appears on the login page. Default: True.
-        group_claim (None | str | Unset): Name of the JWT/userinfo claim that contains group memberships. Set to enable
-            group-based role mapping.
+        group_claim (None | str | Unset): Name of the JWT/userinfo claim (or SAML attribute) that contains group
+            memberships. Set to enable group-based role mapping.
         group_role_mapping (None | OAuthProviderCreateGroupRoleMappingType0 | Unset): JSON object mapping IdP group
             names to GeoLens roles. First match wins. Falls back to default_role if no group matches.
+        idp_certificate (None | str | Unset): SAML IdP signing certificate (PEM). Required for SAML providers. Stored
+            Fernet-encrypted at rest; never returned in responses.
+        idp_entity_id (None | str | Unset): SAML IdP entityID. Required for SAML providers.
+        idp_sso_url (None | str | Unset): SAML IdP SSO URL (HTTP-Redirect or HTTP-POST binding). Required for SAML
+            providers.
         scopes (str | Unset): Space-separated OAuth scopes. Default: 'openid profile email'.
+        sp_entity_id (None | str | Unset): SP entityID for this provider. Required for SAML providers. Default
+            suggestion: {public_api_url}/auth/saml/{slug}.
         token_url (None | str | Unset): Token endpoint. Only needed when discovery_url is not set.
         userinfo_url (None | str | Unset): Userinfo endpoint. Only needed when discovery_url is not set.
     """
 
-    client_id: str
-    client_secret: str
     display_name: str
     provider_type: OAuthProviderCreateProviderType
     slug: str
     authorize_url: None | str | Unset = UNSET
+    client_id: None | str | Unset = UNSET
+    client_secret: None | str | Unset = UNSET
     default_role: str | Unset = "viewer"
     discovery_url: None | str | Unset = UNSET
     enabled: bool | Unset = True
     group_claim: None | str | Unset = UNSET
     group_role_mapping: None | OAuthProviderCreateGroupRoleMappingType0 | Unset = UNSET
+    idp_certificate: None | str | Unset = UNSET
+    idp_entity_id: None | str | Unset = UNSET
+    idp_sso_url: None | str | Unset = UNSET
     scopes: str | Unset = "openid profile email"
+    sp_entity_id: None | str | Unset = UNSET
     token_url: None | str | Unset = UNSET
     userinfo_url: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -72,10 +85,6 @@ class OAuthProviderCreate:
         from ..models.o_auth_provider_create_group_role_mapping_type_0 import (
             OAuthProviderCreateGroupRoleMappingType0,
         )
-
-        client_id = self.client_id
-
-        client_secret = self.client_secret
 
         display_name = self.display_name
 
@@ -88,6 +97,18 @@ class OAuthProviderCreate:
             authorize_url = UNSET
         else:
             authorize_url = self.authorize_url
+
+        client_id: None | str | Unset
+        if isinstance(self.client_id, Unset):
+            client_id = UNSET
+        else:
+            client_id = self.client_id
+
+        client_secret: None | str | Unset
+        if isinstance(self.client_secret, Unset):
+            client_secret = UNSET
+        else:
+            client_secret = self.client_secret
 
         default_role = self.default_role
 
@@ -115,7 +136,31 @@ class OAuthProviderCreate:
         else:
             group_role_mapping = self.group_role_mapping
 
+        idp_certificate: None | str | Unset
+        if isinstance(self.idp_certificate, Unset):
+            idp_certificate = UNSET
+        else:
+            idp_certificate = self.idp_certificate
+
+        idp_entity_id: None | str | Unset
+        if isinstance(self.idp_entity_id, Unset):
+            idp_entity_id = UNSET
+        else:
+            idp_entity_id = self.idp_entity_id
+
+        idp_sso_url: None | str | Unset
+        if isinstance(self.idp_sso_url, Unset):
+            idp_sso_url = UNSET
+        else:
+            idp_sso_url = self.idp_sso_url
+
         scopes = self.scopes
+
+        sp_entity_id: None | str | Unset
+        if isinstance(self.sp_entity_id, Unset):
+            sp_entity_id = UNSET
+        else:
+            sp_entity_id = self.sp_entity_id
 
         token_url: None | str | Unset
         if isinstance(self.token_url, Unset):
@@ -133,8 +178,6 @@ class OAuthProviderCreate:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "client_id": client_id,
-                "client_secret": client_secret,
                 "display_name": display_name,
                 "provider_type": provider_type,
                 "slug": slug,
@@ -142,6 +185,10 @@ class OAuthProviderCreate:
         )
         if authorize_url is not UNSET:
             field_dict["authorize_url"] = authorize_url
+        if client_id is not UNSET:
+            field_dict["client_id"] = client_id
+        if client_secret is not UNSET:
+            field_dict["client_secret"] = client_secret
         if default_role is not UNSET:
             field_dict["default_role"] = default_role
         if discovery_url is not UNSET:
@@ -152,8 +199,16 @@ class OAuthProviderCreate:
             field_dict["group_claim"] = group_claim
         if group_role_mapping is not UNSET:
             field_dict["group_role_mapping"] = group_role_mapping
+        if idp_certificate is not UNSET:
+            field_dict["idp_certificate"] = idp_certificate
+        if idp_entity_id is not UNSET:
+            field_dict["idp_entity_id"] = idp_entity_id
+        if idp_sso_url is not UNSET:
+            field_dict["idp_sso_url"] = idp_sso_url
         if scopes is not UNSET:
             field_dict["scopes"] = scopes
+        if sp_entity_id is not UNSET:
+            field_dict["sp_entity_id"] = sp_entity_id
         if token_url is not UNSET:
             field_dict["token_url"] = token_url
         if userinfo_url is not UNSET:
@@ -168,10 +223,6 @@ class OAuthProviderCreate:
         )
 
         d = dict(src_dict)
-        client_id = d.pop("client_id")
-
-        client_secret = d.pop("client_secret")
-
         display_name = d.pop("display_name")
 
         provider_type = check_o_auth_provider_create_provider_type(
@@ -188,6 +239,24 @@ class OAuthProviderCreate:
             return cast(None | str | Unset, data)
 
         authorize_url = _parse_authorize_url(d.pop("authorize_url", UNSET))
+
+        def _parse_client_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        client_id = _parse_client_id(d.pop("client_id", UNSET))
+
+        def _parse_client_secret(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        client_secret = _parse_client_secret(d.pop("client_secret", UNSET))
 
         default_role = d.pop("default_role", UNSET)
 
@@ -234,7 +303,43 @@ class OAuthProviderCreate:
             d.pop("group_role_mapping", UNSET)
         )
 
+        def _parse_idp_certificate(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        idp_certificate = _parse_idp_certificate(d.pop("idp_certificate", UNSET))
+
+        def _parse_idp_entity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        idp_entity_id = _parse_idp_entity_id(d.pop("idp_entity_id", UNSET))
+
+        def _parse_idp_sso_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        idp_sso_url = _parse_idp_sso_url(d.pop("idp_sso_url", UNSET))
+
         scopes = d.pop("scopes", UNSET)
+
+        def _parse_sp_entity_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        sp_entity_id = _parse_sp_entity_id(d.pop("sp_entity_id", UNSET))
 
         def _parse_token_url(data: object) -> None | str | Unset:
             if data is None:
@@ -255,18 +360,22 @@ class OAuthProviderCreate:
         userinfo_url = _parse_userinfo_url(d.pop("userinfo_url", UNSET))
 
         o_auth_provider_create = cls(
-            client_id=client_id,
-            client_secret=client_secret,
             display_name=display_name,
             provider_type=provider_type,
             slug=slug,
             authorize_url=authorize_url,
+            client_id=client_id,
+            client_secret=client_secret,
             default_role=default_role,
             discovery_url=discovery_url,
             enabled=enabled,
             group_claim=group_claim,
             group_role_mapping=group_role_mapping,
+            idp_certificate=idp_certificate,
+            idp_entity_id=idp_entity_id,
+            idp_sso_url=idp_sso_url,
             scopes=scopes,
+            sp_entity_id=sp_entity_id,
             token_url=token_url,
             userinfo_url=userinfo_url,
         )

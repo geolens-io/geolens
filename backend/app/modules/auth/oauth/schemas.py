@@ -155,9 +155,7 @@ class OAuthProviderCreate(BaseModel):
         if self.provider_type == "saml":
             missing = [f for f in _SAML_FIELDS if not getattr(self, f)]
             if missing:
-                raise ValueError(
-                    f"SAML providers require: {', '.join(missing)}"
-                )
+                raise ValueError(f"SAML providers require: {', '.join(missing)}")
         else:
             if not self.client_id or not self.client_secret:
                 raise ValueError(
@@ -183,7 +181,10 @@ class OAuthProviderCreate(BaseModel):
                 raise ValueError(
                     "Group-based role mapping requires the GeoLens Enterprise overlay"
                 )
-            if isinstance(self.group_role_mapping, dict) and len(self.group_role_mapping) > 0:
+            if (
+                isinstance(self.group_role_mapping, dict)
+                and len(self.group_role_mapping) > 0
+            ):
                 raise ValueError(
                     "Group-based role mapping requires the GeoLens Enterprise overlay"
                 )
@@ -295,7 +296,10 @@ class OAuthProviderUpdate(BaseModel):
                 raise ValueError(
                     "Group-based role mapping requires the GeoLens Enterprise overlay"
                 )
-            if isinstance(self.group_role_mapping, dict) and len(self.group_role_mapping) > 0:
+            if (
+                isinstance(self.group_role_mapping, dict)
+                and len(self.group_role_mapping) > 0
+            ):
                 raise ValueError(
                     "Group-based role mapping requires the GeoLens Enterprise overlay"
                 )

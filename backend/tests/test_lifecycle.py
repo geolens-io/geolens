@@ -292,9 +292,7 @@ async def test_overlay_removal_preserves_saml_data(
             OAuthAccount.provider_id == seeded_provider_id,
             OAuthAccount.user_id == seeded_user_id,
         )
-        account_row = (
-            await test_db_session.execute(account_stmt)
-        ).scalar_one_or_none()
+        account_row = (await test_db_session.execute(account_stmt)).scalar_one_or_none()
         assert account_row is not None, (
             "OAuthAccount linkage was destroyed by registry clear"
         )
@@ -406,9 +404,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         # SELECT any role; the test only asserts that THE seeded role row
         # survives, not that a specific role-name is present.
         role_row = (
-            await test_db_session.execute(
-                select(Role).where(Role.name == "viewer")
-            )
+            await test_db_session.execute(select(Role).where(Role.name == "viewer"))
         ).scalar_one_or_none()
         if role_row is None:
             role_row = (
@@ -497,9 +493,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         # (B2 fix; project pattern at test_embed_tokens.py:798,852).
         test_db_session.expire_all()
         user_row = (
-            await test_db_session.execute(
-                select(User).where(User.id == seeded_user_id)
-            )
+            await test_db_session.execute(select(User).where(User.id == seeded_user_id))
         ).scalar_one()
         assert user_row.id == seeded_user_id  # immutable handle
         assert user_row.auth_provider == "local"
@@ -775,9 +769,7 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
         # User row intact and STILL auth_provider='oauth' (this test does NOT
         # convert; it only tests the registry-level round-trip).
         user_row = (
-            await test_db_session.execute(
-                select(User).where(User.id == seeded_user_id)
-            )
+            await test_db_session.execute(select(User).where(User.id == seeded_user_id))
         ).scalar_one()
         assert user_row.auth_provider == "oauth", (
             f"user.auth_provider drifted: {user_row.auth_provider!r}"

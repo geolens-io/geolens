@@ -495,7 +495,9 @@ async def preview_file(
         except (
             Exception
         ) as exc:  # broad: rasterio/GDAL can raise various errors on malformed files
-            logger.exception("raster_preview failed", job_id=str(job_id), error=str(exc))
+            logger.exception(
+                "raster_preview failed", job_id=str(job_id), error=str(exc)
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Unable to preview raster file. The file may be malformed or unsupported.",

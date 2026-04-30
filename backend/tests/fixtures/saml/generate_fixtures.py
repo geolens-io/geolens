@@ -84,7 +84,11 @@ def _write_sp_metadata(tmpdir: Path) -> Path:
 
 def _xmlsec_binary() -> str:
     """Locate xmlsec1 (Linux: /usr/bin/xmlsec1; macOS Homebrew: /opt/homebrew/bin/xmlsec1)."""
-    for candidate in ("/usr/bin/xmlsec1", "/opt/homebrew/bin/xmlsec1", "/usr/local/bin/xmlsec1"):
+    for candidate in (
+        "/usr/bin/xmlsec1",
+        "/opt/homebrew/bin/xmlsec1",
+        "/usr/local/bin/xmlsec1",
+    ):
         if os.path.exists(candidate):
             return candidate
     # Fall back to PATH lookup
@@ -237,7 +241,7 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
     # pysaml2 typically emits namespaced prefixes like ns1:Assertion or
     # saml:Assertion depending on serialization. Match any prefix.
     m = re.search(
-        r'(<([A-Za-z][\w-]*:)?Assertion\b[^>]*>.*?</(?:\2)?Assertion>)',
+        r"(<([A-Za-z][\w-]*:)?Assertion\b[^>]*>.*?</(?:\2)?Assertion>)",
         signed_xml,
         re.DOTALL,
     )
@@ -261,14 +265,14 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
         'NotOnOrAfter="2099-01-01T00:00:00Z">'
         f"<saml:AudienceRestriction><saml:Audience>{SP_ENTITY_ID}</saml:Audience>"
         "</saml:AudienceRestriction></saml:Conditions>"
-        '<saml:AttributeStatement>'
+        "<saml:AttributeStatement>"
         '<saml:Attribute Name="email">'
-        f'<saml:AttributeValue>{evil_subject}</saml:AttributeValue></saml:Attribute>'
+        f"<saml:AttributeValue>{evil_subject}</saml:AttributeValue></saml:Attribute>"
         '<saml:Attribute Name="groups">'
-        '<saml:AttributeValue>admins</saml:AttributeValue></saml:Attribute>'
+        "<saml:AttributeValue>admins</saml:AttributeValue></saml:Attribute>"
         "</saml:AttributeStatement>"
         '<saml:AuthnStatement AuthnInstant="2026-04-29T00:00:00Z">'
-        '<saml:AuthnContext><saml:AuthnContextClassRef>'
+        "<saml:AuthnContext><saml:AuthnContextClassRef>"
         "urn:oasis:names:tc:SAML:2.0:ac:classes:Password"
         "</saml:AuthnContextClassRef></saml:AuthnContext>"
         "</saml:AuthnStatement>"
@@ -294,6 +298,7 @@ def main() -> None:
         )
 
     import tempfile
+
     tmpdir = Path(tempfile.mkdtemp(prefix="saml_fixture_gen_"))
     sp_meta = _write_sp_metadata(tmpdir)
     server = _make_server(sp_meta)

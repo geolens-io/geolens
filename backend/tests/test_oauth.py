@@ -618,14 +618,17 @@ class TestIdpRoleMappingGate:
         import uuid as _uuid
 
         suffix = _uuid.uuid4().hex[:6]
-        return dict(
-            slug=f"gate-test-{suffix}",
-            display_name="Gate Test Provider",
-            provider_type="oidc",
-            client_id=f"client-{suffix}",
-            client_secret="test-secret",
-            enabled=True,
-        ) | overrides
+        return (
+            dict(
+                slug=f"gate-test-{suffix}",
+                display_name="Gate Test Provider",
+                provider_type="oidc",
+                client_id=f"client-{suffix}",
+                client_secret="test-secret",
+                enabled=True,
+            )
+            | overrides
+        )
 
     def test_create_rejects_group_claim_in_community(self):
         """OAuthProviderCreate raises ValueError for group_claim in community edition."""
@@ -636,8 +639,9 @@ class TestIdpRoleMappingGate:
         with _pytest.raises(ValidationError) as exc_info:
             OAuthProviderCreate(**self._create_payload(group_claim="groups"))
 
-        assert "Group-based role mapping requires the GeoLens Enterprise overlay" in str(
-            exc_info.value
+        assert (
+            "Group-based role mapping requires the GeoLens Enterprise overlay"
+            in str(exc_info.value)
         )
 
     def test_create_rejects_group_role_mapping_in_community(self):
@@ -651,8 +655,9 @@ class TestIdpRoleMappingGate:
                 **self._create_payload(group_role_mapping={"admins": "admin"})
             )
 
-        assert "Group-based role mapping requires the GeoLens Enterprise overlay" in str(
-            exc_info.value
+        assert (
+            "Group-based role mapping requires the GeoLens Enterprise overlay"
+            in str(exc_info.value)
         )
 
     def test_create_accepts_group_mapping_in_enterprise(self):
@@ -680,8 +685,9 @@ class TestIdpRoleMappingGate:
         with _pytest.raises(ValidationError) as exc_info:
             OAuthProviderUpdate(group_role_mapping={"admins": "admin"})
 
-        assert "Group-based role mapping requires the GeoLens Enterprise overlay" in str(
-            exc_info.value
+        assert (
+            "Group-based role mapping requires the GeoLens Enterprise overlay"
+            in str(exc_info.value)
         )
 
     def test_create_with_empty_mapping_allowed_in_community(self):

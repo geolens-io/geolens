@@ -93,7 +93,11 @@ def sync_detailed(
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
     """Create Oauth Provider
 
-     Create a new OAuth provider (admin only).
+     Create a new OAuth or SAML provider (admin only).
+
+    Audit-log payload includes the full ``created`` snapshot with non-secret
+    fields verbatim and ``<redacted>`` markers for secrets that were submitted
+    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.
@@ -124,7 +128,11 @@ def sync(
 ) -> OAuthProviderResponse | ProblemDetail | None:
     """Create Oauth Provider
 
-     Create a new OAuth provider (admin only).
+     Create a new OAuth or SAML provider (admin only).
+
+    Audit-log payload includes the full ``created`` snapshot with non-secret
+    fields verbatim and ``<redacted>`` markers for secrets that were submitted
+    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.
@@ -150,7 +158,11 @@ async def asyncio_detailed(
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
     """Create Oauth Provider
 
-     Create a new OAuth provider (admin only).
+     Create a new OAuth or SAML provider (admin only).
+
+    Audit-log payload includes the full ``created`` snapshot with non-secret
+    fields verbatim and ``<redacted>`` markers for secrets that were submitted
+    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.
@@ -179,7 +191,11 @@ async def asyncio(
 ) -> OAuthProviderResponse | ProblemDetail | None:
     """Create Oauth Provider
 
-     Create a new OAuth provider (admin only).
+     Create a new OAuth or SAML provider (admin only).
+
+    Audit-log payload includes the full ``created`` snapshot with non-secret
+    fields verbatim and ``<redacted>`` markers for secrets that were submitted
+    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.

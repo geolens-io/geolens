@@ -337,9 +337,7 @@ class AdminService:
         await self.db.delete(user)
         await self.db.flush()
 
-    async def delete_user(
-        self, user_id: uuid.UUID, current_user_id: uuid.UUID
-    ) -> str:
+    async def delete_user(self, user_id: uuid.UUID, current_user_id: uuid.UUID) -> str:
         """Hard-delete a user. Returns the deleted username for audit logging.
 
         Raises ValueError for self-deletion, last-admin deletion, or not found.
