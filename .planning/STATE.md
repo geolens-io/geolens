@@ -4,8 +4,8 @@ milestone: v13.2
 milestone_name: Edition Lifecycle Hardening
 status: executing
 stopped_at: Phase 220 context gathered
-last_updated: "2026-04-30T01:25:01.006Z"
-last_activity: 2026-04-30 -- Phase 220 planning complete
+last_updated: "2026-04-30T01:25:47.594Z"
+last_activity: 2026-04-30 -- Phase 220 execution started
 progress:
   total_phases: 3
   completed_phases: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.2 Edition Lifecycle Hardening — Phase 220 next.
+**Current focus:** Phase 220 — lifecycle-runbooks-and-preservation
 
 ## Current Position
 
-Phase: 220 (not started)
-Plan: —
-Status: Ready to execute
-Last activity: 2026-04-30 -- Phase 220 planning complete
+Phase: 220 (lifecycle-runbooks-and-preservation) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 220
+Last activity: 2026-04-30 -- Phase 220 execution started
 
 ## Roadmap Snapshot
 

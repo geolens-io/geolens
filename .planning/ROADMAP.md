@@ -80,7 +80,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
   4. An integration test runs in CI (`pytest -m lifecycle`) that exercises the deactivate path and asserts `oauth_providers` rows with `provider_type='saml'` and the 4 `deferred=True` User columns are intact after edition flag is toggled off
   5. Either a non-destructive alembic downgrade path exists that preserves SAML data, OR `edition-deactivation.md` documents the destructive path with an explicit mandatory-export step
 **Plans**: 6 plans
-- [ ] 220-01-deactivation-runbook-PLAN.md — Author docs/edition-deactivation.md (LIFECYCLE-01, LIFECYCLE-05)
+- [x] 220-01-deactivation-runbook-PLAN.md — Author docs/edition-deactivation.md (LIFECYCLE-01, LIFECYCLE-05)
 - [ ] 220-02-reactivation-runbook-PLAN.md — Author docs/edition-reactivation.md (LIFECYCLE-02)
 - [ ] 220-03-saml-doc-edit-PLAN.md — Targeted edit to docs/saml.md Installation section (LIFECYCLE-03)
 - [ ] 220-04-lifecycle-test-PLAN.md — Register lifecycle marker + author backend/tests/test_lifecycle.py (LIFECYCLE-04)
@@ -101,7 +101,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 220. lifecycle-runbooks-and-preservation | 0/6 | Not started | - |
+| 220. lifecycle-runbooks-and-preservation | 1/6 | In Progress|  |
 | 221. lifecycle-user-continuity-and-verification | 0/TBD | Not started | - |
 
 ## Backlog
@@ -110,7 +110,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 0 plans
+**Plans:** 1/6 plans executed
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 
