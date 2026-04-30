@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """STAC export — fetch a STAC 1.1 item for a raster dataset and render it.
 
 Hand-maintained — NOT regenerated. Pure SDK pass-through (D-25, D-28). The

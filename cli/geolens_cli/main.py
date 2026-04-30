@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """GeoLens CLI entrypoint — Typer app + global options + AppState.
 
 Hand-maintained — NOT regenerated. Subcommands are progressively populated

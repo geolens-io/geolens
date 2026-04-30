@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Filesystem scan + format detection — pure local I/O, no HTTP.
 
 Hand-maintained — NOT regenerated. Detection is extension-only per

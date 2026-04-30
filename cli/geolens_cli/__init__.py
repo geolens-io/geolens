@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """GeoLens CLI.
 
 Hand-maintained — NOT regenerated. Version is sourced from package metadata
