@@ -86,7 +86,7 @@ class SamlToLocalConversion(BaseModel):
     Per Phase 221 D-01: a dedicated, single-purpose schema kept narrow on
     purpose -- password is intentionally NOT on the generic UserUpdate schema
     (which has no password field) so this conversion produces a single,
-    audit-distinct action ('auth.convert_saml_to_local') instead of being
+    audit-distinct action ('user.convert_saml_to_local') instead of being
     folded into 'user.update'.
     """
 

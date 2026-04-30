@@ -304,7 +304,7 @@ async def convert_saml_to_local(
     await log_action(
         session=db,
         user_id=current_user.id,
-        action="auth.convert_saml_to_local",
+        action="user.convert_saml_to_local",
         resource_type="user",
         resource_id=user_id,
         details={"from": "saml", "to": "local", "provider_slug": provider_slug},
