@@ -66,15 +66,19 @@ async def test_raising_sink_does_not_break_business_op(test_db_session, caplog) 
     from app.platform.extensions.defaults import DefaultAuditSink
     from sqlalchemy import select
 
+    from tests.factories import get_user_id
+
     class RaisingSink:
         async def emit(self, session, event):
             raise RuntimeError("simulated sink failure for AUDIT-03")
 
+    # Use the seeded admin user so audit_logs FK (user_id → users.id) does not fire.
+    actor_id = await get_user_id(test_db_session, "admin")
+    resource_id = uuid.uuid4()
+
     saved = _extensions.get("audit_sinks")
     _extensions["audit_sinks"] = [DefaultAuditSink(), RaisingSink()]
     try:
-        actor_id = uuid.uuid4()
-        resource_id = uuid.uuid4()
         event = AuditEvent(
             user_id=actor_id,
             action="audit_sink.test_raising",
