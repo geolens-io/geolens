@@ -242,7 +242,7 @@ jobs:
         if: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN != '' }}
         uses: actions/checkout@v4
         with:
-          repository: ishiland/geolens-enterprise
+          repository: geolens-io/geolens-enterprise
           token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
           path: geolens-enterprise
 

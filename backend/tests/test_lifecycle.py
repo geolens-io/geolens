@@ -39,7 +39,7 @@ from sqlalchemy.orm import undefer_group
 
 import app.core.edition as edition_mod
 from app.modules.auth.models import User
-from app.modules.auth.oauth.encryption import encrypt_secret
+from app.modules.auth.oauth.encryption import decrypt_secret, encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.platform.extensions import (
     _extensions,
@@ -189,7 +189,9 @@ async def test_overlay_removal_preserves_saml_data(
         assert survivor.provider_type == "saml"
         assert survivor.idp_entity_id == LIFECYCLE_IDP_ENTITY_ID
         assert survivor.idp_sso_url == LIFECYCLE_IDP_SSO_URL
-        assert survivor.idp_certificate == encrypt_secret(LIFECYCLE_CERT_PEM)
+        # Fernet ciphertext is non-deterministic (random IV per call), so compare
+        # by decrypting the survivor and matching the original plaintext.
+        assert decrypt_secret(survivor.idp_certificate) == LIFECYCLE_CERT_PEM
         assert survivor.sp_entity_id == LIFECYCLE_SP_ENTITY_ID
 
         # 3b. SQL: oauth_accounts linkage row still present.
