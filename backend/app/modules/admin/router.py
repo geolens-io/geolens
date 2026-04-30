@@ -23,6 +23,7 @@ from app.modules.admin.schemas import (
     EmbeddingStatsResponse,
     InfrastructureConfig,
     InfrastructureResponse,
+    SamlToLocalConversion,
     UserListResponse,
     UserNameItem,
     UserUpdate,
@@ -243,6 +244,70 @@ async def deactivate_user(
         resource_type="user",
         resource_id=user_id,
         details={"username": user.username},
+        ip_address=ip,
+    )
+    await db.commit()
+    return _user_response(user)
+
+
+@router.post(
+    "/users/{user_id}/convert-saml-to-local/",
+    response_model=UserResponse,
+)
+async def convert_saml_to_local(
+    user_id: uuid.UUID,
+    body: SamlToLocalConversion,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Convert a SAML-authenticated user to local-password (admin only).
+
+    Phase 221 LIFECYCLE-06. The conversion happens in a single DB transaction:
+    validate -> set password -> flip auth_provider -> delete SAML oauth_accounts
+    row -> write audit_log row. The audit_log write is the LAST step before
+    commit (per D-05) so failed conversions never leave an orphan audit entry.
+
+    Audit details are an explicit allow-list ({"from", "to", "provider_slug"})
+    -- password material is never logged.
+
+    Self-conversion is blocked with 422 to prevent admin self-lockout when an
+    admin fat-fingers the new password (Phase 221 Risk Surfaces / Pitfall 7).
+    """
+    # Self-conversion guard -- mirrors update_user's self-action guard at
+    # router.py:180-184. 422 (NOT 400/403) per the existing convention.
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot convert your own account; use a different admin account",
+        )
+
+    service = AdminService(db)
+    try:
+        user, provider_slug = await service.convert_saml_user_to_local(
+            user_id, body.password
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            )
+        # All other ValueErrors (auth_provider mismatch, no SAML linkage) -> 422
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        )
+
+    ip = get_client_ip(request)
+    await log_action(
+        session=db,
+        user_id=current_user.id,
+        action="auth.convert_saml_to_local",
+        resource_type="user",
+        resource_id=user_id,
+        details={"from": "saml", "to": "local", "provider_slug": provider_slug},
         ip_address=ip,
     )
     await db.commit()
