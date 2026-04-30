@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.2
 milestone_name: Edition Lifecycle Hardening
-status: ready_to_plan
-stopped_at: Phase 220 context gathered
-last_updated: "2026-04-30T11:15:00.000Z"
-last_activity: 2026-04-30 -- Phase 220 shipped (UAT-1 passed; UAT-2 deferred to free-tier reset)
+status: Ready to discuss
+stopped_at: Phase 221 context gathered
+last_updated: "2026-04-30T11:27:36.301Z"
+last_activity: 2026-04-30 — Phase 220 shipped (6/6 plans, UAT-1 ✓, UAT-2 deferred to 2026-05-01)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 0
-  percent: 33
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -115,6 +115,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-04-30T11:15:00.000Z
-Stopped at: Phase 220 shipped — Phase 221 ready to discuss
-Resume file: .planning/phases/220-lifecycle-runbooks-and-preservation/220-HUMAN-UAT.md (UAT-2 follow-up)
+Last session: 2026-04-30T11:27:36.297Z
+Stopped at: Phase 221 context gathered
+Resume file: .planning/phases/221-lifecycle-user-continuity-and-verification/221-CONTEXT.md
