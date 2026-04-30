@@ -77,11 +77,79 @@ LIFECYCLE_CERT_PEM = (
 async def _cleanup_lifecycle_rows(test_db_session: AsyncSession):
     """Best-effort teardown of any rows the lifecycle test seeded.
 
-    Mirrors backend/tests/test_saml_overlay.py:185-219 but scoped to the
-    lifecycle test's slug + username so other SAML tests are unaffected.
+    Phase 220 created the original fixture for the deactivate-only test
+    (oauth_accounts + oauth_providers + users scoped by slug/username).
+
+    Phase 221 extends it to also clean up rows the LIFECYCLE-06 conversion test
+    and LIFECYCLE-07 round-trip test seed:
+      - audit_logs rows by user_id OR resource_id (test-seeded
+        'test.seed.lifecycle' rows AND endpoint-written
+        'auth.convert_saml_to_local' rows where resource_id == converted user_id).
+      - user_roles rows by user_id (LIFECYCLE-06 conversion-test seed).
+      - records rows by created_by (LIFECYCLE-06 record-ownership seed). Datasets
+        attached via record_id are cleaned via CASCADE; an explicit datasets
+        delete keyed by record_id is run BEFORE the records delete as a safety
+        net for partial seeds.
+
+    FK semantics consulted:
+      * audit_logs.user_id  -> users.id  (ondelete=SET NULL,
+        backend/app/modules/audit/models.py:22).
+      * records.created_by  -> users.id  (ondelete=SET NULL,
+        backend/app/modules/catalog/datasets/domain/models.py:121-123).
+      * datasets.record_id  -> records.id (ondelete=CASCADE,
+        backend/app/modules/catalog/datasets/domain/models.py:207-210).
+      Dataset has NO `created_by` column; dataset ownership flows through Record.
+
+    Mirrors the test-local cleanup pattern from Phase 220 (D-11 -- fixture stays
+    test-local, NOT promoted to conftest.py).
     """
     yield
     try:
+        # Resolve seeded user's id (may be absent if test failed before seeding)
+        result = await test_db_session.execute(
+            text("SELECT id FROM catalog.users WHERE username = :username"),
+            {"username": LIFECYCLE_USERNAME},
+        )
+        row = result.first()
+        seeded_user_id = row[0] if row is not None else None
+
+        if seeded_user_id is not None:
+            # Phase 221 NEW DELETEs (run BEFORE existing oauth/users DELETEs).
+            # AuditLog.resource_id is Mapped[uuid.UUID | None] -- single :uid
+            # parameter matches both `user_id` (the actor) and `resource_id`
+            # (the target user the conversion endpoint records). Project
+            # pattern is UUID equality (test_saml_overlay.py:699,
+            # test_provenance_attribution.py:338).
+            await test_db_session.execute(
+                text(
+                    "DELETE FROM catalog.audit_logs "
+                    "WHERE user_id = :uid OR resource_id = :uid"
+                ),
+                {"uid": seeded_user_id},
+            )
+            await test_db_session.execute(
+                text("DELETE FROM catalog.user_roles WHERE user_id = :uid"),
+                {"uid": seeded_user_id},
+            )
+            # Defensive: drop any datasets pointing at the seeded user's records
+            # before the records DELETE. The records cascade also handles this,
+            # but an explicit pre-delete keeps the row count clean if a partial
+            # seed left dataset orphans without record links.
+            await test_db_session.execute(
+                text(
+                    "DELETE FROM catalog.datasets "
+                    "WHERE record_id IN ("
+                    "  SELECT id FROM catalog.records WHERE created_by = :uid"
+                    ")"
+                ),
+                {"uid": seeded_user_id},
+            )
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE created_by = :uid"),
+                {"uid": seeded_user_id},
+            )
+
+        # Phase 220 EXISTING DELETEs (preserved verbatim).
         await test_db_session.execute(
             text(
                 "DELETE FROM catalog.oauth_accounts WHERE provider_id IN "
