@@ -76,9 +76,7 @@ Run these steps **before** stopping the enterprise stack. They establish the saf
      AND u.auth_provider = 'oauth';
    ```
 
-3. **Communicate to SAML-authenticated users.**
-
-   > **Existing SAML users will lose their login path.** Phase 221 ships the user re-onboarding procedure ("Handling existing SAML users", planned). Until that lands, communicate the downgrade to SAML users out-of-band and convert their accounts manually via the admin UI (set local password or convert to OIDC).
+3. **Communicate to SAML-authenticated users.** See [Handling existing SAML users](#handling-existing-saml-users) below for the conversion procedure. **Order matters:** convert each user *after* the overlay is removed (so `/auth/saml/*` returns 404 and no in-flight SAML login can race the conversion).
 
 4. **Plan a maintenance window.** SAML logins fail immediately when the overlay is removed. Existing JWTs continue to work until they expire (per `ACCESS_TOKEN_EXPIRE_MINUTES`).
 
@@ -140,6 +138,102 @@ The worker container also receives the overlay; `docker compose down` removes bo
 ## Database state after the safe path
 
 The 4 SAML columns are physically present on `catalog.oauth_providers` (added by `e002_add_saml_columns`). The ORM marks them `deferred=True, deferred_group="saml"` — they are off default queries and only loaded via `select(...).options(undefer_group("saml"))`. Community deployments without the overlay never trigger that load, so the columns are inert. SAML provider rows, `oauth_accounts` linkage rows, and SAML-authenticated `users` rows all remain intact and will be visible again the moment the overlay is reloaded — see [`docs/edition-reactivation.md`](edition-reactivation.md).
+
+## Handling existing SAML users
+
+Existing SAML-authenticated users lose their login path the moment the enterprise overlay is removed (`/auth/saml/*` returns 404). Each affected user must be re-onboarded before they can sign in again. The canonical procedure for v13.2 is **conversion to local-password** via a dedicated admin endpoint that runs every step in a single database transaction — `users.id` is unchanged across the conversion, so every foreign-key reference (`audit_logs.user_id`, `user_roles.user_id`, `datasets.created_by`, `datasets.updated_by`, `api_keys.user_id`, `share_tokens.user_id`, etc.) remains valid by virtue of the user row not moving.
+
+> **Run conversions AFTER the overlay is removed** (steps 1–6 of the canonical path above). Once `/auth/saml/*` returns 404, no in-flight SAML login can race the conversion. Running conversions before deactivation creates a window where a SAML ACS POST may hit a partially-converted user state.
+
+### Step 1: Inventory SAML users
+
+Reuse the inventory query from §pre-flight (extended to project per-user fields for iteration):
+
+```sql
+SELECT u.id, u.username, u.email, op.slug AS provider_slug
+FROM catalog.users u
+JOIN catalog.oauth_accounts oa ON oa.user_id = u.id
+JOIN catalog.oauth_providers op ON op.id = oa.provider_id
+WHERE op.provider_type = 'saml'
+  AND u.auth_provider = 'oauth';
+```
+
+Save the result — you will iterate over `(id, username, email, provider_slug)` in step 3.
+
+### Step 2: Decide a conversion target per user
+
+| Target | When to use | Procedure |
+|---|---|---|
+| **Local-password** | Default. Universal — works regardless of OIDC config state. | Endpoint below (Step 3). |
+| **OIDC re-link** | You have an OIDC `oauth_providers` row already configured and the user prefers federated SSO. | Manual procedure — see [Appendix: OIDC conversion (manual)](#appendix-oidc-conversion-manual). |
+
+### Step 3: Run the conversion endpoint per user
+
+First, obtain an admin JWT against the local-password admin login flow (replace `$ADMIN_USER` / `$ADMIN_PASSWORD` with your admin credentials — these are set via `GEOLENS_ADMIN_USERNAME` / `GEOLENS_ADMIN_PASSWORD` env vars):
+
+```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8000/auth/login/ \
+  -d "username=$ADMIN_USER&password=$ADMIN_PASSWORD" \
+  | jq -r .access_token)
+```
+
+Then convert each SAML user (the trailing slash on the URL is mandatory — without it FastAPI returns a 307 redirect that may drop the JSON body):
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"password": "<temp-strong-password>"}' \
+  http://localhost:8000/admin/users/<user-id>/convert-saml-to-local/
+```
+
+A successful response (HTTP 200) is the user's `UserResponse` payload with `auth_provider` reflecting the new `"local"` state. The endpoint, in a single transaction:
+
+- Validates the user is currently SAML-authenticated (`auth_provider='oauth'` AND has an `oauth_accounts` row pointing at a `provider_type='saml'` provider). Otherwise 422.
+- Sets `users.password_hash` to a bcrypt hash of the supplied password.
+- Flips `users.auth_provider` from `'oauth'` to `'local'`.
+- Deletes the user's `oauth_accounts` row pointing at the SAML provider. The SAML `oauth_providers` row itself is preserved — other users may still link to it post-reactivation.
+- Writes one `audit_log` entry with `action='auth.convert_saml_to_local'` and `details={"from": "saml", "to": "local", "provider_slug": "<slug>"}`. Password material is never logged.
+
+All steps run in one transaction; any failure rolls back without writing the audit-log row.
+
+> **Self-conversion is blocked.** If `<user-id>` matches the admin invoking the call, the endpoint returns 422 (`Cannot convert your own account; use a different admin account`) — this prevents an admin from fat-fingering their own new password and locking themselves out of the deployment. Use a second admin account when you need to convert your own.
+
+### Step 4: Communicate the new credentials out-of-band
+
+Choose a secure delivery channel for the temporary password (encrypted email, password manager share, in-person credential drop). Each user logs in to `/login` using their existing username and the new local-password credential. Encourage users to change the password immediately after first login via the standard self-service flow.
+
+### Step 5: Verify the user can log in
+
+Smoke-test one converted user before notifying the rest:
+
+```bash
+curl -fsS -X POST http://localhost:8000/auth/login/ \
+  -d "username=$USERNAME&password=<temp-strong-password>"
+```
+
+Expected: HTTP 200 with `access_token`. If you receive 401, confirm the conversion endpoint returned 200 in step 3 and the user supplied the temporary password verbatim (no surrounding whitespace).
+
+### Step 6: Confirm the audit trail recorded the conversion
+
+```sql
+SELECT user_id, action, resource_id, details
+FROM catalog.audit_logs
+WHERE action = 'auth.convert_saml_to_local'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+Each conversion produces exactly one row. The `user_id` field is the admin who performed the conversion; `resource_id` is the user being converted; `details` is the allow-listed dictionary with `from`, `to`, and `provider_slug`. If a row is missing for a conversion you ran, the underlying transaction rolled back — re-run the conversion after investigating the response payload from step 3.
+
+### Appendix: OIDC conversion (manual)
+
+If your deployment has an OIDC `oauth_providers` row configured and a user prefers federated SSO over local-password, OIDC conversion has no automated endpoint in v13.2 (deferred to a future polish phase). The manual procedure:
+
+1. Have the user run the OIDC enrollment flow from their perspective — sign in via the OIDC provider button on `/login`. GeoLens JIT-creates a new `oauth_accounts` linkage row pointing at the OIDC provider for that user.
+2. Manually delete the user's SAML `oauth_accounts` row via SQL — match on `user_id` AND the SAML `provider_id`.
+3. The user's `auth_provider` stays `'oauth'`; their `users.id` is unchanged; their audit history and role memberships remain intact.
+
+Automating this two-step procedure is on the deferred roadmap — this manual procedure exists for operators who want OIDC-federated continuity instead of local-password during the v13.2 lifecycle.
 
 ## Destructive path: permanent decommissioning
 
