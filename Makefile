@@ -1,4 +1,4 @@
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli
+.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline
 
 dev:
 	docker compose up --build
@@ -135,3 +135,10 @@ cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught
 # `make publish-cli` — manual user action; requires UV_PUBLISH_TOKEN.
 publish-cli: ## Build + publish geolens CLI to PyPI (requires UV_PUBLISH_TOKEN)
 	cd cli && uv build && uv publish
+
+# Phase 222 AUDIT-02 invariant: log_action() is called only by DefaultAuditSink.emit().
+# All 65 historical emit sites must route through audit_emit(session, AuditEvent(...)) instead.
+# This target runs the architecture-guard test in isolation — quick local verification
+# without spinning up the full pytest suite.
+audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults.py (Phase 222 AUDIT-02)
+	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_log_action_calls_outside_audit_service -v
