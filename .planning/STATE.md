@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-04-30T18:40:19.600Z"
 last_activity: 2026-04-30
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,23 +20,29 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 221 — lifecycle-user-continuity-and-verification
+**Current focus:** Phase 222 — audit-sink-protocol (first available; run /gsd-discuss-phase 222 before planning)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 222 — audit-sink-protocol
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-30 — Milestone v13.3 started
+Status: Ready to discuss / plan
+Last activity: 2026-04-30 — Roadmap created for v13.3
+
+```
+[Phase 222] [Phase 223]
+[          ] [          ]
+  0%                        0/2 phases complete
+```
 
 ## Roadmap Snapshot
 
 | Phase | Name | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 220 | lifecycle-runbooks-and-preservation | LIFECYCLE-01, LIFECYCLE-02, LIFECYCLE-03, LIFECYCLE-04, LIFECYCLE-05 | 219 |
-| 221 | lifecycle-user-continuity-and-verification | LIFECYCLE-06, LIFECYCLE-07 | 220 |
+| 222 | audit-sink-protocol | AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04, AUDIT-05 | 221 |
+| 223 | marketplace-billing-extraction | BILLING-01, BILLING-02, BILLING-03, BILLING-04, BILLING-05, BILLING-06 | 221 (parallel with 222) |
 
-Coverage: 7/7 v13.2 requirements mapped.
+Coverage: 11/11 v13.3 requirements mapped.
 
 ## Phase 218 / 219 close-gate record
 
@@ -60,6 +66,7 @@ Coverage: 7/7 v13.2 requirements mapped.
 
 - Phase 219 added: oc-audit-remediate-idp-mapping (remediate Phase 218 boundary shortfall — OAuth IdP→role mapping in core)
 - v13.2 phases 220-221 defined: promotes backlog phase 999.7 (edition lifecycle runbooks + data preservation + user continuity + CI verification)
+- v13.3 phases 222-223 defined: closes two P1 audit items from oc-separation-audit-20260430.md — AuditSink Protocol (65 log_action() sites → extensible sink) and AWS Marketplace extraction (boto3 out of core)
 
 ### Key Implementation Reference
 
@@ -69,6 +76,11 @@ The v13.1 SAML implementation is ground truth for v13.2:
 - `oauth_providers` table — stores `provider_type='saml'` rows
 - `User` model `deferred=True` columns (4 SAML columns) — Pitfall 11 mitigation ensuring lossless reactivation by design
 - `find_or_create_oauth_user()` — JIT provisioning path that creates User rows for SAML-authenticated users
+
+### v13.3 Design Decisions Pending
+
+- **Phase 222**: sync vs async emit for AuditSink; whether log_action() becomes the default sink body or is removed entirely; sink-failure semantics implementation approach. Resolve via `/gsd-discuss-phase 222`.
+- **Phase 223**: whether `aws_marketplace_product_code` / `aws_marketplace_public_key_version` move to the enterprise overlay's settings or remain as opaque pass-through env vars in core Settings. Either is acceptable per BILLING-05.
 
 ## Cross-Repo Note (2026-04-26)
 
@@ -125,6 +137,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-04-30T12:45:39.086Z
-Stopped at: Phase 221 context gathered
+Last session: 2026-04-30T18:40:19.600Z
+Stopped at: Roadmap created for v13.3 — phases 222-223 defined
 Resume file: None

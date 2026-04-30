@@ -52,18 +52,16 @@ Explicit exclusions for v13.3 with reasoning.
 
 ## Traceability
 
-To be filled by `gsd-roadmapper`.
-
 | Requirement | Phase |
 |---|---|
-| AUDIT-01 | TBD |
-| AUDIT-02 | TBD |
-| AUDIT-03 | TBD |
-| AUDIT-04 | TBD |
-| AUDIT-05 | TBD |
-| BILLING-01 | TBD |
-| BILLING-02 | TBD |
-| BILLING-03 | TBD |
-| BILLING-04 | TBD |
-| BILLING-05 | TBD |
-| BILLING-06 | TBD |
+| AUDIT-01 | Phase 222 |
+| AUDIT-02 | Phase 222 |
+| AUDIT-03 | Phase 222 |
+| AUDIT-04 | Phase 222 |
+| AUDIT-05 | Phase 222 |
+| BILLING-01 | Phase 223 |
+| BILLING-02 | Phase 223 |
+| BILLING-03 | Phase 223 |
+| BILLING-04 | Phase 223 |
+| BILLING-05 | Phase 223 |
+| BILLING-06 | Phase 223 |

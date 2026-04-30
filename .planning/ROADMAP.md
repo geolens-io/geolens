@@ -43,6 +43,7 @@
 - 🚀 **1.0.0 Public Release** — Version reset; backend/frontend bumped to 1.0.0 (shipped 2026-04-01)
 - ✅ **v13.1 Open-Core Separation P1** — Phases 212-219 (shipped 2026-04-29) — see [archive](milestones/v13.1-ROADMAP.md)
 - ✅ **v13.2 Edition Lifecycle Hardening** — Phases 220-221 (shipped 2026-04-30) — see [archive](milestones/v13.2-ROADMAP.md)
+- 🔄 **v13.3 Boundary A+ Cleanup** — Phases 222-223 (in progress)
 
 ## Phases
 
@@ -71,6 +72,51 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 7/7 v13.2 requirements satisfied (LIFECYCLE-01..07). Operator runbooks for enterprise↔community lifecycle, admin SAML→local conversion endpoint, and 3 lifecycle tests (deactivate-only, conversion, deactivate→reactivate round-trip symmetry) shipped.
 
 </details>
+
+### v13.3 Boundary A+ Cleanup (Phases 222-223)
+
+- [ ] **Phase 222: audit-sink-protocol** — Extract AuditSink Protocol; route all 65 log_action() emit sites through get_audit_sink().emit() with safe failure semantics and a fixture-based extension test
+- [ ] **Phase 223: marketplace-billing-extraction** — Remove boto3 from core; relocate AWS Marketplace logic to enterprise overlay behind BillingExtension.on_startup() hook
+
+## Phase Details
+
+### Phase 222: audit-sink-protocol
+**Goal**: Every audit event routes through a single extensible sink Protocol; community behavior is identical to today; an enterprise overlay can subscribe additional sinks without modifying core code
+**Depends on**: Phase 221
+**Requirements**: AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04, AUDIT-05
+**Source spec**: `docs-internal/audits/oc-separation-audit-20260430.md` §2 (Seam #3) and §5 (Coupling Health, log_action regression)
+**Note**: Design decisions — sync vs async emit, sink-failure semantics, whether log_action() becomes the default sink body or is removed — should be resolved via `/gsd-discuss-phase` before planning.
+**Success Criteria** (what must be TRUE):
+  1. A community deployment with zero overlays records exactly the same audit_logs rows after the refactor as before — no row-count or row-content drift on a deterministic test workload
+  2. A failed business operation (e.g., dataset publish error) is not rolled back or suppressed because an audit sink raised an exception — sink failures are swallowed and logged via structlog.exception()
+  3. An enterprise overlay can register a second AuditSink implementation via the existing extension entry-point group and receive every audit event without any core code change
+  4. No call site in backend/app/ calls log_action() directly — all 65 sites route through get_audit_sink().emit()
+  5. Existing audit-related tests pass without modification
+**Plans**: TBD
+
+---
+
+### Phase 223: marketplace-billing-extraction
+**Goal**: boto3 is absent from the community package; AWS Marketplace registration runs only in the enterprise overlay via a BillingExtension hook; the post-phase audit re-run shows zero 🟡 boundary risks
+**Depends on**: Phase 221 (can run in parallel with Phase 222)
+**Requirements**: BILLING-01, BILLING-02, BILLING-03, BILLING-04, BILLING-05, BILLING-06
+**Source spec**: `docs-internal/audits/oc-separation-audit-20260430.md` §1 (Feature Boundary Leakage — 3 🟡 loci: `api/main.py:184-203`, `core/marketplace.py:1-30`, `core/config.py:87-88`)
+**Note**: The aws_marketplace_product_code / aws_marketplace_public_key_version settings placement (core Settings pass-through vs enterprise-only) is an acceptable-carve-out decision; resolve during phase planning if not via /gsd-discuss-phase.
+**Success Criteria** (what must be TRUE):
+  1. `import boto3` produces an ImportError in a clean community virtualenv (boto3 not in backend/pyproject.toml)
+  2. A community deployment with AWS_MARKETPLACE_PRODUCT_CODE unset (the default) performs zero AWS API calls and imports zero boto3 symbols at startup
+  3. The enterprise overlay's BillingExtension.on_startup() fires and registers marketplace usage when the overlay is installed and the env var is set — behavior is unchanged for enterprise deployments
+  4. An audit re-run against the post-phase codebase reports zero 🟡 risks in §1 (Feature Boundary Leakage) and the AWS Marketplace cluster reads "✅ Closed"
+**Plans**: TBD
+
+---
+
+## Progress Table
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 222. audit-sink-protocol | 0/TBD | Not started | - |
+| 223. marketplace-billing-extraction | 0/TBD | Not started | - |
 
 ## Backlog
 
