@@ -242,13 +242,48 @@ async def test_fake_processing_port_satisfies_protocol() -> None:
     Uses isinstance() on the @runtime_checkable Protocol. This proves
     FakeProcessingPort can stand in for DefaultProcessingPort in tests
     (D-27 / SC#5 structural check).
+
+    runtime_checkable on a Protocol only verifies attribute PRESENCE, not
+    method signatures (PEP 544). The signature spot-checks below catch the
+    most common drift forms — a renamed/dropped parameter on a Port method
+    that callers actually rely on.
     """
+    import inspect
+
     from app.core.processing_port import ProcessingPort
 
     port = FakeProcessingPort()
     assert isinstance(port, ProcessingPort), (
         "FakeProcessingPort does not satisfy ProcessingPort Protocol — "
         "a method required by ProcessingPort is missing or has the wrong signature."
+    )
+
+    # Signature spot-checks for the most fragile / call-site-sensitive methods.
+    # runtime_checkable doesn't verify these; do it explicitly.
+    sig = inspect.signature(port.get_distinct_values)
+    assert "limit" in sig.parameters, (
+        "get_distinct_values lost its limit parameter — call sites in "
+        "ai/service.py and chat_service.py rely on it"
+    )
+    assert "allowed_tables" in sig.parameters, (
+        "get_distinct_values lost its allowed_tables kwarg"
+    )
+
+    sig = inspect.signature(port.get_dataset_with_attributes)
+    assert "dataset_id" in sig.parameters, (
+        "get_dataset_with_attributes lost its dataset_id parameter — "
+        "metadata_service._build_dataset_context relies on it"
+    )
+
+    sig = inspect.signature(port.get_keywords_for_records)
+    assert "record_ids" in sig.parameters, (
+        "get_keywords_for_records lost its record_ids parameter — "
+        "metadata_service._get_related_keywords_from_embeddings relies on it"
+    )
+
+    sig = inspect.signature(port.get_column_stats)
+    assert "class_count" in sig.parameters, (
+        "get_column_stats lost its class_count kwarg"
     )
 
     # Exercise read methods to confirm canned returns work
