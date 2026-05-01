@@ -201,38 +201,33 @@ async def get_dataset_detail(
     needs_raster = record_type in ("raster_dataset", "vrt_dataset")
     needs_vrt_count = record_type == "vrt_dataset"
 
-    ra_coro = (
-        db.execute(select(RasterAsset).where(RasterAsset.dataset_id == dataset.id))
-        if needs_raster
-        else None
-    )
-    sc_coro = (
-        db.execute(
-            text(
-                "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
-            ),
-            {"id": str(dataset.id)},
+    # Build a labeled-coro list and gather only the ones we need; collapsing
+    # the three explicit branch shapes that previously existed here.
+    coros: list[tuple[str, Any]] = []
+    if needs_raster:
+        coros.append(
+            ("ra", db.execute(select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)))
         )
-        if needs_vrt_count
-        else None
-    )
-    da_coro = db.execute(
-        select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)
+    if needs_vrt_count:
+        coros.append(
+            (
+                "sc",
+                db.execute(
+                    text(
+                        "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
+                    ),
+                    {"id": str(dataset.id)},
+                ),
+            )
+        )
+    coros.append(
+        ("da", db.execute(select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)))
     )
 
-    raster_asset = None
-    source_count = None
-    if ra_coro is not None and sc_coro is not None:
-        ra_result, sc_result, da_result = await asyncio.gather(
-            ra_coro, sc_coro, da_coro
-        )
-        raster_asset = ra_result.scalar_one_or_none()
-        source_count = sc_result.scalar()
-    elif ra_coro is not None:
-        ra_result, da_result = await asyncio.gather(ra_coro, da_coro)
-        raster_asset = ra_result.scalar_one_or_none()
-    else:
-        da_result = await da_coro
+    results = dict(zip([k for k, _ in coros], await asyncio.gather(*(c for _, c in coros))))
+    raster_asset = results["ra"].scalar_one_or_none() if "ra" in results else None
+    source_count = results["sc"].scalar() if "sc" in results else None
+    da_result = results["da"]
 
     dataset_asset_rows = da_result.scalars().all()
     stac_assets_dict = {}

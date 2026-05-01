@@ -18,6 +18,7 @@ from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
 )
+from app.modules.catalog.datasets.domain.service_query import get_dataset
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -102,12 +103,6 @@ async def update_user_metadata(
     explicitly set (not None). Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
     """
-    # Function-local import to avoid circular import: service.py imports from
-    # this module (re-export shim) at module top, so we cannot reciprocally
-    # import from service.py at module top. Matches the pattern established
-    # in service_relationships.py (Phase 224-02).
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
@@ -239,9 +234,6 @@ async def update_auto_metadata(
     feature_count, column_info stay on Dataset.
     Only updates fields that are not None. Raises ValueError if dataset not found.
     """
-    # Function-local import to break circular dependency (see update_user_metadata).
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
@@ -349,35 +341,39 @@ async def reset_attribute(
     attr.description = None
     attr.user_modified_fields = []
 
-    # Re-sample example_values from data table (skip geometry columns)
-    if attr.data_type and "geometry" not in attr.data_type.lower():
-        col_name = attr.field_name
-        if SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name):
-            try:
-                result = await session.execute(
-                    text(
-                        f"SELECT DISTINCT {col_name}::text AS val "
-                        f"FROM (SELECT {col_name} FROM data.{table_name} "
-                        f"WHERE {col_name} IS NOT NULL LIMIT 1000) sub LIMIT 10"
-                    )
-                )
-                values = [row[0] for row in result.all() if row[0] is not None]
-                attr.example_values = values if values else None
-            except Exception:
-                # Sampling is best-effort; don't fail the reset because we
-                # couldn't gather example values, but do log so operators can
-                # notice if this breaks consistently (RES-N9).
-                logger.warning(
-                    "Failed to sample example_values for %s.%s",
-                    table_name,
-                    col_name,
-                    exc_info=True,
-                )
-                attr.example_values = None
-        else:
-            attr.example_values = None
-    else:
-        attr.example_values = None
+    # Re-sample example_values from data table. Default to None on every
+    # rejected/error path so the inverted guards stay flat.
+    attr.example_values = None
+    col_name = attr.field_name
+
+    if not attr.data_type or "geometry" in attr.data_type.lower():
+        await session.flush()
+        return attr
+
+    if not (SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name)):
+        await session.flush()
+        return attr
+
+    try:
+        result = await session.execute(
+            text(
+                f"SELECT DISTINCT {col_name}::text AS val "
+                f"FROM (SELECT {col_name} FROM data.{table_name} "
+                f"WHERE {col_name} IS NOT NULL LIMIT 1000) sub LIMIT 10"
+            )
+        )
+        values = [row[0] for row in result.all() if row[0] is not None]
+        attr.example_values = values if values else None
+    except Exception:
+        # Sampling is best-effort; don't fail the reset because we
+        # couldn't gather example values, but do log so operators can
+        # notice if this breaks consistently (RES-N9).
+        logger.warning(
+            "Failed to sample example_values for %s.%s",
+            table_name,
+            col_name,
+            exc_info=True,
+        )
 
     await session.flush()
     return attr
