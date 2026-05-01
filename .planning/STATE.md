@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v13.3
 milestone_name: Boundary A+ Cleanup
 status: executing
-stopped_at: Completed 223-02-PLAN.md
-last_updated: "2026-05-01T00:10:56.676Z"
-last_activity: 2026-04-30 -- Phase 223 planning complete
+stopped_at: Phase 223 plans 1-5 executed (4/5 tasks of plan 05 complete; plan 05 task 5 awaiting manual /oc-audit re-run for BILLING-06)
+last_updated: "2026-05-01T00:30:00.000Z"
+last_activity: 2026-04-30 -- Phase 223 plans 1-5 executed; awaiting /oc-audit checkpoint
 progress:
   total_phases: 3
   completed_phases: 1
@@ -21,19 +21,19 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 222 — audit-sink-protocol
+**Current focus:** Phase 223 — marketplace-billing-extraction (awaiting /oc-audit close gate)
 
 ## Current Position
 
-Phase: 999.6
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-04-30 -- Phase 223 planning complete
+Phase: 223
+Plan: 05 (4/5 tasks complete; task 5 = manual `/oc-audit` re-run)
+Status: Awaiting BILLING-06 verification via `/oc-audit`
+Last activity: 2026-04-30 -- Phase 223 plans 1-5 executed; cross-repo (geolens + geolens-enterprise) shipped
 
 ```
 [Phase 222] [Phase 223]
-[          ] [          ]
-  0%                        0/2 phases complete
+[██████████] [█████████░]
+  100%                      1.9/2 phases complete (Phase 223 BILLING-01..05 ✅; BILLING-06 ⏳ /oc-audit)
 ```
 
 ## Roadmap Snapshot

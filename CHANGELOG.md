@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — v13.3 Boundary A+ Cleanup (2026-04-30)
+
+- **`AuditSink` Protocol** (Phase 222) — write-side hook for audit-event emission, sibling to the existing `AuditExtension` (read-side export-format gating). Defined in `backend/app/platform/extensions/protocols.py`; default implementation (`DefaultAuditSink`) writes one `audit_logs` row per emit. Enterprise overlays subscribe by appending to `_extensions["audit_sinks"]` via `setdefault + append`. New facade `audit_emit(session, event)` in `backend/app/modules/audit/service.py` wraps each sink in per-sink try/except + `structlog.exception()` so a failed sink never rolls back the surrounding business operation. Mechanically rewrote 65 `log_action(...)` call sites across 19 files to use the new facade. New `make audit-sink-discipline` Makefile target enforces the invariant that no application code calls `log_action()` directly.
+- **`BillingExtension` Protocol** (Phase 223) — startup hook for billing-system registration. Defined in `backend/app/platform/extensions/protocols.py` with signature `async def on_startup(self, app: FastAPI) -> None`. Default implementation (`DefaultBillingExtension`) is a no-op. The FastAPI lifespan dispatches each registered extension under `asyncio.wait_for(timeout=10.0)` with per-extension try/except so a hung or buggy overlay cannot block startup or crash the application. The `geolens-enterprise` overlay's `MarketplaceBillingExtension` registers the AWS Marketplace `RegisterUsage` call via this seam.
+- **`make billing-extraction-discipline`** Makefile target — architecture guard asserting `app.core.marketplace` is no longer importable from any `backend/app/` module.
+
+### Changed — v13.3 Boundary A+ Cleanup (2026-04-30)
+
+- **AWS Marketplace metering moved out of core** — `backend/app/core/marketplace.py` deleted (the 30-line `register_marketplace_usage` body relocated verbatim to `geolens-enterprise`'s `MarketplaceBillingExtension._register`). The lifespan startup block at `backend/app/api/main.py:184-203` is now a generic `for ext in get_billing_extensions(): ...` dispatch loop that fires zero AWS API calls in community deployments.
+- **`AWS_MARKETPLACE_PRODUCT_CODE` and `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` are now enterprise-overlay-only env vars.** Removed from `backend/app/core/config.py:Settings`. The enterprise overlay reads them directly via `os.environ.get(...)` and short-circuits when unset. `.env.example` documents these under a clear "**Enterprise overlay only — NO EFFECT on community**" warning. Operators of the open-core community edition no longer have these settings on the core `Settings` surface.
+
+### Removed — v13.3 Boundary A+ Cleanup (2026-04-30)
+
+- **`backend/app/core/marketplace.py`** — file deleted. AWS Marketplace billing is now exclusively an enterprise-overlay concern.
+- **`Settings.aws_marketplace_product_code` / `Settings.aws_marketplace_public_key_version`** — removed from core `Settings`.
+
+### Migration notes — v13.3
+
+- **Community deployments:** no action required. The marketplace block at `api/main.py:184-203` was inert when `AWS_MARKETPLACE_PRODUCT_CODE` was unset (the default for all community deployments); replacing it with a no-op dispatch loop preserves that behavior byte-identically.
+- **Enterprise deployments running the AWS Marketplace AMI:** install the `geolens-enterprise` overlay (already required for SAML/audit-export); the new `MarketplaceBillingExtension` registers automatically via the existing `geolens.extensions` entry-point group. Set `AWS_MARKETPLACE_PRODUCT_CODE` and (optionally) `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` exactly as before — the env-var contract is unchanged. The overlay reads them directly; core no longer does.
+
 ### Added — v13.1 Open-Core Separation (2026-04-29)
 
 - **`geolens` CLI** (Apache-2.0) — standalone Python package that consumes only the generated SDK; supports `login` (OS keyring + `--no-keyring` headless fallback), `scan <dir>` (vector + raster file detection), `publish <file>` (SDK-driven 3-step ingest), `export stac <id>` (STAC 1.1 raster metadata). Source at `cli/`; PyPI publish pending (workflow_dispatch only via `.github/workflows/publish-cli.yml`).
