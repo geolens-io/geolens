@@ -134,6 +134,23 @@ async def create_dataset(
     summary: str | None = None,
     visibility: str = "private",
     ingestion: IngestionResult | None = None,
+    # Legacy kwargs — kept for backward compatibility with call sites that
+    # still pass ingestion fields directly. New call sites should use
+    # `ingestion=IngestionResult(...)` (post-impl-20260501 #2).
+    srid: int | None = None,
+    geometry_type: str | None = None,
+    feature_count: int | None = None,
+    extent_wkt: str | None = None,
+    column_info: list[dict] | None = None,
+    sample_values: dict | None = None,
+    source_format: str | None = None,
+    source_filename: str | None = None,
+    original_srid: int | None = None,
+    source_url: str | None = None,
+    is_3d: bool | None = None,
+    n_dims: int | None = None,
+    z_min: float | None = None,
+    z_max: float | None = None,
 ) -> Dataset:
     """Create a record + dataset pair from ingestion results.
 
@@ -145,8 +162,30 @@ async def create_dataset(
     sample_values, source_format, source_filename, original_srid, source_url,
     is_3d, n_dims, z_min, z_max). Pass ``None`` for ad-hoc creations like
     empty layers — the dataset is created with all ingestion fields as ``None``.
+
+    Legacy kwargs are also accepted (rolled into an IngestionResult internally)
+    so existing test fixtures and call sites continue to work; prefer
+    ``ingestion=IngestionResult(...)`` for new code.
     """
-    ing = ingestion or IngestionResult()
+    if ingestion is None:
+        ing = IngestionResult(
+            srid=srid,
+            geometry_type=geometry_type,
+            feature_count=feature_count,
+            extent_wkt=extent_wkt,
+            column_info=column_info,
+            sample_values=sample_values,
+            source_format=source_format,
+            source_filename=source_filename,
+            original_srid=original_srid,
+            source_url=source_url,
+            is_3d=is_3d,
+            n_dims=n_dims,
+            z_min=z_min,
+            z_max=z_max,
+        )
+    else:
+        ing = ingestion
 
     spatial_extent_value = None
     if ing.extent_wkt and ing.extent_wkt.startswith("POLYGON"):
