@@ -50,7 +50,7 @@
 
 ### Active Phases — v13.4 Boundary Closeout
 
-- [ ] **Phase 225: processing-port-protocol-cycle-inversion** — Invert the catalog↔processing cycle behind a `ProcessingPort` Protocol; inline architecture-guard test
+- [x] **Phase 225: processing-port-protocol-cycle-inversion** — Invert the catalog↔processing cycle behind a `ProcessingPort` Protocol; inline architecture-guard test (COMPLETE — 2026-05-01)
 - [ ] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup
 - [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
 - [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
@@ -80,7 +80,7 @@
 - ✅ Plan 02: migrate-top-level-imports — 8 module-level catalog imports migrated to port calls (committed 3285bfa3; 2046/2046 tests green)
 - ✅ Plan 03a: migrate-deferred-imports-batch-a — 8 deferred sites in 4 files migrated; Port extended with 3 ORM class helpers (committed 49553678)
 - ✅ Plan 03b: migrate-deferred-imports-batch-b — 18 deferred sites in 5 files migrated; Port extended with get_attribute_metadata_orm_class(); OQ-4 Outcome A (F401 imports removed); ingest/ ZERO catalog hits (committed e727f1d1)
-- [ ] Plan 04: architecture-guard-and-seam-test
+- ✅ Plan 04: architecture-guard-and-seam-test — test_no_processing_imports_catalog + FakeProcessingPort seam test; D-26 negative-control verified (committed 88ff4f2a, 28eb50e5)
 
 #### Phase 226: ai-provider-extension-protocol
 
