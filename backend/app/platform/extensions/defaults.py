@@ -239,22 +239,18 @@ class DefaultProcessingPort:
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
 
-    async def get_related_keywords(self, session, dataset_id, limit=10):  # type: ignore[no-untyped-def]
+    async def get_keywords_for_records(self, session, record_ids):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
 
-        from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
 
-        # Keywords on the same record as the dataset.
-        # TODO(Plan 02): verify against metadata_service.py — if it uses
-        # embedding-based similarity, the caller should keep that logic and
-        # use the port only for catalog access.
+        if not record_ids:
+            return []
+
         stmt = (
             select(RecordKeyword.keyword)
-            .join(Record, Record.id == RecordKeyword.record_id)
-            .join(Dataset, Dataset.record_id == Record.id)
-            .where(Dataset.id == dataset_id)
+            .where(RecordKeyword.record_id.in_(record_ids))
             .distinct()
-            .limit(limit)
         )
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]

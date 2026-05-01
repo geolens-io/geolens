@@ -148,7 +148,7 @@ class ProcessingPort(Protocol):
     - get_dataset, get_record, search_datasets, apply_visibility_filter,
       check_dataset_access, get_user_roles, get_column_stats, get_distinct_values,
       extract_bbox, get_records_without_embeddings, get_datasets_meta_by_ids,
-      get_catalog_vocabulary, get_related_keywords, get_record_keyword_count,
+      get_catalog_vocabulary, get_keywords_for_records, get_record_keyword_count,
       get_attribute_metadata, get_dataset_version
 
     Write methods (D-07):
@@ -242,8 +242,8 @@ class ProcessingPort(Protocol):
 
     async def get_catalog_vocabulary(self, session: AsyncSession) -> list[str]: ...
 
-    async def get_related_keywords(
-        self, session: AsyncSession, dataset_id: uuid.UUID, limit: int = 10
+    async def get_keywords_for_records(
+        self, session: AsyncSession, record_ids: list[uuid.UUID]
     ) -> list[str]: ...
 
     async def get_record_keyword_count(
