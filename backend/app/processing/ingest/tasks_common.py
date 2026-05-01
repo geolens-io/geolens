@@ -615,7 +615,7 @@ async def _finalize_ingest(ctx: IngestContext):
     Returns:
         The created Dataset ORM instance.
     """
-    from app.modules.catalog.datasets.domain.service import create_dataset
+    from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
         add_4326_column,
         clip_to_mercator_bounds,
@@ -627,6 +627,8 @@ async def _finalize_ingest(ctx: IngestContext):
         grant_reader_access,
         promote_z_to_elev,
     )
+
+    port = get_processing_port()
 
     session = ctx.session
     job = ctx.job
@@ -694,8 +696,6 @@ async def _finalize_ingest(ctx: IngestContext):
     )
 
     # Create Dataset record
-    from app.modules.catalog.datasets.domain.schemas import IngestionResult
-
     dataset_name = user_metadata.get("title") or source_filename or table_name
     ingestion_fields: dict = {
         **metadata,
@@ -712,8 +712,8 @@ async def _finalize_ingest(ctx: IngestContext):
     }
     if ctx.source_url is not None:
         ingestion_fields["source_url"] = ctx.source_url
-    ingestion = IngestionResult.model_validate(ingestion_fields)
-    dataset = await create_dataset(
+    ingestion = port.create_ingestion_result(**ingestion_fields)
+    dataset = await port.create_dataset(
         session,
         table_name=table_name,
         title=dataset_name,
@@ -846,12 +846,15 @@ async def _apply_reupload_swap(
 ) -> None:
     """Apply shared atomic swap + version invariants for all reupload sources."""
     from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
-    from app.modules.catalog.collections.models import DatasetVersion
+    from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
         compute_quality_score,
         refresh_attribute_metadata,
     )
     from sqlalchemy import func, text
+
+    port = get_processing_port()
+    DatasetVersion = port.get_dataset_version_orm_class()
 
     actor_id = uuid.UUID(user_id)
     new_version = dataset.current_version + 1
