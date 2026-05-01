@@ -1,5 +1,7 @@
 """Tests for chat narrative answers, error mapping, and empty result handling."""
 
+import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -93,10 +95,11 @@ async def test_empty_result_handling():
             return_value=empty_result,
         ),
     ):
+        fake_user = SimpleNamespace(id=uuid.uuid4(), username="test_user")
         result = await _handle_query_data(
             {"question": "How many parks are there?"},
             AsyncMock(),  # session
-            AsyncMock(),  # user
+            fake_user,
             [_make_layer()],
         )
 
