@@ -34,9 +34,9 @@ Removes the 3 remaining 🟡 boundary risks (audit §1 — `core/marketplace.py`
 
 Phase 224 closes the largest enterprise-overlay obstacle flagged in `oc-separation-audit-20260430-b.md` §5 + §7 P0 #1. `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC orchestration god-module) is split into 5 cohesive sub-modules behind a thin re-export façade so future enterprise overlays can target focused modules instead of monkey-patching the orchestrator. Pure refactor — zero behavior change.
 
-- [ ] **DECOUPLE-01**: All public symbols importable from `app.modules.catalog.datasets.domain.service` BEFORE the split remain importable from the same path AFTER. Zero call-site churn outside the 5-file split + façade + test guard. Verified via `224-01-baseline-imports.txt` golden-file diff and `224-01-baseline-symbols.txt` import-surface diff.
+- [x] **DECOUPLE-01**: All public symbols importable from `app.modules.catalog.datasets.domain.service` BEFORE the split remain importable from the same path AFTER. Zero call-site churn outside the 5-file split + façade + test guard. Verified via `224-01-baseline-imports.txt` golden-file diff and `224-01-baseline-symbols.txt` import-surface diff.
 - [ ] **DECOUPLE-02**: `service.py` after the refactor is <250 LOC — thin façade only (module docstring + explicit named re-exports + `__all__`).
-- [ ] **DECOUPLE-03**: Each of the 5 new sub-modules is <500 LOC and has a single cohesive responsibility (creation / queries / lifecycle / metadata / relationships).
+- [x] **DECOUPLE-03**: Each of the 5 new sub-modules is <500 LOC and has a single cohesive responsibility (creation / queries / lifecycle / metadata / relationships).
 - [ ] **DECOUPLE-04**: An architecture-guard test (`test_no_external_imports_of_dataset_domain_submodules`) in `backend/tests/test_layering.py` fails CI if any module under `backend/app/` (excluding the 5 sub-modules + `service.py` itself) imports from `app.modules.catalog.datasets.domain.service_{create,query,lifecycle,metadata,relationships}`. Mirrors the Phase 222 AUDIT-02 invariant pattern.
 
 ## Future Requirements
