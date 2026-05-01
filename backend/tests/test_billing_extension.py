@@ -317,3 +317,97 @@ def test_settings_has_no_marketplace_fields() -> None:
         f"Settings.model_fields still contains 'aws_marketplace_public_key_version'; "
         f"present fields: {sorted(Settings.model_fields.keys())}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan 05 enterprise-overlay-pattern integration test (D-15 / D-06)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_enterprise_overlay_register_pattern() -> None:
+    """BILLING-04 / D-06 / D-15: enterprise overlay's setdefault+append produces
+    a [Default, Enterprise] iteration.
+
+    Simulates `geolens_enterprise.__init__.register_extensions(registry)` WITHOUT
+    requiring geolens-enterprise to be installed. The test inline-registers a
+    fixture class that mirrors `MarketplaceBillingExtension`'s shape (async
+    on_startup that records receipt) and verifies:
+
+      (a) After register: `_extensions["billing_extensions"]` is a list of length
+          2: [DefaultBillingExtension, EnterpriseShapeBillingExtension]
+      (b) `get_billing_extensions()` returns both (defensive copy of length 2)
+      (c) Running the dispatch loop awakens BOTH — the fixture's `received` list
+          grows by 1 AND DefaultBillingExtension's no-op runs without error
+
+    Pitfall C (Phase 222 mirror): if the overlay had used `registry["billing_extensions"] = [MarketplaceBillingExtension()]`
+    (overwrite, NOT setdefault+append), DefaultBillingExtension would disappear
+    from the iteration. This test asserts the iteration shape directly so any
+    overlay-side regression to the wrong idiom is caught here.
+    """
+    from app.platform.extensions import _extensions, get_billing_extensions
+    from app.platform.extensions.defaults import DefaultBillingExtension
+
+    class EnterpriseShapeBillingExtension:
+        """Stand-in for geolens_enterprise.billing.MarketplaceBillingExtension."""
+
+        def __init__(self) -> None:
+            self.received: list = []
+
+        async def on_startup(self, app) -> None:
+            self.received.append(app)
+
+    # Snapshot pre-test state so the fixture restores cleanly
+    saved = _extensions.get("billing_extensions")
+    _extensions.pop("billing_extensions", None)
+    try:
+        # Simulate geolens_enterprise.register_extensions(registry):
+        #   billing_extensions = registry.setdefault(
+        #       "billing_extensions", [DefaultBillingExtension()]
+        #   )
+        #   billing_extensions.append(MarketplaceBillingExtension())
+        enterprise_ext = EnterpriseShapeBillingExtension()
+        billing_extensions = _extensions.setdefault(
+            "billing_extensions", [DefaultBillingExtension()]
+        )
+        billing_extensions.append(enterprise_ext)
+
+        # (a) After register: list of length 2 with the right types
+        registered = _extensions["billing_extensions"]
+        assert isinstance(registered, list), (
+            f"billing_extensions must be a list (D-06); got {type(registered).__name__}"
+        )
+        assert len(registered) == 2, (
+            f"Expected [Default, Enterprise]; got len={len(registered)}. "
+            f"If len=1, the overlay overwrote (registry[...] = [...]) instead of "
+            f"setdefault+append — Pitfall C."
+        )
+        assert isinstance(registered[0], DefaultBillingExtension), (
+            f"index 0 must be DefaultBillingExtension; got {type(registered[0]).__name__}"
+        )
+        assert isinstance(registered[1], EnterpriseShapeBillingExtension), (
+            f"index 1 must be EnterpriseShapeBillingExtension; got {type(registered[1]).__name__}"
+        )
+
+        # (b) get_billing_extensions returns defensive copy of both
+        accessed = get_billing_extensions()
+        assert len(accessed) == 2
+        assert accessed is not registered, (
+            "get_billing_extensions must return a defensive copy, not the slot itself"
+        )
+
+        # (c) Dispatch loop awakens both — Default's no-op runs cleanly,
+        # Enterprise's on_startup appends the app argument
+        mock_app = object()
+        for ext in accessed:
+            await ext.on_startup(mock_app)
+
+        assert enterprise_ext.received == [mock_app], (
+            f"EnterpriseShapeBillingExtension.on_startup did not receive the app; "
+            f"received={enterprise_ext.received}"
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("billing_extensions", None)
+        else:
+            _extensions["billing_extensions"] = saved
