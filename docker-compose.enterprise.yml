@@ -6,18 +6,25 @@ services:
       - ../geolens-enterprise:/enterprise
     environment:
       GEOLENS_ENTERPRISE_PATH: /enterprise
+      GEOLENS_EDITION: "${GEOLENS_EDITION:-enterprise}"
+      # AWS Marketplace metering — read by MarketplaceBillingExtension in
+      # geolens-enterprise (Phase 223). Inert without the overlay loaded.
+      AWS_MARKETPLACE_PRODUCT_CODE: "${AWS_MARKETPLACE_PRODUCT_CODE:-}"
+      AWS_MARKETPLACE_PUBLIC_KEY_VERSION: "${AWS_MARKETPLACE_PUBLIC_KEY_VERSION:-1}"
 
   worker:
     volumes:
       - ../geolens-enterprise:/enterprise
     environment:
       GEOLENS_ENTERPRISE_PATH: /enterprise
+      GEOLENS_EDITION: "${GEOLENS_EDITION:-enterprise}"
 
   migrate:
     volumes:
       - ../geolens-enterprise:/enterprise
     environment:
       GEOLENS_ENTERPRISE_PATH: /enterprise
+      GEOLENS_EDITION: "${GEOLENS_EDITION:-enterprise}"
     command: >
       sh -c "
         if [ -d /enterprise ] && [ -f /enterprise/pyproject.toml ]; then
