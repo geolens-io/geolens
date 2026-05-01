@@ -134,6 +134,14 @@ Each task was committed atomically:
 - `get_processing_port()` is the import target for Plan 02/03 callers
 - Note for Plan 02: `create_ingestion_result(**kwargs)` is the IngestionResult factory — callers must use `port.create_ingestion_result(...)` instead of direct `IngestionResult(...)` construction
 
+## Self-Check: PASSED
+
+- `backend/app/core/processing_port.py` — FOUND
+- `backend/app/platform/extensions/defaults.py` — FOUND (DefaultProcessingPort appended)
+- `backend/app/platform/extensions/__init__.py` — FOUND (get_processing_port() added)
+- `.planning/phases/225-processing-port-protocol-cycle-inversion/225-01-SUMMARY.md` — FOUND
+- Commits `30b8a282`, `5e76d166`, `9e90e8cb` — all verified in git log
+
 ---
 *Phase: 225-processing-port-protocol-cycle-inversion*
 *Completed: 2026-05-01*

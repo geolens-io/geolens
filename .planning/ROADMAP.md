@@ -75,7 +75,12 @@
 4. Full backend test suite passes with the default `ProcessingPort` wired in (zero functional regressions vs. the v13.3 baseline of 2036/2036).
 5. AI features (`chat_service.py`, `metadata_service.py`, `embeddings/backfill.py`) consume catalog data exclusively through the Protocol — verifiable by the same grep guard plus a focused unit test that swaps in a fake `ProcessingPort`.
 
-**Plans:** TBD
+**Plans:**
+- ✅ Plan 01: additive-scaffold — ProcessingPort Protocol + DefaultProcessingPort + get_processing_port() (committed 9bb12f66)
+- ✅ Plan 02: migrate-top-level-imports — 8 module-level catalog imports migrated to port calls (committed 3285bfa3; 2046/2046 tests green)
+- [ ] Plan 03a: migrate-deferred-imports-batch-a
+- [ ] Plan 03b: migrate-deferred-imports-batch-b
+- [ ] Plan 04: architecture-guard-and-seam-test
 
 #### Phase 226: ai-provider-extension-protocol
 
