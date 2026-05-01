@@ -15,7 +15,10 @@ from app.processing.ai.sql_generator import (
     build_sql_schema_context,
     build_sql_generation_prompt,
 )
+from app.platform.extensions.defaults import DefaultProcessingPort
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
+
+_default_port = DefaultProcessingPort()
 
 
 def _make_layer(
@@ -242,6 +245,7 @@ class TestQueryDataTool:
             _mock_user(),
             set(),
             [_make_layer()],
+            port=_default_port,
         )
         assert (
             result["error"]
@@ -260,6 +264,7 @@ class TestQueryDataTool:
             _mock_user(),
             set(),
             [_make_layer()],
+            port=_default_port,
         )
         assert result["error"] == "Could not generate or execute query"
 
@@ -280,6 +285,7 @@ class TestQueryDataTool:
             _mock_user(),
             set(),
             [_make_layer()],
+            port=_default_port,
         )
         assert "columns" in result
         assert "rows" in result

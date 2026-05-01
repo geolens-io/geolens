@@ -11,6 +11,7 @@ from app.processing.ai.chat_service import (
     build_chat_system_prompt,
 )
 from app.processing.ai.schemas import ChatMapLayer
+from app.platform.extensions.defaults import DefaultProcessingPort
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 
 
@@ -121,6 +122,7 @@ async def test_sandbox_error_uses_mapped_message():
             AsyncMock(),
             set(),
             [_make_layer()],
+            port=DefaultProcessingPort(),
         )
 
     assert result["category"] == "query_timeout"

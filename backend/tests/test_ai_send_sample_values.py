@@ -12,6 +12,10 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete
 
+from app.platform.extensions.defaults import DefaultProcessingPort
+
+_default_port = DefaultProcessingPort()
+
 
 @pytest.fixture(autouse=True)
 async def _clean_settings(client: AsyncClient):
@@ -101,18 +105,17 @@ async def test_search_tool_includes_samples_when_enabled(client: AsyncClient):
 
     fake_ds = _make_fake_dataset(with_samples=True)
 
+    port = DefaultProcessingPort()
     async for db in app.dependency_overrides[get_db]():
-        with patch(
-            "app.processing.ai.service.search_datasets", new_callable=AsyncMock
-        ) as mock_search:
-            mock_search.return_value = ([fake_ds], 1)
-            results = await _execute_search_tool(
-                db,
-                SimpleNamespace(id="user-1"),
-                {"admin"},
-                {"q": "test"},
-                send_sample_values=True,
-            )
+        port.search_datasets = AsyncMock(return_value=([fake_ds], 1))
+        results = await _execute_search_tool(
+            db,
+            SimpleNamespace(id="user-1"),
+            {"admin"},
+            {"q": "test"},
+            send_sample_values=True,
+            port=port,
+        )
 
     assert len(results) == 1
     assert results[0]["sample_values"] is not None
@@ -128,18 +131,17 @@ async def test_search_tool_omits_samples_when_disabled(client: AsyncClient):
 
     fake_ds = _make_fake_dataset(with_samples=True)
 
+    port = DefaultProcessingPort()
     async for db in app.dependency_overrides[get_db]():
-        with patch(
-            "app.processing.ai.service.search_datasets", new_callable=AsyncMock
-        ) as mock_search:
-            mock_search.return_value = ([fake_ds], 1)
-            results = await _execute_search_tool(
-                db,
-                SimpleNamespace(id="user-1"),
-                {"admin"},
-                {"q": "test"},
-                send_sample_values=False,
-            )
+        port.search_datasets = AsyncMock(return_value=([fake_ds], 1))
+        results = await _execute_search_tool(
+            db,
+            SimpleNamespace(id="user-1"),
+            {"admin"},
+            {"q": "test"},
+            send_sample_values=False,
+            port=port,
+        )
 
     assert len(results) == 1
     assert results[0]["sample_values"] is None
