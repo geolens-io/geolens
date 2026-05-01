@@ -93,3 +93,236 @@ class DefaultBillingExtension:
 
     async def on_startup(self, app) -> None:  # type: ignore[no-untyped-def]
         return
+
+
+class DefaultProcessingPort:
+    """Community-edition default: delegates every call to app.modules.catalog.*
+    via deferred imports (Phase 225 D-09 / D-11 / PROCESS-01).
+
+    Each method does a deferred import into app.modules.catalog.* inside the
+    function body, keeping platform/extensions/ free of module-load-time
+    modules.* edges (Phase 214 deferred-import discipline). Behavior is
+    identical to the pre-Phase-225 baseline — the Port is the seam, not a
+    re-implementation.
+
+    create_dataset, get_dataset etc. delegate via the
+    app.modules.catalog.datasets.domain.service FACADE (never the sub-modules
+    directly — Phase 224 DECOUPLE-04).
+    """
+
+    # -------------------------------------------------------------------------
+    # Read-side methods (D-06)
+    # -------------------------------------------------------------------------
+
+    async def get_dataset(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        # Delegates via facade — never service_query.py directly (DECOUPLE-04).
+        from app.modules.catalog.datasets.domain.service import get_dataset
+
+        return await get_dataset(session, dataset_id)
+
+    async def get_record(self, session, record_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+
+        from app.modules.catalog.datasets.domain.models import Record
+
+        stmt = (
+            select(Record)
+            .where(Record.id == record_id)
+            .options(joinedload(Record.keywords))
+        )
+        result = await session.execute(stmt)
+        return result.unique().scalar_one_or_none()
+
+    async def search_datasets(self, session, user, user_roles, filters):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.search.service import search_datasets
+
+        return await search_datasets(session, user, user_roles, filters)
+
+    def apply_visibility_filter(self, stmt, user, user_roles, record_cls, grant_cls=None):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.authorization import apply_visibility_filter
+
+        return apply_visibility_filter(stmt, user, user_roles, record_cls, grant_cls)
+
+    async def check_dataset_access(self, session, dataset, dataset_id, user, *, user_roles=None):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.authorization import check_dataset_access
+
+        return await check_dataset_access(
+            session, dataset, dataset_id, user, user_roles=user_roles
+        )
+
+    async def get_user_roles(self, session, user):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.authorization import get_user_roles
+
+        return await get_user_roles(session, user)
+
+    async def get_column_stats(self, session, table_name, column_name, *, class_count=5, allowed_tables=None):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.column_stats import get_column_stats
+
+        return await get_column_stats(
+            session,
+            table_name,
+            column_name,
+            class_count=class_count,
+            allowed_tables=allowed_tables,
+        )
+
+    async def get_distinct_values(self, session, table_name, column_name, limit=100, *, allowed_tables=None):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.column_stats import get_distinct_values
+
+        return await get_distinct_values(
+            session,
+            table_name,
+            column_name,
+            limit,
+            allowed_tables=allowed_tables,
+        )
+
+    def extract_bbox(self, dataset):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.utils import extract_bbox
+
+        return extract_bbox(dataset)
+
+    # -------------------------------------------------------------------------
+    # OQ-3 InstrumentedAttribute encapsulators
+    # -------------------------------------------------------------------------
+
+    async def get_records_without_embeddings(self, session, *, force=False):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+
+        from app.modules.catalog.datasets.domain.models import Record
+        from app.processing.embeddings.models import RecordEmbedding
+
+        stmt = (
+            select(Record)
+            .outerjoin(RecordEmbedding, Record.id == RecordEmbedding.record_id)
+            .options(joinedload(Record.keywords))
+            .order_by(Record.created_at)
+        )
+        if not force:
+            stmt = stmt.where(RecordEmbedding.id.is_(None))
+        result = await session.execute(stmt)
+        return list(result.unique().scalars().all())
+
+    async def get_datasets_meta_by_ids(self, session, ids):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        stmt = select(Dataset.id, Dataset.table_name, Dataset.geometry_type).where(
+            Dataset.id.in_(ids)
+        )
+        result = await session.execute(stmt)
+        return [(row[0], row[1], row[2]) for row in result.all()]
+
+    async def get_catalog_vocabulary(self, session):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
+
+        stmt = select(RecordKeyword.keyword).distinct()
+        result = await session.execute(stmt)
+        return [row[0] for row in result.all()]
+
+    async def get_related_keywords(self, session, dataset_id, limit=10):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+
+        # Keywords on the same record as the dataset.
+        # TODO(Plan 02): verify against metadata_service.py — if it uses
+        # embedding-based similarity, the caller should keep that logic and
+        # use the port only for catalog access.
+        stmt = (
+            select(RecordKeyword.keyword)
+            .join(Record, Record.id == RecordKeyword.record_id)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .where(Dataset.id == dataset_id)
+            .distinct()
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return [row[0] for row in result.all()]
+
+    async def get_record_keyword_count(self, session, record_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import func, select
+
+        from app.modules.catalog.datasets.domain.models import RecordKeyword
+
+        stmt = select(func.count()).where(RecordKeyword.record_id == record_id)
+        result = await session.execute(stmt)
+        return result.scalar() or 0
+
+    async def get_attribute_metadata(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.catalog.datasets.domain.models import AttributeMetadata
+
+        stmt = select(AttributeMetadata).where(AttributeMetadata.dataset_id == dataset_id)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_dataset_version(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.catalog.collections.models import DatasetVersion
+
+        stmt = (
+            select(DatasetVersion)
+            .where(DatasetVersion.dataset_id == dataset_id)
+            .order_by(DatasetVersion.version_number.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    # -------------------------------------------------------------------------
+    # Write-side methods (D-07)
+    # -------------------------------------------------------------------------
+
+    async def create_dataset(self, session, table_name, title, created_by, *, summary=None, visibility="private", ingestion=None):  # type: ignore[no-untyped-def]
+        # Delegates via facade — never service_create.py directly (DECOUPLE-04).
+        from app.modules.catalog.datasets.domain.service import create_dataset
+
+        return await create_dataset(
+            session,
+            table_name=table_name,
+            title=title,
+            created_by=created_by,
+            summary=summary,
+            visibility=visibility,
+            ingestion=ingestion,
+        )
+
+    async def create_map(self, session, name, description, created_by, notes=None):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.maps.service import create_map
+
+        return await create_map(session, name, description, created_by, notes)
+
+    async def update_map(self, session, map_id, **kwargs):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.maps.service import update_map
+
+        return await update_map(session, map_id, **kwargs)
+
+    def create_ingestion_result(self, **kwargs):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.schemas import IngestionResult
+
+        return IngestionResult(**kwargs)
+
+    # -------------------------------------------------------------------------
+    # Source preview helper (D-08)
+    # -------------------------------------------------------------------------
+
+    def build_gdal_source(self, service_type, base_url, layer_name, layer_id=None, token=None, order_field=None, result_limit=None):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.sources.preview import build_gdal_source
+
+        return build_gdal_source(
+            service_type,
+            base_url,
+            layer_name,
+            layer_id=layer_id,
+            token=token,
+            order_field=order_field,
+            result_limit=result_limit,
+        )
