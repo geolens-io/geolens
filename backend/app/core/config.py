@@ -84,9 +84,6 @@ class Settings(BaseSettings):
     tile_pool_min_size: int = 2
     tile_pool_max_size: int = 10
 
-    aws_marketplace_product_code: str | None = None
-    aws_marketplace_public_key_version: int = 1
-
     @field_validator(
         "anthropic_api_key",
         "openai_api_key",
@@ -105,7 +102,6 @@ class Settings(BaseSettings):
         "s3_addressing_style",
         "database_ssl_ca_cert",
         "tile_signing_secret",
-        "aws_marketplace_product_code",
         mode="before",
     )
     @classmethod
