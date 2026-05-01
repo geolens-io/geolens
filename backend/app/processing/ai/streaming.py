@@ -506,7 +506,12 @@ async def stream_chat_edit(
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts."""
     try:
-        provider, model, _ = await resolve_provider(db)
+        provider, model, runtime_config = await resolve_provider(db)
+        # Phase 226 D-21: resolve_provider now returns (name, model, runtime_config dict).
+        # streaming.py's if-branches below read base_url from OPENAI_BASE_URL directly;
+        # runtime_config["base_url"] is available if needed. The if/elif branches at
+        # lines 516/531 are pathspec-excluded from the architecture guard per
+        # RESEARCH.md Open Question 1 (true LLM-token streaming deferred).
         system_prompt = build_chat_system_prompt(
             layers, language=language, basemap_style=basemap_style
         )
