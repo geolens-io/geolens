@@ -229,3 +229,15 @@ Plans:
 
 Plans:
 - [ ] TBD
+
+---
+
+### Phase 999.18: SAML test fixture generator → tmp_path (BACKLOG — P3)
+
+**Goal:** Refactor the session-scoped `_regenerate_saml_fixtures` autouse fixture (`backend/tests/test_saml_overlay.py:46-78`) so the generator script writes signed XML responses into a pytest `tmp_path` instead of mutating the committed `backend/tests/fixtures/saml/idp_response_*.xml.b64` files. SAML assertions have a 15-minute validity window, so the generator runs at every session start to refresh the cryptographic signature + IssueInstant + NotOnOrAfter timestamps; today the writes land in tracked files, polluting `git status` after every test run. Fix: generator emits to a session-fixture-managed temp dir; `FIXTURE_DIR` becomes a function returning the active temp dir; committed `.xml.b64` files are renamed to `.xml.b64.template` (immutable templates) or removed entirely if the CI fallback path is unused.
+**Source:** Surfaced during 2026-05-01 v13.3 milestone close — five SAML fixture files were perpetually showing as modified across 9 commits because every pytest invocation rewrote them in place.
+**Estimated effort:** 2-3 hours (refactor generator output paths + update consumers + verify CI fallback or document its removal)
+**Note:** Low priority — the committed fixtures are old enough that the SAML 15-min window has long since expired, so the "CI fallback when pysaml2 unavailable" claim in the docstring is already broken. Either restore the fallback (regenerate fresh fixtures pre-commit) or remove the claim and treat fixtures as session-generated only.
+
+Plans:
+- [ ] TBD
