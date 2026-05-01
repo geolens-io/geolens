@@ -19,6 +19,7 @@ from app.platform.extensions.defaults import (
     DefaultBillingExtension,  # NEW (Phase 223)
     DefaultBrandingExtension,
     DefaultIdentityExtension,
+    DefaultProcessingPort,  # NEW (Phase 225)
 )
 from app.platform.extensions.protocols import (
     AuditExtension,
@@ -30,6 +31,7 @@ from app.platform.extensions.protocols import (
 
 if TYPE_CHECKING:
     from app.core.identity import IdentityExtension
+    from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -190,3 +192,27 @@ def get_billing_extensions() -> list[BillingExtension]:
     if exts is None:
         return [DefaultBillingExtension()]
     return list(exts)  # type: ignore[arg-type]
+
+
+def get_processing_port() -> "ProcessingPort":
+    """Return the registered ProcessingPort or the community default.
+
+    Phase 225 / PROCESS-01 — single-slot shape (D-12), NOT list-shape
+    like get_audit_sinks() / get_billing_extensions(). ProcessingPort is
+    a singleton consumer surface; overlays REPLACE rather than append.
+
+    Enterprise overlays register a tier-aware / quota-enforcing wrapper
+    under the ``"processing_port"`` key via the ``geolens.extensions``
+    entry-point group::
+
+        registry["processing_port"] = TierAwareProcessingPort(quota_config)
+
+    Community edition gets DefaultProcessingPort which forwards every
+    call to the existing app.modules.catalog.* functions via deferred
+    imports (D-09 / D-11 — behavior is byte-for-byte identical to
+    pre-Phase-225).
+    """
+    ext = _extensions.get("processing_port")
+    if ext is None:
+        return DefaultProcessingPort()
+    return ext  # type: ignore[return-value]
