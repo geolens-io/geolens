@@ -24,10 +24,10 @@ Closes the +242% `log_action()` decentralization regression flagged in the 2026-
 Removes the 3 remaining 🟡 boundary risks (audit §1 — `core/marketplace.py`, `api/main.py:184-203`, `core/config.py:87-88`). Today, every community deployment ships `boto3` and runs an AWS Marketplace registration call on lifespan startup (inert when the env var is unset, but architectural debt). The fix is to push billing to the enterprise overlay via a `BillingExtension` hook.
 
 - [x] **BILLING-01**: A `BillingExtension` Protocol is defined in `backend/app/platform/extensions/protocols.py` with at least an `on_startup(app)` hook fired by the FastAPI lifespan. Community default is no-op.
-- [ ] **BILLING-02**: `backend/app/core/marketplace.py` is removed from core. Its implementation moves to the enterprise overlay (`geolens-enterprise/geolens_enterprise/billing/`) and registers as a `BillingExtension`.
+- [x] **BILLING-02**: `backend/app/core/marketplace.py` is removed from core. Its implementation moves to the enterprise overlay (`geolens-enterprise/geolens_enterprise/billing/`) and registers as a `BillingExtension`.
 - [ ] **BILLING-03**: `boto3` is removed from `backend/pyproject.toml` dependencies. Only the enterprise overlay declares it.
 - [ ] **BILLING-04**: The lifespan registration at `backend/app/api/main.py:184-203` is replaced with a generic dispatch: `for ext in get_billing_extensions(): ext.on_startup(app)`. Community deployments perform zero AWS API calls and import zero `boto3` symbols.
-- [ ] **BILLING-05**: `aws_marketplace_product_code` and `aws_marketplace_public_key_version` either move to the enterprise overlay's settings (preferred) OR remain as opaque pass-through env vars in core `Settings` (acceptable carve-out — chosen during `/gsd-discuss-phase`). The runtime *behavior* (the AWS API call) must not be in core regardless.
+- [x] **BILLING-05**: `aws_marketplace_product_code` and `aws_marketplace_public_key_version` either move to the enterprise overlay's settings (preferred) OR remain as opaque pass-through env vars in core `Settings` (acceptable carve-out — chosen during `/gsd-discuss-phase`). The runtime *behavior* (the AWS API call) must not be in core regardless.
 - [ ] **BILLING-06**: Audit re-run after both phases ship produces zero 🟡 boundary risks (Boundary Integrity grade A+) and the AWS Marketplace cluster section in §1 of the audit reports "✅ Closed" rather than "🟡 Risk (P2)".
 
 ## Future Requirements
