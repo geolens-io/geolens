@@ -138,7 +138,9 @@ class FakeProcessingPort:
     async def get_catalog_vocabulary(self, session):
         return ["test", "vocabulary", "keyword"]
 
-    async def get_related_keywords(self, session, dataset_id, limit=10):
+    async def get_keywords_for_records(self, session, record_ids):
+        if not record_ids:
+            return []
         return ["related", "keywords"]
 
     async def get_record_keyword_count(self, session, record_id):

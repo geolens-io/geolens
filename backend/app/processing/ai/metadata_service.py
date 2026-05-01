@@ -197,33 +197,26 @@ async def _get_related_keywords_from_embeddings(
     """Return keywords from the top-N nearest datasets by embedding similarity.
 
     Falls back to empty list if dataset has no embedding or on any error.
+
+    Phase 225 review fix (B-02 / W-01): both the dataset lookup and the
+    keyword aggregation route through the Port surface so processing/* keeps
+    no module-load-time OR deferred ``app.modules.catalog`` ORM imports here.
+    Enterprise overlays (Phase 226) can intercept both calls.
     """
-    from sqlalchemy import select
+    import uuid as _uuid
 
     try:
-        # Get the dataset's record_id via deferred ORM import
-        from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
-
-        ds_stmt = select(DatasetORM.record_id).where(DatasetORM.id == dataset_id)
-        ds_result = await session.execute(ds_stmt)
-        record_id = ds_result.scalar_one_or_none()
-        if not record_id:
+        dataset = await port.get_dataset(session, _uuid.UUID(dataset_id))
+        if dataset is None or dataset.record_id is None:
             return []
 
-        neighbor_ids = await get_nearest_record_ids(session, record_id, limit=limit)
+        neighbor_ids = await get_nearest_record_ids(
+            session, dataset.record_id, limit=limit
+        )
         if not neighbor_ids:
             return []
 
-        # Get keywords from those records via deferred ORM import
-        from app.modules.catalog.datasets.domain.models import RecordKeyword as RecordKeywordORM
-
-        kw_stmt = (
-            select(RecordKeywordORM.keyword)
-            .where(RecordKeywordORM.record_id.in_(neighbor_ids))
-            .distinct()
-        )
-        kw_result = await session.execute(kw_stmt)
-        return [row[0] for row in kw_result.all()]
+        return await port.get_keywords_for_records(session, neighbor_ids)
     except Exception:
         logger.debug("Embedding neighbor keyword lookup failed", exc_info=True)
         return []
