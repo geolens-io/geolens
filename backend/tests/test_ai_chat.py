@@ -63,7 +63,7 @@ async def test_validate_rejects_invalid_map_id(
     fake_map_id = str(uuid.uuid4())
 
     with pytest.raises(HTTPException) as exc_info:
-        await _validate_chat_layers(session, admin, fake_map_id, [], _default_port)
+        await _validate_chat_layers(session, admin, fake_map_id, [], port=_default_port)
 
     assert exc_info.value.status_code == 404
 
@@ -90,7 +90,7 @@ async def test_validate_rejects_non_owner(
     await session.refresh(other_user)
 
     with pytest.raises(HTTPException) as exc_info:
-        await _validate_chat_layers(session, other_user, str(map_obj.id), [], _default_port)
+        await _validate_chat_layers(session, other_user, str(map_obj.id), [], port=_default_port)
 
     assert exc_info.value.status_code == 403
 
@@ -114,7 +114,7 @@ async def test_validate_overwrites_client_table_name(
 
     layer = _make_chat_layer(dataset, table_name_override="fake_injected_table")
     validated, _basemap = await _validate_chat_layers(
-        session, admin, str(map_obj.id), [layer], _default_port
+        session, admin, str(map_obj.id), [layer], port=_default_port
     )
 
     assert len(validated) == 1
@@ -152,7 +152,7 @@ async def test_validate_filters_inaccessible_dataset(
 
     layer = _make_chat_layer(private_ds)
     validated, _basemap = await _validate_chat_layers(
-        session, viewer, str(viewer_map.id), [layer], _default_port
+        session, viewer, str(viewer_map.id), [layer], port=_default_port
     )
 
     assert len(validated) == 0

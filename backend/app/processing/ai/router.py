@@ -94,6 +94,7 @@ async def _validate_chat_layers(
     user: Identity,
     map_id: str,
     layers: list[ChatMapLayer],
+    *,
     port: "ProcessingPort",
 ) -> tuple[list[ChatMapLayer], str | None]:
     """Validate map ownership and overwrite layer metadata with authoritative DB values.
@@ -276,7 +277,7 @@ async def chat_endpoint(
     await _check_ai_available(db)
 
     validated_layers, basemap_style = await _validate_chat_layers(
-        db, user, body.map_id, body.layers, port
+        db, user, body.map_id, body.layers, port=port
     )
     user_roles = await port.get_user_roles(db, user)
 
@@ -324,7 +325,7 @@ async def chat_stream_endpoint(
         try:
             await _check_ai_available(db)
             validated_layers, basemap_style = await _validate_chat_layers(
-                db, user, body.map_id, body.layers, port
+                db, user, body.map_id, body.layers, port=port
             )
             user_roles = await port.get_user_roles(db, user)
         except HTTPException as exc:
