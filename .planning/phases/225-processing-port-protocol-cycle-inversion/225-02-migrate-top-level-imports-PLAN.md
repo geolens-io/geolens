@@ -499,7 +499,7 @@ e) Verify: run `cd backend && uv run ruff check app/processing/ai/router.py` cle
     - `grep -c "from app.modules.catalog" backend/app/processing/ai/router.py` returns 0.
     - `grep -c "from app.core.processing_port import" backend/app/processing/ai/service.py` returns ≥ 1.
     - `grep -c "from app.core.processing_port import" backend/app/processing/ai/router.py` returns ≥ 1.
-    - `grep -c "from app.platform.extensions import get_processing_port" backend/app/processing/ai/service.py` returns ≥ 0 (service.py uses port via parameter, may not import get_processing_port at top — but if it does for tests, that's fine).
+    - `service.py` MUST NOT import `get_processing_port` at module scope (port arrives via the explicit `port: ProcessingPort` parameter per D-15 — the router supplies it via `Depends`). Verify: `grep -c "^from app.platform.extensions import get_processing_port" backend/app/processing/ai/service.py` returns `0`. (If a future entry-point legitimately needs to acquire the port directly, this criterion can be relaxed plan-locally; until then keep the boundary clean.)
     - `grep -c "Depends(get_processing_port)" backend/app/processing/ai/router.py` returns ≥ 1.
     - `grep -c "port: ProcessingPort\|port: \"ProcessingPort\"" backend/app/processing/ai/service.py` returns ≥ 1 (D-15 keyword-only parameter present).
     - `grep -c "port.search_datasets\|port.apply_visibility_filter\|port.extract_bbox\|port.create_map\|port.update_map\|port.get_column_stats" backend/app/processing/ai/service.py` returns ≥ 5 (most Port calls replaced).

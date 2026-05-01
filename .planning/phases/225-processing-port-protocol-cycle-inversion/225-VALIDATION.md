@@ -1,10 +1,11 @@
 ---
 phase: 225
 slug: processing-port-protocol-cycle-inversion
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-05-01
+approved: 2026-05-01
 ---
 
 # Phase 225 — Validation Strategy

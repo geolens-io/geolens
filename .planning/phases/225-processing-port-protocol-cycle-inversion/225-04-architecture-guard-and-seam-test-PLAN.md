@@ -5,7 +5,8 @@ type: execute
 wave: 3
 depends_on:
   - 225-02
-  - 225-03
+  - 225-03a
+  - 225-03b
 files_modified:
   - backend/tests/test_layering.py
   - backend/tests/test_processing_port.py
@@ -27,7 +28,7 @@ must_haves:
     - "alembic check returns no new operations (D-29 verification gate — refactor-only)"
     - "ruff check passes clean across the entire backend tree"
     - "Phase 214 IDENT-01 + Phase 224 DECOUPLE-04 + all other architecture guards continue to pass"
-    - "If OQ-4 Outcome B was chosen in Plan 03, the architecture guard includes the documented :!backend/app/processing/ingest/tasks_raster.py pathspec exclusion"
+    - "If OQ-4 Outcome B was chosen in Plan 03a/03b, the architecture guard includes the documented :!backend/app/processing/ingest/tasks_raster.py pathspec exclusion"
   artifacts:
     - path: "backend/tests/test_layering.py"
       provides: "test_no_processing_imports_catalog architecture-guard test method + module docstring crediting Phase 225"
@@ -54,7 +55,7 @@ The architecture-guard test (D-22 / PROCESS-04) **MUST land last** because it fa
 The FakeProcessingPort test (D-27 / SC#5) **MUST land in this phase** because ROADMAP §225 SC#5 binds: "AI features consume catalog data exclusively through the Protocol — verifiable by the same grep guard plus a focused unit test that swaps in a fake `ProcessingPort`."
 
 Per RESEARCH.md §Migration Sequencing, this plan is the **verification gate**:
-1. Phase-wide grep returns zero hits (or 1 allowlisted hit per OQ-4 Outcome B from Plan 03)
+1. Phase-wide grep returns zero hits (or 1 allowlisted hit per OQ-4 Outcome B from Plan 03a/03b)
 2. `pytest tests/test_layering.py -m architecture` all pass (including the new guard)
 3. `alembic check` clean
 4. `ruff check` clean
@@ -81,7 +82,8 @@ Output: 1 modified test file (`test_layering.py`), 1 new test file (`test_proces
 @.planning/phases/225-processing-port-protocol-cycle-inversion/225-PATTERNS.md
 @.planning/phases/225-processing-port-protocol-cycle-inversion/225-VALIDATION.md
 @.planning/phases/225-processing-port-protocol-cycle-inversion/225-02-SUMMARY.md
-@.planning/phases/225-processing-port-protocol-cycle-inversion/225-03-SUMMARY.md
+@.planning/phases/225-processing-port-protocol-cycle-inversion/225-03a-SUMMARY.md
+@.planning/phases/225-processing-port-protocol-cycle-inversion/225-03b-SUMMARY.md
 @backend/app/core/processing_port.py
 @backend/app/platform/extensions/__init__.py
 @backend/app/platform/extensions/defaults.py
@@ -93,12 +95,12 @@ Output: 1 modified test file (`test_layering.py`), 1 new test file (`test_proces
 <interfaces>
 <!-- Plans 01-03 produced these. Plan 04 verifies them. -->
 
-After Plan 03, the codebase satisfies:
+After Plan 03a/03b, the codebase satisfies:
 - core/processing_port.py declares ProcessingPort + companion Protocols
 - platform/extensions/defaults.py implements DefaultProcessingPort
 - platform/extensions/__init__.py exposes get_processing_port()
 - 8 module-level + ~24 function-scope catalog imports in processing/* are gone
-- (Possibly) `tasks_raster.py:143` retains a single allowlisted import (per OQ-4 Outcome B in Plan 03 SUMMARY — read 225-03-SUMMARY.md before this plan to determine which outcome was chosen)
+- (Possibly) `tasks_raster.py:143` retains a single allowlisted import (per OQ-4 Outcome B in Plan 03a/03b SUMMARY — read 225-03b-SUMMARY.md before this plan to determine which outcome was chosen)
 
 From PATTERNS.md §5 and RESEARCH.md §Architecture Guard Specification — the test invocation:
 
@@ -152,7 +154,7 @@ def test_no_processing_imports_catalog() -> None:
         )
 ```
 
-If Plan 03 chose OQ-4 Outcome B (kept `tasks_raster.py:143` Dataset import as exception), modify the `subprocess.run` args to include the exclusion:
+If Plan 03a/03b chose OQ-4 Outcome B (kept `tasks_raster.py:143` Dataset import as exception), modify the `subprocess.run` args to include the exclusion:
 ```python
 [
     "git", "grep", "-n", "-E",
@@ -277,7 +279,7 @@ class FakeProcessingPort:
             setattr(result, k, v)
         return result
 
-    # Any additional helpers added in Plan 03 Task 0 — re-add here if missing
+    # Any additional helpers added in Plan 03a/03b Task 0 — re-add here if missing
     # (e.g., get_dataset_orm_class, get_record_distribution_orm_class)
 ```
 
@@ -294,7 +296,7 @@ Simpler alternative (preferred): test that `port.search_datasets` and `port.crea
   <files>backend/tests/test_layering.py</files>
   <read_first>
     - backend/tests/test_layering.py (entire file — read existing structure, helpers _has_git_metadata, _has_pathspec_magic, _git_grep, REPO_ROOT, current docstring at lines 1-36, line 421 test_no_log_action_calls_outside_audit_service to mirror, line 333 test_no_external_imports_of_dataset_domain_submodules)
-    - .planning/phases/225-processing-port-protocol-cycle-inversion/225-03-SUMMARY.md (read OUTCOME of OQ-4: Outcome A or B)
+    - .planning/phases/225-processing-port-protocol-cycle-inversion/225-03b-SUMMARY.md (read OUTCOME of OQ-4: Outcome A or B)
     - .planning/phases/225-processing-port-protocol-cycle-inversion/225-PATTERNS.md (§5 — exact subprocess.run shape and adaptation)
     - .planning/phases/225-processing-port-protocol-cycle-inversion/225-RESEARCH.md (§Architecture Guard Specification)
   </read_first>
@@ -318,9 +320,9 @@ Preserve every existing line in the docstring; only append.
 
 **Step 2: Append test method** at end of file (after the last existing test).
 
-Use this exact body. **CRITICAL**: Read `225-03-SUMMARY.md` first to determine OQ-4 outcome:
+Use this exact body. **CRITICAL**: Read `225-03b-SUMMARY.md` first to determine OQ-4 outcome:
 
-**If OQ-4 Outcome A (Plan 03 successfully removed `tasks_raster.py:143`)**: use the test body without exclusion:
+**If OQ-4 Outcome A (Plan 03a/03b successfully removed `tasks_raster.py:143`)**: use the test body without exclusion:
 
 ```python
 @pytest.mark.architecture
@@ -374,7 +376,7 @@ def test_no_processing_imports_catalog() -> None:
         )
 ```
 
-**If OQ-4 Outcome B (Plan 03 retained `tasks_raster.py:143` as the single allowlist exception)**: use the test body WITH a `:!backend/app/processing/ingest/tasks_raster.py` pathspec exclusion AND extend the docstring to document the exception. Insert immediately after `"backend/app/processing/",` in the subprocess.run argument list:
+**If OQ-4 Outcome B (Plan 03a/03b retained `tasks_raster.py:143` as the single allowlist exception)**: use the test body WITH a `:!backend/app/processing/ingest/tasks_raster.py` pathspec exclusion AND extend the docstring to document the exception. Insert immediately after `"backend/app/processing/",` in the subprocess.run argument list:
 
 ```python
             ":!backend/app/processing/ingest/tasks_raster.py",
@@ -386,7 +388,7 @@ And update the docstring's "Excluded paths" section to add:
         `from app.modules.catalog.datasets.domain.models import Dataset  # noqa: F401`
         as a Procrastinate worker `Base.metadata` registration side-effect import
         (analogous to Phase 214's User allowlist exception). Documented as
-        Phase 225 D-23 amendment in 225-03-SUMMARY.md.
+        Phase 225 D-23 amendment in 225-03b-SUMMARY.md.
 ```
 
 **NOTE**: Excluding the entire file is broader than excluding only line 143. If only line 143 is the exception, the broader exclusion accepts that any other line in `tasks_raster.py` could trip the guard without being caught. **Mitigation**: a separate manual grep verification in the SUMMARY ensures `tasks_raster.py` has only the line-143 exception. If the grep ever finds other lines in `tasks_raster.py`, that's a Phase 225 regression and should be fixed (not allowlisted).
@@ -474,7 +476,7 @@ import pytest
 - get_dataset_with_attributes
 - get_record_orm_class, get_grant_orm_class
 - build_gdal_source
-- Any additional helpers added in Plan 03 Task 0 (re-grep `core/processing_port.py` to enumerate)
+- Any additional helpers added in Plan 03a/03b Task 0 (re-grep `core/processing_port.py` to enumerate)
 
 Use the skeleton from PATTERNS.md / RESEARCH.md as the starting point. All async methods use `async def`; sync methods use `def`. All return canned values (no real I/O).
 

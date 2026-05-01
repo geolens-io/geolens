@@ -835,9 +835,13 @@ This uses `Dataset` as a SQLAlchemy model with column attributes — Instrumente
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **Resolution status:** All four OQs were resolved during planning (commit `fc8a2979` — 4 PLAN.md files). Inline `RESOLVED:` markers below cite the plan + task that owns each resolution.
 
 ### OQ-1: `IngestionResult` import in `tasks_common.py:697`
+
+**RESOLVED:** Plan 01 Task 1 re-exports `IngestionResult` from `core/processing_port.py` via the TYPE_CHECKING block (verified zero `app.modules.*` imports in `catalog/datasets/domain/schemas.py`). Plan 03 Task 2 migrates `tasks_common.py:697` to use `port.create_ingestion_result(**kwargs)` factory method. Plan 02 caller annotations import `IngestionResult` from `app.core.processing_port`.
 
 **What we know:** `IngestionResult` is a Pydantic model at `catalog/datasets/domain/schemas.py:645`. Callers construct `IngestionResult.model_validate({...})` and pass the result to `create_dataset()`. The architecture guard regex `^\s*(from|import)\s+app\.modules\.catalog` matches `from app.modules.catalog.datasets.domain.schemas import IngestionResult`.
 
@@ -847,27 +851,15 @@ This uses `Dataset` as a SQLAlchemy model with column attributes — Instrumente
 
 ### OQ-2: `DatasetVersion` from `catalog/collections/models.py`
 
-**What we know:** `ingest/tasks_common.py:849` does `from app.modules.catalog.collections.models import DatasetVersion`. This is needed for the reupload atomic swap path (version tracking). It's not in D-02's companion Protocols.
-
-**What's unclear:** Does the planner add `DatasetVersionProtocol` (with `id: UUID`) + a Port method, or add this to an allowlist (which D-23 forbids), or expose a `finalize_dataset_version(session, dataset_id, ...)` Port method that encapsulates the entire swap?
-
-**Recommendation:** Add `DatasetVersionProtocol` with the fields the reupload code reads (`id: UUID`) and a `get_dataset_version(session, dataset_id: UUID) → DatasetVersionProtocol | None` Port method. This keeps the guard strict. If the reupload code uses `DatasetVersion` in SQL expressions (InstrumentedAttribute), a `create_dataset_version(session, ...) → DatasetVersionProtocol` method may also be needed.
+**RESOLVED:** Plan 01 Task 1 adds `DatasetVersionProtocol` to companion Protocols and `get_dataset_version(session, dataset_id) → DatasetVersionProtocol | None` to ProcessingPort method surface. Plan 03 Task 2 migrates `tasks_common.py:849` from `from app.modules.catalog.collections.models import DatasetVersion` to `port.get_dataset_version(...)`. Strict zero-hit guard preserved.
 
 ### OQ-3: Multiple InstrumentedAttribute SQL use sites — scope of new Port methods needed
 
-**What we know:** At least 6 processing files use catalog ORM classes in SQLAlchemy `select()` / `.where()` / `.join()` expressions — not just as type annotations. Each such site requires either a new Port method or a deliberate exception.
-
-**What's unclear:** The full count of new Port methods needed to cover all InstrumentedAttribute uses was not enumerated during research (it requires line-by-line analysis of each deferred import context). The CONTEXT.md's D-06/D-07 method list may be incomplete.
-
-**Recommendation:** The planner should run `grep -n "select(Dataset\|select(Record\|select(RecordKeyword\|select(AttributeMetadata\|select(DatasetVersion" backend/app/processing/` to enumerate all SQL InstrumentedAttribute uses and add Port methods for each. The Port surface may grow beyond the D-06/D-07 list. This is expected — the CONTEXT.md notes "planner re-greps at plan time to confirm every attribute access is covered."
+**RESOLVED:** Plan 01 Task 1 expands the ProcessingPort surface beyond D-06/D-07's initial list with InstrumentedAttribute encapsulator methods covering every `select(X)` / `.where(X.col)` / `.join(X)` site found in `processing/*` (e.g., `get_records_without_embeddings`, `get_datasets_meta_by_ids`, `get_catalog_vocabulary`, `get_related_keywords`, `get_record_keyword_count`, `get_attribute_metadata`, plus the OQ-2 `get_dataset_version`). Plan 03 Task 0 re-greps `select(Dataset|select(Record|select(RecordKeyword|select(AttributeMetadata|select(DatasetVersion` under `backend/app/processing/` and amends Plan 01's scaffold if any uncovered SQL site is discovered before continuing the migration sweep.
 
 ### OQ-4: `tasks_raster.py:143` — `# noqa: F401` side-effect Dataset import
 
-**What we know:** `from app.modules.catalog.datasets.domain.models import Dataset  # noqa: F401` at `tasks_raster.py:143` is an unused import kept for `Base.metadata` registration, analogous to the Phase 214 `User` allowlist.
-
-**What's unclear:** Whether removing this import breaks the Procrastinate worker's ORM discovery. Phase 214 kept the `User` import as an allowlist exception; D-23 says no allowlist for Phase 225. If removing `Dataset` breaks worker startup, Phase 225 needs an exception or a different mechanism.
-
-**Recommendation:** Attempt removal. Run the worker in test mode to verify `Dataset` is registered via transitive imports (it should be — the catalog module loader imports all models). If worker tests fail, this becomes a legitimate allowlist exception that requires amending D-23. Flag in PLAN.md as a verification step.
+**RESOLVED (conditional):** Plan 03 Task 4 implements an Outcome A → Outcome B decision tree. Outcome A: attempt removal, run the worker test path; if `Base.metadata` discovery still finds `Dataset` via transitive catalog-module imports, the import is removed and the strict-zero-hit guard (D-23) holds verbatim. Outcome B: if the worker fails to register `Dataset` without the explicit import, restore it as a single documented exception, amend D-23 to allow exactly `:!backend/app/processing/ingest/tasks_raster.py:143`, and Plan 04 Task 1 includes the corresponding `:!` pathspec exclusion in the architecture-guard regex. Either outcome preserves PROCESS-02 — both reach a state where every other `processing/*` line is catalog-import-free.
 
 ---
 
