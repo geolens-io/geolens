@@ -34,7 +34,7 @@ findings:
   blocker: 2
   warning: 8
   total: 10
-status: issues_found
+status: fixed
 ---
 
 # Phase 225: Code Review Report
