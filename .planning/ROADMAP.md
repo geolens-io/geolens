@@ -152,7 +152,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 2/9 plans executed
+**Plans:** 5/9 plans executed
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 **Tier:** Cloud (vendor-hosted SaaS, deferred) — **not Enterprise**. Self-hosted Enterprise is single-tenant by design (reframed 2026-04-30 — see `docs-internal/GTM/free-vs-enterprise.md` §3).
