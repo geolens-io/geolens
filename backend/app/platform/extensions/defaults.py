@@ -341,6 +341,18 @@ class DefaultProcessingPort:
         from app.modules.catalog.datasets.domain.models import DatasetGrant
         return DatasetGrant
 
+    def get_dataset_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import Dataset
+        return Dataset
+
+    def get_dataset_version_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.collections.models import DatasetVersion
+        return DatasetVersion
+
+    def get_record_distribution_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import RecordDistribution
+        return RecordDistribution
+
     # -------------------------------------------------------------------------
     # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
     # that metadata_service._build_dataset_context requires; Pitfall 2)
