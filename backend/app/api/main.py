@@ -17,8 +17,8 @@ from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging
 from app.core.runtime.staging import ensure_staging_ready
 from app.core.edition import get_edition, init_edition
-from app.core.marketplace import register_marketplace_usage
 from app.platform.extensions import (
+    get_billing_extensions,
     get_extension_routers,
     list_extensions,
     load_extensions,
@@ -181,25 +181,31 @@ async def lifespan(app: FastAPI):
             )
             raise RuntimeError(f"S3 health check failed: {exc}") from exc
 
-    if settings.aws_marketplace_product_code:
-        # boto3.register_usage is sync and retries 3x with ~60s timeouts —
-        # without an outer cap, an unreachable AWS Marketplace API blocks
-        # container startup for ~3 minutes and risks orchestrator restart loops.
+    # Phase 223 BILLING-04 / D-10: generic BillingExtension dispatch.
+    # Community: DefaultBillingExtension.on_startup is a no-op (D-07).
+    # Enterprise overlay (geolens-enterprise) registers MarketplaceBillingExtension
+    # which reads AWS_MARKETPLACE_PRODUCT_CODE itself (D-13 — env-var gate lives
+    # in the overlay, not in core).
+    #
+    # asyncio.wait_for(timeout=10.0) caps each extension at 10s — preserves
+    # today's behavior of capping the boto3 register_usage call (which retries
+    # 3x with ~60s timeouts) so an unreachable billing API doesn't block
+    # container startup for ~3 minutes. Per-extension try/except (D-12)
+    # ensures one failing extension does not poison the iteration.
+    for ext in get_billing_extensions():
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(register_marketplace_usage, settings, logger),
-                timeout=10.0,
-            )
+            await asyncio.wait_for(ext.on_startup(app), timeout=10.0)
         except asyncio.TimeoutError:
             logger.warning(
-                "AWS Marketplace metering timed out after 10s -- continuing without metering",
-                product_code=settings.aws_marketplace_product_code,
+                "BillingExtension.on_startup timed out -- continuing without billing",
+                extension=type(ext).__name__,
+                timeout_seconds=10.0,
             )
         except Exception as exc:
             logger.warning(
-                "AWS Marketplace metering failed -- continuing without metering",
+                "BillingExtension.on_startup failed -- continuing without billing",
+                extension=type(ext).__name__,
                 error=str(exc),
-                product_code=settings.aws_marketplace_product_code,
             )
 
     init_cache()
