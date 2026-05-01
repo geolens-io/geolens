@@ -24,8 +24,9 @@ get_processing_port() returns it on subsequent requests. Phase 226
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Any, Protocol, Sequence, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
