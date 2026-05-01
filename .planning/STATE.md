@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v13.3
 milestone_name: Boundary A+ Cleanup
-status: executing
-stopped_at: Phase 223 plans 1-5 executed (4/5 tasks of plan 05 complete; plan 05 task 5 awaiting manual /oc-audit re-run for BILLING-06)
-last_updated: "2026-05-01T00:30:00.000Z"
-last_activity: 2026-04-30 -- Phase 223 plans 1-5 executed; awaiting /oc-audit checkpoint
+status: phase-223-complete
+stopped_at: Phase 223 COMPLETE — BILLING-06 satisfied 2026-04-30 by /oc-audit re-run (oc-separation-audit-20260430-b.md, Boundary Integrity A+)
+last_updated: "2026-04-30T20:35:00.000Z"
+last_activity: 2026-04-30 -- Phase 223 closed; /oc-audit identified 16 follow-up findings; Phase 224 (catalog-god-module-split) added per Option B
 progress:
-  total_phases: 3
-  completed_phases: 1
+  total_phases: 2
+  completed_phases: 2
   total_plans: 10
   completed_plans: 10
   percent: 100
@@ -21,20 +21,35 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 223 — marketplace-billing-extraction (awaiting /oc-audit close gate)
+**Current focus:** v13.3 Phase 223 closed; Phase 224 (catalog-god-module-split) queued from /oc-audit follow-up findings
 
 ## Current Position
 
-Phase: 223
-Plan: 05 (4/5 tasks complete; task 5 = manual `/oc-audit` re-run)
-Status: Awaiting BILLING-06 verification via `/oc-audit`
-Last activity: 2026-04-30 -- Phase 223 plans 1-5 executed; cross-repo (geolens + geolens-enterprise) shipped
+Phase: 224 (queued — not yet planned)
+Plan: TBD (run `/gsd-discuss-phase 224` then `/gsd-plan-phase 224`)
+Status: v13.3 Phase 222 + 223 SHIPPED; 11 audit follow-ups added to backlog (999.7-999.17)
+Last activity: 2026-04-30 -- /oc-audit close gate satisfied (oc-separation-audit-20260430-b.md, Boundary Integrity A+); BILLING-06 ✅; Phase 224 added to roadmap
 
 ```
 [Phase 222] [Phase 223]
-[██████████] [█████████░]
-  100%                      1.9/2 phases complete (Phase 223 BILLING-01..05 ✅; BILLING-06 ⏳ /oc-audit)
+[██████████] [██████████]
+  100%        100%          v13.3 phases shipped — BILLING-06 satisfied 2026-04-30
 ```
+
+## v13.3 Close-Out Status
+
+- Phase 222: COMPLETE (5/5 plans, AUDIT-01..05 satisfied)
+- Phase 223: COMPLETE (5/5 plans, BILLING-01..06 satisfied — BILLING-06 close gate `oc-separation-audit-20260430-b.md`)
+- Audit grade movements vs v13.1 close: Boundary Integrity A → **A+** (zero 🟡 risks); Seam Quality B → **B+** (AuditSink + BillingExtension promoted to 🟢); Coupling Health B− → **B** (log_action 65→7 chokepoint sites)
+- Overall readiness: 3.39 → **3.53** (A−)
+- Next milestone close: run `/gsd-complete-milestone v13.3`
+
+## Phase 224 Queue (from /oc-audit follow-ups)
+
+The audit produced 16 findings. Three trivial fixes were applied inline (env-var move from base compose to enterprise overlay, GEOLENS_EDITION explicit set in overlay, GTM doc amendment for Phase 223 completion). The remaining 13 findings split:
+
+- **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle.
+- **Backlog 999.7-999.17:** 11 multi-day / multi-week items (ProcessingPort Protocol, PermissionExtension, WorkflowExtension, AIProviderExtension, geolens.yaml manifest, persistent connector registry, Helm chart, SBOM, geolens-schemas extraction, run cold publish workflows, processing-imports-catalog architecture guard).
 
 ## Roadmap Snapshot
 
