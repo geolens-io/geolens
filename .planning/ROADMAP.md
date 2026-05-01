@@ -108,7 +108,7 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 **Source spec**: `docs-internal/audits/oc-separation-audit-20260430.md` §1 (Feature Boundary Leakage — 3 🟡 loci: `api/main.py:184-203`, `core/marketplace.py:1-30`, `core/config.py:87-88`)
 **Note**: The aws_marketplace_product_code / aws_marketplace_public_key_version settings placement (core Settings pass-through vs enterprise-only) is an acceptable-carve-out decision; resolve during phase planning if not via /gsd-discuss-phase.
 **Success Criteria** (what must be TRUE):
-  1. `import boto3` produces an ImportError in a clean community virtualenv (boto3 not in backend/pyproject.toml)
+  1. `backend/app/core/marketplace.py` is deleted from core; no module under `backend/app/` calls `boto3.client("meteringmarketplace").register_usage(...)`. `boto3` remains a core dependency because the core S3 storage provider and S3 health check use it — that is an unrelated boundary concern. The AWS Marketplace billing API is invoked exclusively from the enterprise overlay.
   2. A community deployment with AWS_MARKETPLACE_PRODUCT_CODE unset (the default) performs zero AWS API calls and imports zero boto3 symbols at startup
   3. The enterprise overlay's BillingExtension.on_startup() fires and registers marketplace usage when the overlay is installed and the env var is set — behavior is unchanged for enterprise deployments
   4. An audit re-run against the post-phase codebase reports zero 🟡 risks in §1 (Feature Boundary Leakage) and the AWS Marketplace cluster reads "✅ Closed"
