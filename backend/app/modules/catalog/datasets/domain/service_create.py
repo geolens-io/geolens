@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 from typing import TYPE_CHECKING
 
@@ -13,19 +12,20 @@ from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.modules.catalog.datasets.domain._sql_safety import (
+    SAFE_COLUMN_NAME_RE,
+    _safe_table_ref,
+)
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
 )
-from app.modules.catalog.datasets.domain.service_lifecycle import _safe_table_ref
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
 )
 
 __all__ = ["create_empty_dataset", "create_dataset"]
 
-
-_COLUMN_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 _RESERVED_COLUMNS = {"gid", "geom", "geom_4326"}
 
@@ -54,7 +54,7 @@ async def create_empty_dataset(
     seen_names: set[str] = set()
     for col in request.columns:
         lower_name = col.name.lower()
-        if not _COLUMN_NAME_RE.match(col.name):
+        if not SAFE_COLUMN_NAME_RE.match(col.name):
             raise ValueError(
                 f"Invalid column name: {col.name!r}. "
                 "Must start with a letter or underscore and contain only alphanumeric characters and underscores."

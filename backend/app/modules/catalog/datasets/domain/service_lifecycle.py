@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import uuid
 from typing import Any
 
 import structlog
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.catalog.datasets.domain._sql_safety import (
+    SAFE_TABLE_NAME_RE,
+    _safe_table_ref,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -19,20 +23,6 @@ __all__ = [
     "delete_dataset",
     "get_dataset_versions",
 ]
-
-
-_SAFE_TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
-
-
-def _safe_table_ref(table_name: str) -> str:
-    """Return a safely quoted 'data.table_name' SQL identifier.
-
-    Validates that the name contains only safe characters and quotes it
-    to prevent SQL injection in DDL statements (CREATE/DROP/ALTER).
-    """
-    if not _SAFE_TABLE_NAME_RE.match(table_name):
-        raise ValueError(f"Invalid table name: {table_name!r}")
-    return f'"data"."{table_name}"'
 
 
 class DependentVrtError(Exception):
@@ -71,7 +61,7 @@ async def delete_dataset(
         raise ValueError("Dataset title does not match confirmation")
 
     table_name = dataset.table_name
-    if not re.match(r"^[a-z0-9_]+$", table_name):
+    if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
 
     record_type = dataset.record.record_type

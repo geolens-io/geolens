@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 from typing import TYPE_CHECKING
 
@@ -14,6 +13,7 @@ if TYPE_CHECKING:
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -352,8 +352,7 @@ async def reset_attribute(
     # Re-sample example_values from data table (skip geometry columns)
     if attr.data_type and "geometry" not in attr.data_type.lower():
         col_name = attr.field_name
-        _table_re = re.compile(r"^[a-z0-9_]+$")
-        if _table_re.match(col_name) and _table_re.match(table_name):
+        if SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name):
             try:
                 result = await session.execute(
                     text(
