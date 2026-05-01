@@ -306,3 +306,23 @@ class ProcessingPort(Protocol):
         order_field: str | None = None,
         result_limit: int | None = None,
     ) -> tuple[str, str]: ...
+
+    # -------------------------------------------------------------------------
+    # ORM class helpers (Plan 02 — enable apply_visibility_filter call sites
+    # in processing/* to pass the concrete ORM class without importing from
+    # app.modules.catalog.* directly; Phase 214 IDENT-01 guard compliant
+    # because the Protocol only declares `type` return, no modules.* import)
+    # -------------------------------------------------------------------------
+
+    def get_record_orm_class(self) -> type: ...
+
+    def get_grant_orm_class(self) -> type: ...
+
+    # -------------------------------------------------------------------------
+    # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
+    # for metadata_service._build_dataset_context; Pitfall 2 mitigation)
+    # -------------------------------------------------------------------------
+
+    async def get_dataset_with_attributes(
+        self, session: AsyncSession, dataset_id: uuid.UUID
+    ) -> DatasetProtocol | None: ...
