@@ -17,6 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.modules.audit.events import AuditEvent
+    from app.processing.ai.llm_loop import (
+        ActionCollector,
+        ToolExecutor,
+        ToolLoopResult,
+    )
 
 
 @runtime_checkable
@@ -81,3 +86,67 @@ class BillingExtension(Protocol):
     """
 
     async def on_startup(self, app: FastAPI) -> None: ...
+
+
+@runtime_checkable
+class AIProviderExtension(Protocol):
+    """LLM provider dispatch table entry (Phase 226 D-01 / AIEXT-01).
+
+    Replaces hardcoded ``if/elif provider == "anthropic"/"openai_compatible"``
+    dispatch in ``processing/ai/`` with name-keyed extension lookup. Registered
+    via the ``geolens.extensions`` entry-point group; the registry slot is
+    ``_extensions["ai_providers"]`` — a ``dict[str, AIProviderExtension]``
+    (D-04, dict-shape NOT list-shape because dispatch fans out by name at
+    request time).
+
+    Community defaults: ``DefaultAnthropicProvider`` (key: ``"anthropic"``),
+    ``DefaultOpenAICompatibleProvider`` (key: ``"openai_compatible"``). Each
+    class is registered under its name via per-key ``setdefault`` (D-05) so
+    overlay registrations win without overwriting un-overlaid defaults.
+
+    Overlays add new providers (e.g., ``"bedrock"``, ``"vertex"``) without
+    modifying any core file (SC#5)::
+
+        def register_extensions(registry: dict) -> None:
+            providers = registry.setdefault("ai_providers", {})
+            providers["bedrock"] = BedrockProvider()
+
+    Forward-referenced types (``ToolLoopResult``, ``ToolExecutor``,
+    ``ActionCollector``) live in ``app.processing.ai.llm_loop``; the
+    ``TYPE_CHECKING`` import keeps the typing-only edge from becoming a
+    runtime edge (mirrors the ``AuditEvent`` pattern at line 18-19).
+    """
+
+    async def complete(
+        self,
+        *,
+        model: str,
+        system_prompt: str,
+        user_message: str,
+        tools: list[dict],
+        tool_executor: "ToolExecutor",
+        action_collector: "ActionCollector | None" = None,
+        history: "list[dict] | None" = None,
+        max_rounds: int = ...,
+        max_tokens: int = 4096,
+        base_url: "str | None" = None,
+        temperature: float = 0.5,
+    ) -> "ToolLoopResult": ...
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system_prompt: str,
+        user_message: str,
+        tools: list[dict],
+        tool_executor: "ToolExecutor",
+        action_collector: "ActionCollector | None" = None,
+        history: "list[dict] | None" = None,
+        max_rounds: int = ...,
+        max_tokens: int = 4096,
+        base_url: "str | None" = None,
+        temperature: float = 0.5,
+    ) -> "ToolLoopResult": ...
+
+    async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
