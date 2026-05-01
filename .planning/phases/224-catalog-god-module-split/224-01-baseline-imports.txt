@@ -1,0 +1,22 @@
+backend/app/modules/catalog/datasets/api/router.py:47:from app.modules.catalog.datasets.domain.service import (
+backend/app/modules/catalog/datasets/api/router_data.py:35:from app.modules.catalog.datasets.domain.service import (
+backend/app/modules/catalog/datasets/api/router_export.py:39:from app.modules.catalog.datasets.domain.service import get_dataset
+backend/app/modules/catalog/datasets/api/router_metadata.py:104:    from app.modules.catalog.datasets.domain.service import list_attributes
+backend/app/modules/catalog/datasets/api/router_metadata.py:129:    from app.modules.catalog.datasets.domain.service import get_attribute
+backend/app/modules/catalog/datasets/api/router_metadata.py:156:    from app.modules.catalog.datasets.domain.service import (
+backend/app/modules/catalog/datasets/api/router_metadata.py:159:    from app.modules.catalog.datasets.domain.service import update_attribute
+backend/app/modules/catalog/datasets/api/router_metadata.py:212:    from app.modules.catalog.datasets.domain.service import (
+backend/app/modules/catalog/datasets/api/router_metadata.py:215:    from app.modules.catalog.datasets.domain.service import reset_attribute
+backend/app/modules/catalog/datasets/api/router_metadata.py:361:    from app.modules.catalog.datasets.domain.service import list_relationships
+backend/app/modules/catalog/datasets/api/router_metadata.py:379:    from app.modules.catalog.datasets.domain.service import create_relationship
+backend/app/modules/catalog/datasets/api/router_metadata.py:38:from app.modules.catalog.datasets.domain.service import (
+backend/app/modules/catalog/datasets/api/router_metadata.py:400:    from app.modules.catalog.datasets.domain.service import delete_relationship
+backend/app/modules/catalog/datasets/api/router_metadata.py:433:    from app.modules.catalog.datasets.domain.service import get_related_records
+backend/app/modules/catalog/datasets/api/router_reupload.py:30:from app.modules.catalog.datasets.domain.service import (
+backend/app/modules/catalog/datasets/api/router_vrt.py:29:from app.modules.catalog.datasets.domain.service import get_dataset
+backend/app/modules/catalog/features/router.py:16:from app.modules.catalog.datasets.domain.service import get_dataset
+backend/app/modules/catalog/layers/router.py:13:from app.modules.catalog.datasets.domain.service import get_dataset
+backend/app/modules/catalog/layers/service.py:14:from app.modules.catalog.datasets.domain.service import create_dataset
+backend/app/processing/export/router.py:17:from app.modules.catalog.datasets.domain.service import get_dataset
+backend/app/processing/ingest/service.py:23:from app.modules.catalog.datasets.domain.service import create_dataset
+backend/app/processing/ingest/tasks_common.py:618:    from app.modules.catalog.datasets.domain.service import create_dataset
