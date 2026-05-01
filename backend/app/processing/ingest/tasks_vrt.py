@@ -48,8 +48,12 @@ async def create_vrt_dataset(
     """
     from sqlalchemy import func, text
 
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset
+
+    port = get_processing_port()
+    Dataset = port.get_dataset_orm_class()
+    Record = port.get_record_orm_class()
 
     record = Record(
         title=title,
@@ -162,12 +166,13 @@ async def ingest_vrt(
     import shutil
     import tempfile
 
-    from app.modules.catalog.datasets.domain.models import (  # noqa: F401
-        Dataset,
-        RecordDistribution,
-    )
+    from app.platform.extensions import get_processing_port
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset
+
+    _port = get_processing_port()
+    Dataset = _port.get_dataset_orm_class()
+    RecordDistribution = _port.get_record_distribution_orm_class()
 
     logger_vrt = __import__("logging").getLogger(__name__)
 
@@ -280,8 +285,6 @@ async def ingest_vrt(
                 raster_asset.quicklook_512_uri = ql512_key
             await session.flush()
 
-            from app.modules.catalog.datasets.domain.models import RecordDistribution
-
             distribution = RecordDistribution(
                 record_id=record.id,
                 distribution_type="download",
@@ -359,10 +362,12 @@ async def regenerate_vrt(
     import shutil
     import tempfile
 
-    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.extensions import get_processing_port
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset, VrtGeneration
     from sqlalchemy import func, select, text
+
+    Dataset = get_processing_port().get_dataset_orm_class()
 
     logger_regen = __import__("logging").getLogger(__name__)
 
