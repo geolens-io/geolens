@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -90,6 +90,125 @@ def compute_schema_diff(
     }
 
 
+# Field maps for the simple-assignment portion of update_user_metadata.
+# Defined at module scope so they aren't rebuilt per call (and so
+# _apply_simple_field_assignments can read them without parameters).
+_RECORD_FIELD_MAP: dict[str, str] = {
+    "title": "title",
+    "summary": "summary",
+    "license": "license",
+    "source_organization": "source_organization",
+    "data_vintage_start": "temporal_start",
+    "data_vintage_end": "temporal_end",
+    "lineage_summary": "lineage_summary",
+    "update_frequency": "update_frequency",
+    "usage_constraints": "usage_constraints",
+    "access_constraints": "access_constraints",
+    "sensitivity_classification": "sensitivity_classification",
+    "theme_category": "theme_category",
+    "owner_org": "owner_org",
+    "language": "language",
+}
+_DATASET_FIELD_MAP: dict[str, str] = {
+    "quality_statement": "quality_statement",
+    "source_url": "source_url",
+}
+
+
+def _apply_simple_field_assignments(
+    record: Any, dataset: Dataset, meta: "DatasetMeta"
+) -> bool:
+    """Copy non-None scalar fields from meta to record/dataset. Return True if any changed."""
+    mutated = False
+    for meta_field, record_attr in _RECORD_FIELD_MAP.items():
+        value = getattr(meta, meta_field)
+        if value is not None:
+            setattr(record, record_attr, value)
+            mutated = True
+    for meta_field, dataset_attr in _DATASET_FIELD_MAP.items():
+        value = getattr(meta, meta_field)
+        if value is not None:
+            setattr(dataset, dataset_attr, value)
+            mutated = True
+    return mutated
+
+
+async def _apply_visibility_change(
+    session: AsyncSession,
+    record: Any,
+    dataset_id: uuid.UUID,
+    new_visibility: str,
+) -> bool:
+    """Set record.visibility, blocking public→restricted when public maps depend on it."""
+    if new_visibility != "public" and record.visibility == "public":
+        from app.modules.catalog.maps.service import find_public_maps_using_dataset
+
+        public_maps = await find_public_maps_using_dataset(session, dataset_id)
+        if public_maps:
+            raise ValueError(
+                f"Cannot restrict visibility: dataset is used in public maps: {', '.join(public_maps)}"
+            )
+    record.visibility = new_visibility
+    return True
+
+
+async def _apply_record_status_change(
+    session: AsyncSession,
+    record: Any,
+    dataset: Dataset,
+    new_status: str,
+) -> bool:
+    """Set record.record_status; on transition TO published, validate metadata."""
+    if new_status == "published" and record.record_status != "published":
+        from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH
+
+        require_metadata = await REQUIRE_METADATA_FOR_PUBLISH.get(session)
+        if require_metadata:
+            from app.modules.catalog.validation.service import validate_record
+
+            result = await validate_record(session, record, dataset)
+            if not result.is_valid:
+                error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
+                raise ValueError(f"Cannot publish: {'; '.join(error_msgs)}")
+        record.published_at = func.now()
+    record.record_status = new_status
+    return True
+
+
+async def _apply_is_dem(
+    session: AsyncSession, dataset_id: uuid.UUID, is_dem: bool
+) -> bool:
+    """Set is_dem on the dataset's RasterAsset row, if one exists."""
+    from app.processing.raster.models import RasterAsset
+
+    ra_result = await session.execute(
+        select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+    )
+    ra = ra_result.scalar_one_or_none()
+    if ra is None:
+        return False
+    ra.is_dem = is_dem
+    return True
+
+
+async def _maybe_defer_embedding(record_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
+    """Best-effort defer of embedding regeneration. Failures are logged, not raised."""
+    try:
+        from app.processing.embeddings.tasks import embed_record
+
+        await embed_record.defer_async(record_id=str(record_id))
+    except Exception:
+        # Non-fatal -- embedding will catch up on next edit or backfill.
+        # Log with traceback so operators can notice if this fails consistently
+        # (e.g., broker down) instead of silently dropping edits from the index.
+        logger.warning(
+            "Failed to defer embed_record task for record %s (dataset %s)",
+            record_id,
+            dataset_id,
+            exc_info=True,
+        )
+
+
 async def update_user_metadata(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -102,118 +221,37 @@ async def update_user_metadata(
     Accepts a DatasetMeta Pydantic model. Only updates fields that are
     explicitly set (not None). Raises ValueError if dataset not found.
     Does not commit; caller controls transaction scope.
+
+    Decomposed into 5 step helpers for readability:
+    simple field assignments, visibility, record_status, is_dem, embedding-defer.
     """
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
 
     record = dataset.record
-    metadata_mutated = False
 
-    # --- Data-driven simple assignments (meta field -> record/dataset attr) ---
-    _RECORD_FIELD_MAP: dict[str, str] = {
-        "title": "title",
-        "summary": "summary",
-        "license": "license",
-        "source_organization": "source_organization",
-        "data_vintage_start": "temporal_start",
-        "data_vintage_end": "temporal_end",
-        "lineage_summary": "lineage_summary",
-        "update_frequency": "update_frequency",
-        "usage_constraints": "usage_constraints",
-        "access_constraints": "access_constraints",
-        "sensitivity_classification": "sensitivity_classification",
-        "theme_category": "theme_category",
-        "owner_org": "owner_org",
-        "language": "language",
-    }
-    _DATASET_FIELD_MAP: dict[str, str] = {
-        "quality_statement": "quality_statement",
-        "source_url": "source_url",
-    }
+    mutated_flags = [_apply_simple_field_assignments(record, dataset, meta)]
 
-    for meta_field, record_attr in _RECORD_FIELD_MAP.items():
-        value = getattr(meta, meta_field)
-        if value is not None:
-            setattr(record, record_attr, value)
-            metadata_mutated = True
-
-    for meta_field, dataset_attr in _DATASET_FIELD_MAP.items():
-        value = getattr(meta, meta_field)
-        if value is not None:
-            setattr(dataset, dataset_attr, value)
-            metadata_mutated = True
-
-    # --- Special-case fields requiring extra logic ---
-
-    # Visibility: block restricting a dataset used in public maps
     if meta.visibility is not None:
-        if meta.visibility != "public" and record.visibility == "public":
-            from app.modules.catalog.maps.service import find_public_maps_using_dataset
-
-            public_maps = await find_public_maps_using_dataset(session, dataset_id)
-            if public_maps:
-                raise ValueError(
-                    f"Cannot restrict visibility: dataset is used in public maps: {', '.join(public_maps)}"
-                )
-        record.visibility = meta.visibility
-        metadata_mutated = True
-
-    # Record status: validate on transition TO published
-    if meta.record_status is not None:
-        if meta.record_status == "published" and record.record_status != "published":
-            from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH
-
-            require_metadata = await REQUIRE_METADATA_FOR_PUBLISH.get(session)
-            if require_metadata:
-                from app.modules.catalog.validation.service import validate_record
-
-                result = await validate_record(session, record, dataset)
-                if not result.is_valid:
-                    error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
-                    raise ValueError(f"Cannot publish: {'; '.join(error_msgs)}")
-            record.published_at = func.now()
-        record.record_status = meta.record_status
-        metadata_mutated = True
-
-    # Raster-specific: is_dem flag on RasterAsset
-    if meta.is_dem is not None:
-        from app.processing.raster.models import RasterAsset
-
-        ra_result = await session.execute(
-            select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+        mutated_flags.append(
+            await _apply_visibility_change(session, record, dataset_id, meta.visibility)
         )
-        ra = ra_result.scalar_one_or_none()
-        if ra is not None:
-            ra.is_dem = meta.is_dem
-            metadata_mutated = True
+    if meta.record_status is not None:
+        mutated_flags.append(
+            await _apply_record_status_change(session, record, dataset, meta.record_status)
+        )
+    if meta.is_dem is not None:
+        mutated_flags.append(await _apply_is_dem(session, dataset_id, meta.is_dem))
 
-    if actor_id is not None and metadata_mutated:
+    if actor_id is not None and any(mutated_flags):
         record.updated_by = actor_id
-
-    # Check if embedding-relevant fields changed
-    embedding_fields_changed = any(
-        getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")
-    )
 
     await session.flush()
 
-    # Trigger embedding regeneration if relevant fields changed
-    if embedding_fields_changed:
-        try:
-            from app.processing.embeddings.tasks import embed_record
-
-            await embed_record.defer_async(record_id=str(record.id))
-        except Exception:
-            # Non-fatal -- embedding will catch up on next edit or backfill.
-            # Log with traceback so operators can notice if this fails consistently
-            # (e.g., broker down) instead of silently dropping edits from the index.
-            logger.warning(
-                "Failed to defer embed_record task for record %s (dataset %s)",
-                record.id,
-                dataset.id,
-                exc_info=True,
-            )
+    # Trigger embedding regeneration if relevant fields changed.
+    if any(getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")):
+        await _maybe_defer_embedding(record.id, dataset.id)
 
     return dataset
 
