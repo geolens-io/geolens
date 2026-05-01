@@ -13,9 +13,8 @@ import time
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.processing.ai.llm_loop import get_anthropic_client, get_openai_client
+from app.platform.extensions import get_ai_provider
 from app.processing.ai.schemas import ChatMapLayer
-from app.core.config import settings
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BASE_URL
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -348,17 +347,25 @@ async def generate_sql(
         question=question,
     )
 
-    if provider == "anthropic":
-        if not settings.anthropic_api_key:
-            raise ValueError("Anthropic API key not configured")
-        sql = await _call_anthropic(prompt, question, model)
-    elif provider == "openai_compatible":
-        if not settings.openai_api_key:
-            raise ValueError("OpenAI-compatible API key not configured")
-        base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
-        sql = await _call_openai(prompt, question, model, base_url)
-    else:
-        raise ValueError(f"Unknown LLM provider: {provider}")
+    base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
+    provider_ext = get_ai_provider(provider)
+
+    async def _noop_executor(name: str, args: dict) -> dict:
+        # max_rounds=1 exits before any tool call; executor never runs.
+        return {}
+
+    result = await provider_ext.complete(
+        model=model,
+        system_prompt=prompt,
+        user_message=question,
+        tools=[],
+        tool_executor=_noop_executor,
+        max_rounds=1,
+        max_tokens=2048,
+        temperature=0.0,
+        base_url=base_url,
+    )
+    sql = result.text
 
     # Strip markdown code fences if the LLM wrapped the SQL
     sql = _strip_code_fences(sql.strip())
@@ -377,50 +384,6 @@ async def generate_sql(
     )
 
     return sql
-
-
-async def _call_anthropic(prompt: str, question: str, model: str) -> str:
-    """Call Anthropic API for SQL generation (async)."""
-    client = get_anthropic_client()
-    response = await client.messages.create(
-        model=model,
-        max_tokens=2048,
-        temperature=0.0,
-        system=prompt,
-        messages=[{"role": "user", "content": question}],
-    )
-
-    if hasattr(response, "usage") and response.usage:
-        logger.info(
-            "SQL generation tokens",
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-        )
-
-    return response.content[0].text
-
-
-async def _call_openai(prompt: str, question: str, model: str, base_url: str) -> str:
-    """Call OpenAI-compatible API for SQL generation (async)."""
-    client = get_openai_client(base_url)
-    response = await client.chat.completions.create(
-        model=model,
-        max_tokens=2048,
-        temperature=0.0,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": question},
-        ],
-    )
-
-    if response.usage:
-        logger.info(
-            "SQL generation tokens",
-            input_tokens=response.usage.prompt_tokens,
-            output_tokens=response.usage.completion_tokens,
-        )
-
-    return response.choices[0].message.content or ""
 
 
 def _strip_code_fences(text: str) -> str:
