@@ -131,3 +131,62 @@ async def test_sandbox_error_uses_mapped_message():
     assert result["category"] == "query_timeout"
     assert result["error"] == ERROR_MESSAGES["query_timeout"]
     assert result["error"] != "raw timeout message"
+
+
+# --- query_data port boundary: GeoJSON extraction round-trip ---
+
+
+@pytest.mark.anyio
+async def test_query_data_via_execute_chat_tool_preserves_geojson():
+    """End-to-end test: _execute_chat_tool('query_data', ..., port=fake_port) preserves GeoJSON.
+
+    Phase 225 review fix W-05 — closes the test gap where _handle_query_data's
+    GeoJSON extraction (chat_service.py:608-611) was never exercised through
+    the Port-bearing dispatcher. Asserts that out["geojson"] and out["bbox"]
+    survive the _execute_chat_tool routing layer.
+    """
+    geom_str = '{"type": "Point", "coordinates": [-73.9, 40.7]}'
+    geo_result = SandboxResult(
+        rows=[["row-1", geom_str]],
+        columns=["name", "geom"],
+        row_count=1,
+        truncated=False,
+    )
+
+    fake_port = DefaultProcessingPort()
+    fake_user = SimpleNamespace(id=uuid.uuid4(), username="test_user")
+
+    with (
+        patch(
+            "app.processing.ai.chat_service.generate_sql",
+            new_callable=AsyncMock,
+            return_value="SELECT name, ST_AsGeoJSON(geom) AS geom FROM data.ds_test",
+        ),
+        patch(
+            "app.processing.ai.chat_service.validate_and_execute",
+            new_callable=AsyncMock,
+            return_value=geo_result,
+        ),
+    ):
+        result = await _execute_chat_tool(
+            "query_data",
+            {"question": "Show me the parks"},
+            AsyncMock(),  # session
+            fake_user,
+            set(),
+            [_make_layer()],
+            port=fake_port,
+        )
+
+    # Routing layer must NOT strip geojson/bbox from the inner result
+    assert "geojson" in result, "GeoJSON FeatureCollection lost through _execute_chat_tool"
+    assert result["geojson"]["type"] == "FeatureCollection"
+    assert len(result["geojson"]["features"]) == 1
+    assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
+
+    assert "bbox" in result, "BBox lost through _execute_chat_tool"
+    assert result["bbox"] == [-73.9, 40.7, -73.9, 40.7]
+
+    # row_count and truncated should also pass through
+    assert result["row_count"] == 1
+    assert result["truncated"] is False
