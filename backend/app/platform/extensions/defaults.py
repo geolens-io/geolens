@@ -188,7 +188,7 @@ class DefaultProcessingPort:
             session,
             table_name,
             column_name,
-            limit,
+            limit=limit,
             allowed_tables=allowed_tables,
         )
 
