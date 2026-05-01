@@ -10,11 +10,11 @@
 
 ### ProcessingPort Protocol (Phase 225)
 
-- [ ] **PROCESS-01**: A `ProcessingPort` Protocol exists in `backend/app/core/` mirroring the `IdentityProtocol` pattern from Phase 214
+- [x] **PROCESS-01**: A `ProcessingPort` Protocol exists in `backend/app/core/` mirroring the `IdentityProtocol` pattern from Phase 214
 - [ ] **PROCESS-02**: The 8 existing `processing/*` → `catalog/*` imports rewire through Protocol-typed boundaries (no direct cross-domain imports)
 - [ ] **PROCESS-03**: AI features (`processing/ai/chat_service.py`, `metadata_service.py`, `embeddings/backfill.py`) consume catalog data via the Protocol, not direct imports
 - [ ] **PROCESS-04**: Architecture-guard test `test_no_processing_imports_catalog` fails CI if any `backend/app/processing/` module imports from `backend/app/modules/catalog/` (mirrors Phase 222's AUDIT-02 pattern)
-- [ ] **PROCESS-05**: Default ProcessingPort implementation preserves all existing behavior with zero functional regressions in the test suite
+- [x] **PROCESS-05**: Default ProcessingPort implementation preserves all existing behavior with zero functional regressions in the test suite
 
 ### AIProviderExtension Protocol (Phase 226)
 
