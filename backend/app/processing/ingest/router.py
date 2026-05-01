@@ -816,9 +816,13 @@ async def add_vrt_source(
     Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
     Returns 422 if the source is incompatible with existing sources.
     """
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset
     from sqlalchemy import text
+
+    _port = get_processing_port()
+    Dataset = _port.get_dataset_orm_class()
+    Record = _port.get_record_orm_class()
 
     # 1. Load VRT RasterAsset
     vrt_result = await db.execute(
@@ -1002,9 +1006,13 @@ async def remove_vrt_source(
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
     """
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset
     from sqlalchemy import text
+
+    _port = get_processing_port()
+    Dataset = _port.get_dataset_orm_class()
+    Record = _port.get_record_orm_class()
 
     # 1. Load VRT RasterAsset
     vrt_result = await db.execute(

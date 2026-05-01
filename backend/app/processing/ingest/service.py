@@ -249,7 +249,7 @@ async def generate_table_name(
         slug = slug[:60]
 
     # Check for collision against catalog — single query instead of loop
-    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+    DatasetORM = get_processing_port().get_dataset_orm_class()
 
     base_slug = slug
     collision_warning: str | None = None
@@ -319,7 +319,7 @@ async def register_existing_table(
         raise ValueError(f"Table 'data.{table_name}' does not exist.")
 
     # Check for duplicate registration
-    from app.modules.catalog.datasets.domain.models import Dataset
+    Dataset = get_processing_port().get_dataset_orm_class()
 
     existing = await session.execute(
         select(Dataset).where(Dataset.table_name == table_name)
@@ -403,10 +403,13 @@ async def create_vrt_job(
     """
     import json
 
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.processing.ingest.tasks import ingest_vrt
     from app.processing.raster.models import RasterAsset
     from app.processing.raster.validation import validate_sources
+
+    _port = get_processing_port()
+    Dataset = _port.get_dataset_orm_class()
+    Record = _port.get_record_orm_class()
 
     # 1. Validate minimum source count
     if len(request.source_dataset_ids) < 2:
