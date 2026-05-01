@@ -398,3 +398,133 @@ def test_no_log_action_calls_outside_audit_service() -> None:
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
         )
+
+
+@pytest.mark.architecture
+def test_no_core_marketplace_import() -> None:
+    """Phase 223 BILLING-02: ``app.core.marketplace`` does not exist after Phase 223.
+
+    Asserts that:
+      (a) ``import app.core.marketplace`` raises ImportError — the module file
+          ``backend/app/core/marketplace.py`` was deleted in Plan 03 (D-02).
+      (b) No surviving ``from app.core.marketplace`` reference exists anywhere
+          in ``backend/app/`` — the lifespan startup at ``api/main.py:184-203``
+          was rewritten to dispatch through ``BillingExtension.on_startup`` in
+          Plan 02; the import line at ``api/main.py:20`` was deleted in Plan 02.
+
+    The 30-line ``register_marketplace_usage`` function was relocated to the
+    enterprise overlay (geolens-enterprise/geolens_enterprise/billing/__init__.py
+    in Plan 05). The community core has zero AWS Marketplace business logic
+    after this phase.
+
+    Negative-control: any future regression that re-creates the file or
+    re-introduces a ``from app.core.marketplace`` import fails this test
+    immediately at CI time.
+    """
+    import importlib
+
+    # (a) Importing the module must fail
+    try:
+        importlib.import_module("app.core.marketplace")
+        pytest.fail(
+            "Phase 223 BILLING-02 invariant violated: app.core.marketplace was "
+            "importable. The module file backend/app/core/marketplace.py must be "
+            "deleted (Plan 03 / D-02). The 30-line register_marketplace_usage "
+            "function was relocated to the enterprise overlay's "
+            "MarketplaceBillingExtension class (Plan 05)."
+        )
+    except ImportError:
+        pass  # Expected: module was deleted
+
+    # (b) No surviving import of app.core.marketplace anywhere in backend/app/
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 223 BILLING-02 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"from app\.core\.marketplace|import app\.core\.marketplace",
+            "--",
+            "backend/app/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 223 BILLING-02 invariant violated: backend/app/ still "
+            "contains a `from app.core.marketplace` or `import app.core.marketplace` "
+            "reference. The lifespan dispatch in api/main.py must use "
+            "`get_billing_extensions()` and the AWS Marketplace business logic "
+            "lives ONLY in the enterprise overlay's MarketplaceBillingExtension. "
+            "Offending lines:\n" + result.stdout
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_billing_dispatch_uses_hardcoded_timeout() -> None:
+    """Phase 223 BILLING-04 / D-11: the production dispatch loop hardcodes timeout=10.0.
+
+    D-11 deliberately rejects making the timeout configurable (no
+    ``BILLING_STARTUP_TIMEOUT_SECONDS`` env var, no per-extension override).
+    Today's value is hardcoded; preserving that as a constant in core's
+    dispatch loop is the smallest-diff option and matches the pre-phase-223
+    behavior at the now-deleted line 191 of api/main.py.
+
+    Test fixtures (test_billing_extension.py::_dispatch) accept a parameterized
+    ``timeout`` argument for fast tests, but the PRODUCTION dispatch loop in
+    api/main.py MUST use the literal ``timeout=10.0``. This test catches drift
+    between the two.
+
+    Negative-control: any change that wraps the timeout in a settings field
+    or env-var lookup will fail this test (the literal will be missing).
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"asyncio\.wait_for\(ext\.on_startup\(app\), timeout=10\.0\)",
+            "--",
+            "backend/app/api/main.py",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 1:
+        pytest.fail(
+            "Phase 223 BILLING-04 / D-11 invariant violated: backend/app/api/main.py "
+            "does NOT contain the production BillingExtension dispatch loop with "
+            "literal `asyncio.wait_for(ext.on_startup(app), timeout=10.0)`. The "
+            "10-second timeout MUST be hardcoded (D-11 — YAGNI for env-var "
+            "configuration). Either the dispatch loop is missing entirely (Plan 02 "
+            "incomplete) or the literal timeout was changed."
+        )
+    if result.returncode not in (0,):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
