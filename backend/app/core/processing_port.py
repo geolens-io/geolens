@@ -308,15 +308,22 @@ class ProcessingPort(Protocol):
     ) -> tuple[str, str]: ...
 
     # -------------------------------------------------------------------------
-    # ORM class helpers (Plan 02 — enable apply_visibility_filter call sites
-    # in processing/* to pass the concrete ORM class without importing from
-    # app.modules.catalog.* directly; Phase 214 IDENT-01 guard compliant
-    # because the Protocol only declares `type` return, no modules.* import)
+    # ORM class helpers (Plans 02 + 03a — enable processing/* call sites
+    # to pass concrete ORM classes to select() / session.add() without
+    # importing from app.modules.catalog.* directly; Phase 214 IDENT-01
+    # guard compliant because the Protocol only declares `type` return,
+    # no modules.* import)
     # -------------------------------------------------------------------------
 
     def get_record_orm_class(self) -> type: ...
 
     def get_grant_orm_class(self) -> type: ...
+
+    def get_dataset_orm_class(self) -> type: ...
+
+    def get_dataset_version_orm_class(self) -> type: ...
+
+    def get_record_distribution_orm_class(self) -> type: ...
 
     # -------------------------------------------------------------------------
     # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
