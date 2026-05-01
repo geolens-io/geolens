@@ -13,12 +13,14 @@ from typing import TYPE_CHECKING
 import structlog
 
 from app.platform.extensions.defaults import (
+    DefaultAnthropicProvider,  # NEW (Phase 226)
     DefaultAuditExtension,
     DefaultAuditSink,  # NEW (Phase 222)
     DefaultAuthExtension,
     DefaultBillingExtension,  # NEW (Phase 223)
     DefaultBrandingExtension,
     DefaultIdentityExtension,
+    DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultProcessingPort,  # NEW (Phase 225)
 )
 from app.platform.extensions.protocols import (
@@ -32,6 +34,7 @@ from app.platform.extensions.protocols import (
 if TYPE_CHECKING:
     from app.core.identity import IdentityExtension
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
+    from app.platform.extensions.protocols import AIProviderExtension  # NEW (Phase 226)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -216,3 +219,37 @@ def get_processing_port() -> "ProcessingPort":
     if ext is None:
         return DefaultProcessingPort()
     return ext  # type: ignore[return-value]
+
+
+def get_ai_provider(name: str) -> "AIProviderExtension":
+    """Return the named AIProviderExtension or raise ValueError (Phase 226 D-04/D-05).
+
+    Registry slot ``_extensions["ai_providers"]`` is a
+    ``dict[str, AIProviderExtension]`` — NEW shape (D-04). Distinct from
+    ``audit_sinks`` / ``billing_extensions`` (list-shape, iterated) and
+    ``processing_port`` / ``identity`` (single-slot, replaced) because AI
+    dispatch fans out by NAME at request time: ``LLM_PROVIDER`` PersistentConfig
+    stores ``"anthropic"`` or ``"openai_compatible"`` (or any overlay-registered
+    name like ``"bedrock"``), and the accessor returns THE provider matching that
+    name. O(1) lookup; mirrors the audit's "dispatch table" wording verbatim.
+
+    Per-key ``setdefault`` seeds the two community defaults without overwriting
+    overlay registrations (D-05). If an overlay registered
+    ``providers["anthropic"] = TierAwareAnthropicProvider()`` BEFORE the first
+    ``get_ai_provider()`` call (during ``load_extensions()``), the seeding step
+    skips that key and the overlay wins. If an overlay registers a NEW name
+    ``providers["bedrock"] = BedrockProvider()``, both defaults plus the new
+    provider coexist. Order-safe regardless of overlay registration timing —
+    same shape as Phase 222's ``setdefault + append`` for list-shape, adapted
+    to dict-shape.
+
+    Raises ``ValueError("Unknown LLM provider: {name}")`` for unknown names
+    (D-06 — preserves today's ``llm_loop.py:149`` exception type/message so
+    existing tests that catch ValueError continue to pass).
+    """
+    providers = _extensions.setdefault("ai_providers", {})
+    providers.setdefault("anthropic", DefaultAnthropicProvider())
+    providers.setdefault("openai_compatible", DefaultOpenAICompatibleProvider())
+    if name not in providers:
+        raise ValueError(f"Unknown LLM provider: {name}")
+    return providers[name]  # type: ignore[return-value]
