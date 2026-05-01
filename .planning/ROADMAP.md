@@ -103,7 +103,7 @@
 
 Plans:
 **Wave 1**
-- [ ] 226-01-PLAN.md — additive-scaffold: AIProviderExtension Protocol + DefaultAnthropicProvider + DefaultOpenAICompatibleProvider + get_ai_provider(name) accessor (Wave 1, AIEXT-01/02)
+- [x] 226-01-PLAN.md — additive-scaffold: AIProviderExtension Protocol + DefaultAnthropicProvider + DefaultOpenAICompatibleProvider + get_ai_provider(name) accessor (Wave 1, AIEXT-01/02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 226-02-PLAN.md — caller-migration: 4 run_tool_loop callers + sql_generator + resolve_provider tuple shape; delete _loop_anthropic/_loop_openai/run_tool_loop (Wave 2, AIEXT-03)
