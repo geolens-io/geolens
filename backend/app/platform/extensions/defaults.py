@@ -326,3 +326,39 @@ class DefaultProcessingPort:
             order_field=order_field,
             result_limit=result_limit,
         )
+
+    # -------------------------------------------------------------------------
+    # ORM class helpers (Plan 02 — returned by Port so processing/* callers
+    # can pass the concrete class to apply_visibility_filter without importing
+    # from app.modules.catalog.* at top-of-file; deferred-import discipline)
+    # -------------------------------------------------------------------------
+
+    def get_record_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import Record
+        return Record
+
+    def get_grant_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+        return DatasetGrant
+
+    # -------------------------------------------------------------------------
+    # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
+    # that metadata_service._build_dataset_context requires; Pitfall 2)
+    # -------------------------------------------------------------------------
+
+    async def get_dataset_with_attributes(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+
+        from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+        stmt = (
+            select(Dataset)
+            .options(
+                joinedload(Dataset.record).joinedload(Record.keywords),
+                joinedload(Dataset.attributes),
+            )
+            .where(Dataset.id == dataset_id)
+        )
+        result = await session.execute(stmt)
+        return result.unique().scalar_one_or_none()
