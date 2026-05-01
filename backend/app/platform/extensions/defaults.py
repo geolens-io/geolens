@@ -388,3 +388,377 @@ class DefaultProcessingPort:
         )
         result = await session.execute(stmt)
         return result.unique().scalar_one_or_none()
+
+
+class DefaultAnthropicProvider:
+    """Community-edition default: Anthropic native tool-calling loop (Phase 226 D-17).
+
+    ``complete()`` body is ``_loop_anthropic`` from
+    ``app.processing.ai.llm_loop`` (lines 179-277) moved verbatim — same
+    request/response shape, same exit conditions, same token accounting.
+    ``stream()`` raises NotImplementedError (D-03 — true LLM-token streaming
+    is deferred; ``service.py:stream_generate_map`` is "semi-streaming"
+    around ``complete()``, not real token streams).
+
+    Class-level ``_client`` cache survives test registry resets (RESEARCH.md
+    §Client Cache Lifetime) and is process-scoped in production (the
+    accessor calls ``providers.setdefault(...)`` so the instance lives for
+    the FastAPI process lifetime).
+
+    Deferred imports (Phase 214 / Phase 222 / Phase 225 discipline): all
+    SDK and modules-level imports happen INSIDE ``complete()``, never at
+    defaults.py module load.
+    """
+
+    _client = None  # class-level cache (AsyncAnthropic | None)
+
+    async def complete(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        model,
+        system_prompt,
+        user_message,
+        tools,
+        tool_executor,
+        action_collector=None,
+        history=None,
+        max_rounds=None,
+        max_tokens=4096,
+        base_url=None,
+        temperature=0.5,
+    ):
+        # Deferred imports (Phase 214 discipline)
+        import json
+
+        import structlog
+        from anthropic import AsyncAnthropic
+
+        from app.core.config import reveal, settings
+        from app.processing.ai.constants import MAX_TOOL_ROUNDS
+        from app.processing.ai.llm_loop import (
+            ToolLoopExhaustedError,
+            ToolLoopResult,
+            _LLM_TIMEOUT,
+            add_tool_cache_control,
+            build_history_messages,
+        )
+
+        log = structlog.stdlib.get_logger(__name__)
+
+        if max_rounds is None:
+            max_rounds = MAX_TOOL_ROUNDS
+
+        if not settings.anthropic_api_key:
+            raise ValueError("Anthropic API key not configured")
+
+        # Lazy class-level client cache
+        if DefaultAnthropicProvider._client is None:
+            DefaultAnthropicProvider._client = AsyncAnthropic(
+                api_key=reveal(settings.anthropic_api_key),
+                timeout=_LLM_TIMEOUT,
+                max_retries=2,
+            )
+        client = DefaultAnthropicProvider._client
+
+        messages = build_history_messages(history)
+        messages.append({"role": "user", "content": user_message})
+
+        # Enable prompt caching for system prompt and tools
+        cached_system = [
+            {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+        ]
+        cached_tools = add_tool_cache_control(tools)
+
+        collected_actions: list[dict] = []
+        total_input = 0
+        total_output = 0
+
+        for round_num in range(max_rounds):
+            response = await client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=cached_system,
+                tools=cached_tools,
+                messages=messages,
+            )
+
+            # Track token usage
+            if hasattr(response, "usage") and response.usage:
+                total_input += response.usage.input_tokens
+                total_output += response.usage.output_tokens
+
+            log.info(
+                "LLM round",
+                provider="anthropic",
+                round=round_num + 1,
+                stop_reason=response.stop_reason,
+                input_tokens=response.usage.input_tokens if response.usage else 0,
+                output_tokens=response.usage.output_tokens if response.usage else 0,
+            )
+
+            if response.stop_reason == "end_turn":
+                text = "".join(
+                    block.text for block in response.content if block.type == "text"
+                )
+                return ToolLoopResult(
+                    text=text,
+                    actions=collected_actions,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                )
+
+            if response.stop_reason == "tool_use":
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        log.info("Tool call", tool=block.name, input=block.input)
+
+                        result = await tool_executor(block.name, block.input)
+
+                        if action_collector:
+                            action = action_collector(block.name, block.input, result)
+                            if action:
+                                collected_actions.append(action)
+
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(result),
+                            }
+                        )
+
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
+                continue
+
+            # Unexpected stop reason — return whatever text we have
+            text = "".join(block.text for block in response.content if block.type == "text")
+            return ToolLoopResult(
+                text=text,
+                actions=collected_actions,
+                input_tokens=total_input,
+                output_tokens=total_output,
+            )
+
+        raise ToolLoopExhaustedError("Max tool rounds exceeded without final response")
+
+    async def stream(self, **kwargs):  # type: ignore[no-untyped-def]
+        raise NotImplementedError(
+            "DefaultAnthropicProvider.stream() not implemented in community "
+            "edition; use complete() (Phase 226 D-03 — true LLM-token "
+            "streaming is deferred to a follow-up phase)."
+        )
+
+    async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        from app.core.persistent_config import LLM_MODEL
+
+        model = await LLM_MODEL.get(db)
+        return {"base_url": None, "default_model": model}
+
+
+class DefaultOpenAICompatibleProvider:
+    """Community-edition default: OpenAI-compatible tool-calling loop (Phase 226 D-17).
+
+    ``complete()`` body is ``_loop_openai`` from
+    ``app.processing.ai.llm_loop`` (lines 280-404) moved verbatim, with
+    Anthropic→OpenAI tool format conversion applied INTERNALLY at the top
+    of the method (D-08 — callers pass canonical Anthropic shape; the
+    provider converts on the way in).
+
+    Class-level ``_clients`` dict cache keyed by ``base_url`` matches
+    today's module-level singleton at llm_loop.py:29.
+
+    Deferred imports (Phase 214 / Phase 222 / Phase 225 discipline): all
+    SDK and modules-level imports happen INSIDE ``complete()``, never at
+    defaults.py module load.
+    """
+
+    _clients: dict = {}  # class-level cache: base_url -> AsyncOpenAI
+
+    async def complete(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        model,
+        system_prompt,
+        user_message,
+        tools,
+        tool_executor,
+        action_collector=None,
+        history=None,
+        max_rounds=None,
+        max_tokens=4096,
+        base_url=None,
+        temperature=0.5,
+    ):
+        # Deferred imports (Phase 214 discipline)
+        import json
+
+        import structlog
+        from openai import AsyncOpenAI
+
+        from app.core.config import reveal, settings
+        from app.processing.ai.constants import MAX_TOOL_ROUNDS
+        from app.processing.ai.llm_loop import (
+            ToolLoopExhaustedError,
+            ToolLoopResult,
+            _LLM_TIMEOUT,
+            build_history_messages,
+        )
+        from app.processing.ai.tool_call_parser import parse_xml_tool_calls
+
+        log = structlog.stdlib.get_logger(__name__)
+
+        if max_rounds is None:
+            max_rounds = MAX_TOOL_ROUNDS
+
+        if not settings.openai_api_key:
+            raise ValueError("OpenAI-compatible API key not configured")
+
+        # D-08: Anthropic-shape tools -> OpenAI function-format tools.
+        # Mirrors tools.py:313-323 algorithmic conversion.
+        tools_openai = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                },
+            }
+            for t in tools
+        ]
+
+        effective_base_url = base_url or settings.openai_base_url or "https://api.openai.com/v1"
+
+        # Lazy class-level keyed-client cache
+        if effective_base_url not in DefaultOpenAICompatibleProvider._clients:
+            DefaultOpenAICompatibleProvider._clients[effective_base_url] = AsyncOpenAI(
+                api_key=reveal(settings.openai_api_key),
+                base_url=effective_base_url,
+                timeout=_LLM_TIMEOUT,
+                max_retries=2,
+            )
+        client = DefaultOpenAICompatibleProvider._clients[effective_base_url]
+
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(build_history_messages(history))
+        messages.append({"role": "user", "content": user_message})
+
+        collected_actions: list[dict] = []
+        total_input = 0
+        total_output = 0
+
+        for round_num in range(max_rounds):
+            response = await client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tools=tools_openai,
+                messages=messages,
+            )
+
+            choice = response.choices[0]
+
+            # Track token usage
+            if response.usage:
+                total_input += response.usage.prompt_tokens
+                total_output += response.usage.completion_tokens
+
+            log.info(
+                "LLM round",
+                provider="openai",
+                round=round_num + 1,
+                finish_reason=choice.finish_reason,
+                input_tokens=response.usage.prompt_tokens if response.usage else 0,
+                output_tokens=response.usage.completion_tokens if response.usage else 0,
+            )
+
+            if choice.finish_reason == "stop":
+                text = choice.message.content or ""
+                parsed_calls, cleaned_text = parse_xml_tool_calls(text)
+
+                if parsed_calls:
+                    # Execute parsed XML tool calls
+                    for fn_name, fn_args in parsed_calls:
+                        log.info("Parsed XML tool call", tool=fn_name, input=fn_args)
+                        result = await tool_executor(fn_name, fn_args)
+                        if action_collector:
+                            action = action_collector(fn_name, fn_args, result)
+                            if action:
+                                collected_actions.append(action)
+
+                    return ToolLoopResult(
+                        text=cleaned_text,
+                        actions=collected_actions,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                    )
+
+                return ToolLoopResult(
+                    text=text,
+                    actions=collected_actions,
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                )
+
+            if choice.finish_reason == "tool_calls":
+                messages.append(choice.message)
+
+                for tool_call in choice.message.tool_calls:
+                    fn_name = tool_call.function.name
+                    try:
+                        fn_args = json.loads(tool_call.function.arguments)
+                    except json.JSONDecodeError:
+                        try:
+                            fn_args, _ = json.JSONDecoder().raw_decode(
+                                tool_call.function.arguments
+                            )
+                        except (json.JSONDecodeError, ValueError):
+                            log.warning(
+                                "Unparseable tool arguments",
+                                tool=fn_name,
+                                args=tool_call.function.arguments,
+                            )
+                            continue
+                    log.info("Tool call", tool=fn_name, input=fn_args)
+
+                    result = await tool_executor(fn_name, fn_args)
+
+                    if action_collector:
+                        action = action_collector(fn_name, fn_args, result)
+                        if action:
+                            collected_actions.append(action)
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(result),
+                        }
+                    )
+                continue
+
+            # Unexpected finish reason
+            return ToolLoopResult(
+                text=choice.message.content or "",
+                actions=collected_actions,
+                input_tokens=total_input,
+                output_tokens=total_output,
+            )
+
+        raise ToolLoopExhaustedError("Max tool rounds exceeded without final response")
+
+    async def stream(self, **kwargs):  # type: ignore[no-untyped-def]
+        raise NotImplementedError(
+            "DefaultOpenAICompatibleProvider.stream() not implemented in "
+            "community edition; use complete() (Phase 226 D-03)."
+        )
+
+    async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        from app.core.persistent_config import LLM_MODEL, OPENAI_BASE_URL
+
+        model = await LLM_MODEL.get(db)
+        base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
+        return {"base_url": base_url, "default_model": model}
