@@ -29,6 +29,7 @@ must_haves:
     - "ruff check passes clean across the entire backend tree"
     - "Phase 214 IDENT-01 + Phase 224 DECOUPLE-04 + all other architecture guards continue to pass"
     - "If OQ-4 Outcome B was chosen in Plan 03a/03b, the architecture guard includes the documented :!backend/app/processing/ingest/tasks_raster.py pathspec exclusion"
+    - "Implements CONTEXT.md decisions: D-22 (one new architecture-guard test test_no_processing_imports_catalog), D-23 (strict zero-hit, no allowlist for processing/* — or single OQ-4 Outcome B exception), D-24 (reuses @pytest.mark.architecture marker — no new marker), D-25 (update test_layering.py module docstring crediting Phase 225), D-26 (negative-control verification — temporarily reintroduce forbidden import, confirm guard fails, revert), D-27 (focused FakeProcessingPort unit test in backend/tests/test_processing_port.py), D-28 (no runtime conformance test isinstance check), D-30 (acceptance gate = 2036/2036 + ruff + arch-guard + alembic), D-32 (Phase 226 sequencing — does NOT touch llm_loop.py:117,132 or service.py:387-398)"
   artifacts:
     - path: "backend/tests/test_layering.py"
       provides: "test_no_processing_imports_catalog architecture-guard test method + module docstring crediting Phase 225"

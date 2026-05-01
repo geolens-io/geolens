@@ -29,6 +29,7 @@ must_haves:
     - "TYPE_CHECKING block in metadata.py:18 migrated to app.core.processing_port aliases"
     - "RecordKeyword and AttributeMetadata SQL uses across metadata.py routed through Port encapsulators (port.get_record_keyword_count, port.get_attribute_metadata)"
     - "Full backend test suite remains green (2036/2036) — behavior is byte-for-byte identical"
+    - "Implements CONTEXT.md decisions: D-19 (function-scope imports keep deferral, swap path), D-20 (no shim — hard cutover), D-21 (mandatory git grep verification), D-23 (strict zero-hit OR single documented exception per OQ-4 Outcome B for tasks_raster.py:143)"
   artifacts:
     - path: "backend/app/processing/ingest/tasks_vrt.py"
       provides: "Migrated Dataset/Record/RecordDistribution access at all 4 deferred sites"

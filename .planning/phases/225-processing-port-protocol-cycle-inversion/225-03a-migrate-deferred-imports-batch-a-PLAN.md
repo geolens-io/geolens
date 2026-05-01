@@ -29,6 +29,7 @@ must_haves:
     - "IngestionResult constructor uses route through port.create_ingestion_result(**kwargs) instead of direct import (OQ-1)"
     - "DatasetVersion use at tasks_common.py:849 routed through port.get_dataset_version (OQ-2)"
     - "Full backend test suite remains green (2036/2036) — behavior is byte-for-byte identical"
+    - "Implements CONTEXT.md decisions: D-19 (function-scope imports keep deferral, swap path), D-20 (no shim — hard cutover), D-21 (mandatory git grep verification), D-23 (strict zero-hit — no allowlist for processing/* batch-A files)"
   artifacts:
     - path: "backend/app/processing/embeddings/tasks.py"
       provides: "Migrated TYPE_CHECKING-only catalog references"

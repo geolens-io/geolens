@@ -32,6 +32,7 @@ must_haves:
     - "AI features (`chat_service.py`, `metadata_service.py`, `embeddings/backfill.py`) consume catalog data ONLY via Port — verifiable by grep returning zero `from app.modules.catalog` matches in those files"
     - "Type annotations use the Protocol aliases (`Dataset`, `Record`, `Map`, `DatasetGrant`) imported from `app.core.processing_port`"
     - "Full backend test suite remains green (2036/2036) — behavior is byte-for-byte identical via DefaultProcessingPort"
+    - "Implements CONTEXT.md decisions: D-14 (FastAPI Depends + worker singleton wire-in), D-15 (service-layer functions take port: ProcessingPort), D-16 (no FastAPI dep stub at auth/dependencies.py — accessor lives in platform/extensions), D-17 (two coordinated changes — additive scaffold + caller migration), D-18 (closed-set migration via git grep, NOT import-linter), D-20 (no backward-compat re-export shim), D-21 (mandatory grep verification step), D-31 (no frontend involvement), D-32 (Phase 226 sequencing — does NOT touch processing/ai/llm_loop.py:117,132 or service.py:387-398)"
   artifacts:
     - path: "backend/app/processing/ai/service.py"
       provides: "Migrated AI map generation — uses Port for all catalog access"
