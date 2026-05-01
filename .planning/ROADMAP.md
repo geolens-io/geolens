@@ -99,7 +99,18 @@
 4. Existing AI integration tests pass unchanged with the default extension wired in (no behavior delta for community users).
 5. A test overlay registered via `importlib.metadata` entry_points is dispatched correctly without modifying any core file — proving the seam is genuinely extensible.
 
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 226-01-PLAN.md — additive-scaffold: AIProviderExtension Protocol + DefaultAnthropicProvider + DefaultOpenAICompatibleProvider + get_ai_provider(name) accessor (Wave 1, AIEXT-01/02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 226-02-PLAN.md — caller-migration: 4 run_tool_loop callers + sql_generator + resolve_provider tuple shape; delete _loop_anthropic/_loop_openai/run_tool_loop (Wave 2, AIEXT-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 226-03-PLAN.md — dead-code-cleanup: remove unreferenced OpenAI-format constants + module-level client caches (Wave 3, optional cleanup; depends on Plan 02)
+- [ ] 226-04-PLAN.md — architecture-guard + entry-points seam test: test_no_hardcoded_ai_provider_branches + test_ai_provider_extension.py (Wave 3, AIEXT-04/05; depends on Plan 02; parallel with Plan 03)
 
 #### Phase 227: saml-test-fixture-tmp-path
 
