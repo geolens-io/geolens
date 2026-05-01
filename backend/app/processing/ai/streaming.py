@@ -29,8 +29,13 @@ from app.processing.ai.llm_loop import (
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
+from typing import TYPE_CHECKING
+
 from app.core.identity import Identity
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from app.core.processing_port import ProcessingPort
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -52,6 +57,8 @@ async def _execute_and_yield_tools(
     layers: list,
     collected_actions: list[dict],
     results_out: list[dict] | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Execute a list of (name, args) tool calls and yield SSE events for each.
 
@@ -70,6 +77,7 @@ async def _execute_and_yield_tools(
             user_roles,
             layers,
             stage_callback=stage_cb,
+            port=port,
         )
 
         if results_out is not None:
@@ -99,6 +107,7 @@ async def _stream_anthropic_chat(
     *,
     model: str,
     history: list[dict] | None = None,
+    port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
     client = get_anthropic_client()
@@ -195,6 +204,7 @@ async def _stream_anthropic_chat(
                         layers,
                         collected_actions,
                         results_out=raw_results,
+                        port=port,
                     ):
                         yield evt
 
@@ -263,6 +273,7 @@ async def _stream_openai_chat(
     model: str,
     base_url: str,
     history: list[dict] | None = None,
+    port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
     client = get_openai_client(base_url)
@@ -406,6 +417,7 @@ async def _stream_openai_chat(
                 layers,
                 collected_actions,
                 results_out=native_results,
+                port=port,
             ):
                 yield evt
 
@@ -441,6 +453,7 @@ async def _stream_openai_chat(
                 user_roles,
                 layers,
                 collected_actions,
+                port=port,
             ):
                 yield evt
 
@@ -488,6 +501,8 @@ async def stream_chat_edit(
     language: str | None = None,
     history: list[ChatHistoryMessage] | None = None,
     basemap_style: str | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts."""
     try:
@@ -510,6 +525,7 @@ async def stream_chat_edit(
                 layers,
                 model=model,
                 history=history_dicts,
+                port=port,
             ):
                 yield event
         elif provider == "openai_compatible":
@@ -528,6 +544,7 @@ async def stream_chat_edit(
                 model=model,
                 base_url=oai_base_url,
                 history=history_dicts,
+                port=port,
             ):
                 yield event
         else:

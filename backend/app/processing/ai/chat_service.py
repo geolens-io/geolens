@@ -24,13 +24,14 @@ from app.processing.ai.schemas import (
 from app.processing.ai.sql_generator import build_sql_schema_context, generate_sql
 from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
+from typing import TYPE_CHECKING
+
 from app.processing.ai.service import _execute_search_tool, _should_send_sample_values
 from app.core.identity import Identity
-from app.modules.catalog.datasets.domain.column_stats import (
-    get_column_stats,
-    get_distinct_values,
-)
 from app.platform.sandbox import validate_and_execute, SandboxError
+
+if TYPE_CHECKING:
+    from app.core.processing_port import ProcessingPort
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -620,6 +621,8 @@ async def _execute_chat_tool(
     user_roles: set[str],
     layers: list[ChatMapLayer],
     stage_callback: Callable[[str], None] | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> dict:
     """Execute a chat tool and return the result."""
     if tool_name == "search_datasets":
@@ -630,6 +633,7 @@ async def _execute_chat_tool(
             user_roles,
             tool_input,
             send_sample_values=send_samples,
+            port=port,
         )
         return {"results": results}
 
@@ -652,7 +656,7 @@ async def _execute_chat_tool(
             return {"error": "Could not generate or execute query"}
 
     if tool_name == "set_data_driven_style":
-        return await _build_data_driven_style(tool_input, session, layers)
+        return await _build_data_driven_style(tool_input, session, layers, port=port)
 
     # Validate paint properties for set_style against geometry type
     if tool_name == "set_style" and tool_input.get("paint"):
@@ -678,6 +682,8 @@ async def _build_data_driven_style(
     tool_input: dict,
     session: AsyncSession,
     layers: list[ChatMapLayer],
+    *,
+    port: "ProcessingPort",
 ) -> dict:
     """Build a complete data-driven style from tool input + database lookups."""
     layer_id = tool_input["layer_id"]
@@ -723,6 +729,7 @@ async def _build_data_driven_style(
             color_prop,
             layer_id,
             allowed_tables=allowed_tables,
+            port=port,
         )
     else:
         return await _build_graduated_style(
@@ -735,6 +742,7 @@ async def _build_data_driven_style(
             color_prop,
             layer_id,
             allowed_tables=allowed_tables,
+            port=port,
         )
 
 
@@ -747,9 +755,10 @@ async def _build_categorical_style(
     layer_id: str,
     *,
     allowed_tables: set[str] | None = None,
+    port: "ProcessingPort",
 ) -> dict:
     """Build categorical style with match expression."""
-    values = await get_distinct_values(
+    values = await port.get_distinct_values(
         session,
         table_name,
         column,
@@ -799,9 +808,10 @@ async def _build_graduated_style(
     layer_id: str,
     *,
     allowed_tables: set[str] | None = None,
+    port: "ProcessingPort",
 ) -> dict:
     """Build graduated style with step expression."""
-    stats = await get_column_stats(
+    stats = await port.get_column_stats(
         session,
         table_name,
         column,
@@ -910,6 +920,8 @@ async def chat_edit_map(
     language: str | None = None,
     history: list[ChatHistoryMessage] | None = None,
     basemap_style: str | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> ChatResponse:
     """Main orchestrator: run LLM tool-calling loop for chat map editing.
 
@@ -926,7 +938,7 @@ async def chat_edit_map(
     # Build tool executor bound to this session/user/layers
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
         return await _execute_chat_tool(
-            tool_name, tool_input, session, user, user_roles, layers
+            tool_name, tool_input, session, user, user_roles, layers, port=port
         )
 
     result = await run_tool_loop(
