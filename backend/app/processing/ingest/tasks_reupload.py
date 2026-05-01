@@ -35,12 +35,15 @@ async def reupload_file(
     import asyncio
 
     from app.core.db import async_session
-    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import _qtable
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.platform.jobs.models import IngestJob
     from sqlalchemy import text
     from sqlalchemy.orm import joinedload
+
+    port = get_processing_port()
+    Dataset = port.get_dataset_orm_class()
 
     async with async_session() as session:
         # Load job and dataset records — separate variable names so mypy
@@ -254,7 +257,7 @@ async def reupload_service(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
     )
     from app.core.db import async_session
-    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
         _qtable,
         add_4326_column,
@@ -270,9 +273,11 @@ async def reupload_service(
         run_ogr2ogr_service,
     )
     from app.platform.jobs.models import IngestJob
-    from app.modules.catalog.sources.preview import build_gdal_source
     from sqlalchemy import text
     from sqlalchemy.orm import joinedload
+
+    port = get_processing_port()
+    Dataset = port.get_dataset_orm_class()
 
     auth_error_message = (
         "Remote service authentication failed. Retry commit with a service token; "
@@ -332,7 +337,7 @@ async def reupload_service(
             await session.commit()
 
             async def _run_service_import(layer_name: str) -> None:
-                gdal_source, layer_arg = build_gdal_source(
+                gdal_source, layer_arg = port.build_gdal_source(
                     service_type_raw,
                     source_url_value,
                     layer_name,
