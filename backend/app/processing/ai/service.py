@@ -28,15 +28,14 @@ from app.processing.ai.tools import (
     _SEARCH_DATASETS_DESC,
     _SEARCH_DATASETS_SCHEMA,
 )
+from typing import TYPE_CHECKING
+
 from app.core.identity import Identity
 from app.core.config import settings
-from app.modules.catalog.authorization import apply_visibility_filter
-from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
-from app.modules.catalog.datasets.domain.utils import extract_bbox
-from app.modules.catalog.datasets.domain.column_stats import get_column_stats
-from app.modules.catalog.maps.service import create_map, update_map
 from app.processing.ai.token_usage import record_token_usage
-from app.modules.catalog.search.service import SearchFilters, search_datasets
+
+if TYPE_CHECKING:
+    from app.core.processing_port import ProcessingPort
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -263,15 +262,18 @@ async def _execute_search_tool(
     tool_input: dict,
     *,
     send_sample_values: bool = True,
+    port: "ProcessingPort",
 ) -> list[dict]:
     """Execute the search_datasets tool and return results as dicts."""
+    from app.modules.catalog.search.service import SearchFilters
+
     q = tool_input.get("q")
     geometry_type = tool_input.get("geometry_type")
     keywords = tool_input.get("keywords")
     limit = min(tool_input.get("limit", 10), 25)
     bbox = tool_input.get("bbox")
 
-    datasets, _total = await search_datasets(
+    datasets, _total = await port.search_datasets(
         session,
         user,
         user_roles,
@@ -302,7 +304,7 @@ async def _execute_search_tool(
                 "keywords": [kw.keyword for kw in ds.record.keywords]
                 if ds.record.keywords
                 else None,
-                "extent_bbox": extract_bbox(ds),
+                "extent_bbox": port.extract_bbox(ds),
                 "feature_count": ds.feature_count,
                 "column_info": ds.column_info[:20] if ds.column_info else None,
                 "sample_values": sample,
@@ -319,8 +321,11 @@ async def _execute_get_dataset_details(
     tool_input: dict,
     *,
     send_sample_values: bool = True,
+    port: "ProcessingPort",
 ) -> dict:
     """Return full column info, sample values, and feature count for a dataset."""
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
     dataset_id = tool_input.get("dataset_id")
 
     # Validate UUID format
@@ -330,13 +335,15 @@ async def _execute_get_dataset_details(
         return {"error": "Invalid dataset_id format"}
 
     # Apply RBAC visibility filter
+    Record_orm = port.get_record_orm_class()
+    DatasetGrant_orm = port.get_grant_orm_class()
     stmt = (
-        select(Dataset)
-        .options(joinedload(Dataset.record))
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.id == dataset_id)
+        select(DatasetORM)
+        .options(joinedload(DatasetORM.record))
+        .join(Record_orm, DatasetORM.record_id == Record_orm.id)
+        .where(DatasetORM.id == dataset_id)
     )
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    stmt = port.apply_visibility_filter(stmt, user, user_roles, Record_orm, DatasetGrant_orm)
     result = await session.execute(stmt)
     ds = result.unique().scalar_one_or_none()
     if ds is None:
@@ -412,12 +419,16 @@ async def _validate_and_persist_map(
     user_roles: set[str],
     spec: LLMMapSpec,
     basemap_ids: list[str] | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> dict:
     """Validate dataset visibility, create map, and persist layers atomically.
 
     Returns dict with map_id, map_name, explanation, datasets_used.
     Raises ValueError if any referenced dataset is not visible to the user.
     """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
     # Validate basemap_style against configured basemaps
     if basemap_ids and spec.basemap_style not in basemap_ids:
         logger.warning(
@@ -429,18 +440,20 @@ async def _validate_and_persist_map(
 
     # Validate all layer dataset IDs with RBAC visibility filter
     dataset_ids = [uuid.UUID(layer.dataset_id) for layer in spec.layers]
+    Record_orm = port.get_record_orm_class()
+    DatasetGrant_orm = port.get_grant_orm_class()
     stmt = (
         select(
-            Dataset.id,
-            Dataset.geometry_type,
-            Record.title,
-            Record.spatial_extent,
-            Dataset.table_name,
+            DatasetORM.id,
+            DatasetORM.geometry_type,
+            Record_orm.title,
+            Record_orm.spatial_extent,
+            DatasetORM.table_name,
         )
-        .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.id.in_(dataset_ids))
+        .join(Record_orm, DatasetORM.record_id == Record_orm.id)
+        .where(DatasetORM.id.in_(dataset_ids))
     )
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    stmt = port.apply_visibility_filter(stmt, user, user_roles, Record_orm, DatasetGrant_orm)
     ds_result = await session.execute(stmt)
     ds_info = {
         str(row[0]): {
@@ -525,7 +538,7 @@ async def _validate_and_persist_map(
                 if n_breaks < 1:
                     continue
                 try:
-                    stats = await get_column_stats(
+                    stats = await port.get_column_stats(
                         session,
                         info["table_name"],
                         column,
@@ -567,13 +580,13 @@ async def _validate_and_persist_map(
 
     # Persist map + layers atomically via nested savepoint
     async with session.begin_nested():
-        map_obj = await create_map(
+        map_obj = await port.create_map(
             session,
             name=spec.name,
             description=spec.description,
             created_by=user.id,
         )
-        await update_map(
+        await port.update_map(
             session,
             map_obj.id,
             center_lng=spec.center_lng,
@@ -599,6 +612,7 @@ def _build_tool_executor(
     user: Identity,
     user_roles: set[str],
     send_sample_values: bool,
+    port: "ProcessingPort",
 ) -> "Callable[[str, dict], Awaitable[dict]]":
     """Build a tool executor closure bound to the given session/user."""
 
@@ -612,6 +626,7 @@ def _build_tool_executor(
                     user_roles,
                     tool_input,
                     send_sample_values=send_sample_values,
+                    port=port,
                 )
             }
         elif tool_name == "get_dataset_details":
@@ -621,6 +636,7 @@ def _build_tool_executor(
                 user_roles,
                 tool_input,
                 send_sample_values=send_sample_values,
+                port=port,
             )
         return {"error": f"Unknown tool: {tool_name}"}
 
@@ -633,6 +649,8 @@ async def generate_map_from_prompt(
     user_roles: set[str],
     prompt: str,
     language: str | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> dict:
     """Orchestrate LLM tool-calling loop to generate a map from a prompt.
 
@@ -644,7 +662,7 @@ async def generate_map_from_prompt(
     send_samples = await _should_send_sample_values(session)
 
     system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
-    tool_executor = _build_tool_executor(session, user, user_roles, send_samples)
+    tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
 
     try:
         result = await run_tool_loop(
@@ -698,7 +716,7 @@ async def generate_map_from_prompt(
         raise ValueError("LLM produced a map with no layers")
 
     return await _validate_and_persist_map(
-        session, user, user_roles, spec, basemap_ids=basemap_ids
+        session, user, user_roles, spec, basemap_ids=basemap_ids, port=port
     )
 
 
@@ -708,6 +726,8 @@ async def stream_generate_map(
     user_roles: set[str],
     prompt: str,
     language: str | None = None,
+    *,
+    port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Semi-streaming variant of generate_map_from_prompt.
 
@@ -722,7 +742,7 @@ async def stream_generate_map(
         basemap_ids = await _get_available_basemaps(session)
         send_samples = await _should_send_sample_values(session)
         system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
-        tool_executor = _build_tool_executor(session, user, user_roles, send_samples)
+        tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
 
         tool_events: list[dict] = []
 
@@ -793,7 +813,7 @@ async def stream_generate_map(
             return
 
         map_result = await _validate_and_persist_map(
-            session, user, user_roles, spec, basemap_ids=basemap_ids
+            session, user, user_roles, spec, basemap_ids=basemap_ids, port=port
         )
         await session.commit()
         yield {"type": "done", **map_result}

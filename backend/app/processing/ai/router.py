@@ -37,17 +37,20 @@ from app.processing.ai.metadata_service import (
     generate_summary_draft,
 )
 from app.processing.ai.service import generate_map_from_prompt, stream_generate_map
+from typing import TYPE_CHECKING
+
 from app.core.identity import Identity
+from app.platform.extensions import get_processing_port
 from app.modules.auth.dependencies import require_permission
-from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
-from app.modules.catalog.datasets.domain.models import Dataset
 from app.core.dependencies import get_db
-from app.modules.catalog.maps.models import Map
 from app.core.persistent_config import AI_ENABLED, LLM_PROVIDER
 from app.modules.auth.router import limiter
 from app.platform.sandbox.validator import build_table_allowlist
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+
+if TYPE_CHECKING:
+    from app.core.processing_port import ProcessingPort
 
 _T = TypeVar("_T")
 
@@ -91,6 +94,7 @@ async def _validate_chat_layers(
     user: Identity,
     map_id: str,
     layers: list[ChatMapLayer],
+    port: "ProcessingPort",
 ) -> tuple[list[ChatMapLayer], str | None]:
     """Validate map ownership and overwrite layer metadata with authoritative DB values.
 
@@ -100,6 +104,8 @@ async def _validate_chat_layers(
 
     Returns (validated_layers, basemap_style).
     """
+    from app.modules.catalog.maps.models import Map as MapORM
+
     # Verify map ownership
     try:
         map_uuid = uuid_mod.UUID(map_id)
@@ -108,7 +114,7 @@ async def _validate_chat_layers(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid map_id"
         )
 
-    map_obj = await db.execute(select(Map).where(Map.id == map_uuid))
+    map_obj = await db.execute(select(MapORM).where(MapORM.id == map_uuid))
     map_row = map_obj.scalar_one_or_none()
     if not map_row:
         raise HTTPException(
@@ -136,32 +142,32 @@ async def _validate_chat_layers(
             detail="Invalid dataset_id in layers",
         )
 
-    result = await db.execute(
-        select(Dataset.id, Dataset.table_name, Dataset.geometry_type).where(
-            Dataset.id.in_(dataset_uuids)
-        )
-    )
-    dataset_map = {str(row.id): row for row in result.all()}
+    rows = await port.get_datasets_meta_by_ids(db, dataset_uuids)
+    # rows is list[tuple[UUID, str, str | None]] — (id, table_name, geometry_type)
+    dataset_meta: dict[str, dict] = {
+        str(row[0]): {"table_name": row[1], "geometry_type": row[2]}
+        for row in rows
+    }
 
     validated: list[ChatMapLayer] = []
     for layer in layers:
-        ds = dataset_map.get(layer.dataset_id)
+        ds = dataset_meta.get(layer.dataset_id)
         if not ds:
             logger.warning(
                 "Chat layer references unknown dataset", dataset_id=layer.dataset_id
             )
             continue
-        if ds.table_name not in allowed_tables:
+        if ds["table_name"] not in allowed_tables:
             logger.warning(
                 "Chat layer references inaccessible dataset",
                 dataset_id=layer.dataset_id,
-                table_name=ds.table_name,
+                table_name=ds["table_name"],
             )
             continue
         # Overwrite client-supplied metadata with authoritative values
-        layer.dataset_table_name = ds.table_name
-        if ds.geometry_type:
-            layer.geometry_type = ds.geometry_type
+        layer.dataset_table_name = ds["table_name"]
+        if ds["geometry_type"]:
+            layer.geometry_type = ds["geometry_type"]
         validated.append(layer)
 
     return validated, basemap_style
@@ -174,15 +180,16 @@ async def generate_map_endpoint(
     body: MapGenerateRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> MapGenerateResponse:
     """Generate a map from a natural language prompt using an LLM."""
     await _check_ai_available(db)
 
-    user_roles = await get_user_roles(db, user)
+    user_roles = await port.get_user_roles(db, user)
 
     result = await _call_llm_endpoint(
         generate_map_from_prompt(
-            db, user, user_roles, body.prompt, language=body.language
+            db, user, user_roles, body.prompt, language=body.language, port=port
         ),
         error_prefix="AI map generation",
         tool_loop_message="Map generation required too many steps. Try a simpler prompt.",
@@ -208,6 +215,7 @@ async def generate_map_stream_endpoint(
     body: MapGenerateRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> EventSourceResponse:
     """Generate a map from a natural language prompt with streaming progress events."""
 
@@ -217,7 +225,7 @@ async def generate_map_stream_endpoint(
         # cannot decode.
         try:
             await _check_ai_available(db)
-            user_roles = await get_user_roles(db, user)
+            user_roles = await port.get_user_roles(db, user)
         except HTTPException as exc:
             yield ServerSentEvent(
                 data=json.dumps({"type": "error", "message": exc.detail}),
@@ -238,7 +246,7 @@ async def generate_map_stream_endpoint(
 
         try:
             async for event in stream_generate_map(
-                db, user, user_roles, body.prompt, language=body.language
+                db, user, user_roles, body.prompt, language=body.language, port=port
             ):
                 if await request.is_disconnected():
                     break
@@ -262,14 +270,15 @@ async def chat_endpoint(
     body: ChatRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> ChatResponse:
     """Chat-based map editing: send a message and get back edit actions."""
     await _check_ai_available(db)
 
     validated_layers, basemap_style = await _validate_chat_layers(
-        db, user, body.map_id, body.layers
+        db, user, body.map_id, body.layers, port
     )
-    user_roles = await get_user_roles(db, user)
+    user_roles = await port.get_user_roles(db, user)
 
     return await _call_llm_endpoint(
         chat_edit_map(
@@ -303,6 +312,7 @@ async def chat_stream_endpoint(
     body: ChatRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> EventSourceResponse:
     """Chat-based map editing with server-sent event streaming."""
 
@@ -313,9 +323,9 @@ async def chat_stream_endpoint(
         try:
             await _check_ai_available(db)
             validated_layers, basemap_style = await _validate_chat_layers(
-                db, user, body.map_id, body.layers
+                db, user, body.map_id, body.layers, port
             )
-            user_roles = await get_user_roles(db, user)
+            user_roles = await port.get_user_roles(db, user)
         except HTTPException as exc:
             yield ServerSentEvent(
                 data=json.dumps({"type": "error", "message": exc.detail}),
