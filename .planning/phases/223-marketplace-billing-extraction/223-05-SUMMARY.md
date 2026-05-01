@@ -127,18 +127,21 @@ Commit: `2cb48992` (core repo)
 | BILLING-03 (amended) | 223-05 | SATISFIED | No meteringmarketplace call in backend/app/ — verified by Plan 04 grep guard + Plan 03 file deletion |
 | BILLING-04 | 223-02 | SATISFIED | Lifespan dispatch loop with asyncio.wait_for(timeout=10.0) per extension; 3 dispatch tests + architecture guard |
 | BILLING-05 | 223-03 | SATISFIED | aws_marketplace_* fields removed from Settings; test_settings_has_no_marketplace_fields |
-| BILLING-06 | 223-05 Task 5 | **PENDING /oc-audit re-run** | Human gate — awaiting /oc-audit |
+| BILLING-06 | 223-05 Task 5 | **SATISFIED** | `/oc-audit` re-run 2026-04-30: `docs-internal/audits/oc-separation-audit-20260430-b.md` |
 
 ## BILLING-06 Close Gate Status
 
-**PENDING.** Task 5 (`checkpoint:human-action`) gates BILLING-06 on an `/oc-audit` re-run that must report:
-- Boundary Integrity grade: **A+** (currently A; Phase 222 + Phase 223 combined target)
-- §1 loci `api/main.py:184-203`, `core/marketplace.py:1-30`, `core/config.py:87-88`: all **✅ Closed**
+**SATISFIED 2026-04-30.** Task 5 (`checkpoint:human-action`) verified by `/oc-audit` re-run producing `docs-internal/audits/oc-separation-audit-20260430-b.md`. Audit reports:
+- Boundary Integrity grade: **A+** (was A at v13.2 close; zero 🟡 risks remaining — D-17 satisfied)
+- §1 AWS Marketplace loci: all **✅ Closed**:
+  - `core/marketplace.py` — DELETED (verified ENOENT)
+  - `Settings.aws_marketplace_*` — REMOVED (verified zero hits in `core/config.py`)
+  - `api/main.py:184-209` — generic `for ext in get_billing_extensions(): await ext.on_startup(app)` dispatch (no boto3 register_usage in core)
 - No new 🔴 / 🟠 / 🟡 violations introduced by Phase 223
 
-Pre-flight checks (a)-(h) defined in Task 5 `how-to-verify` section must all pass before running `/oc-audit`.
+Audit movement: zero 🔴, zero 🟡, 20 🟢 categories — up from zero 🔴, three 🟡, ~14 🟢 at v13.2 close baseline.
 
-When the audit grade is confirmed, BILLING-06 is satisfied and Phase 223 is COMPLETE.
+BILLING-06 SATISFIED. Phase 223 COMPLETE.
 
 ## Deviations from Plan
 
@@ -169,4 +172,4 @@ After BILLING-06 is verified by the `/oc-audit` re-run, the v13.3 milestone clos
 - [x] `.planning/REQUIREMENTS.md` BILLING-03 amended per D-01 (unchecked pending audit)
 - [x] `.planning/ROADMAP.md` Phase 223 SC#1 amended per D-01
 - [x] `backend/tests/test_billing_extension.py` has 8 tests, all GREEN
-- [ ] BILLING-06: pending `/oc-audit` re-run (Task 5 checkpoint)
+- [x] BILLING-06: satisfied 2026-04-30 by `docs-internal/audits/oc-separation-audit-20260430-b.md` (Boundary Integrity A+, three §1 loci ✅ Closed)
