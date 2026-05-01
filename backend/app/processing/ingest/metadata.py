@@ -1055,6 +1055,7 @@ def _infer_domain_type(data_type: str) -> str:
 
 
 def _build_attribute_metadata(
+    AttributeMetadata: type,
     dataset_id: uuid.UUID,
     col_name: str,
     col_type: str,
@@ -1066,12 +1067,11 @@ def _build_attribute_metadata(
     """Factory for creating a new AttributeMetadata row with inferred fields.
 
     Shared by generate_attribute_metadata (initial ingest) and
-    refresh_attribute_metadata (re-upload new columns).
+    refresh_attribute_metadata (re-upload new columns). Callers resolve
+    the AttributeMetadata ORM class once via the Port and pass it in so
+    we don't re-do that lookup on every iteration of a per-column loop
+    (Phase 225 review fix W-03).
     """
-    from app.platform.extensions import get_processing_port
-
-    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
-
     example_vals = None
     if sample_values and col_name in sample_values:
         example_vals = sample_values[col_name]
@@ -1092,14 +1092,15 @@ def _build_attribute_metadata(
 
 
 def _build_geometry_attribute_row(
+    AttributeMetadata: type,
     dataset_id: uuid.UUID,
     geometry_type: str | None,
 ) -> "Attribute":
-    """Factory for the special ``geom`` attribute metadata row."""
-    from app.platform.extensions import get_processing_port
+    """Factory for the special ``geom`` attribute metadata row.
 
-    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
-
+    Callers pass the resolved ORM class to avoid redundant Port lookups
+    in tight loops (Phase 225 review fix W-03).
+    """
     return AttributeMetadata(
         dataset_id=dataset_id,
         field_name="geom",
@@ -1146,6 +1147,7 @@ async def generate_attribute_metadata(
             continue
 
         am = _build_attribute_metadata(
+            AttributeMetadata,
             dataset_id,
             field_name,
             col.get("type", ""),
@@ -1159,7 +1161,7 @@ async def generate_attribute_metadata(
 
     # Geometry row
     if geometry_type is not None and "geom" not in existing_fields:
-        am = _build_geometry_attribute_row(dataset_id, geometry_type)
+        am = _build_geometry_attribute_row(AttributeMetadata, dataset_id, geometry_type)
         session.add(am)
         created.append(am)
 
@@ -1232,6 +1234,7 @@ async def refresh_attribute_metadata(
         else:
             # New column -- create fresh row via shared factory
             am = _build_attribute_metadata(
+                AttributeMetadata,
                 dataset_id,
                 field_name,
                 data_type,
@@ -1255,7 +1258,11 @@ async def refresh_attribute_metadata(
             if "domain_type" not in modified:
                 geom_am.domain_type = "geometry"
         else:
-            session.add(_build_geometry_attribute_row(dataset_id, geometry_type))
+            session.add(
+                _build_geometry_attribute_row(
+                    AttributeMetadata, dataset_id, geometry_type
+                )
+            )
 
     # Mark removed columns as is_current=False
     for field_name, am in existing.items():
