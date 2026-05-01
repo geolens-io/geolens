@@ -296,10 +296,12 @@ async def ingest_service(
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
     from app.core.db import async_session
+    from app.platform.extensions import get_processing_port
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.processing.ingest.service import generate_table_name
     from app.platform.jobs.models import IngestJob
-    from app.modules.catalog.sources.preview import build_gdal_source
+
+    port = get_processing_port()
 
     async with async_session() as session:
         # Load job record
@@ -348,7 +350,7 @@ async def ingest_service(
 
             # WFS namespace retry via shared helper (KISS-8).
             async def _do_import(layer_name: str) -> None:
-                _src, _layer = build_gdal_source(
+                _src, _layer = port.build_gdal_source(
                     service_type_raw,
                     source_url,
                     layer_name,
