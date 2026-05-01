@@ -6,7 +6,7 @@ import re
 import threading
 import time
 import uuid
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import httpx
 import structlog
@@ -18,12 +18,11 @@ from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
-from app.modules.catalog.authorization import check_dataset_access, get_user_roles
 from app.core.config import settings
-from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
+from app.platform.extensions import get_processing_port
 from app.processing.tiles.pool import get_tile_pool
 from app.processing.tiles.service import get_tile
 from app.modules.auth.router import limiter
@@ -196,7 +195,8 @@ async def _resolve_raster_access(
             )
 
         # Inline RBAC checks (mirrors check_dataset_access logic)
-        user_roles = await get_user_roles(db, user)
+        port = get_processing_port()
+        user_roles = await port.get_user_roles(db, user)
         if "admin" not in user_roles:
             # Block non-published datasets for non-owners
             if record_status != "published" and created_by != user.id:
@@ -211,6 +211,7 @@ async def _resolve_raster_access(
 
             if visibility == "restricted":
                 from app.modules.auth.models import UserRole
+                from app.modules.catalog.datasets.domain.models import DatasetGrant
 
                 grant_result = await db.execute(
                     select(DatasetGrant.dataset_id)
@@ -234,7 +235,8 @@ async def _resolve_raster_access(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
                 )
             # Authenticated non-owners cannot see unpublished
-            user_roles = await get_user_roles(db, user)
+            port = get_processing_port()
+            user_roles = await port.get_user_roles(db, user)
             if "admin" not in user_roles and created_by != user.id:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
@@ -421,7 +423,7 @@ async def raster_tile_proxy(
 
 
 def _build_tile_token_for_dataset(
-    dataset: Dataset,
+    dataset: "Any",
 ) -> VectorTileToken | RasterTileToken:
     """Build a tile token response for a single already-authorized dataset.
 
@@ -483,10 +485,13 @@ async def get_tile_token(
     Public datasets can be accessed without authentication.
     Private/restricted datasets require authentication and RBAC checks.
     """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
+    port = get_processing_port()
     result = await db.execute(
-        select(Dataset)
-        .options(joinedload(Dataset.record))
-        .where(Dataset.id == dataset_id)
+        select(DatasetORM)
+        .options(joinedload(DatasetORM.record))
+        .where(DatasetORM.id == dataset_id)
     )
     dataset = result.scalar_one_or_none()
 
@@ -503,7 +508,7 @@ async def get_tile_token(
                 detail="Authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        await check_dataset_access(db, dataset, dataset_id, user)
+        await port.check_dataset_access(db, dataset, dataset_id, user)
 
     return _build_tile_token_for_dataset(dataset)
 
@@ -526,14 +531,17 @@ async def get_tile_tokens_batch(
     response maps the offending dataset_id to ``{"error": "..."}``. Clients
     should check each entry for the ``error`` key.
     """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
+    port = get_processing_port()
     # De-duplicate while preserving order
     unique_ids = list(dict.fromkeys(body.dataset_ids))
 
     # Single bulk query for all requested datasets
     result = await db.execute(
-        select(Dataset)
-        .options(joinedload(Dataset.record))
-        .where(Dataset.id.in_(unique_ids))
+        select(DatasetORM)
+        .options(joinedload(DatasetORM.record))
+        .where(DatasetORM.id.in_(unique_ids))
     )
     datasets_by_id = {ds.id: ds for ds in result.scalars().all()}
 
@@ -551,7 +559,7 @@ async def get_tile_tokens_batch(
                 tokens[key] = {"error": "Authentication required"}
                 continue
             try:
-                await check_dataset_access(db, dataset, dataset_id, user)
+                await port.check_dataset_access(db, dataset, dataset_id, user)
             except HTTPException as exc:
                 tokens[key] = {"error": exc.detail}
                 continue
@@ -626,10 +634,12 @@ async def tile_endpoint(
                 meta = cached_meta
 
     if meta is None:
+        from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
         result = await db.execute(
-            select(Dataset)
-            .options(joinedload(Dataset.record))
-            .where(Dataset.table_name == table_name)
+            select(DatasetORM)
+            .options(joinedload(DatasetORM.record))
+            .where(DatasetORM.table_name == table_name)
         )
         dataset = result.scalar_one_or_none()
 

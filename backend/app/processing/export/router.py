@@ -13,10 +13,8 @@ from starlette.background import BackgroundTask
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.catalog.authorization import check_dataset_access
-from app.modules.catalog.datasets.domain.service import get_dataset
-from app.modules.catalog.features.service import parse_bbox
 from app.core.dependencies import get_db
+from app.platform.extensions import get_processing_port
 from app.processing.export.ogr import ExportError
 from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import export_dataset
@@ -50,8 +48,9 @@ async def export_dataset_endpoint(
     Supports GeoPackage, GeoJSON, Shapefile (zipped), and CSV formats.
     Optional CRS reprojection, spatial filtering, and attribute filtering.
     """
+    port = get_processing_port()
     # 1. Fetch dataset
-    dataset = await get_dataset(db, dataset_id)
+    dataset = await port.get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -59,9 +58,11 @@ async def export_dataset_endpoint(
         )
 
     # 2. Visibility check
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await port.check_dataset_access(db, dataset, dataset_id, user)
 
     # 3. Parse bbox
+    from app.modules.catalog.features.service import parse_bbox
+
     bbox_parsed: list[float] | None = None
     if bbox:
         try:

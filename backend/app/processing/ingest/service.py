@@ -11,16 +11,15 @@ import os
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.catalog.authorization import get_user_roles
 from app.core.config import settings
-from app.modules.catalog.datasets.domain.models import Dataset
-from app.modules.catalog.datasets.domain.service import create_dataset
+from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     add_4326_column,
     extract_metadata,
@@ -102,7 +101,8 @@ async def get_job_or_404(
 
     # Authorization: only creator or admin
     if job.created_by != user.id:
-        user_roles = await get_user_roles(db, user)
+        port = get_processing_port()
+        user_roles = await port.get_user_roles(db, user)
         if "admin" not in user_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -249,10 +249,12 @@ async def generate_table_name(
         slug = slug[:60]
 
     # Check for collision against catalog — single query instead of loop
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
     base_slug = slug
     collision_warning: str | None = None
     result = await session.execute(
-        select(Dataset.table_name).where(Dataset.table_name.like(f"{base_slug}%"))
+        select(DatasetORM.table_name).where(DatasetORM.table_name.like(f"{base_slug}%"))
     )
     existing = {row[0] for row in result.all()}
 
@@ -288,7 +290,7 @@ async def register_existing_table(
     session: AsyncSession,
     request: RegisterRequest,
     user: Identity,
-) -> "Dataset":
+) -> "Any":
     """Register an existing data-schema table into the dataset catalog.
 
     Verifies the table exists, checks for duplicate registration,
@@ -365,12 +367,11 @@ async def register_existing_table(
         await get_sample_values(session, table_name, col_info) if col_info else None
     )
 
-    from app.modules.catalog.datasets.domain.schemas import IngestionResult
-
-    ingestion = IngestionResult.model_validate(
-        {**metadata, "column_info": col_info, "sample_values": sample_vals}
+    port = get_processing_port()
+    ingestion = port.create_ingestion_result(
+        **{**metadata, "column_info": col_info, "sample_values": sample_vals}
     )
-    dataset = await create_dataset(
+    dataset = await port.create_dataset(
         session,
         table_name=table_name,
         title=request.title,
