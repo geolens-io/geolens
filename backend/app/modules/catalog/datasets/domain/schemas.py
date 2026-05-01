@@ -640,3 +640,34 @@ class DatasetRelationshipResponse(BaseModel):
     target_dataset_title: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class IngestionResult(BaseModel):
+    """Parameter object for ``create_dataset`` ingestion-side fields.
+
+    Bundles the 14 fields that describe the result of running an ingestion
+    (ogr2ogr / raster / VRT / layer-creation) so call sites pass one named
+    argument instead of 14 keywords. All fields are optional — non-spatial
+    tables omit the spatial fields, and ad-hoc creations (empty layers)
+    provide minimal info.
+
+    Constructed from the metadata dict produced by the ingestion pipeline:
+    ``IngestionResult.model_validate({**metadata, "sample_values": sample_vals})``.
+    """
+
+    srid: int | None = None
+    geometry_type: str | None = None
+    feature_count: int | None = None
+    extent_wkt: str | None = None
+    column_info: list[dict] | None = None
+    sample_values: dict | None = None
+    source_format: str | None = None
+    source_filename: str | None = None
+    original_srid: int | None = None
+    source_url: str | None = None
+    is_3d: bool | None = None
+    n_dims: int | None = None
+    z_min: float | None = None
+    z_max: float | None = None
+
+    model_config = ConfigDict(frozen=True, extra="ignore")

@@ -694,32 +694,34 @@ async def _finalize_ingest(ctx: IngestContext):
     )
 
     # Create Dataset record
+    from app.modules.catalog.datasets.domain.schemas import IngestionResult
+
     dataset_name = user_metadata.get("title") or source_filename or table_name
-    create_kwargs: dict = dict(
+    ingestion_fields: dict = {
+        **metadata,
+        "sample_values": sample_values,
+        "source_format": ctx.source_format,
+        "source_filename": source_filename,
+        "original_srid": ctx.original_srid
+        if ctx.original_srid is not None
+        else metadata.get("srid"),
+        "is_3d": three_d.get("is_3d"),
+        "n_dims": three_d.get("n_dims"),
+        "z_min": three_d.get("z_min"),
+        "z_max": three_d.get("z_max"),
+    }
+    if ctx.source_url is not None:
+        ingestion_fields["source_url"] = ctx.source_url
+    ingestion = IngestionResult.model_validate(ingestion_fields)
+    dataset = await create_dataset(
+        session,
         table_name=table_name,
         title=dataset_name,
         created_by=uuid.UUID(ctx.user_id),
         summary=user_metadata.get("summary"),
-        srid=metadata.get("srid"),
-        geometry_type=metadata.get("geometry_type"),
-        feature_count=metadata.get("feature_count"),
-        extent_wkt=metadata.get("extent_wkt"),
-        column_info=metadata.get("column_info"),
-        sample_values=sample_values,
-        source_format=ctx.source_format,
-        source_filename=source_filename,
-        original_srid=ctx.original_srid
-        if ctx.original_srid is not None
-        else metadata.get("srid"),
-        is_3d=three_d.get("is_3d"),
-        n_dims=three_d.get("n_dims"),
-        z_min=three_d.get("z_min"),
-        z_max=three_d.get("z_max"),
         visibility=user_metadata.get("visibility", "private"),
+        ingestion=ingestion,
     )
-    if ctx.source_url is not None:
-        create_kwargs["source_url"] = ctx.source_url
-    dataset = await create_dataset(session, **create_kwargs)
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(

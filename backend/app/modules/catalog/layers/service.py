@@ -85,18 +85,22 @@ async def create_layer(
     column_info = await get_column_info(session, table_name)
 
     # 6. Create dataset in catalog
+    from app.modules.catalog.datasets.domain.schemas import IngestionResult
+
     dataset = await create_dataset(
         session,
         table_name=table_name,
         title=name,
         created_by=created_by,
         summary=description,
-        srid=4326,
-        geometry_type=geometry_type.upper(),
-        feature_count=0,
-        column_info=column_info,
-        source_format="created",
         visibility="private",
+        ingestion=IngestionResult(
+            srid=4326,
+            geometry_type=geometry_type.upper(),
+            feature_count=0,
+            column_info=column_info,
+            source_format="created",
+        ),
     )
 
     # 7. Compute quality score

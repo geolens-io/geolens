@@ -20,6 +20,7 @@ from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
 )
+from app.modules.catalog.datasets.domain.schemas import IngestionResult
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
 )
@@ -131,33 +132,28 @@ async def create_dataset(
     created_by: uuid.UUID,
     *,
     summary: str | None = None,
-    srid: int | None = None,
-    geometry_type: str | None = None,
-    feature_count: int | None = None,
-    extent_wkt: str | None = None,
-    column_info: list[dict] | None = None,
-    sample_values: dict | None = None,
-    source_format: str | None = None,
-    source_filename: str | None = None,
-    original_srid: int | None = None,
-    source_url: str | None = None,
-    is_3d: bool | None = None,
-    n_dims: int | None = None,
-    z_min: float | None = None,
-    z_max: float | None = None,
     visibility: str = "private",
+    ingestion: IngestionResult | None = None,
 ) -> Dataset:
     """Create a record + dataset pair from ingestion results.
 
     Creates a Record first (shared metadata), then a Dataset linked via record_id.
-    If extent_wkt is provided, converts it to a PostGIS Geometry value.
+    If ``ingestion.extent_wkt`` is provided, converts it to a PostGIS Geometry.
+
+    The ``ingestion`` parameter bundles the 14 fields produced by the ingestion
+    pipeline (srid, geometry_type, feature_count, extent_wkt, column_info,
+    sample_values, source_format, source_filename, original_srid, source_url,
+    is_3d, n_dims, z_min, z_max). Pass ``None`` for ad-hoc creations like
+    empty layers — the dataset is created with all ingestion fields as ``None``.
     """
+    ing = ingestion or IngestionResult()
+
     spatial_extent_value = None
-    if extent_wkt and extent_wkt.startswith("POLYGON"):
-        spatial_extent_value = func.ST_GeomFromText(extent_wkt, 4326)
+    if ing.extent_wkt and ing.extent_wkt.startswith("POLYGON"):
+        spatial_extent_value = func.ST_GeomFromText(ing.extent_wkt, 4326)
 
     # Determine record_type: non-spatial datasets are 'table'
-    record_type = "table" if geometry_type is None else "vector_dataset"
+    record_type = "table" if ing.geometry_type is None else "vector_dataset"
 
     record = Record(
         title=title,
@@ -174,19 +170,19 @@ async def create_dataset(
     dataset = Dataset(
         record_id=record.id,
         table_name=table_name,
-        srid=srid,
-        geometry_type=geometry_type,
-        feature_count=feature_count,
-        column_info=column_info,
-        sample_values=sample_values,
-        source_format=source_format,
-        source_filename=source_filename,
-        original_srid=original_srid,
-        source_url=source_url,
-        is_3d=is_3d,
-        n_dims=n_dims,
-        z_min=z_min,
-        z_max=z_max,
+        srid=ing.srid,
+        geometry_type=ing.geometry_type,
+        feature_count=ing.feature_count,
+        column_info=ing.column_info,
+        sample_values=ing.sample_values,
+        source_format=ing.source_format,
+        source_filename=ing.source_filename,
+        original_srid=ing.original_srid,
+        source_url=ing.source_url,
+        is_3d=ing.is_3d,
+        n_dims=ing.n_dims,
+        z_min=ing.z_min,
+        z_max=ing.z_max,
     )
     session.add(dataset)
     await session.flush()
@@ -200,23 +196,23 @@ async def create_dataset(
     from app.modules.catalog.records.service import generate_distributions
 
     await generate_distributions(
-        session, dataset.id, record.id, table_name, geometry_type=geometry_type
+        session, dataset.id, record.id, table_name, geometry_type=ing.geometry_type
     )
 
     # Auto-generate attribute metadata from column_info
-    if column_info:
+    if ing.column_info:
         from app.processing.ingest.metadata import generate_attribute_metadata
 
         await generate_attribute_metadata(
             session,
             dataset.id,
-            column_info,
-            geometry_type=geometry_type,
-            sample_values=sample_values,
+            ing.column_info,
+            geometry_type=ing.geometry_type,
+            sample_values=ing.sample_values,
         )
 
     # Auto-detect FK relationships based on column name matching
-    if column_info:
-        await auto_detect_relationships(session, dataset.id, record.id, column_info)
+    if ing.column_info:
+        await auto_detect_relationships(session, dataset.id, record.id, ing.column_info)
 
     return dataset

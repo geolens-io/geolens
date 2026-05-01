@@ -365,19 +365,19 @@ async def register_existing_table(
         await get_sample_values(session, table_name, col_info) if col_info else None
     )
 
+    from app.modules.catalog.datasets.domain.schemas import IngestionResult
+
+    ingestion = IngestionResult.model_validate(
+        {**metadata, "column_info": col_info, "sample_values": sample_vals}
+    )
     dataset = await create_dataset(
         session,
         table_name=table_name,
         title=request.title,
         created_by=user.id,
         summary=request.summary,
-        srid=metadata.get("srid"),
-        geometry_type=metadata.get("geometry_type"),
-        feature_count=metadata.get("feature_count"),
-        extent_wkt=metadata.get("extent_wkt"),
-        column_info=col_info,
-        sample_values=sample_vals,
         visibility=request.visibility,
+        ingestion=ingestion,
     )
 
     return dataset
