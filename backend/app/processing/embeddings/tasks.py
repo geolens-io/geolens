@@ -18,15 +18,18 @@ async def embed_record(record_id: str) -> None:
     All errors are caught internally -- this task never raises to the caller.
     """
     from app.core.db import async_session
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.extensions import get_processing_port
     from app.processing.embeddings.service import generate_and_store_embedding
     from app.processing.raster.models import RasterAsset
+    from sqlalchemy import select
 
     import uuid
 
-    async with async_session() as session:
-        from sqlalchemy import select
+    port = get_processing_port()
+    Record = port.get_record_orm_class()
+    Dataset = port.get_dataset_orm_class()
 
+    async with async_session() as session:
         result = await session.execute(
             select(Record)
             .options(joinedload(Record.keywords))
