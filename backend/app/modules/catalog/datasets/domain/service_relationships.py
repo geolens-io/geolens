@@ -26,6 +26,7 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     Record,
 )
+from app.modules.catalog.datasets.domain.service_query import get_dataset
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -350,12 +351,6 @@ async def get_related_records(
         raise ValueError("Relationship not found")
 
     # 2. Load source dataset to get table_name
-    # Deferred import to avoid circular dependency: service.py re-exports
-    # symbols from this module, so we cannot import get_dataset at module
-    # top level. Function-local import matches the established pattern in
-    # this file (see DatasetRelationship imports above).
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
     source_ds = await get_dataset(session, dataset_id)
     if source_ds is None:
         raise ValueError("Source dataset not found")

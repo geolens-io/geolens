@@ -14,6 +14,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
+from app.modules.catalog.datasets.domain.service_query import get_dataset
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -48,11 +49,6 @@ async def delete_dataset(
     For raster datasets, storage cleanup happens before DB deletion so that a
     storage failure prevents any DB changes (no orphaned records).
     """
-    # Function-local import to avoid circular dependency: service.py re-exports
-    # delete_dataset from this module, so we cannot import get_dataset at module
-    # top. Same pattern as service_metadata.py (224-03) and service_relationships.py (224-02).
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError("Dataset not found")
