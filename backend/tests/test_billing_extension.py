@@ -261,3 +261,59 @@ async def test_hanging_extension_timeout() -> None:
             _extensions.pop("billing_extensions", None)
         else:
             _extensions["billing_extensions"] = saved
+
+
+# ---------------------------------------------------------------------------
+# Plan 03 settings-removal test (BILLING-05 / D-03 / D-15)
+# ---------------------------------------------------------------------------
+
+
+def test_settings_has_no_marketplace_fields() -> None:
+    """BILLING-05 / D-03: aws_marketplace_* fields removed from core Settings.
+
+    Phase 223 deletes:
+      - `aws_marketplace_product_code: str | None = None` (was at config.py:87)
+      - `aws_marketplace_public_key_version: int = 1` (was at config.py:88)
+      - The `aws_marketplace_product_code` entry inside the @field_validator(...)
+        whitelist (was at config.py:~108).
+
+    The enterprise overlay (geolens-enterprise) reads these env vars via
+    `os.environ.get("AWS_MARKETPLACE_PRODUCT_CODE")` directly inside its
+    `MarketplaceBillingExtension.on_startup` (D-04 / D-13). Core has zero
+    knowledge of these env vars after this phase.
+
+    Asserts:
+      (a) No `aws_marketplace_product_code` attribute on Settings instance.
+      (b) No `aws_marketplace_public_key_version` attribute on Settings instance.
+      (c) Neither field name appears in `Settings.model_fields` (Pydantic v2
+          field registry — catches the case where someone adds the field back
+          via SettingsConfigDict tomfoolery).
+
+    Negative-control: any regression that re-adds either field will fail this
+    test, surfacing the boundary breach immediately at CI time.
+    """
+    from app.core.config import Settings, settings
+
+    # (a) + (b): instance attributes absent
+    assert not hasattr(settings, "aws_marketplace_product_code"), (
+        "Settings.aws_marketplace_product_code must be REMOVED in Phase 223 "
+        "(D-03 / BILLING-05). The enterprise overlay reads "
+        "AWS_MARKETPLACE_PRODUCT_CODE directly via os.environ.get."
+    )
+    assert not hasattr(settings, "aws_marketplace_public_key_version"), (
+        "Settings.aws_marketplace_public_key_version must be REMOVED in Phase 223 "
+        "(D-03 / BILLING-05). The enterprise overlay reads "
+        "AWS_MARKETPLACE_PUBLIC_KEY_VERSION directly via os.environ.get."
+    )
+
+    # (c): Pydantic v2 model_fields registry confirms the fields are gone at
+    # the SCHEMA level, not just hasattr-shadowed. Catches `extra='allow'`
+    # tomfoolery where unrecognized env vars become dynamic attributes.
+    assert "aws_marketplace_product_code" not in Settings.model_fields, (
+        f"Settings.model_fields still contains 'aws_marketplace_product_code'; "
+        f"present fields: {sorted(Settings.model_fields.keys())}"
+    )
+    assert "aws_marketplace_public_key_version" not in Settings.model_fields, (
+        f"Settings.model_fields still contains 'aws_marketplace_public_key_version'; "
+        f"present fields: {sorted(Settings.model_fields.keys())}"
+    )
