@@ -363,17 +363,21 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
 
-    # Pattern matches any of the 5 sub-modules in import position.
+    # Pattern matches any of the 5 sub-modules OR the _sql_safety helper.
+    # _sql_safety is an internal module (underscore prefix) holding shared
+    # SQL-injection-prevention regexes; external callers must reach
+    # _safe_table_ref through the service.py façade re-export, not directly.
     pattern = (
         r"from app\.modules\.catalog\.datasets\.domain\."
-        r"service_(create|query|lifecycle|metadata|relationships)"
+        r"(service_(create|query|lifecycle|metadata|relationships)|_sql_safety)"
     )
 
     result = _git_grep(pattern, "backend/app/")
 
-    # Allowlisted paths — these MAY reference the sub-modules directly.
-    # The 5 sub-modules cross-import each other (D-05); service.py re-exports
-    # from all 5; the test file references the path strings in this docstring.
+    # Allowlisted paths — these MAY reference the sub-modules / _sql_safety.
+    # The 5 sub-modules cross-import each other (D-05) and import shared
+    # regexes from _sql_safety; service.py re-exports from all of them;
+    # the test file references the path strings in this docstring.
     allowlist_prefixes = {
         "backend/app/modules/catalog/datasets/domain/service.py",
         "backend/app/modules/catalog/datasets/domain/service_create.py",
@@ -381,6 +385,7 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py",
         "backend/app/modules/catalog/datasets/domain/service_metadata.py",
         "backend/app/modules/catalog/datasets/domain/service_relationships.py",
+        "backend/app/modules/catalog/datasets/domain/_sql_safety.py",
     }
 
     # git grep exit codes: 0 = matches found, 1 = no matches, >1 = error

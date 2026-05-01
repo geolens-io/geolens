@@ -5,11 +5,13 @@ into 5 cohesive sub-modules along responsibility lines:
 
 - service_create.py        -- dataset creation paths (empty, materialized)
 - service_query.py         -- read-side queries (lookup, list, detail, rows)
-- service_lifecycle.py     -- delete, version history, DependentVrtError,
-                              _safe_table_ref helper
+- service_lifecycle.py     -- delete, version history, DependentVrtError
 - service_metadata.py      -- user metadata, auto metadata, attribute CRUD,
                               schema diffing, _normalize_col_type helper
 - service_relationships.py -- dataset relationships + related records
+- _sql_safety.py           -- SAFE_TABLE_NAME_RE, SAFE_COLUMN_NAME_RE,
+                              _safe_table_ref (single source of truth for
+                              SQL-injection-prevention regexes)
 
 External callers MUST import from this façade
 (`app.modules.catalog.datasets.domain.service`), NOT from the sub-modules
@@ -21,13 +23,15 @@ Cross-imports BETWEEN the 5 sub-modules are permitted.
 Source: docs-internal/audits/oc-separation-audit-20260430-b.md §5 + §7 P0 #1.
 """
 
+from app.modules.catalog.datasets.domain._sql_safety import (
+    _safe_table_ref,  # noqa: F401 -- re-exported for tests/test_sql_safety.py
+)
 from app.modules.catalog.datasets.domain.service_create import (
     create_dataset,
     create_empty_dataset,
 )
 from app.modules.catalog.datasets.domain.service_lifecycle import (
     DependentVrtError,
-    _safe_table_ref,  # noqa: F401 -- re-exported for tests/test_sql_safety.py
     delete_dataset,
     get_dataset_versions,
 )

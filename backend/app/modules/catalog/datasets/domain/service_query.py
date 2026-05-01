@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +17,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -283,7 +283,7 @@ async def get_dataset_rows(
     ``filters`` is a dict of {column_name: search_term} for ILIKE filtering.
     Column names are validated against column_info to prevent injection.
     """
-    if not re.match(r"^[a-z0-9_]+$", table_name):
+    if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
 
     # Build non-geometry column list from column_info
@@ -293,7 +293,7 @@ async def get_dataset_rows(
     has_gid = False
     for c in cols:
         name = c["name"]
-        if not re.match(r"^[a-z0-9_]+$", name):
+        if not SAFE_TABLE_NAME_RE.match(name):
             continue
         if c.get("type") == "USER-DEFINED" or name in geom_names:
             continue
@@ -310,7 +310,7 @@ async def get_dataset_rows(
     valid_columns = {c["name"] for c in cols}
 
     for col_name, search_term in (filters or {}).items():
-        if not re.match(r"^[a-z0-9_]+$", col_name):
+        if not SAFE_TABLE_NAME_RE.match(col_name):
             continue
         if col_name not in valid_columns:
             continue

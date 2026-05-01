@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 from typing import TYPE_CHECKING
 
@@ -20,6 +19,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.datasets.domain._sql_safety import SAFE_COLUMN_NAME_RE
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
@@ -370,8 +370,7 @@ async def get_related_records(
         raise ValueError("Target dataset not found")
 
     # Validate column names
-    safe_col = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-    if not safe_col.match(rel.source_column) or not safe_col.match(rel.target_column):
+    if not SAFE_COLUMN_NAME_RE.match(rel.source_column) or not SAFE_COLUMN_NAME_RE.match(rel.target_column):
         raise ValueError("Invalid column name in relationship")
 
     # 4. Get FK value from source table
