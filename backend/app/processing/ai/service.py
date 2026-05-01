@@ -14,12 +14,10 @@ from sqlalchemy.orm import joinedload
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from app.processing.ai.constants import tool_label
+from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
-    get_anthropic_client,
-    get_openai_client,
     resolve_provider,
-    run_tool_loop,
 )
 from app.processing.ai.schemas import LLMMapSpec, validate_paint_for_geometry
 from app.processing.ai.tools import (
@@ -31,7 +29,6 @@ from app.processing.ai.tools import (
 from typing import TYPE_CHECKING
 
 from app.core.identity import Identity
-from app.core.config import settings
 from app.processing.ai.token_usage import record_token_usage
 
 if TYPE_CHECKING:
@@ -381,7 +378,7 @@ def _parse_map_spec(text: str) -> dict:
 
 
 async def _retry_parse_map_spec(
-    raw_text: str, provider: str, model: str, base_url: str | None
+    raw_text: str, provider: str, model: str, runtime_config: dict[str, object]
 ) -> dict:
     """Lightweight retry: ask the LLM to fix its JSON output without re-running tools."""
     extraction_prompt = (
@@ -391,24 +388,25 @@ async def _retry_parse_map_spec(
         f"{raw_text}"
     )
 
-    if provider == "anthropic":
-        client = get_anthropic_client()
-        response = await client.messages.create(
-            model=model,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": extraction_prompt}],
-        )
-        block = response.content[0] if response.content else None
-        retry_text = getattr(block, "text", "") if block else ""
-    else:
-        base = base_url or settings.openai_base_url or "https://api.openai.com/v1"
-        client = get_openai_client(base)
-        response = await client.chat.completions.create(
-            model=model,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": extraction_prompt}],
-        )
-        retry_text = response.choices[0].message.content or ""
+    # Phase 226 D-19: dispatch via extension lookup; tools=[] + max_rounds=1
+    # covers the no-tools single-round retry case naturally.
+    provider_ext = get_ai_provider(provider)
+
+    async def _noop_executor(name: str, args: dict) -> dict:
+        # max_rounds=1 exits before any tool call; executor never runs.
+        return {}
+
+    result = await provider_ext.complete(
+        model=model,
+        system_prompt="",
+        user_message=extraction_prompt,
+        tools=[],
+        tool_executor=_noop_executor,
+        max_rounds=1,
+        max_tokens=1024,
+        base_url=runtime_config.get("base_url"),
+    )
+    retry_text = result.text
 
     return _parse_map_spec(retry_text)
 
@@ -657,7 +655,8 @@ async def generate_map_from_prompt(
     Provider and model are resolved from PersistentConfig (admin-overridable).
     Returns dict with map_id, map_name, explanation, datasets_used.
     """
-    provider, model, base_url = await resolve_provider(session)
+    provider, model, runtime_config = await resolve_provider(session)
+    provider_ext = get_ai_provider(provider)
     basemap_ids = await _get_available_basemaps(session)
     send_samples = await _should_send_sample_values(session)
 
@@ -665,15 +664,13 @@ async def generate_map_from_prompt(
     tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
 
     try:
-        result = await run_tool_loop(
-            provider=provider,
+        result = await provider_ext.complete(
             model=model,
             system_prompt=system_prompt,
             user_message=prompt,
-            tools_anthropic=ANTHROPIC_TOOLS,
-            tools_openai=OPENAI_TOOLS,
+            tools=ANTHROPIC_TOOLS,
             tool_executor=tool_executor,
-            base_url=base_url,
+            base_url=runtime_config.get("base_url"),
             temperature=0.3,
             max_tokens=1500,
             max_rounds=8,
@@ -703,7 +700,7 @@ async def generate_map_from_prompt(
         spec_dict = _parse_map_spec(result.text)
     except ValueError:
         logger.warning("Map spec parse failed, retrying extraction only")
-        spec_dict = await _retry_parse_map_spec(result.text, provider, model, base_url)
+        spec_dict = await _retry_parse_map_spec(result.text, provider, model, runtime_config)
 
     # Check for error response
     if "error" in spec_dict:
@@ -733,12 +730,13 @@ async def stream_generate_map(
 
     Tool progress events are collected during the LLM tool loop and replayed
     before the final result. True incremental streaming would require callback
-    support in run_tool_loop.
+    support in provider_ext.complete.
 
     Yields progress events, then the final result or error as a done/error event.
     """
     try:
-        provider, model, base_url = await resolve_provider(session)
+        provider, model, runtime_config = await resolve_provider(session)
+        provider_ext = get_ai_provider(provider)
         basemap_ids = await _get_available_basemaps(session)
         send_samples = await _should_send_sample_values(session)
         system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
@@ -766,15 +764,13 @@ async def stream_generate_map(
             return result
 
         result = await asyncio.wait_for(
-            run_tool_loop(
-                provider=provider,
+            provider_ext.complete(
                 model=model,
                 system_prompt=system_prompt,
                 user_message=prompt,
-                tools_anthropic=ANTHROPIC_TOOLS,
-                tools_openai=OPENAI_TOOLS,
+                tools=ANTHROPIC_TOOLS,
                 tool_executor=tracking_executor,
-                base_url=base_url,
+                base_url=runtime_config.get("base_url"),
                 temperature=0.3,
                 max_tokens=1500,
                 max_rounds=8,
@@ -800,7 +796,7 @@ async def stream_generate_map(
         except ValueError:
             logger.warning("Map spec parse failed, retrying extraction only")
             spec_dict = await _retry_parse_map_spec(
-                result.text, provider, model, base_url
+                result.text, provider, model, runtime_config
             )
 
         if "error" in spec_dict:
