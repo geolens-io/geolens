@@ -14,7 +14,6 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
-from app.modules.catalog.datasets.domain.service_query import get_dataset
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -49,6 +48,12 @@ async def delete_dataset(
     For raster datasets, storage cleanup happens before DB deletion so that a
     storage failure prevents any DB changes (no orphaned records).
     """
+    # Function-local import via the service.py façade is intentional — it lets
+    # tests mock `service.get_dataset` to inject fixture datasets without DB.
+    # Hoisting to module-top broke 7 tests in test_vrt_delete_guard_174.py
+    # that patch the façade attribute (post-impl-20260501 P3 #11 partial revert).
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
         raise ValueError("Dataset not found")
