@@ -290,6 +290,7 @@ async def chat_endpoint(
             language=body.language,
             history=body.history or None,
             basemap_style=basemap_style,
+            port=port,
         ),
         error_prefix="Chat map editing",
         tool_loop_message="Request required too many steps. Try a simpler instruction.",
@@ -354,6 +355,7 @@ async def chat_stream_endpoint(
                 language=body.language,
                 history=body.history or None,
                 basemap_style=basemap_style,
+                port=port,
             ):
                 if await request.is_disconnected():
                     break
@@ -446,11 +448,12 @@ async def generate_metadata_summary(
     body: MetadataAssistRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     await _check_ai_available(db)
     return await _call_metadata_ai(
-        generate_summary_draft(db, body.dataset_id),
+        generate_summary_draft(db, body.dataset_id, port=port),
         "AI metadata summary generation",
     )
 
@@ -462,11 +465,12 @@ async def generate_metadata_keywords(
     body: MetadataAssistRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
     return await _call_metadata_ai(
-        generate_keyword_suggestions(db, body.dataset_id),
+        generate_keyword_suggestions(db, body.dataset_id, port=port),
         "AI metadata keyword generation",
     )
 
@@ -478,11 +482,12 @@ async def generate_metadata_lineage(
     body: MetadataAssistRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     await _check_ai_available(db)
     return await _call_metadata_ai(
-        generate_lineage_draft(db, body.dataset_id),
+        generate_lineage_draft(db, body.dataset_id, port=port),
         "AI metadata lineage generation",
     )
 
@@ -496,10 +501,11 @@ async def generate_metadata_quality_statement(
     body: MetadataAssistRequest,
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
+    port: "ProcessingPort" = Depends(get_processing_port),
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     await _check_ai_available(db)
     return await _call_metadata_ai(
-        generate_quality_statement_draft(db, body.dataset_id),
+        generate_quality_statement_draft(db, body.dataset_id, port=port),
         "AI metadata quality statement generation",
     )

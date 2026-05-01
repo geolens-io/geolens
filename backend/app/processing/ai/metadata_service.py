@@ -6,13 +6,12 @@ for summaries, keywords, and lineage using LLM providers.
 
 import json
 import time
+from typing import TYPE_CHECKING
 
 import structlog
 from geoalchemy2.shape import to_shape
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from app.processing.ai.metadata_schemas import (
     KeywordSuggestionsResponse,
@@ -22,13 +21,11 @@ from app.processing.ai.metadata_schemas import (
 )
 from app.processing.ai.llm_loop import get_anthropic_client, get_openai_client
 from app.core.config import settings
-from app.modules.catalog.datasets.domain.models import (
-    Dataset,
-    Record,
-    RecordKeyword,
-)
 from app.processing.embeddings.helpers import get_nearest_record_ids
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BASE_URL
+
+if TYPE_CHECKING:
+    from app.core.processing_port import ProcessingPort
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -44,24 +41,24 @@ _vocabulary_cache: tuple[float, list[str]] | None = None
 # ---------------------------------------------------------------------------
 
 
-async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
+async def _build_dataset_context(
+    session: AsyncSession,
+    dataset_id: str,
+    *,
+    port: "ProcessingPort",
+) -> str:
     """Load dataset with relationships and build a context string for prompts."""
+    import uuid as _uuid
+
     # Check TTL cache
     now = time.monotonic()
     cached = _dataset_context_cache.get(dataset_id)
     if cached and (now - cached[0]) < _CACHE_TTL:
         return cached[1]
 
-    stmt = (
-        select(Dataset)
-        .options(
-            joinedload(Dataset.record).joinedload(Record.keywords),
-            joinedload(Dataset.attributes),
-        )
-        .where(Dataset.id == dataset_id)
+    dataset = await port.get_dataset_with_attributes(
+        session, _uuid.UUID(dataset_id)
     )
-    result = await session.execute(stmt)
-    dataset = result.unique().scalar_one_or_none()
 
     if dataset is None:
         raise ValueError("Dataset not found")
@@ -174,30 +171,40 @@ async def _build_dataset_context(session: AsyncSession, dataset_id: str) -> str:
     return result
 
 
-async def _get_catalog_vocabulary(session: AsyncSession) -> list[str]:
+async def _get_catalog_vocabulary(
+    session: AsyncSession,
+    *,
+    port: "ProcessingPort",
+) -> list[str]:
     """Return up to 200 distinct keywords from the catalog (cached 60s)."""
     global _vocabulary_cache
     now = time.monotonic()
     if _vocabulary_cache and (now - _vocabulary_cache[0]) < _CACHE_TTL:
         return _vocabulary_cache[1]
 
-    stmt = select(RecordKeyword.keyword).distinct().limit(200)
-    result = await session.execute(stmt)
-    vocab = [row[0] for row in result.all()]
+    vocab = await port.get_catalog_vocabulary(session)
     _vocabulary_cache = (now, vocab)
     return vocab
 
 
 async def _get_related_keywords_from_embeddings(
-    session: AsyncSession, dataset_id: str, limit: int = 5
+    session: AsyncSession,
+    dataset_id: str,
+    limit: int = 5,
+    *,
+    port: "ProcessingPort",
 ) -> list[str]:
     """Return keywords from the top-N nearest datasets by embedding similarity.
 
     Falls back to empty list if dataset has no embedding or on any error.
     """
+    from sqlalchemy import select
+
     try:
-        # Get the dataset's record_id
-        ds_stmt = select(Dataset.record_id).where(Dataset.id == dataset_id)
+        # Get the dataset's record_id via deferred ORM import
+        from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
+        ds_stmt = select(DatasetORM.record_id).where(DatasetORM.id == dataset_id)
         ds_result = await session.execute(ds_stmt)
         record_id = ds_result.scalar_one_or_none()
         if not record_id:
@@ -207,10 +214,12 @@ async def _get_related_keywords_from_embeddings(
         if not neighbor_ids:
             return []
 
-        # Get keywords from those records
+        # Get keywords from those records via deferred ORM import
+        from app.modules.catalog.datasets.domain.models import RecordKeyword as RecordKeywordORM
+
         kw_stmt = (
-            select(RecordKeyword.keyword)
-            .where(RecordKeyword.record_id.in_(neighbor_ids))
+            select(RecordKeywordORM.keyword)
+            .where(RecordKeywordORM.record_id.in_(neighbor_ids))
             .distinct()
         )
         kw_result = await session.execute(kw_stmt)
@@ -397,12 +406,16 @@ QUALITY_STATEMENT_SYSTEM = (
 
 
 async def generate_summary_draft(
-    session: AsyncSession, dataset_id: str, *, language: str | None = None
+    session: AsyncSession,
+    dataset_id: str,
+    *,
+    language: str | None = None,
+    port: "ProcessingPort",
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     from app.processing.ai.chat_service import lang_name
 
-    context = await _build_dataset_context(session, dataset_id)
+    context = await _build_dataset_context(session, dataset_id, port=port)
     system = SUMMARY_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
@@ -410,14 +423,18 @@ async def generate_summary_draft(
 
 
 async def generate_keyword_suggestions(
-    session: AsyncSession, dataset_id: str, *, language: str | None = None
+    session: AsyncSession,
+    dataset_id: str,
+    *,
+    language: str | None = None,
+    port: "ProcessingPort",
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     from app.processing.ai.chat_service import lang_name
 
-    context = await _build_dataset_context(session, dataset_id)
-    vocab = await _get_catalog_vocabulary(session)
-    related_kws = await _get_related_keywords_from_embeddings(session, dataset_id)
+    context = await _build_dataset_context(session, dataset_id, port=port)
+    vocab = await _get_catalog_vocabulary(session, port=port)
+    related_kws = await _get_related_keywords_from_embeddings(session, dataset_id, port=port)
 
     prompt = context
     if vocab:
@@ -437,12 +454,16 @@ async def generate_keyword_suggestions(
 
 
 async def generate_lineage_draft(
-    session: AsyncSession, dataset_id: str, *, language: str | None = None
+    session: AsyncSession,
+    dataset_id: str,
+    *,
+    language: str | None = None,
+    port: "ProcessingPort",
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     from app.processing.ai.chat_service import lang_name
 
-    context = await _build_dataset_context(session, dataset_id)
+    context = await _build_dataset_context(session, dataset_id, port=port)
     system = LINEAGE_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
@@ -450,12 +471,16 @@ async def generate_lineage_draft(
 
 
 async def generate_quality_statement_draft(
-    session: AsyncSession, dataset_id: str, *, language: str | None = None
+    session: AsyncSession,
+    dataset_id: str,
+    *,
+    language: str | None = None,
+    port: "ProcessingPort",
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     from app.processing.ai.chat_service import lang_name
 
-    context = await _build_dataset_context(session, dataset_id)
+    context = await _build_dataset_context(session, dataset_id, port=port)
     # Strip existing quality statement to force derivation from metrics, not paraphrasing
     context_lines = [
         line

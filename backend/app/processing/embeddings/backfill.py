@@ -8,11 +8,10 @@ Can be run as a module: python -m app.embeddings.backfill
 """
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
-from app.modules.catalog.datasets.domain.models import Record
+from app.platform.extensions import get_processing_port
 from app.processing.embeddings.models import RecordEmbedding
 from app.processing.embeddings.service import generate_and_store_embedding
 
@@ -42,15 +41,8 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         logger.info("Backfill: cleared all existing embeddings (force=True)")
 
     # Find records that have no embedding row, eager-load keywords
-    stmt = (
-        select(Record)
-        .outerjoin(RecordEmbedding, Record.id == RecordEmbedding.record_id)
-        .where(RecordEmbedding.id.is_(None))
-        .options(joinedload(Record.keywords))
-        .order_by(Record.created_at.asc())
-    )
-    result = await session.execute(stmt)
-    records = result.unique().scalars().all()
+    port = get_processing_port()
+    records = await port.get_records_without_embeddings(session, force=False)
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
     # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)
