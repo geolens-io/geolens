@@ -259,6 +259,49 @@ async def get_dataset_detail(
     )
 
 
+# Geometry column names excluded from SELECT in get_dataset_rows.
+_GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
+
+
+def _build_select_cols(column_info: list[dict]) -> list[str]:
+    """Return the non-geometry columns to project, with `gid` always present."""
+    select_cols: list[str] = []
+    has_gid = False
+    for c in column_info:
+        name = c["name"]
+        if not SAFE_TABLE_NAME_RE.match(name):
+            continue
+        if c.get("type") == "USER-DEFINED" or name in _GEOM_COLUMN_NAMES:
+            continue
+        select_cols.append(name)
+        if name == "gid":
+            has_gid = True
+    if not has_gid:
+        select_cols.insert(0, "gid")
+    return select_cols
+
+
+def _build_where_filters(
+    filters: dict[str, str] | None,
+    valid_columns: set[str],
+    *,
+    after_gid: int,
+    limit: int,
+) -> tuple[str, dict[str, object]]:
+    """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters."""
+    where_clauses: list[str] = ["gid > :after_gid"]
+    bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
+    for col_name, search_term in (filters or {}).items():
+        if not SAFE_TABLE_NAME_RE.match(col_name):
+            continue
+        if col_name not in valid_columns:
+            continue
+        param_key = f"f_{col_name}"
+        where_clauses.append(f"CAST({col_name} AS text) ILIKE :{param_key}")
+        bind_params[param_key] = f"%{search_term}%"
+    return " WHERE " + " AND ".join(where_clauses), bind_params
+
+
 async def get_dataset_rows(
     db: AsyncSession,
     table_name: str,
@@ -281,39 +324,15 @@ async def get_dataset_rows(
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
 
-    # Build non-geometry column list from column_info
-    geom_names = {"geom", "geom_4326", "wkb_geometry"}
     cols = column_info or []
-    select_cols: list[str] = []
-    has_gid = False
-    for c in cols:
-        name = c["name"]
-        if not SAFE_TABLE_NAME_RE.match(name):
-            continue
-        if c.get("type") == "USER-DEFINED" or name in geom_names:
-            continue
-        select_cols.append(name)
-        if name == "gid":
-            has_gid = True
-    if not has_gid:
-        select_cols.insert(0, "gid")
+    select_cols = _build_select_cols(cols)
     select_sql = ", ".join(select_cols) if select_cols else "*"
-
-    # Build WHERE clause: always start with gid > :after_gid
-    where_clauses: list[str] = ["gid > :after_gid"]
-    bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
-    valid_columns = {c["name"] for c in cols}
-
-    for col_name, search_term in (filters or {}).items():
-        if not SAFE_TABLE_NAME_RE.match(col_name):
-            continue
-        if col_name not in valid_columns:
-            continue
-        param_key = f"f_{col_name}"
-        where_clauses.append(f"CAST({col_name} AS text) ILIKE :{param_key}")
-        bind_params[param_key] = f"%{search_term}%"
-
-    where_sql = " WHERE " + " AND ".join(where_clauses)
+    where_sql, bind_params = _build_where_filters(
+        filters,
+        valid_columns={c["name"] for c in cols},
+        after_gid=after_gid,
+        limit=limit,
+    )
 
     try:
         result = await db.execute(
