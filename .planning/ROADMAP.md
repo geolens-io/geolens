@@ -78,7 +78,7 @@
 **Plans:**
 - ✅ Plan 01: additive-scaffold — ProcessingPort Protocol + DefaultProcessingPort + get_processing_port() (committed 9bb12f66)
 - ✅ Plan 02: migrate-top-level-imports — 8 module-level catalog imports migrated to port calls (committed 3285bfa3; 2046/2046 tests green)
-- [ ] Plan 03a: migrate-deferred-imports-batch-a
+- ✅ Plan 03a: migrate-deferred-imports-batch-a — 8 deferred sites in 4 files migrated; Port extended with 3 ORM class helpers (committed 49553678)
 - [ ] Plan 03b: migrate-deferred-imports-batch-b
 - [ ] Plan 04: architecture-guard-and-seam-test
 
