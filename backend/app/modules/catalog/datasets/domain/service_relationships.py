@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import TYPE_CHECKING
 
@@ -338,8 +339,6 @@ async def get_related_records(
     Looks up the FK value in the source table, then queries the target table
     for matching rows.
     """
-    import re as _re
-
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
     # 1. Load relationship
@@ -371,7 +370,7 @@ async def get_related_records(
         raise ValueError("Target dataset not found")
 
     # Validate column names
-    safe_col = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    safe_col = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
     if not safe_col.match(rel.source_column) or not safe_col.match(rel.target_column):
         raise ValueError("Invalid column name in relationship")
 
