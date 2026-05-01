@@ -8,11 +8,23 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-44 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.2; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is ship-ready — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs published from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, **and a documented + tested edition lifecycle** (operator runbooks for enterprise↔community downgrade/re-upgrade, admin SAML→local conversion endpoint, round-trip symmetry test confirming losslessness). Boundary Integrity audit grade A (target A−), Seam Quality B (target B), OSS Surface Readiness A− (target C) — exceeds two of three v13.1 close targets.
+45 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.3; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing seams** (write-side `AuditSink` Protocol with per-sink failure isolation; `BillingExtension` startup hook with `core/marketplace.py` extracted to enterprise overlay), and **decomposed catalog domain** (1407-LOC god-module split into 5 cohesive sub-modules behind a thin façade). Latest audit grades: Boundary Integrity **A+** (zero 🟡 risks), Seam Quality **B+**, Coupling Health **B** (catalog god-module decomposed; log_action 65→7 chokepoint sites), OSS Surface A−. Overall readiness **3.85/4.0 (A)** per `post-impl-20260501-b.md`.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Last Milestone (this repo): v13.2 Edition Lifecycle Hardening (shipped 2026-04-30)
+## Last Milestone (this repo): v13.3 Boundary A+ Cleanup (shipped 2026-05-01)
+
+**Delivered:** 3 phases (222-224), 18 plans, 15/15 requirements satisfied — see [milestones/v13.3-ROADMAP.md](milestones/v13.3-ROADMAP.md).
+
+- **AuditSink Protocol + 65-site chokepoint** — extensible audit-emission seam with per-sink failure isolation (`structlog.exception()` swallows + logs without breaking surrounding business operation). `audit_emit()` facade replaces 65 direct `log_action()` calls; only 7 references remain (definition site + DefaultAuditSink shim + docstrings). CI guard `test_no_log_action_calls_outside_audit_service` enforces invariant (Phase 222).
+- **AWS Marketplace billing extracted** — `core/marketplace.py` deleted; `Settings.aws_marketplace_*` removed; generic `BillingExtension.on_startup()` dispatch loop in `api/main.py:184-209` with `asyncio.wait_for(timeout=10s)` + per-extension try/except. AWS Marketplace overlay subscribes via `geolens-enterprise/billing/` entry-point. Boundary Integrity grade A → **A+** (Phase 223).
+- **Catalog god-module decomposed** — `backend/app/modules/catalog/datasets/domain/service.py` 1407 → 87 LOC thin re-export façade. Five cohesive sub-modules (create/query/lifecycle/metadata/relationships) each <500 LOC. 23 public symbols preserved across 47 consumer files via explicit named re-exports + `__all__`. DECOUPLE-04 architecture-guard test prevents future bypass (Phase 224).
+- **SQL-safety single source of truth** — `_sql_safety.py` consolidates `SAFE_TABLE_NAME_RE` + `SAFE_COLUMN_NAME_RE` + `_safe_table_ref` (was redefined 6× pre-cleanup). Architecture guard extended to forbid external imports of the private module.
+- **`IngestionResult` Pydantic model** — collapses `create_dataset` 17-kwarg signature to a single typed parameter object (with legacy-kwargs back-compat for existing test fixtures).
+- **Three new architecture-guard Makefile targets** — `audit-sink-discipline`, `billing-extraction-discipline`, `catalog-domain-discipline`.
+
+<details>
+<summary>Earlier milestone — v13.2 Edition Lifecycle Hardening (shipped 2026-04-30)</summary>
 
 **Delivered:** 2 phases (220-221), 9 plans, 7/7 requirements satisfied — see [milestones/v13.2-ROADMAP.md](milestones/v13.2-ROADMAP.md).
 
@@ -21,6 +33,8 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - **CI overlay install with graceful fork-PR fallback** — `.github/workflows/ci.yml` conditionally checks out `geolens-enterprise` based on `GEOLENS_ENTERPRISE_TOKEN` secret presence; pytest runs with lifecycle marker INCLUDED when available, deselected on fork PRs without secret (Phase 220).
 - **Admin SAML→local conversion endpoint** — `POST /admin/users/{user_id}/convert-saml-to-local/` (audit action `user.convert_saml_to_local`) flips a SAML user to local-password in a single transaction, preserving `users.id` (every FK referencing it stays intact) and deleting only the SAML `oauth_accounts` linkage. Self-conversion blocked with 422 (Phase 221).
 - **Round-trip symmetry guaranteed** — `test_deactivate_reactivate_roundtrip_preserves_saml_data` drives the registry through a full cycle and asserts losslessness across the 4 deferred SAML columns + `oauth_accounts` linkage + User row + a seeded `audit_log` row (Phase 221).
+
+</details>
 
 <details>
 <summary>Earlier milestone — v13.1 Open-Core Separation P1 (shipped 2026-04-29)</summary>
@@ -40,23 +54,20 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - v14.0 Marketing Site (executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
-## Current Milestone: v13.3 Boundary A+ Cleanup
+## Current Milestone
 
-**Goal:** Close two P1 architectural items from the 2026-04-30 open-core separation audit so the next external/sales-facing pass can claim Boundary Integrity A+ (no remaining 🟡 risks) and a fully-overlay-capable audit seam.
+_v13.3 shipped 2026-05-01. Next milestone TBD — start with `/gsd-new-milestone` to define scope + requirements._
 
-**Target features:**
-- `AuditSink.emit()` Protocol — route the 65 `log_action()` emit sites through a single hook so audit-export overlays don't have to patch every call site (closes the +242% v13.2 regression flagged in `docs-internal/audits/oc-separation-audit-20260430.md` §5)
-- AWS Marketplace billing extraction — relocate `core/marketplace.py`, the lifespan registration, the `boto3` dependency, and `aws_marketplace_*` settings out of core into the enterprise overlay (clears the 3 remaining 🟡 boundary risks)
+## Next Milestone Goals
 
-**Key context:**
-- Both items P1 in the post-v13.2 audit (`docs-internal/audits/oc-separation-audit-20260430.md` §7)
-- AuditSink has real design questions (sync vs async emit, batched vs per-event, ordering guarantees, sink-failure semantics) — benefits from `/gsd-discuss-phase` before plan
-- Marketplace extraction is mostly mechanical relocation; depends on the enterprise overlay accepting a new `BillingExtension` registration
-- Both phases must preserve community functionality with zero behavioral change visible to community deployments
+The 2026-05-01 post-impl follow-up audit (`post-impl-20260501-b.md`) graded the catalog domain at A (3.85/4.0) with zero open findings. The highest-priority backlog items entering the next milestone window are documented in `.planning/ROADMAP.md` Backlog section:
 
-## Next Milestone
+- **Phase 999.7 (P0): ProcessingPort Protocol** — close the catalog ↔ processing two-way coupling (16 → 19 files since the morning audit). Now meaningfully easier with the Phase 224 god-module decomposition behind us. 3–5 days.
+- **Phase 999.12 (P1): `geolens.yaml` catalog manifest** — the largest unshipped open-core adoption enabler. CLI `init`/`apply`/`validate` commands consuming a declarative dataset/source descriptor. 2 weeks.
+- **Phase 999.8/9/10 (P1): Three Protocol seams** — `PermissionExtension` (field-level RBAC + ABAC), `WorkflowExtension` (draft→review→publish approvals), `AIProviderExtension` (BYO-key, model routing, batch AI). Each 3–8 days.
+- **Phase 999.6 (BACKLOG): Tenant scoping infrastructure** — Cloud-tier prerequisite, deferred until vendor-hosted multi-tenant SaaS is on the roadmap.
 
-_v13.3 is the active milestone. After v13.3 ships, `999.6` tenant scoping (Cloud-tier prerequisite) is the highest-priority backlog item — separate architectural milestone, 1–2 weeks+._
+Pick scope via `/gsd-new-milestone`.
 
 ## Core Value
 

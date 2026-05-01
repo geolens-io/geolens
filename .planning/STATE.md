@@ -1,48 +1,46 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.3
-milestone_name: Boundary A+ Cleanup
-status: executing
-stopped_at: Completed 223-02-PLAN.md
-last_updated: "2026-05-01T13:19:44.876Z"
-last_activity: 2026-05-01
+milestone: none
+milestone_name: ""
+status: between-milestones
+stopped_at: v13.3 SHIPPED 2026-05-01 — 3 phases (222-224), 18 plans, 15/15 requirements satisfied; archived to milestones/v13.3-ROADMAP.md
+last_updated: "2026-05-01T11:00:00.000Z"
+last_activity: 2026-05-01 -- v13.3 milestone closed; tag pending; ready for /gsd-new-milestone
 progress:
-  total_phases: 15
-  completed_phases: 2
-  total_plans: 19
-  completed_plans: 17
-  percent: 89
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
+See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 224 — catalog-god-module-split
+**Current focus:** Between milestones — start the next one with `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: 224 (catalog-god-module-split) — EXECUTING
-Plan: 5 of 8
-Status: Ready to execute
-Last activity: 2026-05-01
+Status: BETWEEN MILESTONES
+Last shipped: v13.3 Boundary A+ Cleanup (2026-05-01)
+Last activity: 2026-05-01 -- milestone close ceremony
 
-```
-[Phase 222] [Phase 223]
-[██████████] [██████████]
-  100%        100%          v13.3 phases shipped — BILLING-06 satisfied 2026-04-30
-```
+## v13.3 Close-Out Summary (shipped 2026-05-01)
 
-## v13.3 Close-Out Status
+- 3 phases shipped: 222 (audit-sink-protocol), 223 (marketplace-billing-extraction), 224 (catalog-god-module-split)
+- 18 plans, 15/15 requirements satisfied (AUDIT-01..05, BILLING-01..06, DECOUPLE-01..04)
+- 83 commits, 141 files changed (+19,316 / −2,211 LOC) across 2026-04-30 → 2026-05-01
+- Audit grade movements vs v13.1 close: Boundary Integrity A → **A+** (zero 🟡 risks); Seam Quality B → **B+**; Coupling Health B− → **B**
+- Overall readiness: 3.39 → **3.85 (A)** per `post-impl-20260501-b.md`
+- Archive: `.planning/milestones/v13.3-ROADMAP.md` + `.planning/milestones/v13.3-REQUIREMENTS.md`
 
-- Phase 222: COMPLETE (5/5 plans, AUDIT-01..05 satisfied)
-- Phase 223: COMPLETE (5/5 plans, BILLING-01..06 satisfied — BILLING-06 close gate `oc-separation-audit-20260430-b.md`)
-- Audit grade movements vs v13.1 close: Boundary Integrity A → **A+** (zero 🟡 risks); Seam Quality B → **B+** (AuditSink + BillingExtension promoted to 🟢); Coupling Health B− → **B** (log_action 65→7 chokepoint sites)
-- Overall readiness: 3.39 → **3.53** (A−)
-- Next milestone close: run `/gsd-complete-milestone v13.3`
+## Next Action
+
+Run `/gsd-new-milestone` to define scope + requirements for the next milestone. Top backlog candidates documented in `ROADMAP.md` Backlog section (Phase 999.7 ProcessingPort Protocol is the highest-leverage next step now that the catalog god-module is decomposed).
 
 ## Phase 224 Queue (from /oc-audit follow-ups)
 
