@@ -54,20 +54,18 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - v14.0 Marketing Site (executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
 
-## Current Milestone
+## Current Milestone: v13.4 Boundary Closeout
 
-_v13.3 shipped 2026-05-01. Next milestone TBD — start with `/gsd-new-milestone` to define scope + requirements._
+**Goal:** Close the last 🔴 seams from `oc-separation-audit-20260430-b.md` — invert the catalog↔processing cycle, make AI providers extensible, and finish remaining open-core publish hygiene — so v14.0 can launch on architecturally clean ground.
 
-## Next Milestone Goals
+**Target features:**
+- ProcessingPort Protocol (Phase 225) — invert catalog↔processing cycle, with inline architecture guard
+- AIProviderExtension Protocol (Phase 226) — replace hardcoded provider dispatch with extensible Protocol
+- SAML test fixture cleanup (Phase 227) — stop polluting `git status` after every test run
+- Run cold PyPI/npm publish workflows (Phase 228) — convert WIRED → SHIPPED for SDKs + CLI
+- Post-impl audit at close (Phase 229) — codify the v13.2/v13.3 post-impl pattern as a planned gate
 
-The 2026-05-01 post-impl follow-up audit (`post-impl-20260501-b.md`) graded the catalog domain at A (3.85/4.0) with zero open findings. The highest-priority backlog items entering the next milestone window are documented in `.planning/ROADMAP.md` Backlog section:
-
-- **Phase 999.7 (P0): ProcessingPort Protocol** — close the catalog ↔ processing two-way coupling (16 → 19 files since the morning audit). Now meaningfully easier with the Phase 224 god-module decomposition behind us. 3–5 days.
-- **Phase 999.12 (P1): `geolens.yaml` catalog manifest** — the largest unshipped open-core adoption enabler. CLI `init`/`apply`/`validate` commands consuming a declarative dataset/source descriptor. 2 weeks.
-- **Phase 999.8/9/10 (P1): Three Protocol seams** — `PermissionExtension` (field-level RBAC + ABAC), `WorkflowExtension` (draft→review→publish approvals), `AIProviderExtension` (BYO-key, model routing, batch AI). Each 3–8 days.
-- **Phase 999.6 (BACKLOG): Tenant scoping infrastructure** — Cloud-tier prerequisite, deferred until vendor-hosted multi-tenant SaaS is on the roadmap.
-
-Pick scope via `/gsd-new-milestone`.
+**Audit-grade targets:** Boundary Integrity A+ (hold); Coupling Health B → **B+** (cycle broken); Seam Quality B+ → **A−** (AI seam closes last 🔴).
 
 ## Core Value
 
@@ -598,4 +596,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-30 — v13.3 Boundary A+ Cleanup milestone started (AuditSink Protocol + AWS Marketplace billing extraction, post-v13.2 audit-driven)*
+*Last updated: 2026-05-01 — v13.4 Boundary Closeout milestone started (ProcessingPort + AIProviderExtension + SAML fixture cleanup + cold publishes + post-impl audit, post-v13.3 audit-driven)*

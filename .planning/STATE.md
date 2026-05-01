@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: ""
-status: between-milestones
-stopped_at: v13.3 SHIPPED 2026-05-01 — 3 phases (222-224), 18 plans, 15/15 requirements satisfied; archived to milestones/v13.3-ROADMAP.md
-last_updated: "2026-05-01T11:00:00.000Z"
-last_activity: 2026-05-01 -- v13.3 milestone closed; tag pending; ready for /gsd-new-milestone
+milestone: v13.4
+milestone_name: Boundary Closeout
+status: planning
+last_updated: "2026-05-01T15:41:00.698Z"
+last_activity: 2026-05-01
 progress:
   total_phases: 0
   completed_phases: 0
@@ -25,9 +24,10 @@ See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 ## Current Position
 
-Status: BETWEEN MILESTONES
-Last shipped: v13.3 Boundary A+ Cleanup (2026-05-01)
-Last activity: 2026-05-01 -- milestone close ceremony
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-01 — Milestone v13.4 started
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
