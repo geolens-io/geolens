@@ -38,7 +38,7 @@ def _safe_table_ref(table_name: str) -> str:
 class DependentVrtError(Exception):
     """Raised when attempting to delete a COG referenced by VRT datasets."""
 
-    def __init__(self, dependents: list[dict]):
+    def __init__(self, dependents: list[dict]) -> None:
         self.dependents = dependents
         names = ", ".join(d["vrt_dataset_title"] for d in dependents)
         super().__init__(

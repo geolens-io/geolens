@@ -56,7 +56,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
     list_relationships,
 )
 
-__all__ = (
+__all__ = [
     "DependentVrtError",
     "auto_detect_relationships",
     "compute_schema_diff",
@@ -80,4 +80,4 @@ __all__ = (
     "update_attribute",
     "update_auto_metadata",
     "update_user_metadata",
-)
+]
