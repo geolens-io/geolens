@@ -325,6 +325,8 @@ class ProcessingPort(Protocol):
 
     def get_record_distribution_orm_class(self) -> type: ...
 
+    def get_attribute_metadata_orm_class(self) -> type: ...
+
     # -------------------------------------------------------------------------
     # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
     # for metadata_service._build_dataset_context; Pitfall 2 mitigation)

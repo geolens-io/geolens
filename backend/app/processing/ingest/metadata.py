@@ -11,15 +11,11 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from app.modules.catalog.datasets.domain.models import (
-        AttributeMetadata,
-        Dataset,
-        Record,
-    )
+    from app.core.processing_port import Attribute, Dataset, Record
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -463,11 +459,10 @@ async def _score_metadata_completeness(
     record: "Record",
 ) -> float:
     """Percentage of optional metadata fields that are populated (0-100)."""
-    from app.modules.catalog.datasets.domain.models import RecordKeyword
+    from app.platform.extensions import get_processing_port
 
-    kw_count = await session.scalar(
-        select(func.count()).where(RecordKeyword.record_id == record.id)
-    )
+    port = get_processing_port()
+    kw_count = await port.get_record_keyword_count(session, record.id)
     has_keywords = True if kw_count and kw_count > 0 else None
 
     optional_fields = [
@@ -1067,13 +1062,15 @@ def _build_attribute_metadata(
     sample_values: dict | None = None,
     ordinal_position: int | None = None,
     is_nullable: bool | None = None,
-) -> "AttributeMetadata":
+) -> "Attribute":
     """Factory for creating a new AttributeMetadata row with inferred fields.
 
     Shared by generate_attribute_metadata (initial ingest) and
     refresh_attribute_metadata (re-upload new columns).
     """
-    from app.modules.catalog.datasets.domain.models import AttributeMetadata
+    from app.platform.extensions import get_processing_port
+
+    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
 
     example_vals = None
     if sample_values and col_name in sample_values:
@@ -1097,9 +1094,11 @@ def _build_attribute_metadata(
 def _build_geometry_attribute_row(
     dataset_id: uuid.UUID,
     geometry_type: str | None,
-) -> "AttributeMetadata":
+) -> "Attribute":
     """Factory for the special ``geom`` attribute metadata row."""
-    from app.modules.catalog.datasets.domain.models import AttributeMetadata
+    from app.platform.extensions import get_processing_port
+
+    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
 
     return AttributeMetadata(
         dataset_id=dataset_id,
@@ -1120,14 +1119,16 @@ async def generate_attribute_metadata(
     *,
     geometry_type: str | None = None,
     sample_values: dict | None = None,
-) -> list["AttributeMetadata"]:
+) -> list["Attribute"]:
     """Auto-populate attribute_metadata rows from column_info.
 
     Creates one row per column plus a geometry row if geometry_type is provided.
     Uses check-then-insert to be idempotent (skips existing field_names).
     Does NOT query the data table -- sample_values are passed in by the caller.
     """
-    from app.modules.catalog.datasets.domain.models import AttributeMetadata
+    from app.platform.extensions import get_processing_port
+
+    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
 
     # Load existing field names to skip duplicates
     result = await session.execute(
@@ -1185,7 +1186,9 @@ async def refresh_attribute_metadata(
     - New columns get auto-populated metadata.
     - Removed columns are marked is_current=False.
     """
-    from app.modules.catalog.datasets.domain.models import AttributeMetadata
+    from app.platform.extensions import get_processing_port
+
+    AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
 
     # Load existing attribute rows keyed by field_name
     result = await session.execute(

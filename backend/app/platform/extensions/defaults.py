@@ -353,6 +353,10 @@ class DefaultProcessingPort:
         from app.modules.catalog.datasets.domain.models import RecordDistribution
         return RecordDistribution
 
+    def get_attribute_metadata_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import AttributeMetadata
+        return AttributeMetadata
+
     # -------------------------------------------------------------------------
     # Dataset-with-attributes loader (Plan 02 — preserves joinedload semantics
     # that metadata_service._build_dataset_context requires; Pitfall 2)
