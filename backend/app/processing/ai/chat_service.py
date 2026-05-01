@@ -12,7 +12,8 @@ from shapely.geometry import shape as shapely_shape
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.processing.ai.llm_loop import resolve_provider, run_tool_loop
+from app.platform.extensions import get_ai_provider
+from app.processing.ai.llm_loop import resolve_provider
 from app.processing.ai.schemas import (
     ChatAction,
     ChatHistoryMessage,
@@ -23,7 +24,7 @@ from app.processing.ai.schemas import (
 )
 from app.processing.ai.sql_generator import build_sql_schema_context, generate_sql
 from app.processing.ai.token_usage import record_token_usage
-from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
+from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
 from typing import TYPE_CHECKING
 
 from app.processing.ai.service import _execute_search_tool, _should_send_sample_values
@@ -878,7 +879,7 @@ async def _build_graduated_style(
 def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict | None:
     """Build an action dict from a chat tool call.
 
-    Used as the action_collector callback for run_tool_loop.
+    Used as the action_collector callback for provider_ext.complete().
     """
     if tool_name not in _EDIT_TOOLS:
         # Check for query_data with geometry
@@ -931,7 +932,8 @@ async def chat_edit_map(
     system_prompt = build_chat_system_prompt(
         layers, language=language, basemap_style=basemap_style
     )
-    provider, model, base_url = await resolve_provider(session)
+    provider, model, runtime_config = await resolve_provider(session)
+    provider_ext = get_ai_provider(provider)
 
     history_dicts = history_to_dicts(history)
 
@@ -941,17 +943,15 @@ async def chat_edit_map(
             tool_name, tool_input, session, user, user_roles, layers, port=port
         )
 
-    result = await run_tool_loop(
-        provider=provider,
+    result = await provider_ext.complete(
         model=model,
         system_prompt=system_prompt,
         user_message=message,
-        tools_anthropic=CHAT_TOOLS_ANTHROPIC,
-        tools_openai=CHAT_TOOLS_OPENAI,
+        tools=CHAT_TOOLS_ANTHROPIC,
         tool_executor=tool_executor,
         action_collector=_collect_chat_action,
         history=history_dicts,
-        base_url=base_url,
+        base_url=runtime_config.get("base_url"),
         temperature=0.3,
     )
 
