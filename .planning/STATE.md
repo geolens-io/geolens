@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (refreshed 2026-04-26 after cross-repo split)
 
 ## Current Position
 
-Phase: 224 (queued — not yet planned)
-Plan: TBD (run `/gsd-discuss-phase 224` then `/gsd-plan-phase 224`)
-Status: v13.3 Phase 222 + 223 SHIPPED; 11 audit follow-ups added to backlog (999.7-999.17)
-Last activity: 2026-04-30 -- /oc-audit close gate satisfied (oc-separation-audit-20260430-b.md, Boundary Integrity A+); BILLING-06 ✅; Phase 224 added to roadmap
+Phase: 224 (PLANNED — ready to execute)
+Plan: 224-01 through 224-08 (9 files, 1873 lines)
+Status: Phase 222 + 223 SHIPPED; Phase 224 fully planned (CONTEXT + 8 sub-plans + phase PLAN); 11 audit follow-ups in backlog (999.7-999.17)
+Last activity: 2026-04-30 -- Phase 224 plans created (catalog-god-module-split, 5-way split, 8 atomic commits expected); next action `/gsd-execute-phase 224`
 
 ```
 [Phase 222] [Phase 223]
