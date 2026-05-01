@@ -115,10 +115,24 @@ class DefaultProcessingPort:
     # -------------------------------------------------------------------------
 
     async def get_dataset(self, session, dataset_id):  # type: ignore[no-untyped-def]
-        # Delegates via facade — never service_query.py directly (DECOUPLE-04).
-        from app.modules.catalog.datasets.domain.service import get_dataset
+        # Explicit joinedload(Dataset.record) on the Port surface so callers can
+        # rely on `dataset.record.<attr>` access in async contexts without
+        # depending on the facade's implicit loading semantics. The facade today
+        # also eager-loads, but pinning the contract here protects callers (e.g.
+        # processing/export/router.py:95 reads dataset.record.title) from any
+        # future facade-internal change that drops the joinedload.
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
 
-        return await get_dataset(session, dataset_id)
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        stmt = (
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+        result = await session.execute(stmt)
+        return result.unique().scalar_one_or_none()
 
     async def get_record(self, session, record_id):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
