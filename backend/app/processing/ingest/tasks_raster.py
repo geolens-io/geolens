@@ -44,8 +44,12 @@ async def create_raster_dataset(
     """
     from sqlalchemy import func
 
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset
+
+    _port = get_processing_port()
+    Dataset = _port.get_dataset_orm_class()
+    Record = _port.get_record_orm_class()
 
     # Mirror the vector ingest path (datasets/service.py
     # `create_dataset_record`) which commits directly to `published`.
@@ -137,10 +141,6 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
     import shutil
     import tempfile
     from pathlib import Path as _Path
-
-    # Register all FK target models so SQLAlchemy can resolve FKs on IngestJob
-    from app.modules.auth.models import User  # noqa: F401
-    from app.modules.catalog.datasets.domain.models import Dataset  # noqa: F401
 
     from app.platform.jobs.models import IngestJob
 
@@ -298,7 +298,8 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             raster_asset.quicklook_512_uri = ql512_key
             await session.flush()
 
-            from app.modules.catalog.datasets.domain.models import RecordDistribution
+            from app.platform.extensions import get_processing_port as _get_port
+            RecordDistribution = _get_port().get_record_distribution_orm_class()
 
             distribution = RecordDistribution(
                 record_id=record.id,
