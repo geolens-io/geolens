@@ -124,6 +124,17 @@ async def delete_dataset(
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
 
+    # Audit trail for an irreversible operation (DROP TABLE for vector,
+    # storage cleanup for raster/VRT). The DB-side row deletion is logged
+    # by the audit_emit() facade in the calling router.
+    logger.info(
+        "dataset_deleted",
+        dataset_id=str(dataset_id),
+        table_name=table_name,
+        record_type=record_type,
+        title=confirm_title,
+    )
+
     return table_name
 
 
