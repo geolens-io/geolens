@@ -330,6 +330,90 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
 
 
 @pytest.mark.architecture
+def test_no_external_imports_of_dataset_domain_submodules() -> None:
+    """Phase 224 DECOUPLE-04: no external module imports the catalog/datasets/
+    domain/service_X sub-modules directly. All consumers must go through the
+    ``app.modules.catalog.datasets.domain.service`` façade.
+
+    Phase 224 split the 1407-LOC ``service.py`` god-module into 5 cohesive
+    sub-modules (service_create, service_query, service_lifecycle,
+    service_metadata, service_relationships) behind a thin re-export façade.
+    DECOUPLE-01 preserved zero call-site churn — the 22 consumer files in
+    ``backend/app/`` still import from ``service``. This guard fails CI if
+    any module under ``backend/app/`` (excluding the 5 sub-modules + service.py
+    + this test file) starts importing from a sub-module directly,
+    re-introducing the bypass that DECOUPLE-04 forbids.
+
+    Cross-imports BETWEEN the 5 sub-modules are PERMITTED (D-05) — e.g.,
+    ``service_create.py`` imports ``_safe_table_ref`` from
+    ``service_lifecycle`` and ``auto_detect_relationships`` from
+    ``service_relationships``. The sub-modules collaborate as a domain
+    package; only external bypasses are forbidden.
+
+    Allowlist (files allowed to reference service_X paths directly):
+      - The 5 sub-modules themselves (service_create.py, service_query.py,
+        service_lifecycle.py, service_metadata.py, service_relationships.py)
+      - The service.py façade (it re-exports from each sub-module)
+      - This test file (it documents and enforces the invariant)
+
+    Maps to Phase 224 ROADMAP DECOUPLE-04 close gate. Mirrors AUDIT-02
+    (Phase 222) and BILLING-02 (Phase 223) architecture guards.
+    See ``oc-separation-audit-20260430-b.md`` §5 + §7 P0 #1.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+
+    # Pattern matches any of the 5 sub-modules in import position.
+    pattern = (
+        r"from app\.modules\.catalog\.datasets\.domain\."
+        r"service_(create|query|lifecycle|metadata|relationships)"
+    )
+
+    result = _git_grep(pattern, "backend/app/")
+
+    # Allowlisted paths — these MAY reference the sub-modules directly.
+    # The 5 sub-modules cross-import each other (D-05); service.py re-exports
+    # from all 5; the test file references the path strings in this docstring.
+    allowlist_prefixes = {
+        "backend/app/modules/catalog/datasets/domain/service.py",
+        "backend/app/modules/catalog/datasets/domain/service_create.py",
+        "backend/app/modules/catalog/datasets/domain/service_query.py",
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py",
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py",
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py",
+    }
+
+    # git grep exit codes: 0 = matches found, 1 = no matches, >1 = error
+    if result.returncode == 1:
+        # No matches at all — vacuously passes.
+        return
+    if result.returncode != 0:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    offenders: list[str] = []
+    for line in result.stdout.splitlines():
+        # git grep -n output: "<path>:<lineno>:<content>"
+        path = line.split(":", 1)[0]
+        if path in allowlist_prefixes:
+            continue
+        offenders.append(line)
+
+    if offenders:
+        pytest.fail(
+            "Phase 224 DECOUPLE-04 invariant violated: external module "
+            "imports from a catalog/datasets/domain/service_X sub-module "
+            "directly. All consumers must go through the "
+            "`app.modules.catalog.datasets.domain.service` façade. "
+            "Cross-imports between the 5 sub-modules themselves are "
+            "permitted (D-05) — only external bypasses are forbidden.\n"
+            "Offending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
 def test_no_log_action_calls_outside_audit_service() -> None:
     """Phase 222 AUDIT-02: ``log_action()`` is called only by ``DefaultAuditSink.emit()``.
 

@@ -1,4 +1,4 @@
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline
+.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline
 
 dev:
 	docker compose up --build
@@ -151,3 +151,15 @@ audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audi
 # verification without spinning up the full pytest suite.
 billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispatch hardcodes timeout=10.0 (Phase 223 BILLING-02 / BILLING-04)
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_core_marketplace_import tests/test_layering.py::test_billing_dispatch_uses_hardcoded_timeout -v
+
+# Phase 224 DECOUPLE-04 invariant: no external module imports from the
+# catalog/datasets/domain/service_X sub-modules directly. The 1407-LOC
+# god-module was split into 5 cohesive sub-modules behind a thin re-export
+# façade in service.py. All 22 consumer files in backend/app/ must continue
+# to import via the façade — sub-module bypasses are forbidden (cross-imports
+# BETWEEN the 5 sub-modules are permitted, D-05).
+# This target runs the architecture-guard test in isolation — quick local
+# verification without spinning up the full pytest suite (uses git grep,
+# no DB required).
+catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules (Phase 224 DECOUPLE-04)
+	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_external_imports_of_dataset_domain_submodules -v
