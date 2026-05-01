@@ -74,10 +74,25 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| PROCESS-01..05 | TBD | TBD |
-| AIEXT-01..05 | TBD | TBD |
-| TESTFIX-01..03 | TBD | TBD |
-| PUBLISH-01..04 | TBD | TBD |
-| PIAUDIT-01..03 | TBD | TBD |
+| PROCESS-01 | Phase 225 | [ ] not started |
+| PROCESS-02 | Phase 225 | [ ] not started |
+| PROCESS-03 | Phase 225 | [ ] not started |
+| PROCESS-04 | Phase 225 | [ ] not started |
+| PROCESS-05 | Phase 225 | [ ] not started |
+| AIEXT-01 | Phase 226 | [ ] not started |
+| AIEXT-02 | Phase 226 | [ ] not started |
+| AIEXT-03 | Phase 226 | [ ] not started |
+| AIEXT-04 | Phase 226 | [ ] not started |
+| AIEXT-05 | Phase 226 | [ ] not started |
+| TESTFIX-01 | Phase 227 | [ ] not started |
+| TESTFIX-02 | Phase 227 | [ ] not started |
+| TESTFIX-03 | Phase 227 | [ ] not started |
+| PUBLISH-01 | Phase 228 | [ ] not started |
+| PUBLISH-02 | Phase 228 | [ ] not started |
+| PUBLISH-03 | Phase 228 | [ ] not started |
+| PUBLISH-04 | Phase 228 | [ ] not started |
+| PIAUDIT-01 | Phase 229 | [ ] not started |
+| PIAUDIT-02 | Phase 229 | [ ] not started |
+| PIAUDIT-03 | Phase 229 | [ ] not started |
 
-*Filled by the roadmapper.*
+**Coverage:** 20/20 v13.4 requirements mapped to exactly one phase. No orphans, no duplicates.

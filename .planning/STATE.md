@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: planning
-last_updated: "2026-05-01T15:41:00.698Z"
+last_updated: "2026-05-01T16:00:00.000Z"
 last_activity: 2026-05-01
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,28 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Between milestones — start the next one with `/gsd-new-milestone`
+**Current focus:** v13.4 Boundary Closeout — close last 🔴 seams from `oc-separation-audit-20260430-b.md` (cycle inversion + AI seam + publish hygiene + audit gate)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 225 (next: `/gsd-discuss-phase 225`)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-01 — Milestone v13.4 started
+Status: Planning — roadmap drafted, requirements traced; ready for phase discussion
+Last activity: 2026-05-01 — v13.4 milestone roadmap created (5 phases, 20 requirements mapped)
+
+## Roadmap Snapshot
+
+| Phase | Name | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 225 | processing-port-protocol-cycle-inversion | PROCESS-01, PROCESS-02, PROCESS-03, PROCESS-04, PROCESS-05 | 224 (✅ shipped) |
+| 226 | ai-provider-extension-protocol | AIEXT-01, AIEXT-02, AIEXT-03, AIEXT-04, AIEXT-05 | 225 |
+| 227 | saml-test-fixture-tmp-path | TESTFIX-01, TESTFIX-02, TESTFIX-03 | — |
+| 228 | run-cold-publish-workflows | PUBLISH-01, PUBLISH-02, PUBLISH-03, PUBLISH-04 | — |
+| 229 | post-impl-audit-v13.4 | PIAUDIT-01, PIAUDIT-02, PIAUDIT-03 | 225, 226, 227, 228 |
+
+Coverage: 20/20 v13.4 requirements mapped.
+
+**Audit-grade targets (verified by Phase 229):** Boundary Integrity ≥ **A+** (hold v13.3 close grade) · Coupling Health **B → B+** (cycle inversion via 225 is the lever) · Seam Quality **B+ → A−** (AIProviderExtension via 226 closes the last 🔴).
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -40,23 +54,15 @@ Last activity: 2026-05-01 — Milestone v13.4 started
 
 ## Next Action
 
-Run `/gsd-new-milestone` to define scope + requirements for the next milestone. Top backlog candidates documented in `ROADMAP.md` Backlog section (Phase 999.7 ProcessingPort Protocol is the highest-leverage next step now that the catalog god-module is decomposed).
+Run `/gsd-discuss-phase 225` to scope ProcessingPort Protocol design (cycle inversion + inlined architecture-guard from former 999.11).
 
 ## Phase 224 Queue (from /oc-audit follow-ups)
 
 The audit produced 16 findings. Three trivial fixes were applied inline (env-var move from base compose to enterprise overlay, GEOLENS_EDITION explicit set in overlay, GTM doc amendment for Phase 223 completion). The remaining 13 findings split:
 
-- **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle.
-- **Backlog 999.7-999.17:** 11 multi-day / multi-week items (ProcessingPort Protocol, PermissionExtension, WorkflowExtension, AIProviderExtension, geolens.yaml manifest, persistent connector registry, Helm chart, SBOM, geolens-schemas extraction, run cold publish workflows, processing-imports-catalog architecture guard).
-
-## Roadmap Snapshot
-
-| Phase | Name | Requirements | Depends on |
-|-------|------|--------------|------------|
-| 222 | audit-sink-protocol | AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04, AUDIT-05 | 221 |
-| 223 | marketplace-billing-extraction | BILLING-01, BILLING-02, BILLING-03, BILLING-04, BILLING-05, BILLING-06 | 221 (parallel with 222) |
-
-Coverage: 11/11 v13.3 requirements mapped.
+- **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
+- **v13.4 (active):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction).
 
 ## Phase 218 / 219 close-gate record
 
@@ -81,6 +87,7 @@ Coverage: 11/11 v13.3 requirements mapped.
 - Phase 219 added: oc-audit-remediate-idp-mapping (remediate Phase 218 boundary shortfall — OAuth IdP→role mapping in core)
 - v13.2 phases 220-221 defined: promotes backlog phase 999.7 (edition lifecycle runbooks + data preservation + user continuity + CI verification)
 - v13.3 phases 222-223 defined: closes two P1 audit items from oc-separation-audit-20260430.md — AuditSink Protocol (65 log_action() sites → extensible sink) and AWS Marketplace extraction (boto3 out of core)
+- v13.4 phases 225-229 defined (2026-05-01): closes the last 🔴 seams from `oc-separation-audit-20260430-b.md` — invert catalog↔processing cycle (225 promoted from 999.7, with 999.11 architecture guard inlined), AIProviderExtension seam (226 promoted from 999.10), SAML fixture tmp_path (227 promoted from 999.18), cold publish workflows (228 promoted from 999.17), post-impl audit gate (229).
 
 ### Key Implementation Reference
 
@@ -90,6 +97,13 @@ The v13.1 SAML implementation is ground truth for v13.2:
 - `oauth_providers` table — stores `provider_type='saml'` rows
 - `User` model `deferred=True` columns (4 SAML columns) — Pitfall 11 mitigation ensuring lossless reactivation by design
 - `find_or_create_oauth_user()` — JIT provisioning path that creates User rows for SAML-authenticated users
+
+### v13.4 Design Decisions Pending
+
+- **Phase 225**: ProcessingPort surface area — does the Protocol expose a small set of high-level catalog accessors (e.g., `get_dataset_for_processing(id)`) or a finer-grained set per-call site? Resolve via `/gsd-discuss-phase 225`. Also: where the default implementation lives (likely `backend/app/core/processing_port.py`).
+- **Phase 226**: whether `AIProviderExtension` exposes `complete` + `stream` as separate methods (mirrors current call sites) or unifies on a single async-iterator method; whether tool/function-call schema is part of the Protocol or passed opaquely. Resolve via `/gsd-discuss-phase 226`.
+- **Phase 227**: whether to keep committed `.xml.b64.template` files (with regen-from-template at session start) or remove the CI-fallback claim and ship session-only generation. Resolve via `/gsd-discuss-phase 227`.
+- **Phase 228**: whether to migrate to PyPI Trusted Publishing (`id-token: write` already reserved in workflow) or keep `secrets.PYPI_TOKEN`. npm has no equivalent — keeps `secrets.NPM_TOKEN`.
 
 ### v13.3 Design Decisions Pending
 
@@ -151,6 +165,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-05-01T13:19:39.632Z
-Stopped at: Completed 223-02-PLAN.md
+Last session: 2026-05-01T16:00:00.000Z
+Stopped at: v13.4 roadmap created — ready for `/gsd-discuss-phase 225`
 Resume file: None

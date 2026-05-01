@@ -44,8 +44,113 @@
 - ✅ **v13.1 Open-Core Separation P1** — Phases 212-219 (shipped 2026-04-29) — see [archive](milestones/v13.1-ROADMAP.md)
 - ✅ **v13.2 Edition Lifecycle Hardening** — Phases 220-221 (shipped 2026-04-30) — see [archive](milestones/v13.2-ROADMAP.md)
 - ✅ **v13.3 Boundary A+ Cleanup** — Phases 222-224 (shipped 2026-05-01) — see [archive](milestones/v13.3-ROADMAP.md)
+- 🚧 **v13.4 Boundary Closeout** — Phases 225-229 (in progress)
 
 ## Phases
+
+### Active Phases — v13.4 Boundary Closeout
+
+- [ ] **Phase 225: processing-port-protocol-cycle-inversion** — Invert the catalog↔processing cycle behind a `ProcessingPort` Protocol; inline architecture-guard test
+- [ ] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup
+- [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
+- [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
+- [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ B+, Seam ≥ A−
+
+#### Phase 225: processing-port-protocol-cycle-inversion
+
+**Goal:** Invert the 19-file two-way coupling between `backend/app/modules/catalog/*` and `backend/app/processing/*` by defining a `ProcessingPort` Protocol in `backend/app/core/` (mirror Phase 214 `IdentityProtocol` pattern). Rewire the 8 `processing/*` → `catalog/*` imports — including the AI features (`processing/ai/chat_service.py`, `metadata_service.py`, `embeddings/backfill.py`) — through Protocol-typed boundaries. Ship a default ProcessingPort implementation that preserves all existing behavior with zero functional regressions.
+
+**Source:** `docs-internal/audits/oc-separation-audit-20260430-b.md` §5 (Coupling regression: 16 → 19 files since 2026-04-30 baseline) / §7 P0 (action item #2). Promoted from Phase 999.7 on 2026-05-01.
+
+**Requirements:** PROCESS-01, PROCESS-02, PROCESS-03, PROCESS-04, PROCESS-05
+
+**Depends on:** Phase 224 (catalog god-module split — ✅ shipped 2026-05-01)
+
+**Notes:** This phase **inlines** the architecture-guard test that was originally backlogged as Phase 999.11 (`test_no_processing_imports_catalog`). Adding the guard before the cycle is inverted would fail CI immediately, so the guard ships in the same phase as the inversion. Backlog item 999.11 is therefore retired (see Backlog section). The guard mirrors the AUDIT-02 invariant pattern from Phase 222.
+
+**Success Criteria** (what must be TRUE):
+1. `ProcessingPort` Protocol exists in `backend/app/core/` and exposes the catalog accessors needed by `processing/*` (mirrors the `IdentityProtocol` shape from Phase 214).
+2. `grep -RE "from backend.app.modules.catalog|from app.modules.catalog" backend/app/processing/` returns zero hits — no direct cross-domain imports remain.
+3. `pytest backend/tests/test_layering.py::test_no_processing_imports_catalog` passes, and intentionally adding a forbidden import causes the test to fail in CI.
+4. Full backend test suite passes with the default `ProcessingPort` wired in (zero functional regressions vs. the v13.3 baseline of 2036/2036).
+5. AI features (`chat_service.py`, `metadata_service.py`, `embeddings/backfill.py`) consume catalog data exclusively through the Protocol — verifiable by the same grep guard plus a focused unit test that swaps in a fake `ProcessingPort`.
+
+**Plans:** TBD
+
+#### Phase 226: ai-provider-extension-protocol
+
+**Goal:** Close the last 🔴 seam from `oc-separation-audit-20260430-b.md` by extracting AI provider dispatch into an `AIProviderExtension` Protocol on the same accessor pattern as `BillingExtension` (Phase 223) and `AuditSink` (Phase 222). Replace the hardcoded `if/elif provider == "anthropic"/"openai_compatible"` branches at `processing/ai/llm_loop.py:117,132` and `service.py:387-398` with extension lookup. Default registry maps the two community providers; overlays can register Bedrock / Vertex / Azure / vLLM via `importlib.metadata` entry_points. Ships only the seam — new provider implementations land in overlays or follow-up milestones.
+
+**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #7 (🔴) / §7 P1. Promoted from Phase 999.10.
+
+**Requirements:** AIEXT-01, AIEXT-02, AIEXT-03, AIEXT-04, AIEXT-05
+
+**Depends on:** Phase 225 (sequential — both phases touch `processing/ai/`; serializing avoids merge churn and keeps the architecture-guard signal clean while the seam is being cut).
+
+**Success Criteria** (what must be TRUE):
+1. `AIProviderExtension` Protocol exists at `backend/app/platform/extensions/protocols.py` with `complete(messages, tools)` and `stream(messages, tools)` methods.
+2. `DefaultAIProviderExtension` resolves the two community providers (Anthropic native, OpenAI-compatible) via the same accessor pattern as `get_billing_extension()` / `get_audit_sink()`.
+3. `grep -RE "if .*provider *== *['\"](anthropic|openai_compatible)" backend/app/processing/ai/` returns zero hits after the migration; the architecture-guard test enforces this in CI.
+4. Existing AI integration tests pass unchanged with the default extension wired in (no behavior delta for community users).
+5. A test overlay registered via `importlib.metadata` entry_points is dispatched correctly without modifying any core file — proving the seam is genuinely extensible.
+
+**Plans:** TBD
+
+#### Phase 227: saml-test-fixture-tmp-path
+
+**Goal:** Stop the committed SAML fixture files from being rewritten on every `pytest` run. Refactor the session-scoped `_regenerate_saml_fixtures` autouse fixture in `backend/tests/test_saml_overlay.py` so the signed XML responses land in a pytest `tmp_path` for the test session instead of mutating `backend/tests/fixtures/saml/idp_response_*.xml.b64`. Rename the committed fixtures to `.xml.b64.template` (immutable templates) or remove them entirely; resolve the docstring's "CI fallback when pysaml2 unavailable" claim by either restoring it for real or deleting the claim.
+
+**Source:** Surfaced during 2026-05-01 v13.3 milestone close — five SAML fixture files were perpetually showing as modified across 9 commits because every pytest invocation rewrote them in place. Promoted from Phase 999.18.
+
+**Requirements:** TESTFIX-01, TESTFIX-02, TESTFIX-03
+
+**Depends on:** None — independent of 225/226 (no shared files).
+
+**Success Criteria** (what must be TRUE):
+1. `git status` is clean after a full `pytest backend/tests/test_saml_overlay.py` run (regression: previously always-dirty); a CI step asserts `git diff --quiet backend/tests/fixtures/saml/` post-pytest.
+2. `_regenerate_saml_fixtures` writes generated XML responses to a session-scoped `tmp_path` (or session-fixture-managed temp dir); no test path writes into the tracked fixtures directory.
+3. The committed `idp_response_*.xml.b64` files are either renamed to `.xml.b64.template` (and the consumers read from the template + emit to `tmp_path`) or removed, matching whichever resolution applies to the docstring's CI-fallback claim.
+4. Existing SAML overlay tests (`test_saml_overlay.py`) continue to pass — `pytest backend/tests/test_saml_overlay.py -v` is green.
+
+**Plans:** TBD
+
+#### Phase 228: run-cold-publish-workflows
+
+**Goal:** Convert the wired-but-cold `.github/workflows/publish-{sdks,cli}.yml` workflows from "wired" to "shipped" by executing them at least once end-to-end. Confirm `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` exist (or migrate to PyPI Trusted Publishing via `id-token: write`). Validate published artifacts against the README install instructions on a clean machine: `pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens` should each install successfully without local checkout context.
+
+**Source:** `oc-separation-audit-20260430-b.md` §6 (WIRED — never run) / §7 P2. Promoted from Phase 999.17.
+
+**Requirements:** PUBLISH-01, PUBLISH-02, PUBLISH-03, PUBLISH-04
+
+**Depends on:** None — independent of 225/226/227 (publish pipeline lives entirely in `.github/workflows/` + package metadata).
+
+**Success Criteria** (what must be TRUE):
+1. `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` are confirmed present in repository secrets (or replaced with Trusted Publishing for PyPI), documented in the phase VERIFICATION.md.
+2. `publish-sdks.yml` completes a green end-to-end run on `main` or a release tag; `geolens-sdk` is installable from PyPI and `@geolens/sdk` from npm by version.
+3. `publish-cli.yml` completes a green end-to-end run; `geolens` CLI is installable from PyPI by version and `geolens --version` returns the published version on a fresh `pip install`.
+4. README install instructions are validated against the published artifacts on a machine without the GeoLens checkout — all three install commands (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens`) succeed.
+
+**Plans:** TBD
+
+#### Phase 229: post-impl-audit-v13.4
+
+**Goal:** Run the post-implementation audit gate for v13.4 to confirm the milestone's audit-grade targets hold across the new implementation surface (Phases 225–228). Produce a dated `post-impl-2026MMDD-*.md` audit report; triage P1 findings either inline or via tracked deferral; re-run grades to confirm Boundary Integrity ≥ **A+** (held from v13.3), Coupling Health ≥ **B+** (cycle inversion lever from 225), and Seam Quality ≥ **A−** (AIProviderExtension closes the last 🔴 from 226).
+
+**Source:** Mirrors the `/post-impl` close-gate pattern used at v13.2 close (`post-impl-20260430.md`) and v13.3 close (`post-impl-20260501-b.md`).
+
+**Requirements:** PIAUDIT-01, PIAUDIT-02, PIAUDIT-03
+
+**Depends on:** Phases 225, 226, 227, 228 (audits the milestone's full implementation surface).
+
+**Success Criteria** (what must be TRUE):
+1. A dated audit report exists at `docs-internal/audits/post-impl-2026MMDD-*.md` covering Phases 225–228 with the standard sections (Boundary, Coupling, Seam, OSS Surface, Findings, Grades).
+2. Every P1 finding in the report is either fixed inline (commit referenced in the report) or explicitly deferred with rationale + a tracked backlog phase opened.
+3. Post-audit grade re-run records Boundary Integrity ≥ **A+**, Coupling Health ≥ **B+**, Seam Quality ≥ **A−** in the report's grades table.
+4. v13.4 milestone is unblocked for close — `/gsd-complete-milestone` runs without surfacing unresolved P1 findings.
+
+**Plans:** TBD
+
+---
 
 <details>
 <summary>✅ v13.1 Open-Core Separation P1 (Phases 212-219) — SHIPPED 2026-04-29</summary>
@@ -83,22 +188,6 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 15/15 v13.3 requirements satisfied (AUDIT-01..05, BILLING-01..06, DECOUPLE-01..04). Audit grade movements vs v13.1 close: Boundary Integrity A → **A+** (zero 🟡 risks); Seam Quality B → **B+** (AuditSink + BillingExtension promoted to 🟢); Coupling Health B− → **B** (log_action 65→7 chokepoint sites). Overall readiness 3.39 → 3.85 (A) per `post-impl-20260501-b.md`.
 
 </details>
-
-## Pending Phases (promoted from backlog, awaiting milestone scope)
-
-### Phase 225: ProcessingPort Protocol — break catalog ↔ processing cycle
-
-**Goal:** Invert the 19-file two-way coupling between `backend/app/modules/catalog/*` and `backend/app/processing/*` by defining a `ProcessingPort` Protocol in `backend/app/core/` (mirror Phase 214 `IdentityProtocol` pattern). The 8 `processing/*` → `catalog/*` imports become Protocol-typed; an architecture-guard test prevents the cycle from regrowing.
-**Source:** `docs-internal/audits/oc-separation-audit-20260430-b.md` §5 (Coupling regression: 16 → 19 files since 2026-04-30 baseline) / §7 P0 (action item #2)
-**Estimated effort:** 3–5 days
-**Why:** Two-way coupling makes processing un-overlayable for enterprise (async ingest pipelines, AI gateway swap, persistent connectors). AI features are *deepening* the cycle, not breaking it — `processing/ai/chat_service.py`, `metadata_service.py`, `embeddings/backfill.py` are the new violators.
-**Depends on:** Phase 224 (catalog god-module split — ✅ shipped 2026-05-01)
-**Promoted from:** Phase 999.7 (2026-05-01)
-
-Plans:
-- [ ] TBD
-
----
 
 ## Backlog
 
@@ -142,27 +231,15 @@ Plans:
 
 ---
 
-### Phase 999.10: AIProviderExtension Protocol (BACKLOG — P1)
+### ~~Phase 999.10: AIProviderExtension Protocol~~ — PROMOTED to Phase 226 (v13.4, 2026-05-01)
 
-**Goal:** Replace hardcoded `if/elif provider == "anthropic" / "openai_compatible"` dispatch (currently at `backend/app/processing/ai/llm_loop.py:117,132` and `service.py:387-398`) with `AIProviderExtension` Protocol exposing `complete(messages, tools)` and `stream(...)` methods. Default registry maps the two community providers; overlays register Bedrock / Vertex / Azure / vLLM via the same accessor pattern as `BillingExtension` and `AuditSink`.
-**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #7 (🔴) / §7 P1
-**Estimated effort:** 5–8 days
-**Unblocks:** AI policy/governance, BYO-key, batch AI, model routing. Adding a new provider today touches 5+ files.
-
-Plans:
-- [ ] TBD
+Promoted into the v13.4 Boundary Closeout milestone as Phase 226 (`ai-provider-extension-protocol`). See Active Phases above.
 
 ---
 
-### Phase 999.11: test_no_processing_imports_catalog architecture guard (BACKLOG — P1)
+### ~~Phase 999.11: test_no_processing_imports_catalog architecture guard~~ — INLINED into Phase 225 (v13.4, 2026-05-01)
 
-**Goal:** Add `test_layering.py::test_no_processing_imports_catalog` architecture guard that fails CI if any module under `backend/app/processing/` imports from `backend/app/modules/catalog/`. Mirrors the AUDIT-02 invariant guard pattern from Phase 222.
-**Source:** `oc-separation-audit-20260430-b.md` §7 P1 (action item #5)
-**Estimated effort:** 1 hour
-**Depends on:** Phase 225 (ProcessingPort Protocol, promoted from 999.7) — blocked until the cycle is inverted, otherwise this guard fails immediately.
-
-Plans:
-- [ ] TBD
+Inlined into Phase 225 (`processing-port-protocol-cycle-inversion`) because adding the guard before the cycle is inverted would fail CI immediately. The guard ships in the same phase as the cycle inversion. See Active Phases above.
 
 ---
 
@@ -224,23 +301,12 @@ Plans:
 
 ---
 
-### Phase 999.17: Run cold PyPI/npm publish workflows (BACKLOG — P2)
+### ~~Phase 999.17: Run cold PyPI/npm publish workflows~~ — PROMOTED to Phase 228 (v13.4, 2026-05-01)
 
-**Goal:** Execute the wired-but-cold `.github/workflows/publish-{sdks,cli}.yml` workflows once to convert "wired" → "shipped". Verify `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` are set; consider migrating to PyPI Trusted Publishing (`id-token: write` permission already reserved).
-**Source:** `oc-separation-audit-20260430-b.md` §6 (WIRED — never run) / §7 P2
-**Estimated effort:** 1 hour (after token verification)
-
-Plans:
-- [ ] TBD
+Promoted into the v13.4 Boundary Closeout milestone as Phase 228 (`run-cold-publish-workflows`). See Active Phases above.
 
 ---
 
-### Phase 999.18: SAML test fixture generator → tmp_path (BACKLOG — P3)
+### ~~Phase 999.18: SAML test fixture generator → tmp_path~~ — PROMOTED to Phase 227 (v13.4, 2026-05-01)
 
-**Goal:** Refactor the session-scoped `_regenerate_saml_fixtures` autouse fixture (`backend/tests/test_saml_overlay.py:46-78`) so the generator script writes signed XML responses into a pytest `tmp_path` instead of mutating the committed `backend/tests/fixtures/saml/idp_response_*.xml.b64` files. SAML assertions have a 15-minute validity window, so the generator runs at every session start to refresh the cryptographic signature + IssueInstant + NotOnOrAfter timestamps; today the writes land in tracked files, polluting `git status` after every test run. Fix: generator emits to a session-fixture-managed temp dir; `FIXTURE_DIR` becomes a function returning the active temp dir; committed `.xml.b64` files are renamed to `.xml.b64.template` (immutable templates) or removed entirely if the CI fallback path is unused.
-**Source:** Surfaced during 2026-05-01 v13.3 milestone close — five SAML fixture files were perpetually showing as modified across 9 commits because every pytest invocation rewrote them in place.
-**Estimated effort:** 2-3 hours (refactor generator output paths + update consumers + verify CI fallback or document its removal)
-**Note:** Low priority — the committed fixtures are old enough that the SAML 15-min window has long since expired, so the "CI fallback when pysaml2 unavailable" claim in the docstring is already broken. Either restore the fallback (regenerate fresh fixtures pre-commit) or remove the claim and treat fixtures as session-generated only.
-
-Plans:
-- [ ] TBD
+Promoted into the v13.4 Boundary Closeout milestone as Phase 227 (`saml-test-fixture-tmp-path`). See Active Phases above.
