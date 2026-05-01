@@ -40,6 +40,50 @@ __all__ = [
 ]
 
 
+async def _load_self_record_and_embedding(
+    db: AsyncSession, dataset_id: uuid.UUID
+) -> tuple[uuid.UUID, list[float]] | None:
+    """Return (record_id, embedding) for the dataset, or None if either is absent."""
+    from app.processing.embeddings.models import RecordEmbedding
+
+    record_id_row = (
+        await db.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
+    ).first()
+    if record_id_row is None:
+        return None
+    record_id = record_id_row[0]
+
+    emb_row = (
+        await db.execute(
+            select(RecordEmbedding.embedding)
+            .where(RecordEmbedding.record_id == record_id)
+            .limit(1)
+        )
+    ).first()
+    if emb_row is None:
+        return None
+    return record_id, emb_row[0]
+
+
+async def _compute_neighbor_distances(
+    db: AsyncSession,
+    embedding: list[float],
+    neighbor_record_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, float]:
+    """Cosine-distance every neighbor against the seed embedding."""
+    from app.processing.embeddings.helpers import set_hnsw_recall
+    from app.processing.embeddings.models import RecordEmbedding
+
+    # Tune HNSW recall (default ef_search=40 may miss relevant matches).
+    await set_hnsw_recall(db)
+    stmt = select(
+        RecordEmbedding.record_id,
+        RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
+    ).where(RecordEmbedding.record_id.in_(neighbor_record_ids))
+    result = await db.execute(stmt)
+    return {r.record_id: r.distance for r in result.all()}
+
+
 async def get_related_datasets(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -54,55 +98,27 @@ async def get_related_datasets(
     exceed the similarity threshold (0.3, i.e. cosine distance <= 0.7).
     Results are RBAC-filtered to only include datasets visible to the requesting user.
     """
-    from app.processing.embeddings.models import RecordEmbedding
-
     try:
-        # Get the dataset's record_id
-        record_id_row = (
-            await db.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
-        ).first()
-        if record_id_row is None:
+        seed = await _load_self_record_and_embedding(db, dataset_id)
+        if seed is None:
             return []
-        record_id = record_id_row[0]
+        record_id, embedding = seed
 
-        # Get the dataset's embedding for distance calculation
-        emb_row = (
-            await db.execute(
-                select(RecordEmbedding.embedding)
-                .where(RecordEmbedding.record_id == record_id)
-                .limit(1)
-            )
-        ).first()
-        if emb_row is None:
-            return []
-        embedding = emb_row[0]
-
-        # Find nearest neighbors using shared helper (over-fetch for RBAC filtering)
+        # Find nearest neighbors using shared helper (over-fetch for RBAC filtering).
         from app.processing.embeddings.helpers import get_nearest_record_ids
 
         neighbor_record_ids = await get_nearest_record_ids(
             db, record_id, limit=limit * 3, max_distance=0.7
         )
-
         if not neighbor_record_ids:
             return []
 
-        # Compute distances for the neighbors (needed for similarity score).
-        # Tune HNSW recall (default ef_search=40 may miss relevant matches).
-        from app.processing.embeddings.helpers import set_hnsw_recall
+        neighbor_map = await _compute_neighbor_distances(
+            db, embedding, neighbor_record_ids
+        )
 
-        await set_hnsw_recall(db)
-        nn_dist_stmt = select(
-            RecordEmbedding.record_id,
-            RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
-        ).where(RecordEmbedding.record_id.in_(neighbor_record_ids))
-        nn_dist_result = await db.execute(nn_dist_stmt)
-        neighbor_map = {r.record_id: r.distance for r in nn_dist_result.all()}
-
-        # Join to Dataset + Record to get metadata, apply visibility filter.
-        # Use a fresh local `ds_stmt` so mypy re-infers `Dataset` as the row
-        # type (the earlier `select(Dataset.record_id)` bound `ds_result` to
-        # `Result[UUID]` which leaked into the reassignment).
+        # Join to Dataset + Record, apply visibility filter, then build response items
+        # sorted by similarity (descending).
         ds_stmt = (
             select(Dataset)
             .join(Record, Dataset.record_id == Record.id)
@@ -115,10 +131,6 @@ async def get_related_datasets(
         dataset_result = await db.execute(ds_stmt)
         datasets = list(dataset_result.scalars().unique().all())
 
-        # Build response items sorted by similarity (descending). `similarity`
-        # is always a float (the list is only appended to when distance is
-        # not None), but mypy widens the dict value type to the union of all
-        # keys; pin it on the sort key to keep the lambda return typed.
         items: list[dict] = []
         for ds in datasets:
             distance = neighbor_map.get(ds.record_id)
@@ -233,34 +245,26 @@ async def delete_relationship(
 _PK_COLUMN_NAMES = {"gid", "ogc_fid", "fid", "objectid", "id"}
 
 
-async def auto_detect_relationships(
+async def _detect_fk_candidates(
     session: AsyncSession,
-    dataset_id: uuid.UUID,
     record_id: uuid.UUID,
     column_info: list[dict],
-) -> list:
-    """Auto-detect FK relationships based on *_id column name matching.
+) -> dict[str, list[uuid.UUID]]:
+    """Find FK candidates: ``*_id`` columns matching identifier-role attrs in other datasets.
 
-    For each column ending with ``_id`` (excluding common PK names), look for
-    other datasets that have an attribute with the same name marked as
-    ``semantic_role='identifier'``.  When a match is found a
-    ``DatasetRelationship`` row is created (idempotently via ON CONFLICT DO
-    NOTHING on the existing unique constraint).
+    Returns a dict mapping each source column name to the list of target record_ids
+    that have a matching identifier attribute. Empty dict if no candidates.
+
+    PERF-N4: bulk IN (...) match instead of per-candidate query.
     """
-    from app.modules.catalog.datasets.domain.models import DatasetRelationship
-
     candidates = [
         col["name"]
         for col in column_info
         if col["name"].endswith("_id") and col["name"].lower() not in _PK_COLUMN_NAMES
     ]
     if not candidates:
-        return []
+        return {}
 
-    # PERF-N4: collapse the previous per-candidate loop (N queries for the
-    # identifier match + N queries for the existence check) into two bulk
-    # queries using IN (...). For a dataset with 30 *_id candidates that's
-    # 60 round trips → 2 round trips.
     match_result = await session.execute(
         select(
             AttributeMetadata.field_name,
@@ -273,17 +277,24 @@ async def auto_detect_relationships(
             Dataset.record_id != record_id,  # skip self-references
         )
     )
-    # Group matches by column name so we can produce one relationship per
-    # (source_column, target_record_id).
+
     matches_by_col: dict[str, list[uuid.UUID]] = {}
     for field_name, target_record_id in match_result.all():
         matches_by_col.setdefault(field_name, []).append(target_record_id)
+    return matches_by_col
 
-    if not matches_by_col:
-        return []
 
-    # Pre-fetch existing relationships in one query so the idempotency check
-    # doesn't require another round trip per candidate match.
+async def _persist_new_relationships(
+    session: AsyncSession,
+    record_id: uuid.UUID,
+    matches_by_col: dict[str, list[uuid.UUID]],
+) -> list:
+    """Insert one DatasetRelationship per (col, target) pair not already present.
+
+    PERF: one bulk SELECT for existing keys instead of per-pair lookup.
+    """
+    from app.modules.catalog.datasets.domain.models import DatasetRelationship
+
     existing_result = await session.execute(
         select(
             DatasetRelationship.source_column,
@@ -311,9 +322,29 @@ async def auto_detect_relationships(
             )
             session.add(obj)
             created.append(obj)
-            existing_keys.add(
-                (col_name, target_record_id)
-            )  # avoid dup if same col/target
+            existing_keys.add((col_name, target_record_id))  # avoid dup
+    return created
+
+
+async def auto_detect_relationships(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    record_id: uuid.UUID,
+    column_info: list[dict],
+) -> list:
+    """Auto-detect FK relationships based on *_id column name matching.
+
+    For each column ending with ``_id`` (excluding common PK names), look for
+    other datasets that have an attribute with the same name marked as
+    ``semantic_role='identifier'``.  When a match is found a
+    ``DatasetRelationship`` row is created (idempotently via ON CONFLICT DO
+    NOTHING on the existing unique constraint).
+    """
+    matches_by_col = await _detect_fk_candidates(session, record_id, column_info)
+    if not matches_by_col:
+        return []
+
+    created = await _persist_new_relationships(session, record_id, matches_by_col)
 
     if created:
         await session.flush()
@@ -324,6 +355,53 @@ async def auto_detect_relationships(
         )
 
     return created
+
+
+async def _fetch_fk_value(
+    session: AsyncSession, source_table: str, source_column: str, feature_gid: int
+) -> object | None:
+    """Read the FK value from the source feature row, or None if absent."""
+    result = await session.execute(
+        text(
+            f"SELECT {source_column} FROM data.{source_table} WHERE gid = :gid"
+        ).bindparams(gid=feature_gid)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _count_target_rows(
+    session: AsyncSession, target_table: str, target_column: str, fk_value: object
+) -> int:
+    """Count target rows matching the FK value."""
+    result = await session.execute(
+        text(
+            f"SELECT COUNT(*) FROM data.{target_table} WHERE {target_column} = :fk_val"
+        ).bindparams(fk_val=fk_value)
+    )
+    return int(result.scalar_one())
+
+
+async def _fetch_target_rows(
+    session: AsyncSession,
+    target_table: str,
+    target_column: str,
+    fk_value: object,
+    limit: int,
+    after: int,
+) -> list[dict]:
+    """Window-fetch matching target rows as gid+properties dicts."""
+    rows_result = await session.execute(
+        text(
+            f"SELECT gid, to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties "
+            f"FROM data.{target_table} t "
+            f"WHERE t.{target_column} = :fk_val "
+            f"ORDER BY gid LIMIT :lim OFFSET :off"
+        ).bindparams(fk_val=fk_value, lim=limit, off=after)
+    )
+    return [
+        {"gid": row[0], **(row[1] if isinstance(row[1], dict) else {})}
+        for row in rows_result.all()
+    ]
 
 
 async def get_related_records(
@@ -369,36 +447,19 @@ async def get_related_records(
         raise ValueError("Invalid column name in relationship")
 
     # 4. Get FK value from source table
-    fk_result = await session.execute(
-        text(
-            f"SELECT {rel.source_column} FROM data.{source_ds.table_name} WHERE gid = :gid"
-        ).bindparams(gid=feature_gid)
+    fk_value = await _fetch_fk_value(
+        session, source_ds.table_name, rel.source_column, feature_gid
     )
-    fk_value = fk_result.scalar_one_or_none()
     if fk_value is None:
         return {"rows": [], "approximate_total": 0, "next_cursor": None, "columns": []}
 
     # 5. Query target table for matching rows
-    count_result = await session.execute(
-        text(
-            f"SELECT COUNT(*) FROM data.{target_ds.table_name} "
-            f"WHERE {rel.target_column} = :fk_val"
-        ).bindparams(fk_val=fk_value)
+    total = await _count_target_rows(
+        session, target_ds.table_name, rel.target_column, fk_value
     )
-    total = count_result.scalar_one()
-
-    rows_result = await session.execute(
-        text(
-            f"SELECT gid, to_jsonb(t.*) - 'gid' - 'geom' - 'geom_4326' AS properties "
-            f"FROM data.{target_ds.table_name} t "
-            f"WHERE t.{rel.target_column} = :fk_val "
-            f"ORDER BY gid LIMIT :lim OFFSET :off"
-        ).bindparams(fk_val=fk_value, lim=limit, off=after)
+    rows = await _fetch_target_rows(
+        session, target_ds.table_name, rel.target_column, fk_value, limit, after
     )
-    rows = [
-        {"gid": row[0], **(row[1] if isinstance(row[1], dict) else {})}
-        for row in rows_result.all()
-    ]
 
     # Get column info for target table
     from app.processing.ingest.metadata import get_column_info
