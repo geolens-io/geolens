@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, and 214.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, and 225.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -9,6 +9,8 @@ Enforces open-core boundaries closed by:
   `app.modules.auth.models` outside the 18-file allowlist (auth/**, admin/**,
   plus 7 specific files where `User` is used as a SQLAlchemy InstrumentedAttribute
   holder for SQL queries).
+- Phase 225 PROCESS-02/04 - processing/ must not import from app.modules.catalog.*;
+  all catalog access goes through ProcessingPort (app.core.processing_port).
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -613,6 +615,72 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
             "incomplete) or the literal timeout was changed."
         )
     if result.returncode not in (0,):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_processing_imports_catalog() -> None:
+    """Phase 225 PROCESS-02/04: backend/app/processing/ must not have module-level imports from app.modules.catalog.*.
+
+    All catalog access must go through ProcessingPort (app.core.processing_port).
+    Strict zero-hit for module-level (top-level, unindented) imports — no allowlist
+    for processing/* (D-23).
+
+    Excluded paths:
+      - backend/tests/ — test fixtures construct catalog ORM objects directly,
+        structurally satisfying the Protocols (the scan target backend/app/processing/
+        is already disjoint from backend/tests/, so no explicit pathspec exclusion
+        is needed).
+
+    Scope: this guard catches module-level imports (lines starting at column 0
+    with ``from app.modules.catalog`` or ``import app.modules.catalog``).
+    Function-scope lazy imports (indented, e.g. inside async def bodies in
+    tiles/router.py, ai/service.py, ai/router.py, ai/metadata_service.py,
+    export/router.py) are a separate migration target and are out of scope for
+    this guard. The guard prevents any NEW module-level catalog import edges
+    from being introduced.
+
+    The pattern ``^(from|import) app.modules.catalog`` (literal space, no backslash-s
+    metachar) is used because git grep's POSIX ERE does not recognize backslash-s as a
+    whitespace class — the POSIX-compatible form would require ``[[:space:]]``, but
+    a literal space is equivalent for well-formatted Python import statements and
+    matches the intent of the guard.
+
+    Maps to Phase 225 ROADMAP SC#2 / SC#3. Inlines former Phase 999.11
+    (added in same phase as the inversion — guard before inversion fails CI).
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 225 PROCESS-04 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git", "grep", "-n", "-E",
+            r"^(from|import) app\.modules\.catalog",
+            "--",
+            "backend/app/processing/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 225 PROCESS-02/04 invariant violated: backend/app/processing/ "
+            "contains a module-level import from app.modules.catalog.*. All catalog "
+            "access must go through ProcessingPort (app.core.processing_port). "
+            f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
         pytest.fail(
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
