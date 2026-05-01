@@ -1,4 +1,4 @@
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline
+.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline
 
 dev:
 	docker compose up --build
@@ -142,3 +142,12 @@ publish-cli: ## Build + publish geolens CLI to PyPI (requires UV_PUBLISH_TOKEN)
 # without spinning up the full pytest suite.
 audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults.py (Phase 222 AUDIT-02)
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_log_action_calls_outside_audit_service -v
+
+# Phase 223 BILLING-02 / BILLING-04 invariants:
+#   - app.core.marketplace must not exist as a module under backend/app/
+#   - No `from app.core.marketplace` import anywhere in backend/app/
+#   - The production dispatch loop in api/main.py uses literal timeout=10.0 (D-11)
+# This target runs both architecture-guard tests in isolation — quick local
+# verification without spinning up the full pytest suite.
+billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispatch hardcodes timeout=10.0 (Phase 223 BILLING-02 / BILLING-04)
+	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_core_marketplace_import tests/test_layering.py::test_billing_dispatch_uses_hardcoded_timeout -v
