@@ -84,6 +84,22 @@ Audit grades met: Boundary A (≥A−), Seam Quality B (≥B), OSS Surface A− 
 
 </details>
 
+## Pending Phases (promoted from backlog, awaiting milestone scope)
+
+### Phase 225: ProcessingPort Protocol — break catalog ↔ processing cycle
+
+**Goal:** Invert the 19-file two-way coupling between `backend/app/modules/catalog/*` and `backend/app/processing/*` by defining a `ProcessingPort` Protocol in `backend/app/core/` (mirror Phase 214 `IdentityProtocol` pattern). The 8 `processing/*` → `catalog/*` imports become Protocol-typed; an architecture-guard test prevents the cycle from regrowing.
+**Source:** `docs-internal/audits/oc-separation-audit-20260430-b.md` §5 (Coupling regression: 16 → 19 files since 2026-04-30 baseline) / §7 P0 (action item #2)
+**Estimated effort:** 3–5 days
+**Why:** Two-way coupling makes processing un-overlayable for enterprise (async ingest pipelines, AI gateway swap, persistent connectors). AI features are *deepening* the cycle, not breaking it — `processing/ai/chat_service.py`, `metadata_service.py`, `embeddings/backfill.py` are the new violators.
+**Depends on:** Phase 224 (catalog god-module split — ✅ shipped 2026-05-01)
+**Promoted from:** Phase 999.7 (2026-05-01)
+
+Plans:
+- [ ] TBD
+
+---
+
 ## Backlog
 
 ### Phase 999.6: Tenant scoping infrastructure for multi-tenant isolation (BACKLOG — Cloud prerequisite)
@@ -99,19 +115,6 @@ No tenant-scoping infrastructure exists today — `User` has no tenant column, a
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
-
----
-
-### Phase 999.7: ProcessingPort Protocol — break catalog ↔ processing cycle (BACKLOG — P0)
-
-**Goal:** Invert the 19-file two-way coupling between `backend/app/modules/catalog/*` and `backend/app/processing/*` by defining a `ProcessingPort` Protocol in `backend/app/core/` (mirror Phase 214 `IdentityProtocol` pattern). The 8 `processing/*` → `catalog/*` imports become Protocol-typed; an architecture-guard test prevents the cycle from regrowing.
-**Source:** `docs-internal/audits/oc-separation-audit-20260430-b.md` §5 (Coupling regression: 16 → 19 files since 2026-04-30 baseline) / §7 P0 (action item #2)
-**Estimated effort:** 3–5 days
-**Why:** Two-way coupling makes processing un-overlayable for enterprise (async ingest pipelines, AI gateway swap, persistent connectors). AI features are *deepening* the cycle, not breaking it — `processing/ai/chat_service.py`, `metadata_service.py`, `embeddings/backfill.py` are the new violators. Phase 224 (catalog god-module split) is a prerequisite — easier to invert imports against a focused module surface than against a 1407-LOC orchestrator.
-**Depends on:** Phase 224 (catalog god-module split) recommended first
-
-Plans:
-- [ ] TBD
 
 ---
 
@@ -156,7 +159,7 @@ Plans:
 **Goal:** Add `test_layering.py::test_no_processing_imports_catalog` architecture guard that fails CI if any module under `backend/app/processing/` imports from `backend/app/modules/catalog/`. Mirrors the AUDIT-02 invariant guard pattern from Phase 222.
 **Source:** `oc-separation-audit-20260430-b.md` §7 P1 (action item #5)
 **Estimated effort:** 1 hour
-**Depends on:** Phase 999.7 (ProcessingPort Protocol) — blocked until the cycle is inverted, otherwise this guard fails immediately.
+**Depends on:** Phase 225 (ProcessingPort Protocol, promoted from 999.7) — blocked until the cycle is inverted, otherwise this guard fails immediately.
 
 Plans:
 - [ ] TBD
