@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     String,
     Text,
     func,
@@ -25,6 +26,13 @@ class User(Base):
         CheckConstraint(
             "auth_provider IN ('local', 'oidc', 'oauth')",
             name="chk_users_auth_provider",
+        ),
+        # Partial index: most user lookups don't need to scan pending rows; the
+        # admin "pending users" view does, and benefits from this targeted index.
+        Index(
+            "idx_users_status_pending",
+            "status",
+            postgresql_where="status = 'pending'",
         ),
         {"schema": "catalog"},
     )

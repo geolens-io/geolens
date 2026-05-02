@@ -4,16 +4,16 @@ Tables, types, functions, triggers, and indexes for the procrastinate
 async task queue. Managed separately from application tables since this
 is third-party library infrastructure.
 
-Revision ID: 0003_prc
-Revises: 0002_tbl
-Create Date: 2026-03-28
+Revision ID: 0002_procrastinate
+Revises: 0001_baseline
+Create Date: 2026-05-02
 """
 
 from typing import Sequence, Union
 from alembic import op
 
-revision: str = "0003_prc"
-down_revision: Union[str, None] = "0002_tbl"
+revision: str = "0002_procrastinate"
+down_revision: Union[str, None] = "0001_baseline"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

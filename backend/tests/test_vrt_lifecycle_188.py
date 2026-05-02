@@ -171,10 +171,10 @@ class TestVrtSourceHealthSchema:
 
 
 class TestMigrationStructure:
-    """Initial schema includes vrt_generations table."""
+    """Baseline migration includes vrt_generations table."""
 
-    def test_initial_schema_contains_vrt_generations(self):
-        """Verify the initial tables migration creates vrt_generations."""
+    def test_baseline_schema_contains_vrt_generations(self):
+        """Verify the baseline migration creates vrt_generations."""
         import os
 
         migration_path = os.path.join(
@@ -182,7 +182,7 @@ class TestMigrationStructure:
             "..",
             "alembic",
             "versions",
-            "0002_initial_tables.py",
+            "0001_baseline.py",
         )
         with open(migration_path) as f:
             content = f.read()
@@ -190,15 +190,14 @@ class TestMigrationStructure:
         assert "vrt_generations" in content
         assert "vrt_dataset_id" in content
 
-    def test_initial_migration_importable(self):
-        """Initial migration files have upgrade/downgrade functions."""
+    def test_baseline_migrations_importable(self):
+        """Baseline migration files have upgrade/downgrade functions."""
         import importlib.util
         import os
 
         for filename in (
-            "0001_foundations.py",
-            "0002_initial_tables.py",
-            "0003_procrastinate.py",
+            "0001_baseline.py",
+            "0002_procrastinate.py",
         ):
             path = os.path.join(
                 os.path.dirname(__file__),

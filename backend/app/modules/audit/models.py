@@ -20,7 +20,7 @@ class AuditLog(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     action: Mapped[str] = mapped_column(String(50), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(50), nullable=False)

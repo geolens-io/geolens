@@ -5,9 +5,29 @@ All notable changes to GeoLens are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **Note on version history.** GeoLens 1.0.0 marks the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 13.0 during pre-public development. The legacy entries below 1.0.0 are preserved for historical context only — they do not represent prior public releases. There is no migration path from any pre-1.0.0 version; 1.0.0 is the first version anyone outside the project has run.
+> **Note on version history.** GeoLens 1.0.0 marks the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 14.0 during pre-public development. The legacy entries below 1.0.0 are preserved for historical context only — they do not represent prior public releases. There is no migration path from any pre-1.0.0 version; 1.0.0 is the first version anyone outside the project has run.
 
 ## [Unreleased]
+
+### Changed — Pre-public migration squash (2026-05-02)
+
+- **Alembic migration chain squashed from 23 migrations to 2** (`0001_baseline` + `0002_procrastinate`). The pre-public chain `0001_fdn` → `0002_tbl` → `0003_prc` → ... → `t6u7v8w9x0y1` collapses into a single application-schema baseline plus the procrastinate queue infrastructure migration kept separate. Verified by round-tripping every migration against a throwaway database and diffing the resulting `pg_dump` schema-only output against the squashed-baseline output: all 37 tables / 39 indexes / 24 functions / 8 triggers / 3 sequences / 3 types match 1:1; remaining diff is column-ordering only (no functional impact).
+- **Existing pre-1.0.0 dev databases** must run a one-shot `UPDATE catalog.alembic_version SET version_num = '0002_procrastinate'` to align with the new chain (alembic-stamp won't work because the prior revision IDs are no longer in the script directory). New clean installs run the 2-migration baseline directly. Per the existing changelog header, no migration path from any pre-1.0.0 version is supported by GeoLens 1.0.0+.
+
+### Fixed — Model ↔ DB drift (2026-05-02)
+
+Resolved 5 instances of model-vs-DB drift uncovered by the migration squash. The squashed baseline now produces the model-defined schema (clean installs) and the SQLAlchemy models accurately describe what's in the database:
+
+- `AITokenUsage.input_tokens` / `output_tokens` — added `server_default="0"` to model (DB had it; model didn't).
+- `Record.language` — added `server_default="en"` to model (DB had it; model didn't).
+- `MapShareToken.token_hint` — removed `server_default="***"` from model (DB doesn't have it; the migration that created the column did not set a default).
+- `MapShareToken.token_hash` — moved inline `unique=True` to a named `UniqueConstraint("token_hash", name="uq_map_share_tokens_token_hash")` in `__table_args__` so the constraint name matches the live DB.
+- `Map.chk_maps_visibility` — the live DB's constraint had a stale `'unlisted'` value the model never knew about and no application code ever produced. Tightened the live DB constraint to the model's 3-value form (`'private', 'public', 'internal'`); no rows were affected.
+
+Two further "drift" items are intentional open-core boundaries and are preserved as fixups in `0001_baseline.upgrade()`:
+
+- `OAuthProvider.chk_oauth_providers_type` — the model declares the OSS+enterprise *union* (`'oidc', 'google', 'microsoft', 'saml'`); the OSS baseline narrows the constraint to OSS-only values; enterprise migration `e002_add_saml_columns` re-adds `'saml'` when the overlay is loaded.
+- `OAuthProvider` SAML columns (`idp_entity_id`, `idp_sso_url`, `idp_certificate`, `sp_entity_id`) — the model declares them with `deferred=True` so the OSS overlay never selects them; the OSS baseline does not create them; enterprise migration `e002_add_saml_columns` adds them.
 
 ### Added — v13.3 Boundary A+ Cleanup (2026-04-30)
 
@@ -163,19 +183,6 @@ UPDATE catalog.records
    AND visibility = 'public';
 ```
 
-## [14.0] - 2026-03-30
-
-### Added
-- Astro-based marketing site at getgeolens.com (phases 212-214)
-- Marketing site content pages: features overview, use cases, architecture, and pricing
-- 3D data and maps support feasibility design doc
-
-### Fixed
-- Shared map raster tile URL path resolution for VRT datasets
-- DEM terrain tiles skip rescale for terrainrgb algorithm
-- Duplicate Alembic revision ID and broken chain for 3D columns migration
-- Post-implementation audit findings across 3D and shared vector staging phases
-
 ## [1.0.0] - 2026-04-01
 
 ### Added
@@ -226,6 +233,16 @@ UPDATE catalog.records
 - OOM risks fixed in S3 upload and reupload file hash
 - Deprecated `HTTP_422_UNPROCESSABLE_ENTITY` references replaced
 - Raster and spreadsheet types included in default allowed extensions
+
+## [14.0] - 2026-03-30
+
+> *Internal pre-public version. Most marketing-site content listed here was relocated to the [getgeolens.com](https://github.com/geolens-io/getgeolens.com) repo before public release; only the core fixes below remained in this codebase.*
+
+### Fixed
+- Shared map raster tile URL path resolution for VRT datasets
+- DEM terrain tiles skip rescale for terrainrgb algorithm
+- Duplicate Alembic revision ID and broken chain for 3D columns migration
+- Post-implementation audit findings across 3D and shared vector staging phases
 
 ## [13.0] - 2026-03-27
 

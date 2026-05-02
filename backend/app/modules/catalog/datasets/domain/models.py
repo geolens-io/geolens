@@ -18,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -67,6 +68,17 @@ class Record(Base):
             "source_organization",
             postgresql_where="source_organization IS NOT NULL",
         ),
+        Index(
+            "idx_records_search_vector",
+            "search_vector",
+            postgresql_using="gin",
+        ),
+        Index(
+            "idx_records_visibility_status_creator",
+            "visibility",
+            "record_status",
+            "created_by",
+        ),
         {"schema": "catalog"},
     )
 
@@ -85,7 +97,9 @@ class Record(Base):
     record_type: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="vector_dataset"
     )
-    language: Mapped[str | None] = mapped_column(String(10), default="en")
+    language: Mapped[str | None] = mapped_column(
+        String(10), default="en", server_default="en"
+    )
     spatial_extent: Mapped[str | None] = mapped_column(
         Geometry("POLYGON", srid=4326), nullable=True
     )
@@ -266,6 +280,17 @@ class RecordContact(Base):
             "'mediator', 'rightsHolder', 'contributor', 'funder', 'stakeholder')",
             name="chk_contact_role",
         ),
+        # Functional GIN over (name, organization) tsvector for FTS lookup; expression
+        # mirrors the literal CREATE INDEX in the baseline migration.
+        Index(
+            "ix_record_contacts_fts",
+            text(
+                "to_tsvector('english'::regconfig, "
+                "(COALESCE(name, ''::text) || ' '::text) || "
+                "COALESCE(organization, ''::text))"
+            ),
+            postgresql_using="gin",
+        ),
         {"schema": "catalog"},
     )
 
@@ -273,7 +298,7 @@ class RecordContact(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     record_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False, index=True
     )
     role: Mapped[str] = mapped_column(String(30), nullable=False)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -297,8 +322,23 @@ class RecordKeyword(Base):
             "'product', 'project', 'service', 'subTopicCategory', 'taxon')",
             name="chk_keyword_type",
         ),
-        # NOTE: uniqueness enforced by functional unique index in migration:
-        # CREATE UNIQUE INDEX uq_record_keyword ON ... (record_id, keyword, keyword_type, COALESCE(vocabulary_uri, ''))
+        # Functional GIN for keyword full-text lookup
+        Index(
+            "ix_record_keywords_fts",
+            text("to_tsvector('english'::regconfig, keyword)"),
+            postgresql_using="gin",
+        ),
+        # Functional UNIQUE: treat NULL vocabulary_uri as empty string so duplicates
+        # with NULL still collide. Mirrors the CREATE UNIQUE INDEX in the baseline
+        # migration -- a plain UniqueConstraint would let NULL rows duplicate.
+        Index(
+            "uq_record_keyword",
+            "record_id",
+            "keyword",
+            "keyword_type",
+            text("COALESCE(vocabulary_uri, ''::text)"),
+            unique=True,
+        ),
         {"schema": "catalog"},
     )
 
@@ -308,6 +348,8 @@ class RecordKeyword(Base):
     record_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
     )
+    # Note: record_id is covered by the composite uq_record_keyword unique index above,
+    # so a separate single-column FK index would be redundant.
     keyword: Mapped[str] = mapped_column(Text, nullable=False)
     vocabulary_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
     keyword_type: Mapped[str] = mapped_column(
@@ -339,7 +381,7 @@ class RecordDistribution(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     record_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False, index=True
     )
     distribution_type: Mapped[str] = mapped_column(String(30), nullable=False)
     format: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -373,6 +415,11 @@ class AttributeMetadata(Base):
             "'continuous', 'discrete', 'categorical', 'coded', 'codedValue', "
             "'boolean', 'text', 'date', 'temporal', 'geometry', 'range')",
             name="chk_domain_type",
+        ),
+        Index(
+            "idx_attribute_metadata_dataset_current",
+            "dataset_id",
+            "is_current",
         ),
         {"schema": "catalog"},
     )
@@ -441,7 +488,7 @@ class DatasetRelationship(Base):
         ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
     )
     target_dataset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.records.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source_column: Mapped[str] = mapped_column(String(100), nullable=False)
     target_column: Mapped[str] = mapped_column(
