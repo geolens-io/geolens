@@ -172,10 +172,6 @@ jobs:
       GEOLENS_ADMIN_USERNAME: admin
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: backend
-      # Pin uv at the backend venv so the SDK + CLI editable installs
-      # below land in one shared environment (`uv pip install` outside a
-      # project root requires either VIRTUAL_ENV or `--system`).
-      VIRTUAL_ENV: ${{ github.workspace }}/backend/.venv
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -187,17 +183,19 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install backend (for round-trip test FastAPI app)
+      # Install backend + SDK + CLI editable into ONE shared venv
+      # (backend/.venv). The round-trip test in backend/tests/ imports
+      # geolens_cli, so all three packages need to coexist in the env
+      # that pytest uses. Using `uv pip install -e ../...` from backend/
+      # places SDK + CLI editable into backend's venv (uv-sources in
+      # cli/pyproject.toml resolves the geolens-sdk dep against the
+      # local sibling tree, since the SDK isn't on PyPI yet).
+      - name: Install backend + SDK + CLI into shared venv
         working-directory: backend
-        run: uv sync --locked --dev
-
-      - name: Install Python SDK from local path (round-trip dep)
-        working-directory: sdks/python
-        run: uv pip install -e .
-
-      - name: Install CLI from local path with dev extras
-        working-directory: cli
-        run: uv pip install -e ".[dev]"
+        run: |
+          uv sync --locked --dev
+          uv pip install -e ../sdks/python
+          uv pip install -e "../cli[dev]"
 
       # OCCLI-06 structural gate (1/2): no direct httpx/requests imports.
       # `grep -rE` returns exit 1 when no matches → success for us; flip
@@ -213,10 +211,13 @@ jobs:
 
       # OCCLI-06 structural gate (2/2): cli/pyproject.toml declares no
       # httpx or requests dep (transitive via geolens-sdk is fine).
+      # Use system python (not `uv run`) — the script only needs stdlib
+      # tomllib, and `uv run` from cli/ would force a separate cli/.venv
+      # resolution distinct from the shared backend/.venv used elsewhere.
       - name: OCCLI-06 — no httpx/requests in cli/pyproject.toml deps
         working-directory: cli
         run: |
-          uv run python -c "
+          python -c "
           import tomllib
           with open('pyproject.toml', 'rb') as f:
               d = tomllib.load(f)
@@ -226,9 +227,14 @@ jobs:
           print('OK: no httpx/requests direct deps in cli/pyproject.toml')
           "
 
+      # CLI unit tests: run from cli/ so pytest picks up cli/pyproject.toml's
+      # [tool.pytest.ini_options] testpaths, but use the SHARED backend venv
+      # (which has cli + sdk + cli's deps installed editable) via
+      # `--project ../backend` so pytest doesn't try to resolve a fresh
+      # cli/.venv from PyPI.
       - name: CLI unit tests
         working-directory: cli
-        run: uv run pytest -v
+        run: uv run --project ../backend pytest -v
 
       - name: CLI round-trip integration test
         working-directory: backend
