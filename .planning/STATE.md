@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 Phase: 228 (run-cold-publish-workflows) — EXECUTING
 Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-05-02
+Last activity: 2026-05-02 - Completed quick task 260502-c19: star-audit command review (correctness + readiness checks)
 
 ## Roadmap Snapshot
 
@@ -139,6 +139,7 @@ The following stay in this repo because they describe work executed in this repo
 | 260425-sl1 | Address backend test debt (15 failures from audit 2026-04-25) — restored green-baseline (1965/1965) | 2026-04-26 | d6c5a4c8 | Verified | [260425-sl1-address-the-debt-in-docs-internal-audits](./quick/260425-sl1-address-the-debt-in-docs-internal-audits/) |
 | 260426-ihc | PR1 of post-impl-20260426-HANDOFF: search hot-path caching (PERF-2 + PERF-7) — 30s anon-only response cache on /search/datasets and /search/facets | 2026-04-26 | 7aebc4d8 | Verified | [260426-ihc-pr1-search-hot-path-caching-perf-2-perf-](./quick/260426-ihc-pr1-search-hot-path-caching-perf-2-perf-/) |
 | 260426-m5d | PR2 of post-impl-20260426-HANDOFF: search/maps function decomposition (KISS-1 + KISS-2 + PERF-6) — split search_datasets, extract _bulk_fetch_dataset_metadata, eliminate post-save get_map_with_layers re-fetch | 2026-04-26 | 550179c4 | Verified | [260426-m5d-pr2-search-maps-function-decomposition-k](./quick/260426-m5d-pr2-search-maps-function-decomposition-k/) |
+| 260502-c19 | Review `.claude/commands/star-audit.md` — correctness fixes + add Subagent F (release readiness) + Phase 2.5 gate + F.10 visitor-facing OC check (defers engineering-level OC to /oc-audit) | 2026-05-02 | 325cede3 | Verified | [260502-c19-review-the-claude-command-claude-command](./quick/260502-c19-review-the-claude-command-claude-command/) |
 
 ## Deferred Items
 
