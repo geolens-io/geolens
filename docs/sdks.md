@@ -117,7 +117,7 @@ const sdk = createGeolensClient({
 | **`openapi-python-client@0.28.3`** for Python | Modern, actively maintained (2024-2026), runs via `uvx` (no global install), emits idiomatic typed clients backed by `httpx` (async-ready) and `attrs` dataclasses. Avoids the JVM dependency that `openapi-generator` (Java) imposes. |
 | **`@hey-api/openapi-ts@0.96.1`** for TypeScript | Active replacement for the maintenance-mode `openapi-typescript-codegen`. ESM-only (Node 22+ for codegen), customizable templates, integrated client variants. Pairs with **`@hey-api/client-fetch@0.13.1`** for native `fetch` support. |
 
-Alternatives considered and rejected: `openapi-generator-cli` (JVM dependency), `openapi-typescript-codegen` (legacy, maintenance-only), `Speakeasy` (commercial SaaS — incompatible with open-core ethos). See `.planning/phases/215-sdks-from-openapi/215-RESEARCH.md` for the full evaluation.
+Alternatives considered and rejected: `openapi-generator-cli` (JVM dependency), `openapi-typescript-codegen` (legacy, maintenance-only), `Speakeasy` (commercial SaaS — incompatible with open-core ethos).
 
 ## Regeneration
 
@@ -298,7 +298,6 @@ The published SDK declares `"engines": { "node": ">=18" }`. The CI workflow uses
 - [openapi-python-client docs](https://github.com/openapi-generators/openapi-python-client)
 - [@hey-api/openapi-ts docs](https://heyapi.dev/openapi-ts/get-started.html)
 - [GeoLens API reference](https://github.com/geolens-io/geolens) (Swagger UI at `/docs` on any running instance)
-- Phase 215 implementation: `.planning/phases/215-sdks-from-openapi/`
 
 ---
 
