@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, 214, 222, 223, 224, and 225.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, and 226.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -11,6 +11,13 @@ Enforces open-core boundaries closed by:
   holder for SQL queries).
 - Phase 225 PROCESS-02/04 - processing/ must not import from app.modules.catalog.*;
   all catalog access goes through ProcessingPort (app.core.processing_port).
+- Phase 226 AIEXT-03/05 - processing/ai/ must not contain hardcoded
+  `if provider == "anthropic"/"openai_compatible"` dispatch; all provider
+  dispatch goes through `get_ai_provider(name).complete(...)` from
+  `app.platform.extensions`. Pathspec excludes `streaming.py` and
+  `metadata_service.py` per RESEARCH.md Open Questions 1 & 2 (true
+  LLM-token streaming and structured-output APIs are deferred-scope
+  follow-up phases).
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -679,6 +686,87 @@ def test_no_processing_imports_catalog() -> None:
             "contains a module-level import from app.modules.catalog.*. All catalog "
             "access must go through ProcessingPort (app.core.processing_port). "
             f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_hardcoded_ai_provider_branches() -> None:
+    """Phase 226 AIEXT-03/05: no hardcoded ``if provider ==`` dispatch in processing/ai/.
+
+    SC#3 binding (ROADMAP §Phase 226): ``grep -RE "if .*provider *== *['\"]
+    (anthropic|openai_compatible)" backend/app/processing/ai/`` returns zero
+    hits after the Phase 226 migration. Replaces ten dispatch sites that
+    previously branched on the provider name string (5 in scope after the
+    migration; 4 in deferred-scope files documented below).
+
+    Excluded paths:
+      - ``backend/tests/`` — test fixtures may legitimately stub provider
+        names (e.g., ``test_chat_streaming.py`` may construct mock
+        assertions against the literal "anthropic" string).
+      - ``backend/app/processing/ai/streaming.py`` — true LLM-token
+        streaming via ``_stream_anthropic_chat`` / ``_stream_openai_chat``
+        (~200 LOC each) is explicitly deferred per RESEARCH.md Open
+        Question 1. CONTEXT.md §deferred lists "True LLM-token streaming"
+        as a follow-up phase. The if/elif provider branches at
+        ``streaming.py:516,531`` will migrate when the ``stream()`` Protocol
+        method is implemented for real (current default raises
+        NotImplementedError per D-03).
+      - ``backend/app/processing/ai/metadata_service.py`` — structured-output
+        APIs (``client.beta.chat.completions.parse`` for OpenAI Pydantic
+        response_format; ``tool_choice={"type":"tool","name":"output"}``
+        for Anthropic forced-tool-use) don't map to the wide ``complete()``
+        Protocol shape, which returns ``ToolLoopResult`` (not a Pydantic
+        model). RESEARCH.md Open Question 2: a future phase adds
+        ``structured_complete(response_model, ...)`` to the Protocol; until
+        then the dispatch at ``metadata_service.py:255,291`` is
+        pathspec-excluded.
+
+    Negative-control (D-14): temporarily reintroduce
+    ``if provider == "anthropic":`` in ``processing/ai/sql_generator.py``,
+    run this test, confirm it fails with the offending line surfaced.
+    Revert. Run again, confirm green.
+
+    Maps to AIEXT-03 + AIEXT-05 (REQUIREMENTS.md §Phase 226).
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 226 AIEXT-03 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"if\s+.*provider\s*==\s*['\"](?:anthropic|openai_compatible)",
+            "--",
+            "backend/app/processing/",
+            ":!backend/tests/",
+            ":!backend/app/processing/ai/streaming.py",
+            ":!backend/app/processing/ai/metadata_service.py",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 226 AIEXT-03 invariant violated: hardcoded AI provider "
+            "dispatch (`if provider == 'anthropic'/'openai_compatible'`) found "
+            "in backend/app/processing/. Replace with "
+            "`get_ai_provider(name).complete(...)` from "
+            "`app.platform.extensions`.\nOffending lines:\n" + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
