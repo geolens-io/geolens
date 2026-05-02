@@ -107,7 +107,7 @@ def sync_detailed(
 ) -> Response[EmbedTokenResponse | ProblemDetail]:
     """Update Embed Token Endpoint
 
-     Update embed token allowed_origins (enterprise only).
+     Update embed token allowed_origins.
 
     Args:
         map_id (UUID):
@@ -144,7 +144,7 @@ def sync(
 ) -> EmbedTokenResponse | ProblemDetail | None:
     """Update Embed Token Endpoint
 
-     Update embed token allowed_origins (enterprise only).
+     Update embed token allowed_origins.
 
     Args:
         map_id (UUID):
@@ -176,7 +176,7 @@ async def asyncio_detailed(
 ) -> Response[EmbedTokenResponse | ProblemDetail]:
     """Update Embed Token Endpoint
 
-     Update embed token allowed_origins (enterprise only).
+     Update embed token allowed_origins.
 
     Args:
         map_id (UUID):
@@ -211,7 +211,7 @@ async def asyncio(
 ) -> EmbedTokenResponse | ProblemDetail | None:
     """Update Embed Token Endpoint
 
-     Update embed token allowed_origins (enterprise only).
+     Update embed token allowed_origins.
 
     Args:
         map_id (UUID):

@@ -5128,7 +5128,7 @@
                 "type": "null"
               }
             ],
-            "description": "Restrict embedding to these origins (enterprise only). Omit to allow any origin.",
+            "description": "Restrict embedding to these origins. Omit to allow any origin.",
             "example": [
               "https://dashboard.example.com"
             ],
@@ -5136,7 +5136,7 @@
           },
           "expires_in_days": {
             "default": 30,
-            "description": "Token lifetime in days (1-365). Expiration controls are enterprise controls (enterprise only).",
+            "description": "Token lifetime in days (1-365).",
             "example": 90,
             "maximum": 365.0,
             "minimum": 1.0,
@@ -5387,7 +5387,7 @@
                 "type": "null"
               }
             ],
-            "description": "Updated list of allowed embedding origins (enterprise only)",
+            "description": "Updated list of allowed embedding origins",
             "title": "Allowed Origins"
           }
         },
@@ -10733,7 +10733,7 @@
                 "type": "null"
               }
             ],
-            "description": "Expiration timestamp (enterprise only); null = never expires",
+            "description": "Expiration timestamp; null = never expires",
             "title": "Expires At"
           }
         },
@@ -30534,7 +30534,7 @@
         ]
       },
       "post": {
-        "description": "Create an embed token scoped to a map's current layers.\n\nExpiration and allowed-origin restrictions are enterprise controls (enterprise only).",
+        "description": "Create an embed token scoped to a map's current layers.",
         "operationId": "create_embed_token_endpoint_maps__map_id__embed_tokens__post",
         "parameters": [
           {
@@ -30784,7 +30784,7 @@
         ]
       },
       "patch": {
-        "description": "Update embed token allowed_origins (enterprise only).",
+        "description": "Update embed token allowed_origins.",
         "operationId": "update_embed_token_endpoint_maps__map_id__embed_tokens__token_id___patch",
         "parameters": [
           {
@@ -31394,7 +31394,7 @@
         ]
       },
       "patch": {
-        "description": "Update expiration on an existing share token (enterprise only). Owner or admin only.",
+        "description": "Update expiration on an existing share token. Owner or admin only.",
         "operationId": "update_map_share_token_endpoint_maps__map_id__share__patch",
         "parameters": [
           {
