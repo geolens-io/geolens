@@ -335,9 +335,20 @@ Identify the top 3 most relevant lists and note the submission requirements.
 Awesome lists have submission bars (often: ≥ 100 stars, working demo, license, no broken links). A rejected PR is fine; a low-quality PR damages reputation. Before submitting, fetch each list's CONTRIBUTING and confirm the project meets the bar:
 
 ```bash
-for list in awesome-fastapi awesome-postgis awesome-vector-search awesome-pgvector; do
-  gh repo view "$list-owner/$list" --json description,url 2>/dev/null
-  # Then: gh api repos/$list-owner/$list/contents/CONTRIBUTING.md
+# Map each list to its real owner — owners differ per list, hence the explicit
+# pairing. Replace this with the current owner if a list moves.
+declare -A AWESOME_LISTS=(
+  ["awesome-fastapi"]="mjhea0"
+  ["awesome-postgis"]="b-syrota"
+  ["awesome-vector-search"]="currentslab"
+  ["awesome-pgvector"]="pgvector"
+)
+for list in "${!AWESOME_LISTS[@]}"; do
+  owner="${AWESOME_LISTS[$list]}"
+  echo "=== $owner/$list ==="
+  gh repo view "$owner/$list" --json description,url 2>/dev/null
+  gh api "repos/$owner/$list/contents/CONTRIBUTING.md" --jq '.content' 2>/dev/null \
+    | base64 -d 2>/dev/null | head -50
 done
 ```
 
@@ -770,8 +781,10 @@ REMOVED_COMPONENTS=(
   "pg_featureserv"                 # removed v2.2
   "SHOW_LANDING_PAGE"              # env var removed v13.x
   "VITE_API_PROXY_TARGET"          # renamed (one-release fallback only)
-  "AWS_MARKETPLACE_PRODUCT_CODE"   # enterprise-overlay-only as of v13.3
 )
+# Note: keep this array fact-current. Don't list components scheduled for future
+# removal — only ones that have actually shipped a removal (verify against
+# CHANGELOG and the latest released milestone).
 
 USER_FACING="README.md FEATURES.md docs/ .env.example docker-compose*.yml"
 
@@ -796,8 +809,13 @@ head -5 CHANGELOG.md | grep -E "Keep a Changelog" || echo "MISS: no Keep-a-Chang
 grep -E '^## \[[0-9]' CHANGELOG.md | head -3
 
 # Unreleased section size sanity
+# Note: awk's range pattern is inclusive on both ends — UNREL_LINES counts the
+# `## [Unreleased]` header line and the next `## [X.Y.Z]` header line. The 200-
+# line threshold below is loose enough that the +2 inflation doesn't matter in
+# practice; tighten to a smaller threshold and exclude the boundary lines if you
+# need an exact count.
 UNREL_LINES=$(awk '/^## \[Unreleased\]/,/^## \[[0-9]/' CHANGELOG.md | wc -l)
-echo "Unreleased section: $UNREL_LINES lines"
+echo "Unreleased section: $UNREL_LINES lines (approximate; includes both range boundaries)"
 [ "$UNREL_LINES" -gt 200 ] && echo "FLAG: Unreleased section may be hiding an unreleased release — consider tagging"
 
 # Stale-dated entries inside Unreleased
@@ -805,7 +823,7 @@ grep -A 50 '^## \[Unreleased\]' CHANGELOG.md | grep -oE '\(20[0-9][0-9]-[0-9]{2}
 ```
 
 **Pass criteria:**
-- Keep a Changelog 1.1.0 reference in header (NOT 1.0.0 — geolens is on 1.1.0)
+- Header references the **Keep a Changelog spec** at https://keepachangelog.com/en/1.1.0/ (1.1.0 is the spec version — projects on the older 1.0.0 spec should upgrade)
 - Most-recent dated entry: format `## [X.Y.Z] - YYYY-MM-DD`
 - `[Unreleased]` either empty or actively in progress
 - Latest entry's date within 90 days of `git log -1 --format=%ci` (warn otherwise)
@@ -816,10 +834,11 @@ Each fail = **P2 QUALITY**.
 
 ```bash
 echo "=== Demo / live URLs declared in README ==="
-head -100 README.md | grep -oE 'https://[^ )"]+' | sort -u
+# Scan the whole README — demo links often live in hero AND footer/links sections.
+grep -oE 'https://[^ )"]+' README.md | sort -u
 
 echo "=== Heuristic: known demo domains ==="
-head -200 README.md | grep -oE 'https://[^ )"]+' | grep -E 'demo|live|getgeolens|geolens\.io' | sort -u
+grep -oE 'https://[^ )"]+' README.md | grep -E 'demo|live|getgeolens|geolens\.io' | sort -u
 ```
 
 **Pass:** report-only. Output a "DEMO LINKS — VERIFY MANUALLY" block in findings. Add to BLOCKERS only if README explicitly promises a demo and the URL is `localhost` or a placeholder.
@@ -889,8 +908,11 @@ echo "=== Asset freshness heuristic ==="
 
 README_IMAGES=$(grep -oE '\(docs/images/[^)]+\)|src="docs/images/[^"]+"' README.md | sed -E 's/.*(docs\/images\/[^)"]+).*/\1/' | sort -u)
 
-LATEST_UI_COMMIT=$(git log -1 --format=%ct -- 'frontend/src/**' 2>/dev/null)
-LATEST_UI_DATE=$(git log -1 --format=%ci -- 'frontend/src/**' 2>/dev/null)
+# Use ':(glob)' magic prefix so '**' is treated as recursive glob (default
+# pathspec semantics treat '**' as literal characters and silently match
+# nothing). Trailing-slash form 'frontend/src/' also works.
+LATEST_UI_COMMIT=$(git log -1 --format=%ct -- ':(glob)frontend/src/**' 2>/dev/null)
+LATEST_UI_DATE=$(git log -1 --format=%ci -- ':(glob)frontend/src/**' 2>/dev/null)
 echo "Latest UI commit: $LATEST_UI_DATE"
 
 for img in $README_IMAGES; do
@@ -921,8 +943,13 @@ echo "=== F.10 Visitor-facing open-core honesty ==="
 # Enterprise-only feature mentions in feature lists — must be tagged (Enterprise) or similar
 echo "--- Untagged enterprise features in user-facing docs ---"
 USER_FACING="README.md FEATURES.md docs/"
-# Look for keywords that typically describe enterprise-only features in this project
-grep -rniE '\b(SAML|SSO|audit log|RBAC|multi-org|multi-tenant|enterprise edition)\b' $USER_FACING 2>/dev/null \
+# Look for keywords that typically describe enterprise-only features in this
+# project. Keep this list TIGHT — broad terms like "RBAC" or "audit log" will
+# false-positive against any docs that mention permissions or logging at all.
+# If the OSS edition has its own RBAC/audit-log story, only add the truly
+# enterprise-gated capabilities here (SAML, SSO, multi-org, multi-tenant, the
+# literal phrase "enterprise edition", and named enterprise-only features).
+grep -rniE '\b(SAML|SSO|multi-org|multi-tenant|enterprise edition)\b' $USER_FACING 2>/dev/null \
   | grep -vE '\(Enterprise\)|\[Enterprise\]|<sup>Enterprise</sup>|requires Enterprise' \
   | head -10
 
@@ -943,7 +970,7 @@ head -50 README.md | grep -niE 'upgrade now|buy now|enterprise plan|starting at 
 
 Each tagging miss in user-facing docs = **P2 QUALITY** (unless the feature is described as available when it isn't — that's **P1 RELEASE-BLOCKING**, dishonesty in feature lists). Cross-repo broken refs = **P1 RELEASE-BLOCKING**.
 
-**Output (Subagent F):** structured findings keyed by F.1–F.10, each tagged P0 / P1 / P2 / OK, with concrete file:line references where applicable. Pass through to Phase 2.5 for synthesis.
+**Output (Subagent F):** structured findings keyed by F.1–F.10, each tagged P0 / P1 / P2 / OK, with concrete file:line references where applicable. The orchestrator collects this output (along with Subagents A–E) and feeds it into the Phase 2.5 release-readiness gate for synthesis.
 
 ---
 
