@@ -816,3 +816,133 @@ class DefaultOpenAICompatibleProvider:
         model = await LLM_MODEL.get(db)
         base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
         return {"base_url": base_url, "default_model": model}
+
+
+class DefaultOpenAIEmbeddingProvider:
+    """Community-edition default: OpenAI-compatible embeddings (Phase 231 D-08).
+
+    Replaces helpers.py:8 (``from openai import OpenAI``) with a Protocol-typed
+    provider class. ``embed()`` body absorbs:
+      - helpers.py:100-109 ``build_openai_client()`` — AsyncOpenAI client + httpx.Timeout
+      - helpers.py:90-97 ``resolve_embedding_base_url()`` — folded into ``resolve_runtime_config()``
+      - service.py:70-110 retry/backoff loop (D-22, max_attempts=2, backoff=2.0+jitter)
+
+    Class-level ``_clients`` dict cache keyed by ``base_url`` mirrors
+    ``DefaultOpenAICompatibleProvider._clients`` (defaults.py:625) verbatim.
+    Lifetime is process-scoped (provider instance is registered as a
+    singleton in ``_extensions["embedding_providers"]["openai_compatible"]``).
+
+    ``AsyncOpenAI`` replaces today's sync ``OpenAI`` + ``asyncio.to_thread``
+    (D-25). The eliminated to_thread overhead matches Phase 226's
+    ``DefaultOpenAICompatibleProvider`` which already uses AsyncOpenAI for
+    the chat-completions path.
+
+    Deferred imports (Phase 214 / Phase 222 / Phase 225 / Phase 226 discipline):
+    all SDK and modules-level imports happen INSIDE ``embed()`` /
+    ``resolve_runtime_config()``, never at defaults.py module load.
+    """
+
+    _clients: dict = {}  # class-level cache: base_url -> AsyncOpenAI
+
+    async def embed(
+        self,
+        *,
+        texts: list[str],
+        model: str,
+        dimensions: int | None = None,
+        base_url: str | None = None,
+        timeout: float | None = None,
+    ) -> list[list[float]]:
+        # Deferred imports (Phase 214 discipline)
+        import asyncio
+        import random
+
+        import httpx
+        import structlog
+        from openai import AsyncOpenAI
+
+        from app.core.config import reveal, settings
+        from app.processing.embeddings.service import EmbeddingUnavailableError
+
+        log = structlog.stdlib.get_logger(__name__)
+
+        if not settings.openai_api_key:
+            raise EmbeddingUnavailableError(
+                "Embedding generation requires an OpenAI-compatible API key."
+            )
+
+        effective_base_url = (
+            base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        )
+
+        # Lazy class-level keyed-client cache (mirrors defaults.py:684-692)
+        if effective_base_url not in DefaultOpenAIEmbeddingProvider._clients:
+            DefaultOpenAIEmbeddingProvider._clients[effective_base_url] = AsyncOpenAI(
+                api_key=reveal(settings.openai_api_key),
+                base_url=effective_base_url,
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                max_retries=2,
+            )
+        client = DefaultOpenAIEmbeddingProvider._clients[effective_base_url]
+
+        # Retry loop moved from service.py:70-110 (D-22) — max 2 attempts,
+        # 2.0s backoff with up to 30% jitter, asyncio.wait_for per call.
+        max_attempts = 2
+        backoff = 2.0
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # RESEARCH.md Pitfall 3: dimensions=None must NOT be passed
+                # to the SDK — build kwargs conditionally.
+                kwargs: dict[str, object] = {"model": model, "input": texts}
+                if dimensions is not None:
+                    kwargs["dimensions"] = dimensions
+                response = await asyncio.wait_for(
+                    client.embeddings.create(**kwargs),
+                    timeout=timeout if timeout is not None else 130.0,
+                )
+                return [item.embedding for item in response.data]
+            except Exception as exc:  # broad: network/API/timeout
+                last_exc = exc
+                if attempt < max_attempts:
+                    log.debug(
+                        "Embedding API call failed, retrying",
+                        attempt=attempt,
+                        backoff=backoff,
+                        error=str(exc),
+                        model=model,
+                    )
+                    await asyncio.sleep(backoff * (1 + random.random() * 0.3))
+                else:
+                    log.error(
+                        "Embedding API call failed after retries",
+                        error=str(exc),
+                        model=model,
+                        attempts=max_attempts,
+                        exc_info=True,
+                    )
+        raise EmbeddingUnavailableError(
+            f"Embedding API call failed: {last_exc}"
+        ) from last_exc
+
+    async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        from app.core.persistent_config import (
+            EMBEDDING_BASE_URL,
+            EMBEDDING_DIMS,
+            EMBEDDING_MODEL,
+            OPENAI_BASE_URL,
+        )
+
+        # Fallback chain mirrors helpers.py:90-97 byte-for-byte (D-04 / D-24):
+        # EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> hardcoded default
+        embedding_url = await EMBEDDING_BASE_URL.get(db)
+        base_url = (
+            embedding_url
+            or await OPENAI_BASE_URL.get(db)
+            or "https://api.openai.com/v1"
+        )
+        return {
+            "base_url": base_url,
+            "default_model": await EMBEDDING_MODEL.get(db),
+            "default_dims": await EMBEDDING_DIMS.get(db),
+        }
