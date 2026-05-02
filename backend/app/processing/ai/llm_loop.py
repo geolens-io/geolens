@@ -46,7 +46,14 @@ def get_anthropic_client() -> AsyncAnthropic:
     Used by streaming.py and metadata_service.py, which import this function
     directly rather than going through the provider Protocol because their
     dispatch paths are deferred-scope (RESEARCH.md Open Questions 1 & 2).
+
+    Surfaces the missing-key failure here (REVIEW.md WR-01) so callers see a
+    clear ValueError instead of an opaque AuthenticationError on the first
+    request. Mirrors the guard at DefaultAnthropicProvider.complete().
     """
+    if not settings.anthropic_api_key:
+        raise ValueError("Anthropic API key not configured")
+
     # Deferred import to avoid module-import cycle:
     # llm_loop -> platform.extensions.defaults -> (imports _LLM_TIMEOUT etc. from llm_loop)
     from app.platform.extensions.defaults import DefaultAnthropicProvider
@@ -66,7 +73,14 @@ def get_openai_client(base_url: str) -> AsyncOpenAI:
     Cache lives on DefaultOpenAICompatibleProvider._clients dict (Phase 226 D-25).
     Used by streaming.py, which imports this function directly (deferred-scope
     per RESEARCH.md Open Question 1).
+
+    Surfaces the missing-key failure here (REVIEW.md WR-01) so callers see a
+    clear ValueError instead of an opaque AuthenticationError on the first
+    request. Mirrors the guard at DefaultOpenAICompatibleProvider.complete().
     """
+    if not settings.openai_api_key:
+        raise ValueError("OpenAI-compatible API key not configured")
+
     from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider
 
     if base_url not in DefaultOpenAICompatibleProvider._clients:
