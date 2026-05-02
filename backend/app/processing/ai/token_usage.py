@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 
 import structlog
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,7 +18,11 @@ logger = structlog.stdlib.get_logger(__name__)
 
 class AITokenUsage(Base):
     __tablename__ = "ai_token_usage"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        Index("ix_ai_token_usage_subsystem_created", "subsystem", "created_at"),
+        Index("ix_ai_token_usage_user_created", "user_id", "created_at"),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
@@ -30,8 +34,12 @@ class AITokenUsage(Base):
         Text, nullable=False
     )  # 'map_generation', 'chat', 'sql', 'metadata'
     model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    output_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

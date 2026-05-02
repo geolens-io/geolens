@@ -63,6 +63,20 @@ def include_name(name, type_, parent_names):
     return True
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    """Skip procrastinate-managed objects from autogenerate.
+
+    Procrastinate's tables, types, indexes, sequences, and triggers are created
+    via raw SQL in ``0002_procrastinate.py`` and are not declared as SQLAlchemy
+    models. Without this filter, ``alembic check`` and autogenerate diff produce
+    false-positive ``remove_table`` / ``remove_index`` ops because the metadata
+    lacks them.
+    """
+    if name and name.startswith("procrastinate_"):
+        return False
+    return True
+
+
 def do_run_migrations(connection):
     # Ensure catalog schema exists before Alembic creates its version table
     connection.execute(sa.text("CREATE SCHEMA IF NOT EXISTS catalog"))
@@ -73,6 +87,7 @@ def do_run_migrations(connection):
         version_table_schema="catalog",
         include_schemas=True,
         include_name=include_name,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()

@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -94,10 +95,10 @@ class MapLayer(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     map_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False, index=True
     )
     dataset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False, index=True
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
@@ -122,16 +123,19 @@ class MapLayer(Base):
 
 class MapShareToken(Base):
     __tablename__ = "map_share_tokens"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_map_share_tokens_token_hash"),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
     )
     map_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    token_hint: Mapped[str] = mapped_column(Text, nullable=False, server_default="***")
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hint: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
     )

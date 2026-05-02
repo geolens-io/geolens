@@ -23,7 +23,7 @@ class SavedSearch(Base):
         primary_key=True, server_default=func.gen_random_uuid()
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
