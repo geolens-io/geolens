@@ -1,9 +1,9 @@
 # Manual-trigger publish workflow for the GeoLens SDKs.
-# Phase 215 ships the workflow; running it requires:
-#   1. PyPI token in repo secret PYPI_TOKEN (or migrate to Trusted Publishing — future)
-#   2. npm token in repo secret NPM_TOKEN
-#   3. The @geolens npm org claimed by the user (one-time)
-# See docs/sdks.md for the full first-publish runbook.
+# Phase 228 ships the cold-start credentials:
+#   1. PyPI Trusted Publishing configured for `geolens-sdk` at https://pypi.org/manage/account/publishing/
+#   2. npm granular token (Bypass 2FA + Read/Write) in repo secret NPM_TOKEN
+#   3. The @geolens npm org claimed by the maintainer (one-time)
+# See docs/sdks.md (§Publishing) for the full first-publish runbook.
 name: Publish SDKs
 
 on:
@@ -26,7 +26,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write  # for PyPI Trusted Publishing (future migration)
+  id-token: write  # for PyPI Trusted Publishing (Phase 228 — active)
 
 jobs:
   publish-python:
@@ -52,12 +52,21 @@ jobs:
         working-directory: sdks/python
         run: ls -la dist/
 
+      - name: Pre-flight name-availability gate (geolens-sdk on PyPI)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -e
+          if pip3 index versions geolens-sdk 2>&1 | grep -q "No matching distribution"; then
+            echo "PyPI geolens-sdk: unclaimed (safe to publish)"
+          else
+            CURRENT=$(pip3 index versions geolens-sdk 2>&1 | head -1)
+            echo "::warning::PyPI geolens-sdk already published: $CURRENT — proceeding (re-publish path)"
+          fi
+
       - name: Publish to PyPI
         if: ${{ !inputs.dry_run }}
         working-directory: sdks/python
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: uv publish
+        run: uv publish --trusted-publishing automatic
 
   publish-typescript:
     if: inputs.target == 'typescript' || inputs.target == 'both'
@@ -72,6 +81,16 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Pre-flight name-availability gate (@geolens/sdk on npm)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -e
+          if npm view @geolens/sdk version 2>/dev/null; then
+            echo "::warning::npm @geolens/sdk already published — proceeding (re-publish path)"
+          else
+            echo "npm @geolens/sdk: unclaimed (safe to publish)"
+          fi
 
       - name: Install dependencies (locked)
         working-directory: sdks/typescript
