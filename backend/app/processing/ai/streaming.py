@@ -28,7 +28,7 @@ from app.processing.ai.llm_loop import (
 )
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import record_token_usage
-from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
+from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
 from typing import TYPE_CHECKING
 
 from app.core.identity import Identity
@@ -293,11 +293,16 @@ async def _stream_openai_chat(
             }
             break
 
+        # Phase 226 D-08: CHAT_TOOLS_OPENAI removed; convert from canonical Anthropic shape.
+        _tools_openai = [
+            {"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}
+            for t in CHAT_TOOLS_ANTHROPIC
+        ]
         response_stream = await client.chat.completions.create(
             model=model,
             max_tokens=4096,
             temperature=0.3,
-            tools=CHAT_TOOLS_OPENAI,
+            tools=_tools_openai,
             messages=messages,
             stream=True,
         )

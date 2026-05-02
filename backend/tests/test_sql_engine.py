@@ -10,7 +10,7 @@ from app.processing.ai.chat_service import (
 )
 from app.processing.ai.constants import tool_label
 from app.processing.ai.schemas import ChatMapLayer
-from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, CHAT_TOOLS_OPENAI
+from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
 from app.processing.ai.sql_generator import (
     build_sql_schema_context,
     build_sql_generation_prompt,
@@ -304,8 +304,14 @@ class TestToolDefinitions:
         assert "question" in tool["input_schema"]["properties"]
 
     def test_query_data_in_openai_tools(self):
+        # Phase 226 D-08: CHAT_TOOLS_OPENAI removed (callers pass Anthropic shape;
+        # provider converts internally). Derive OpenAI format algorithmically.
+        chat_tools_openai = [
+            {"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}
+            for t in CHAT_TOOLS_ANTHROPIC
+        ]
         tool = next(
-            (t for t in CHAT_TOOLS_OPENAI if t["function"]["name"] == "query_data"),
+            (t for t in chat_tools_openai if t["function"]["name"] == "query_data"),
             None,
         )
         assert tool is not None

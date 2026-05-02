@@ -231,25 +231,6 @@ ANTHROPIC_TOOLS = [
     },
 ]
 
-# OpenAI tool format (schema sourced from tools.py)
-OPENAI_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_datasets",
-            "description": _SEARCH_DATASETS_DESC,
-            "parameters": _SEARCH_DATASETS_SCHEMA,
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_dataset_details",
-            "description": _GET_DATASET_DETAILS_DESC,
-            "parameters": _GET_DATASET_DETAILS_SCHEMA,
-        },
-    },
-]
 
 
 async def _execute_search_tool(
