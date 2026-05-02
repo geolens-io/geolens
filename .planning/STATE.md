@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
-stopped_at: Phase 228 Wave 1 complete; Wave 2 awaits credential setup (human-action checkpoint)
-last_updated: "2026-05-02T11:49:35.221Z"
+stopped_at: "Phase 228 Wave 1 ✓; Wave 2 partial: NPM_TOKEN set + npm org claim PENDING approval; PyPI Trusted Publishing setup blocked until org approves"
+last_updated: "2026-05-02T12:07:16.744Z"
 last_activity: 2026-05-02
 progress:
   total_phases: 13
@@ -166,6 +166,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-05-02T11:49:35.216Z
-Stopped at: Phase 228 Wave 1 complete; Wave 2 awaits credential setup (human-action checkpoint)
+Last session: 2026-05-02T12:07:16.740Z
+Stopped at: Phase 228 Wave 1 ✓; Wave 2 partial: NPM_TOKEN set + npm org claim PENDING approval; PyPI Trusted Publishing setup blocked until org approves
 Resume file: .planning/phases/228-run-cold-publish-workflows/228-02-PLAN.md
