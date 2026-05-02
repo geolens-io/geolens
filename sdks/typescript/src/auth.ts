@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Auth wrapper for the GeoLens TypeScript SDK.
  *
