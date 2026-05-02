@@ -150,3 +150,49 @@ class AIProviderExtension(Protocol):
     ) -> "ToolLoopResult": ...
 
     async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class EmbeddingProviderExtension(Protocol):
+    """Embedding provider dispatch table entry (Phase 231 D-01 / EMBPROV-01).
+
+    Sibling of AIProviderExtension (Phase 226). Replaces the direct
+    ``from openai import OpenAI`` at processing/embeddings/helpers.py:8 with
+    name-keyed extension lookup. Registry slot
+    ``_extensions["embedding_providers"]`` is a
+    ``dict[str, EmbeddingProviderExtension]`` (D-09, dict-shape mirroring
+    Phase 226 D-04).
+
+    Community default: ``DefaultOpenAIEmbeddingProvider`` (key:
+    ``"openai_compatible"``). Single class — Anthropic does not ship an
+    embeddings API (cf. EmbeddingUnavailableError message at
+    service.py:48-53); the AI provider has two community defaults,
+    embeddings has one (D-06).
+
+    Overlays add new providers (e.g., ``"bedrock"``, ``"vertex"``) without
+    modifying any core file (SC#5)::
+
+        def register_extensions(registry: dict) -> None:
+            providers = registry.setdefault("embedding_providers", {})
+            providers["bedrock"] = BedrockEmbeddingProvider()
+
+    NO ``stream()`` method (D-03): embeddings are batch-only; streaming a
+    vector makes no sense (the API returns the whole vector at once,
+    unlike LLM completions which naturally token-stream).
+
+    ``resolve_runtime_config(db)`` returns a dict with three keys:
+    ``base_url``, ``default_model``, ``default_dims`` — extensible for
+    Bedrock/Vertex overlays which add region/project/credential keys.
+    """
+
+    async def embed(
+        self,
+        *,
+        texts: list[str],
+        model: str,
+        dimensions: int | None = None,
+        base_url: str | None = None,
+        timeout: float | None = None,
+    ) -> list[list[float]]: ...
+
+    async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
