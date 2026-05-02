@@ -3,20 +3,13 @@
 import time
 import uuid
 
-import httpx
 import structlog
-from openai import OpenAI
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import reveal, settings
 from app.processing.embeddings.models import RecordEmbedding
-from app.core.persistent_config import EMBEDDING_BASE_URL, OPENAI_BASE_URL
 
 logger = structlog.stdlib.get_logger(__name__)
-
-# Module-level client cache keyed by base_url (matches llm_loop.py pattern)
-_cached_openai_clients: dict[str, OpenAI] = {}
 
 # Short-lived cache for has_embeddings check (avoids DB round-trip per search)
 _has_embeddings_cache: tuple[bool, float] | None = None
@@ -85,28 +78,6 @@ async def get_nearest_record_ids(
     )
     nn_result = await session.execute(nn_stmt)
     return [row[0] for row in nn_result.all()]
-
-
-async def resolve_embedding_base_url(session: AsyncSession) -> str:
-    """Resolve the base URL for the embedding API with standard fallback chain."""
-    embedding_url = await EMBEDDING_BASE_URL.get(session)
-    return (
-        embedding_url
-        or await OPENAI_BASE_URL.get(session)
-        or "https://api.openai.com/v1"
-    )
-
-
-def build_openai_client(base_url: str) -> OpenAI:
-    """Return a cached OpenAI client for the given base URL."""
-    if base_url not in _cached_openai_clients:
-        _cached_openai_clients[base_url] = OpenAI(
-            api_key=reveal(settings.openai_api_key),
-            base_url=base_url,
-            timeout=httpx.Timeout(60.0, connect=10.0),
-            max_retries=2,
-        )
-    return _cached_openai_clients[base_url]
 
 
 async def defer_embedding(dataset) -> None:
