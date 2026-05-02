@@ -4,8 +4,8 @@ milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
 stopped_at: Phase 231 context gathered (auto-resolved)
-last_updated: "2026-05-02T18:58:50.407Z"
-last_activity: 2026-05-02 -- Phase 231 planning complete
+last_updated: "2026-05-02T18:59:56.891Z"
+last_activity: 2026-05-02 -- Phase 231 execution started
 progress:
   total_phases: 18
   completed_phases: 3
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 228 — run-cold-publish-workflows
+**Current focus:** Phase 231 — embedding-provider-extension-protocol
 
 ## Current Position
 
-Phase: 228 (run-cold-publish-workflows) — EXECUTING
-Plan: 2 of 4
-Status: Ready to execute
-Last activity: 2026-05-02 -- Phase 231 planning complete
+Phase: 231 (embedding-provider-extension-protocol) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 231
+Last activity: 2026-05-02 -- Phase 231 execution started
 
 ## Roadmap Snapshot
 
