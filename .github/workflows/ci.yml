@@ -341,8 +341,14 @@ jobs:
 
       - name: Verify SAML fixtures unchanged after pytest
         run: |
-          if ! git diff --quiet -- tests/fixtures/saml/; then
-            echo "::error::SAML fixture files were modified by pytest run -- regression of phase 227 (saml-test-fixture-tmp-path)."
+          # Catch BOTH modified-tracked-files (the original regression) AND
+          # newly-created fixture files like idp_response_*.xml.b64 — those
+          # are untracked after Phase 227 renamed the originals to .template,
+          # and `git diff --quiet` would silently miss them (Phase 227 WR-02).
+          DIRTY=$(git status --porcelain -- tests/fixtures/saml/)
+          if [ -n "$DIRTY" ]; then
+            echo "::error::SAML fixture dir mutated by pytest run -- regression of phase 227 (saml-test-fixture-tmp-path)."
+            echo "$DIRTY"
             git diff --stat -- tests/fixtures/saml/
             git diff -- tests/fixtures/saml/ | head -200
             exit 1

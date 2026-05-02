@@ -73,9 +73,16 @@ def saml_response_dir(tmp_path_factory) -> Path:
             main as generate_saml_fixtures,
         )
         generate_saml_fixtures(output_dir=session_dir)
-    except (ImportError, OSError) as exc:
+    except Exception as exc:
+        # Catch broadly: ImportError (pysaml2 missing), OSError (xmlsec1 missing /
+        # tmp full), subprocess.CalledProcessError raised by xmlsec1 invocation,
+        # RuntimeError raised by generate_fixtures._build_xsw_attack_xml when an
+        # Assertion can't be located. Any of these must fall back to the
+        # committed `.xml.b64.template` files instead of aborting the session
+        # (Phase 227 WR-01).
         print(
-            f"[saml-fixtures] generator unavailable ({exc}); using committed templates",
+            f"[saml-fixtures] generator unavailable ({type(exc).__name__}: {exc}); "
+            "using committed templates",
             file=sys.stderr,
         )
     return session_dir
