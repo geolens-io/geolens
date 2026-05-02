@@ -772,3 +772,58 @@ def test_no_hardcoded_ai_provider_branches() -> None:
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
         )
+
+
+@pytest.mark.architecture
+def test_no_module_level_provider_sdk_imports_in_processing_ai() -> None:
+    """oc-audit 2026-05-02 §5: backend/app/processing/ai/ must not have
+    module-level imports of provider SDKs (anthropic, openai).
+
+    Module-level provider-SDK imports inside ``processing/`` violate the
+    open-core boundary: they couple the AI domain to specific SDK packages
+    at import time, defeating the AIProviderExtension Protocol seam (Phase
+    226). Move imports to function-local scope when needed (mirror Phase
+    225's deferred-import discipline) or place them behind the Protocol in
+    ``app/platform/extensions/defaults.py``.
+
+    Carve-out: ``processing/embeddings/helpers.py`` is excluded — the
+    embeddings client is not yet covered by ``AIProviderExtension``; an
+    ``EmbeddingProviderExtension`` Protocol is the planned follow-up.
+    Once that ships, this exclusion can be removed.
+
+    Negative-control: temporarily reintroduce
+    ``from anthropic import AsyncAnthropic`` at the top of
+    ``backend/app/processing/ai/llm_loop.py``, run this test, confirm it
+    fails with the offending line surfaced. Revert.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"^(from|import) (anthropic|openai)( |$)",
+            "--",
+            "backend/app/processing/ai/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Module-level provider-SDK import found in backend/app/processing/ai/. "
+            "Move to function-local scope or behind the AIProviderExtension Protocol "
+            "in app/platform/extensions/defaults.py. "
+            f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
