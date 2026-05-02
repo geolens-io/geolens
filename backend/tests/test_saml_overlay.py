@@ -14,12 +14,26 @@ All tests use the ``saml_overlay_registered`` conftest fixture which
 programmatically installs ``EnterpriseSamlExtension`` for the test's
 lifetime. The SAML router is also dynamically mounted into the FastAPI
 app for the test's duration, then unmounted on teardown so other tests
-that assume the community community/no-SAML default are unaffected.
+that assume the community/no-SAML default are unaffected.
+
+SAML response fixtures are sourced via the ``saml_response_dir``
+session-scoped fixture (Phase 227): ``tests/fixtures/saml/generate_fixtures.py``
+runs in-process at session start and writes 5 fresh ``idp_response_*.xml.b64``
+files into ``tmp_path_factory.mktemp("saml_responses")``. The committed
+``backend/tests/fixtures/saml/idp_response_*.xml.b64.template`` files are
+the deterministic CI fallback when pysaml2 / xmlsec1 are unavailable
+(``_load_fixture_b64`` falls back to them when the regenerated file is
+absent). The committed templates are NEVER overwritten by tests --
+``git status`` stays clean for ``backend/tests/fixtures/saml/`` after a
+full pytest run; CI enforces this with a ``git diff --quiet`` step
+(see ``.github/workflows/ci.yml`` ``backend-test`` job, "Verify SAML
+fixtures unchanged after pytest").
 """
 
 from __future__ import annotations
 
 import base64
+import sys
 import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -42,41 +56,29 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "saml"
 FIXTURE_CERT_PEM = (FIXTURE_DIR / "idp_cert.pem").read_text()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _regenerate_saml_fixtures():
-    """Re-run the SAML fixture generator at session start so the signed
-    response's IssueInstant + NotOnOrAfter window includes the test's
-    wall-clock time. SAML assertions have a default 15-minute validity
-    window; checked-in fixtures from a prior generation can outlast that
-    window and produce "Can't use response, too old" failures. The
-    expired/unsigned/xsw fixtures are also regenerated -- their
-    semantics (still-old, still-unsigned, still-XSW) are unchanged.
+@pytest.fixture(scope="session")
+def saml_response_dir(tmp_path_factory) -> Path:
+    """Session-scoped dir holding generated SAML XML responses (Phase 227).
 
-    The generator script lives at backend/tests/fixtures/saml/
-    generate_fixtures.py and is committed for reproducibility (Wave 1
-    Plan 01). Running it here means the .xml.b64 files are rewritten
-    on every test session, which also keeps git status noisy -- but
-    they are gitignored from the worktree's perspective during a test
-    run because the orchestrator only commits files explicitly added.
+    Routes ``generate_fixtures.main()`` output through ``tmp_path_factory.mktemp``
+    so the committed ``backend/tests/fixtures/saml/idp_response_*.xml.b64.template``
+    files are NEVER overwritten by tests. ``_load_fixture_b64`` resolves from
+    this dir first, then falls back to the templates when pysaml2 / xmlsec1
+    are unavailable (fork-PR CI without the enterprise overlay, minimal CI
+    images without ``xmlsec1``).
     """
-    import subprocess
-    import sys
-
-    generator = FIXTURE_DIR / "generate_fixtures.py"
-    if not generator.exists():
-        return  # Generator missing -- assume committed fixtures are fresh enough.
+    session_dir = tmp_path_factory.mktemp("saml_responses")
     try:
-        subprocess.run(
-            [sys.executable, str(generator)],
-            check=True,
-            capture_output=True,
-            cwd=Path(__file__).parent.parent,  # backend/
+        from tests.fixtures.saml.generate_fixtures import (
+            main as generate_saml_fixtures,
         )
-    except subprocess.CalledProcessError:
-        # If generation fails (missing pysaml2 etc.), fall back to the
-        # committed fixtures and let individual tests skip/fail loudly.
-        pass
-    yield
+        generate_saml_fixtures(output_dir=session_dir)
+    except (ImportError, OSError) as exc:
+        print(
+            f"[saml-fixtures] generator unavailable ({exc}); using committed templates",
+            file=sys.stderr,
+        )
+    return session_dir
 
 
 FIXTURE_IDP_ENTITY_ID = "https://fixture-idp.geolens.test/idp"
@@ -136,21 +138,45 @@ async def _seed_saml_provider(
     return provider
 
 
-def _load_fixture_b64(name: str) -> str:
-    """Read a base64-encoded SAML fixture and return the base64 string itself.
+def _load_fixture_b64(name: str, response_dir: Path) -> str:
+    """Resolve a SAML response fixture by name (Phase 227).
 
-    pysaml2's ``parse_authn_request_response`` expects the raw base64
-    form-field string (NOT decoded XML), so we return the file contents
-    stripped of trailing whitespace.
+    First tries the per-session regenerated dir (where pysaml2 wrote a
+    fresh fixture with current-time IssueInstant); falls back to the
+    committed ``.xml.b64.template`` in ``FIXTURE_DIR`` for environments
+    where pysaml2 / xmlsec1 are unavailable. Returns the base64 string
+    with trailing whitespace stripped -- pysaml2's
+    ``parse_authn_request_response`` expects the raw form-field-encoded
+    base64.
 
-    Fixture filenames (Wave 0):
+    Fixture names (extension MUST be ``.xml.b64``, not ``.xml.b64.template``;
+    the ``.template`` suffix is only on the committed fallback):
       - idp_response_signed.xml.b64
       - idp_response_expired.xml.b64
       - idp_response_xsw.xml.b64
       - idp_response_unsigned.xml.b64
-      - idp_response_replay.xml.b64  (byte-identical to signed)
+      - idp_response_replay.xml.b64
     """
-    return (FIXTURE_DIR / name).read_text().strip()
+    regenerated = response_dir / name
+    if regenerated.exists():
+        return regenerated.read_text().strip()
+    template = FIXTURE_DIR / f"{name}.template"
+    return template.read_text().strip()
+
+
+def test_load_fixture_b64_falls_back_to_template(tmp_path):
+    """Phase 227 / D-03: when the per-session dir has no regenerated file,
+    ``_load_fixture_b64`` must read from ``FIXTURE_DIR / f"{name}.template"``
+    instead. Guards the TESTFIX-03 fallback semantic explicitly so the
+    template-rename refactor cannot silently regress.
+    """
+    # tmp_path is empty -> regenerated.exists() is False -> template branch
+    result = _load_fixture_b64("idp_response_signed.xml.b64", tmp_path)
+    assert result, "expected non-empty base64 from template fallback"
+    # Defensive: confirm we actually hit the template, not a stale write
+    assert (FIXTURE_DIR / "idp_response_signed.xml.b64.template").exists(), (
+        "template file missing -- did task 01 git mv complete?"
+    )
 
 
 def _mount_saml_router(saml_overlay_registered) -> None:
@@ -315,7 +341,7 @@ async def test_saml_metadata_xml_valid(
 
 
 async def test_saml_acs_signed_assertion_jit_provisions_user(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-11: signed assertion JIT-provisions user + issues JWT + redirects.
 
@@ -325,7 +351,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     UNIQUE-constraint collision.
     """
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_signed.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
@@ -361,7 +387,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
 
 
 async def test_saml_acs_rejects_invalid_signature(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-11: tampered/wrong-signature assertion produces an error redirect.
 
@@ -370,7 +396,7 @@ async def test_saml_acs_rejects_invalid_signature(
     convenient stand-in for a generic invalid-signature scenario.
     """
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_expired.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_expired.xml.b64", saml_response_dir)
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
@@ -389,11 +415,11 @@ async def test_saml_acs_rejects_invalid_signature(
 
 
 async def test_saml_acs_rejects_unsigned(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-11: unsigned assertion is rejected (want_assertions_signed=True)."""
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_unsigned.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_unsigned.xml.b64", saml_response_dir)
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
@@ -406,7 +432,7 @@ async def test_saml_acs_rejects_unsigned(
 
 
 async def test_saml_acs_rejects_expired_assertion(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-11 / Pitfall 4: expired assertion is rejected.
 
@@ -414,7 +440,7 @@ async def test_saml_acs_rejects_expired_assertion(
     to 2020 dates -- well past any reasonable accepted_time_diff (60s).
     """
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_expired.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_expired.xml.b64", saml_response_dir)
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
@@ -427,7 +453,7 @@ async def test_saml_acs_rejects_expired_assertion(
 
 
 async def test_saml_acs_rejects_replayed_assertion(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-11 / Pitfall 5: same assertion submitted twice is rejected on the
     second attempt by ReplayCache. The fixture's outstanding-request entry
@@ -436,7 +462,7 @@ async def test_saml_acs_rejects_replayed_assertion(
     from geolens_enterprise.auth.saml import router as saml_router_mod
 
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_signed.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
 
     # First submission succeeds.
     resp1 = await client.post(
@@ -468,7 +494,7 @@ async def test_saml_acs_rejects_replayed_assertion(
 
 
 async def test_saml_acs_rejects_xsw_attack(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-11 / Pitfall 2: XML Signature Wrapping attack is rejected.
 
@@ -478,7 +504,7 @@ async def test_saml_acs_rejects_xsw_attack(
     redirect, not a happy-path 302 with a JWT for the attacker subject.
     """
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_xsw.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_xsw.xml.b64", saml_response_dir)
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
@@ -512,7 +538,7 @@ async def test_saml_acs_rejects_xsw_attack(
 
 
 async def test_saml_acs_redirect_includes_source_query_param(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """Pitfall 8 / D-15: post-ACS redirect URL must include ?source=saml so
     the frontend OAuth callback handler can distinguish SAML callbacks.
@@ -527,7 +553,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     # Happy path.
     happy = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": _load_fixture_b64("idp_response_signed.xml.b64")},
+        data={"SAMLResponse": _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)},
         follow_redirects=False,
     )
     happy_qs = parse_qs(urlparse(happy.headers["location"]).query)
@@ -542,7 +568,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     # Error path.
     err = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": _load_fixture_b64("idp_response_unsigned.xml.b64")},
+        data={"SAMLResponse": _load_fixture_b64("idp_response_unsigned.xml.b64", saml_response_dir)},
         follow_redirects=False,
     )
     err_qs = parse_qs(urlparse(err.headers["location"]).query)
@@ -837,7 +863,7 @@ async def test_saml_endpoint_404_in_community(client):
 
 
 async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers
+    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
 ):
     """SAML-12 / SC#4 behavior coverage: a SAML user whose assertion contains
     ``groups=['editors']`` and whose provider has
@@ -856,7 +882,7 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
         group_role_mapping={"editors": "editor"},
         default_role="viewer",  # default would be viewer; mapping takes precedence
     )
-    saml_response = _load_fixture_b64("idp_response_signed.xml.b64")
+    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
