@@ -23,6 +23,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_publish:
+        description: 'Override pre-flight gate (allow re-publishing over an existing version). Only set true after confirming the existing version is intentionally being re-published.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -58,9 +63,13 @@ jobs:
           set -e
           if pip3 index versions geolens-sdk 2>&1 | grep -q "No matching distribution"; then
             echo "PyPI geolens-sdk: unclaimed (safe to publish)"
+          elif [ "${{ inputs.force_publish }}" = "true" ]; then
+            CURRENT=$(pip3 index versions geolens-sdk 2>&1 | head -1)
+            echo "::warning::PyPI geolens-sdk already published: $CURRENT — force_publish=true override active; proceeding"
           else
             CURRENT=$(pip3 index versions geolens-sdk 2>&1 | head -1)
-            echo "::warning::PyPI geolens-sdk already published: $CURRENT — proceeding (re-publish path)"
+            echo "::error::PyPI geolens-sdk already published: $CURRENT. Refusing to publish without explicit force_publish=true input. If this is an intentional re-publish, re-run the workflow with force_publish=true."
+            exit 1
           fi
 
       - name: Publish to PyPI
@@ -86,8 +95,13 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           set -e
-          if npm view @geolens/sdk version 2>/dev/null; then
-            echo "::warning::npm @geolens/sdk already published — proceeding (re-publish path)"
+          if CURRENT=$(npm view @geolens/sdk version 2>/dev/null); then
+            if [ "${{ inputs.force_publish }}" = "true" ]; then
+              echo "::warning::npm @geolens/sdk already published at $CURRENT — force_publish=true override active; proceeding"
+            else
+              echo "::error::npm @geolens/sdk already published at $CURRENT. Refusing to publish without explicit force_publish=true input. If this is an intentional re-publish, re-run the workflow with force_publish=true."
+              exit 1
+            fi
           else
             echo "npm @geolens/sdk: unclaimed (safe to publish)"
           fi

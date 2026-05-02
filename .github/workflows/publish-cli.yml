@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_publish:
+        description: 'Override pre-flight gate (allow re-publishing over an existing version). Only set true after confirming the existing version is intentionally being re-published.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,9 +52,13 @@ jobs:
           set -e
           if pip3 index versions geolens 2>&1 | grep -q "No matching distribution"; then
             echo "PyPI geolens: unclaimed (safe to publish)"
+          elif [ "${{ inputs.force_publish }}" = "true" ]; then
+            CURRENT=$(pip3 index versions geolens 2>&1 | head -1)
+            echo "::warning::PyPI geolens already published: $CURRENT — force_publish=true override active; proceeding"
           else
             CURRENT=$(pip3 index versions geolens 2>&1 | head -1)
-            echo "::warning::PyPI geolens already published: $CURRENT — proceeding (re-publish path)"
+            echo "::error::PyPI geolens already published: $CURRENT. Refusing to publish without explicit force_publish=true input. If this is an intentional re-publish, re-run the workflow with force_publish=true."
+            exit 1
           fi
 
       - name: Publish to PyPI
