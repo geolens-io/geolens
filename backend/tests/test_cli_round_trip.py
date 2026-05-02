@@ -73,7 +73,20 @@ for p in (_SDK_PY_PATH, _CLI_PATH):
     if str(p) not in _sys.path:
         _sys.path.insert(0, str(p))
 
-from geolens_cli.main import app  # noqa: E402
+# The geolens_cli import chain pulls in `keyring` (a CLI dep, not a backend
+# dep). Guard the import so Backend Tests CI — which only installs
+# backend/pyproject.toml deps — skips this module cleanly when the CLI's
+# transitive deps aren't available. CLI Tests CI installs both trees and
+# exercises this module fully.
+try:
+    from geolens_cli.main import app  # noqa: E402
+except ImportError as _import_err:
+    pytest.skip(
+        f"geolens_cli imports failed (likely missing optional dep: {_import_err}); "
+        "Backend Tests CI doesn't install CLI deps. Host pytest and the "
+        "CLI Tests CI runner exercise this module.",
+        allow_module_level=True,
+    )
 
 
 # ---------- Fixtures ----------
