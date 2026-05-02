@@ -44,7 +44,7 @@
 - ✅ **v13.1 Open-Core Separation P1** — Phases 212-219 (shipped 2026-04-29) — see [archive](milestones/v13.1-ROADMAP.md)
 - ✅ **v13.2 Edition Lifecycle Hardening** — Phases 220-221 (shipped 2026-04-30) — see [archive](milestones/v13.2-ROADMAP.md)
 - ✅ **v13.3 Boundary A+ Cleanup** — Phases 222-224 (shipped 2026-05-01) — see [archive](milestones/v13.3-ROADMAP.md)
-- 🚧 **v13.4 Boundary Closeout** — Phases 225-229 (in progress)
+- 🚧 **v13.4 Boundary Closeout** — Phases 225-231 (in progress)
 
 ## Phases
 
@@ -54,7 +54,9 @@
 - [ ] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup
 - [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
 - [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
-- [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ B+, Seam ≥ A−
+- [ ] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−)
+- [ ] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py`
+- [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A−
 
 #### Phase 225: processing-port-protocol-cycle-inversion
 
@@ -168,20 +170,60 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 228-04-PLAN.md - verify-published smoke + docs update + 228-VERIFICATION.md: trigger verify-published.yml workflow_dispatch (autonomous), update docs/sdks.md and docs/cli.md to reflect Trusted Publishing + npm granular token reality, write consolidated phase verification (Wave 4, autonomous, PUBLISH-04)
 
+#### Phase 230: catalog-port-protocol-symmetric
+
+**Goal:** Invert the remaining 17-file top-of-file `catalog → processing` import direction by defining a symmetric `CatalogPort` Protocol in `backend/app/core/` (mirror Phase 225 `ProcessingPort` shape, opposite direction). Expose processing-owned types (`RasterAsset`, `VrtGeneration`, `DatasetAsset`, ingest result schemas, OGR helpers) so `catalog/maps/service.py:25`, `catalog/layers/service.py:15-26`, `catalog/search/service.py:44-46`, `catalog/features/service.py:12`, and the 5 `catalog/datasets/api/router_*.py` modules can call into processing without import edges. Ship a `DefaultCatalogPort` that delegates to `app.processing.*` so behavior is byte-identical pre-migration.
+
+**Source:** `docs-internal/audits/oc-separation-audit-20260502.md` §5 (decoupling rec #1) / §7 P1 (action item #5). Promoted from Phase 999.20 on 2026-05-02. The 2026-05-02 audit explicitly noted that Phase 225 only inverts the `processing → catalog` direction; the reverse (17 files) remained unchanged. This phase closes that direction.
+
+**Requirements:** CATPORT-01, CATPORT-02, CATPORT-03, CATPORT-04, CATPORT-05
+
+**Depends on:** Phase 225 (sequential — both phases touch `backend/app/core/` Protocol surface; serializing avoids merge churn while the symmetric Port pair is being cut). Phase 226 also recommended as a soft sequencing dep since both shipped against the same `processing/` surface.
+
+**Notes:** Adding `test_no_catalog_imports_processing` before the migration would fail CI immediately, so the guard ships in the same phase as the inversion (mirror Phase 225's inlined-guard pattern from former 999.11). Together with Phase 225's `test_no_processing_imports_catalog`, the two guards establish the bidirectional invariant: catalog and processing can ONLY communicate through their respective Port Protocols at module-import time.
+
+**Success Criteria** (what must be TRUE):
+1. `CatalogPort` Protocol exists in `backend/app/core/catalog_port.py` and exposes the processing-owned types/helpers needed by `catalog/*` (mirrors the `ProcessingPort` shape from Phase 225, opposite direction).
+2. `grep -RE "^(from|import) (backend\.)?app\.processing" backend/app/modules/catalog/` returns zero hits at module-level — no top-of-file cross-domain imports remain. Function-local deferred imports inside the catalog domain are explicitly permitted (mirror Phase 225's scoping).
+3. `pytest backend/tests/test_layering.py::test_no_catalog_imports_processing` passes, and intentionally adding a forbidden top-of-file import causes the test to fail in CI.
+4. Full backend test suite passes with the default `CatalogPort` wired in (zero functional regressions vs. the v13.4 baseline going into this phase).
+5. `DefaultCatalogPort` delegates to `app.processing.*` via deferred imports inside method bodies (mirrors `DefaultProcessingPort` pattern from Phase 225); single-slot `get_catalog_port()` accessor lives at `backend/app/platform/extensions/__init__.py`.
+
+**Plans:** TBD
+
+#### Phase 231: embedding-provider-extension-protocol
+
+**Goal:** Close the last direct provider-SDK import in `backend/app/processing/` by defining an `EmbeddingProviderExtension` Protocol at `backend/app/platform/extensions/protocols.py` and replacing the `from openai import OpenAI` at `backend/app/processing/embeddings/helpers.py:8` with extension-registry lookup (`get_embedding_provider(name)`). Ships a `DefaultOpenAIEmbeddingProvider` that preserves current behavior; overlays can register Bedrock / Vertex / Azure / Cohere via `importlib.metadata` entry_points.
+
+**Source:** `docs-internal/audits/oc-separation-audit-20260502.md` §5 (decoupling rec #3) / §7 P1 (action item #4). Promoted from Phase 999.19 on 2026-05-02. The 2026-05-02 audit established `test_no_module_level_provider_sdk_imports_in_processing_ai` (commit 259ebc72) covering `processing/ai/`; this phase extends the invariant to `processing/embeddings/` and removes the documented carve-out from the existing guard's docstring.
+
+**Requirements:** EMBPROV-01, EMBPROV-02, EMBPROV-03, EMBPROV-04, EMBPROV-05
+
+**Depends on:** None — independent of Phase 225/226/230 (different file scope: `processing/embeddings/`). Can ship in parallel.
+
+**Success Criteria** (what must be TRUE):
+1. `EmbeddingProviderExtension` Protocol added at `backend/app/platform/extensions/protocols.py` exposing `embed(texts: list[str], model: str) -> list[list[float]]` (or equivalent batch-embedding shape).
+2. `DefaultOpenAIEmbeddingProvider` resolves the community provider; `get_embedding_provider(name)` accessor in `backend/app/platform/extensions/__init__.py` follows the dict-shape pattern from `get_ai_provider(name)` (Phase 226).
+3. `backend/app/processing/embeddings/helpers.py:8` (`from openai import OpenAI`) is removed; embedding callers route through the registry. Verifiable by `git grep -E "^(from|import) openai" backend/app/processing/embeddings/` returning zero hits.
+4. The existing architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` is **renamed/expanded** to `test_no_module_level_provider_sdk_imports_in_processing` covering both `processing/ai/` and `processing/embeddings/`. The carve-out for embeddings is removed from the docstring.
+5. Existing embeddings tests pass unchanged with the default provider wired in (no behavior delta for community users); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly.
+
+**Plans:** TBD
+
 #### Phase 229: post-impl-audit-v13.4
 
-**Goal:** Run the post-implementation audit gate for v13.4 to confirm the milestone's audit-grade targets hold across the new implementation surface (Phases 225–228). Produce a dated `post-impl-2026MMDD-*.md` audit report; triage P1 findings either inline or via tracked deferral; re-run grades to confirm Boundary Integrity ≥ **A+** (held from v13.3), Coupling Health ≥ **B+** (cycle inversion lever from 225), and Seam Quality ≥ **A−** (AIProviderExtension closes the last 🔴 from 226).
+**Goal:** Run the post-implementation audit gate for v13.4 to confirm the milestone's audit-grade targets hold across the new implementation surface (Phases 225–228, 230, 231). Produce a dated `post-impl-2026MMDD-*.md` audit report; triage P1 findings either inline or via tracked deferral; re-run grades to confirm Boundary Integrity ≥ **A+** (held from v13.3), Coupling Health ≥ **A−** (Phase 225 + 230 invert both directions of the catalog↔processing cycle), and Seam Quality ≥ **A−** (Phase 226 + 231 close all Enterprise-relevant 🔴 in the AI domain).
 
-**Source:** Mirrors the `/post-impl` close-gate pattern used at v13.2 close (`post-impl-20260430.md`) and v13.3 close (`post-impl-20260501-b.md`).
+**Source:** Mirrors the `/post-impl` close-gate pattern used at v13.2 close (`post-impl-20260430.md`) and v13.3 close (`post-impl-20260501-b.md`). Coupling target lifted from B+ → A− on 2026-05-02 after Phase 230 (CatalogPort) was promoted into v13.4 — completes the symmetric cycle inversion that Phase 225 began.
 
 **Requirements:** PIAUDIT-01, PIAUDIT-02, PIAUDIT-03
 
-**Depends on:** Phases 225, 226, 227, 228 (audits the milestone's full implementation surface).
+**Depends on:** Phases 225, 226, 227, 228, 230, 231 (audits the milestone's full implementation surface).
 
 **Success Criteria** (what must be TRUE):
-1. A dated audit report exists at `docs-internal/audits/post-impl-2026MMDD-*.md` covering Phases 225–228 with the standard sections (Boundary, Coupling, Seam, OSS Surface, Findings, Grades).
+1. A dated audit report exists at `docs-internal/audits/post-impl-2026MMDD-*.md` covering Phases 225–228 + 230 + 231 with the standard sections (Boundary, Coupling, Seam, OSS Surface, Findings, Grades).
 2. Every P1 finding in the report is either fixed inline (commit referenced in the report) or explicitly deferred with rationale + a tracked backlog phase opened.
-3. Post-audit grade re-run records Boundary Integrity ≥ **A+**, Coupling Health ≥ **B+**, Seam Quality ≥ **A−** in the report's grades table.
+3. Post-audit grade re-run records Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−** in the report's grades table.
 4. v13.4 milestone is unblocked for close — `/gsd-complete-milestone` runs without surfacing unresolved P1 findings.
 
 **Plans:** TBD
@@ -349,30 +391,15 @@ Promoted into the v13.4 Boundary Closeout milestone as Phase 227 (`saml-test-fix
 
 ---
 
-### Phase 999.19: EmbeddingProviderExtension Protocol (BACKLOG — P1)
+### ~~Phase 999.19: EmbeddingProviderExtension Protocol~~ — PROMOTED to Phase 231 (v13.4, 2026-05-02)
 
-**Goal:** Add `EmbeddingProviderExtension` Protocol at `backend/app/platform/extensions/protocols.py` (or extend `AIProviderExtension` with an `embed()` method) covering the embeddings client at `backend/app/processing/embeddings/helpers.py:8` (`from openai import OpenAI`). Convert the direct SDK import to a `DefaultOpenAIEmbeddingProvider` in `defaults.py`. Mirrors the Phase 226 pattern for the dispatch path.
-**Source:** `oc-separation-audit-20260502.md` §5 (decoupling rec #3) / §7 P1 (action item #4)
-**Estimated effort:** 2–3 days
-**Unblocks:** Closing the last direct provider-SDK import in `processing/`; AI policy enforcement on embeddings (token quotas, model routing) — currently impossible since dispatch is hardcoded.
-**Note:** test_layering.py already has the architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` (added 2026-05-02 commit `259ebc72`); a parallel guard for `processing/embeddings/` should ship with this Protocol so the embeddings carve-out can be retired.
-
-Plans:
-- [ ] TBD
+Promoted into the v13.4 Boundary Closeout milestone as Phase 231 (`embedding-provider-extension-protocol`). See Active Phases above.
 
 ---
 
-### Phase 999.20: Symmetric CatalogPort Protocol (BACKLOG — P1)
+### ~~Phase 999.20: Symmetric CatalogPort Protocol~~ — PROMOTED to Phase 230 (v13.4, 2026-05-02)
 
-**Goal:** Add a `CatalogPort` Protocol at `backend/app/core/catalog_port.py` exposing processing-owned types (`RasterAsset`, `VrtGeneration`, `DatasetAsset`, ingest result schemas, OGR helpers) that catalog modules currently import directly from `app.processing.*`. Phase 225's `ProcessingPort` only inverts the **catalog → processing** direction; the reverse direction (17 top-of-file imports) is untouched.
-**Source:** `oc-separation-audit-20260502.md` §5 (decoupling rec #1) / §7 P1 (action item #5)
-**Estimated effort:** 1 week
-**Unblocks:** Coupling Health grade lift from B+ → A− (audit-grade target for v13.4 close); enables future enterprise overlay extraction without touching catalog source.
-**Affected files (highest leverage):** `catalog/maps/service.py:25` (RasterAsset), `catalog/layers/service.py:15-26`, `catalog/search/service.py:44-46`, `catalog/datasets/api/router_*.py` (5 routers), `catalog/features/service.py:12`.
-**Promotion candidate:** Recommended for v13.4 Phase 230 (would lift Coupling B+ → A− before Phase 229 audit gate).
-
-Plans:
-- [ ] TBD
+Promoted into the v13.4 Boundary Closeout milestone as Phase 230 (`catalog-port-protocol-symmetric`). See Active Phases above. Lifts the v13.4 Coupling Health audit-grade target from B+ → A−.
 
 ---
 

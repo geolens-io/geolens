@@ -1,8 +1,10 @@
 # Requirements: v13.4 Boundary Closeout
 
-**Milestone goal:** Close the last 🔴 seams from `oc-separation-audit-20260430-b.md` — invert the catalog↔processing cycle, make AI providers extensible, and finish remaining open-core publish hygiene — so v14.0 can launch on architecturally clean ground.
+**Milestone goal:** Close the last 🔴 seams from `oc-separation-audit-20260430-b.md` and the last residual gaps from `oc-separation-audit-20260502.md` — invert BOTH directions of the catalog↔processing cycle, make AI providers (chat + embedding) extensible, and finish remaining open-core publish hygiene — so v14.0 can launch on architecturally clean ground.
 
-**Audit-grade targets:** Boundary Integrity A+ (hold); Coupling Health B → **B+** (cycle broken); Seam Quality B+ → **A−** (AI seam closes last 🔴).
+**Audit-grade targets:** Boundary Integrity A+ (hold); Coupling Health B → **A−** (BOTH cycle directions broken via Phase 225 + 230); Seam Quality B+ → **A−** (Phase 226 + 231 close all Enterprise-relevant 🔴 in the AI domain).
+
+**Roster expansion (2026-05-02):** Phase 230 (CatalogPort) + Phase 231 (EmbeddingProviderExtension) added after the 2026-05-02 oc-audit identified residual gaps post-Phase-226: (a) Phase 225 only inverted the `processing → catalog` direction — 17 top-of-file `catalog → processing` imports remained; (b) 1 direct provider-SDK import remained at `processing/embeddings/helpers.py:8`. Both phases promoted from backlog (former 999.20 + 999.19). Coupling Health target lifted from B+ → A− as a result.
 
 ---
 
@@ -37,24 +39,42 @@
 - [x] **PUBLISH-03**: `.github/workflows/publish-cli.yml` runs end-to-end at least once, publishing `geolens` CLI to PyPI
 - [x] **PUBLISH-04**: README install instructions are validated against the published artifacts (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens` succeed on a clean machine)
 
+### Symmetric CatalogPort Protocol (Phase 230)
+
+- [ ] **CATPORT-01**: A `CatalogPort` Protocol exists at `backend/app/core/catalog_port.py` mirroring the `ProcessingPort` shape from Phase 225, opposite direction (exposes processing-owned types catalog modules need)
+- [ ] **CATPORT-02**: The 17 existing top-of-file `catalog/*` → `processing/*` imports rewire through Protocol-typed boundaries (no module-level cross-domain imports). Function-local deferred imports inside catalog are explicitly permitted (mirror Phase 225 scoping)
+- [ ] **CATPORT-03**: High-leverage call sites consume processing data via the Port: `catalog/maps/service.py:25` (RasterAsset), `catalog/layers/service.py:15-26`, `catalog/search/service.py:44-46`, `catalog/features/service.py:12`, plus the 5 `catalog/datasets/api/router_*.py` files
+- [ ] **CATPORT-04**: Architecture-guard test `test_no_catalog_imports_processing` fails CI if any `backend/app/modules/catalog/` module has a top-of-file import from `backend/app/processing/` (mirrors Phase 225's `test_no_processing_imports_catalog` pattern)
+- [ ] **CATPORT-05**: Default `CatalogPort` implementation delegates to `app.processing.*` via deferred imports inside method bodies (mirror `DefaultProcessingPort` pattern); single-slot `get_catalog_port()` accessor lives at `backend/app/platform/extensions/__init__.py`; full backend test suite passes with zero functional regressions
+
+### EmbeddingProviderExtension Protocol (Phase 231)
+
+- [ ] **EMBPROV-01**: `EmbeddingProviderExtension` Protocol added at `backend/app/platform/extensions/protocols.py` exposing `embed(texts: list[str], model: str) -> list[list[float]]` (or equivalent batch-embedding shape that matches existing call sites)
+- [ ] **EMBPROV-02**: `DefaultOpenAIEmbeddingProvider` at `backend/app/platform/extensions/defaults.py` resolves the community provider; `get_embedding_provider(name)` accessor follows the dict-shape pattern from `get_ai_provider(name)` (Phase 226)
+- [ ] **EMBPROV-03**: `backend/app/processing/embeddings/helpers.py:8` (`from openai import OpenAI`) is removed; embedding callers route through the registry. `git grep -E "^(from|import) openai" backend/app/processing/embeddings/` returns zero hits
+- [ ] **EMBPROV-04**: The existing architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` (added 2026-05-02 commit `259ebc72`) is renamed/expanded to `test_no_module_level_provider_sdk_imports_in_processing` covering both `processing/ai/` and `processing/embeddings/`; the embeddings carve-out is removed from the guard's docstring
+- [ ] **EMBPROV-05**: Existing embeddings tests pass unchanged with the default provider wired (no behavior delta for community); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly without modifying any core file
+
 ### Post-Implementation Audit Gate (Phase 229)
 
-- [ ] **PIAUDIT-01**: A `/post-impl` audit produces a dated `docs-internal/audits/post-impl-2026MMDD-*.md` report covering the v13.4 implementation surface
+- [ ] **PIAUDIT-01**: A `/post-impl` audit produces a dated `docs-internal/audits/post-impl-2026MMDD-*.md` report covering the v13.4 implementation surface (Phases 225–228 + 230 + 231)
 - [ ] **PIAUDIT-02**: All P1 findings from the audit are either fixed inline or explicitly deferred with rationale + a tracked backlog phase
-- [ ] **PIAUDIT-03**: Post-audit re-run holds the milestone audit-grade targets — Boundary Integrity ≥ **A+**, Coupling Health ≥ **B+**, Seam Quality ≥ **A−**
+- [ ] **PIAUDIT-03**: Post-audit re-run holds the milestone audit-grade targets — Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−**
 
 ---
 
 ## Future Requirements (deferred to later milestones)
 
 - **Phase 999.6**: Tenant scoping infrastructure (Cloud-tier prerequisite — deferred until vendor-hosted multi-tenant SaaS is on the roadmap)
-- **Phase 999.8**: PermissionExtension Protocol (P1 — field-level RBAC + ABAC unblocker)
-- **Phase 999.9**: WorkflowExtension Protocol (P1 — multi-step approvals, reviewer assignment, custom states)
-- **Phase 999.12**: `geolens.yaml` catalog manifest spec (P1 — biggest unshipped open-core adoption wedge, ~2 weeks)
+- **Phase 999.8**: PermissionExtension Protocol (P2 — field-level RBAC + ABAC unblocker)
+- **Phase 999.9**: WorkflowExtension Protocol (P2 — multi-step approvals, reviewer assignment, custom states)
+- **Phase 999.12**: `geolens.yaml` catalog manifest spec (P2 — biggest unshipped open-core adoption wedge, ~2 weeks)
 - **Phase 999.13**: Persistent connector registry (P2 — Enterprise-tier scheduled mirroring + credential vault)
 - **Phase 999.14**: Helm chart + AMI Packer pipeline (P2 — Marketplace AMI shippability)
 - **Phase 999.15**: SBOM + signed image distribution (P2 — enterprise procurement gate)
 - **Phase 999.16**: Extract `geolens-schemas` package (P2 — schema/validator OSS adoption)
+- **Phase 999.21**: Split `catalog/maps/service.py` (P2 — 1297 LOC, next god-module candidate per `oc-separation-audit-20260502.md`)
+- **Phase 999.22**: Split `catalog/search/service.py` (P2 — 1312 LOC, next god-module candidate per `oc-separation-audit-20260502.md`)
 
 ---
 
@@ -91,8 +111,18 @@
 | PUBLISH-02 | Phase 228 | [ ] not started |
 | PUBLISH-03 | Phase 228 | [ ] not started |
 | PUBLISH-04 | Phase 228 | [ ] not started |
+| CATPORT-01 | Phase 230 | [ ] not started |
+| CATPORT-02 | Phase 230 | [ ] not started |
+| CATPORT-03 | Phase 230 | [ ] not started |
+| CATPORT-04 | Phase 230 | [ ] not started |
+| CATPORT-05 | Phase 230 | [ ] not started |
+| EMBPROV-01 | Phase 231 | [ ] not started |
+| EMBPROV-02 | Phase 231 | [ ] not started |
+| EMBPROV-03 | Phase 231 | [ ] not started |
+| EMBPROV-04 | Phase 231 | [ ] not started |
+| EMBPROV-05 | Phase 231 | [ ] not started |
 | PIAUDIT-01 | Phase 229 | [ ] not started |
 | PIAUDIT-02 | Phase 229 | [ ] not started |
 | PIAUDIT-03 | Phase 229 | [ ] not started |
 
-**Coverage:** 20/20 v13.4 requirements mapped to exactly one phase. No orphans, no duplicates.
+**Coverage:** 30/30 v13.4 requirements mapped to exactly one phase. No orphans, no duplicates. (Original 20 + 10 added 2026-05-02 with Phase 230/231 promotions.)

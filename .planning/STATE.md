@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
-stopped_at: "/oc-audit 2026-05-02 shipped (overall A−, 3.50/4.0); 4 Tier-A inline fixes committed (6db19582, d92ee171, 259ebc72, 9d805949); 4 new Tier-B backlog entries added (999.19–22); Phase 228 Wave 2/3 still BLOCKED on @geolens npm org approval"
-last_updated: "2026-05-02T18:00:00.000Z"
+stopped_at: "/oc-audit 2026-05-02 closed end-to-end: 4 Tier-A inline fixes (6db19582, d92ee171, 259ebc72, 9d805949) + 4 new backlog entries (999.21, 999.22 — god-module splits) + 2 backlog → v13.4 promotions (999.20 → 230 CatalogPort, 999.19 → 231 EmbeddingProviderExtension). Coupling target lifted B+ → A−. Phase 228 Wave 2/3 still BLOCKED on @geolens npm org approval; Phase 230 + 231 ready for /gsd-discuss-phase."
+last_updated: "2026-05-02T18:30:00.000Z"
 last_activity: 2026-05-02
 progress:
   total_phases: 13
@@ -38,11 +38,13 @@ Last activity: 2026-05-02 - Completed quick task 260502-c19: star-audit command 
 | 226 | ai-provider-extension-protocol | AIEXT-01, AIEXT-02, AIEXT-03, AIEXT-04, AIEXT-05 | 225 |
 | 227 | saml-test-fixture-tmp-path | TESTFIX-01, TESTFIX-02, TESTFIX-03 | — |
 | 228 | run-cold-publish-workflows | PUBLISH-01, PUBLISH-02, PUBLISH-03, PUBLISH-04 | — |
-| 229 | post-impl-audit-v13.4 | PIAUDIT-01, PIAUDIT-02, PIAUDIT-03 | 225, 226, 227, 228 |
+| 230 | catalog-port-protocol-symmetric | CATPORT-01, CATPORT-02, CATPORT-03, CATPORT-04, CATPORT-05 | 225 (sequential — both touch core/Protocol surface) |
+| 231 | embedding-provider-extension-protocol | EMBPROV-01, EMBPROV-02, EMBPROV-03, EMBPROV-04, EMBPROV-05 | — (independent, can ship in parallel) |
+| 229 | post-impl-audit-v13.4 | PIAUDIT-01, PIAUDIT-02, PIAUDIT-03 | 225, 226, 227, 228, 230, 231 |
 
-Coverage: 20/20 v13.4 requirements mapped.
+Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 with Phase 230/231 promotions).
 
-**Audit-grade targets (verified by Phase 229):** Boundary Integrity ≥ **A+** (hold v13.3 close grade) · Coupling Health **B → B+** (cycle inversion via 225 is the lever) · Seam Quality **B+ → A−** (AIProviderExtension via 226 closes the last 🔴).
+**Audit-grade targets (verified by Phase 229):** Boundary Integrity ≥ **A+** (hold v13.3 close grade) · Coupling Health **B → A−** (BOTH cycle directions inverted via 225 + 230) · Seam Quality **B+ → A−** (Phase 226 closes AI dispatch 🔴; Phase 231 closes the embeddings 🔴).
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -55,11 +57,13 @@ Coverage: 20/20 v13.4 requirements mapped.
 
 ## Next Action
 
-**Phase 228 BLOCKED** on external `@geolens` npm org claim (Wave 2 waiting on npm approval). Plan 04 (docs update) is independently executable — `/gsd-execute-phase 228 ${GSD_WS}` to pick it up.
+Three v13.4 phases ready to discuss/plan in parallel — none blocked on the npm org approval that's holding up Phase 228:
 
-**Recommended v13.4 phase additions** (per `oc-separation-audit-20260502.md` §7 / Tier-B follow-ups, would lift Coupling B+ → A− before Phase 229 audit gate):
-- Promote Phase 999.20 (Symmetric CatalogPort) → v13.4 Phase 230 — closes the catalog→processing direction Phase 225 didn't address
-- Promote Phase 999.19 (EmbeddingProviderExtension) → v13.4 Phase 231 — closes the last direct provider-SDK import in `processing/`
+1. **Phase 231 (EmbeddingProviderExtension)** — `/gsd-discuss-phase 231 ${GSD_WS}` then `/gsd-plan-phase 231 ${GSD_WS}`. Smallest of the three (2-3d), independent of all other v13.4 phases. Closes the last direct provider-SDK import in `processing/`.
+2. **Phase 230 (CatalogPort)** — `/gsd-discuss-phase 230 ${GSD_WS}` then `/gsd-plan-phase 230 ${GSD_WS}`. Larger (~1w), depends on Phase 225 (✅ shipped). Lifts Coupling Health audit-grade target B+ → A−.
+3. **Phase 228 Wave 2/3** — Still BLOCKED on external `@geolens` npm org approval. Plan 04 (docs update) is independently executable — `/gsd-execute-phase 228 ${GSD_WS}` if you want to pick that up.
+
+Phase 229 (post-impl audit gate) now depends on Phases 225, 226, 227, 228, 230, 231 — runs last.
 
 ## Phase 224 Queue (from /oc-audit follow-ups)
 
@@ -79,7 +83,12 @@ Tier A — fixed inline 2026-05-02 (4 atomic commits):
 - `259ebc72` — defer provider-SDK imports out of module scope in `processing/ai/` + add CI guard `test_no_module_level_provider_sdk_imports_in_processing_ai`
 - `9d805949` — SPDX headers on 4 hand-written SDK files
 
-Tier B — 4 new backlog entries added 2026-05-02 (999.19–22): EmbeddingProviderExtension, CatalogPort, split catalog/maps/service.py, split catalog/search/service.py. Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit.
+Tier B — 4 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 phases the same day:
+- 999.20 (CatalogPort) → **Phase 230** (catalog-port-protocol-symmetric) — lifts Coupling target B+ → A−
+- 999.19 (EmbeddingProviderExtension) → **Phase 231** (embedding-provider-extension-protocol)
+- 999.21 (split catalog/maps/service.py) — stays backlog P2
+- 999.22 (split catalog/search/service.py) — stays backlog P2
+Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
 
 Tier C — external blocker: Phase 228 Wave 2/3 cannot proceed until `@geolens` npm org approval lands.
 
